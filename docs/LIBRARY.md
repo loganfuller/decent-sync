@@ -360,8 +360,10 @@ Grinder's feed rate note and its range and defaults, below) and of each
 Location's (a batch's `archived` and `weightRemaining`; a Bean's `archived`,
 which takes it away from the tablet's Location), whether a Grinder is
 Archived, and a Profile's title, author and notes, which are outside its id
-(ADR-0006). Decaid refuses to change a bundled Profile's, so a bundled
-Profile's are never edits, and never written.
+(ADR-0006), read as Decaid reads them (`profileTextOf` in
+`protocol/src/profile.ts`), each empty where it has none. Decaid refuses to
+change a bundled Profile's, so a bundled Profile's are never edits, and never
+written, and the management interface refuses to edit them too.
 
 - **What an edit is.** A record the tablet's map holds that it reports anew,
   or that Decaid returned for one of the server's writes, is compared with
@@ -465,22 +467,24 @@ a Conflict, so neither waits on the other in turn.
 ## Editing in the management interface
 
 Admins and Staff create and edit Beans, Bean Batches, Grinders, Baskets,
-Tools and Recipes in the management interface, Archive and restore them and
-Profiles, add and finish batches at Locations, setting their remaining
-weight at each, show and hide Profiles, Baskets and Tools at Locations
-(`library-edits.service.ts`), and move Recipes between Recipe Slots and
-copy them to Locations (`recipe-edits.service.ts`). Each change is an edit by the account, timed by
+Tools and Recipes in the management interface, edit a Profile's title,
+author and notes, Archive and restore them and Profiles, add and finish
+batches at Locations, setting their remaining weight at each, show and hide
+Profiles, Baskets and Tools at Locations (`library-edits.service.ts`), and
+move Recipes between Recipe Slots and copy them to Locations
+(`recipe-edits.service.ts`). Each change is an edit by the account, timed by
 PostgreSQL's clock (ADR-0016), and made over the item as it stands, as using
 a Conflict's value is (Resolving Conflicts, above): it decides each field it
 sets whatever the times of the edits before it, and keeps nothing it
 replaces as a Conflict, while a tablet's edit made before it that arrives
-later loses to it, and is kept as one. Each is a version from the account,
-and commits with a `NOTIFY` on `library_changes`, so every tablet that holds
-the item, or whose Location offers it now, is written it (Writing to
-tablets, below).
+later loses to it, and is kept as one. Each is an edit in the item's
+history from the account, and commits with a `NOTIFY` on `library_changes`,
+so every tablet that holds the item, or whose Location offers it now, is
+written it (Writing to tablets, below).
 
 An assistant makes the same changes through the MCP endpoint (ADR-0026):
 creating and editing Beans, Bean Batches, Grinders, Baskets and Tools,
+editing a Profile's title, author and notes (`edit_profile`, #576),
 Archiving and restoring any item, showing and hiding Profiles, Baskets and
 Tools and adding and finishing batches at Locations, and using and
 dismissing Conflicts' values (`server/src/mcp/library-changes.tools.ts`,
@@ -494,9 +498,9 @@ message. Each tool takes a kind's fields at the top level, by the names the
 REST API's `content` takes, and reads them again with the REST API's readers
 (`item-input.ts`), so its schema gives each field's type and what it takes
 in words (`contentFields`), and a value those readers refuse is refused with
-their message. It is a version from the account through its Connected App
-(`Editor` in `history.ts`), as is a Conflict keeping a value of it that a
-later edit replaced; dismissing a Conflict records no one, in the
+their message. It is an edit in the item's history from the account
+through its Connected App (`Editor` in `history.ts`), as is a Conflict
+keeping a value of it that a later edit replaced; dismissing a Conflict records no one, in the
 management interface either. A lapsed Connected App that a version or
 Conflict names is kept, still refused, so history goes on naming it
 (`server/src/connected-apps/cleanup.ts`).
@@ -610,9 +614,21 @@ Conflict names is kept, still refused, so history goes on naming it
   as having seen every decision made there before it, which is how a lab
   Profile reaches a cafe: showing it there writes it to the cafe's tablets,
   visible, and hiding it there hides it on them, and on no other Location's.
-  A Profile is never created or edited here: Decaid computes its id from what
-  the machine executes, so Profiles join the Library from tablets, and their
-  title, author and notes are edited there.
+  Its title, author and notes are edited here too (#576), as a Bean's content
+  is, by Staff anywhere: they are outside the id Decaid computes from what
+  the machine executes (`profileId` in `protocol/src/profile.ts`, ADR-0032),
+  so it stays the same Profile, under its row lock, merged per field
+  (ADR-0020) and written to every tablet that holds it as a tablet's edit of
+  them is, in its `profile` through Decaid's `PUT /profiles/{id}`, which the
+  plugin sends the profile whole, as Decaid reads it, with the three
+  replaced (`updateProfile` in `plugin/src/library-writes.ts`). Its title is
+  never cleared, as Decaid refuses a profile with none, and an author or
+  notes cleared is kept empty, as Decaid holds none (`decaidText` in
+  `item-input.ts`), so a tablet's record never differs from it for that
+  alone. A bundled Profile's are refused (409), as Decaid refuses to change
+  them. Its steps change only on tablets so far: a Profile with other steps
+  is another Profile, which joins the Library from the tablet that saved it,
+  until Drafts are published from here (ADR-0032).
 - **Baskets and Tools** are shown or hidden at each Location as a Profile is
   (`showEquipment`), which is how a lab's Basket reaches a cafe: showing one
   there writes it to the cafe's tablets, and hiding it there removes it from
@@ -2335,7 +2351,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   PostgreSQL's clock, as when a tablet there showed it again while it was
   shown. None while it is Archived.
 - `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`;
-  `parent`, `{ id, title }` of the Profile it was saved from if the
+  its `profile`, as Decaid reads it (`readProfile` in
+  `protocol/src/profile.ts`), each field Decaid reads and writes for a
+  profile and a step, or null where Decaid would not read it; `parent`, `{ id, title }` of the Profile it was saved from if the
   Library has it, or null; and `locations`, each Location that has decided
   whether it shows it, by name, `{ location, shown, since }`, kept while it
   is Archived; or 404. A Location not listed does not show it. The id goes in
@@ -2363,6 +2381,12 @@ Every endpoint requires the account session; Staff read them as Admins do.
   it and Archive or restore it, each returning `{ grinder }`. 403 for Staff
   creating or editing one at a Location they do not work at; they Archive
   and restore any.
+- `PATCH /api/profiles/:id`, with `{ content }`, any of `title`, `author`
+  and `notes`, edits a Profile's title, author and notes, and returns `{
+  profile }`: anywhere, Staff too. A title can't be cleared, and an author
+  or notes sent null or empty is cleared, kept empty. 400 for another field
+  or a value that isn't text, 404 for no such Profile, and 409 for one of
+  Decaid's bundled Profiles, whose Decaid refuses to change.
 - `PUT /api/profiles/:id/locations/:locationId`, with `{ shown }`, shows the
   Profile at the Location or hides it there; `PUT /api/profiles/:id/archived`,
   with `{ archived }`, Archives or restores it. Each returns `{ profile }`;
@@ -2655,6 +2679,7 @@ the same Profiles.
 `server/test/library-conflicts.test.ts`,
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
+`server/test/library-profile-text.test.ts`,
 `server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,

@@ -1,3 +1,4 @@
+import { type ProfileStep, profileOf } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -309,10 +310,9 @@ export async function recordProfileWritten(
   }, INTAKE_TRANSACTION);
 }
 
-/** A profile record's steps, or null. */
-function stepsOf(record: Record<string, unknown>): unknown {
-  const profile = record.profile;
-  return typeof profile === "object" && profile !== null && !Array.isArray(profile) ? ((profile as Record<string, unknown>).steps ?? null) : null;
+/** A profile record's steps, or null where Decaid would not read its profile. */
+function stepsOf(record: Record<string, unknown>): ProfileStep[] | null {
+  return profileOf(record.profile)?.steps ?? null;
 }
 
 /**

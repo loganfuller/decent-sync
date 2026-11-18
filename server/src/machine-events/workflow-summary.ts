@@ -1,3 +1,4 @@
+import { profileOf, profileTextOf } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { profileOfSql } from "../shots/links.js";
 
@@ -62,18 +63,18 @@ export interface WorkflowSummary {
 
 /** The parts of a Workflow, as Decaid sent it, that the management interface shows, and its Basket and Recipe, with the Library items it names. */
 export function workflowSummary(workflow: Record<string, unknown>, links: WorkflowLinks): WorkflowSummary {
-  const profile = record(workflow.profile);
+  const profile = profileOf(workflow.profile);
   const context = record(workflow.context);
   const extras = record(context?.extras);
   const steam = record(workflow.steamSettings);
   const hotWater = record(workflow.hotWaterData);
   const flush = record(workflow.rinseData);
   // Decaid's Workflow has no brew temperature: Streamline's Brew tile shows and sets the profile's first step's.
-  const firstStep = Array.isArray(profile?.steps) ? record(profile.steps[0]) : undefined;
   return {
-    profile: text(profile?.title),
+    // Its title whatever its steps hold, as Decaid reads it.
+    profile: profileTextOf(workflow.profile).title || null,
     profileId: links.profileId,
-    brewTemperature: number(firstStep?.temperature),
+    brewTemperature: profile?.steps[0]?.temperature ?? null,
     dose: number(context?.targetDoseWeight),
     yield: number(context?.targetYield),
     bean: text(context?.coffeeName),

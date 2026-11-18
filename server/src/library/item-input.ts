@@ -3,7 +3,8 @@ import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
 // What the management interface may set of a Bean's, a Bean Batch's, a
-// Grinder's, a Basket's, a Tool's and a Recipe's content, as each kind's
+// Grinder's, a Basket's, a Tool's and a Recipe's content, and of a
+// Profile's, its title, author and notes (ADR-0032), as each kind's
 // description lists it (`editable` in kinds.ts): Decaid's record fields, each
 // of the type Decaid takes (`Bean`, `BeanBatch` and `Grinder` in
 // decaid:lib/src/models/data/, v0.9.0), so a tablet never refuses a write of
@@ -29,9 +30,12 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * the field says so. A number DYE2's recipe editor takes only within a
  * range is read against it (`NumberRange`). A Grinder's range and defaults
  * are numbers of any sign (`anyNumber`), as DYE2's Grinders page takes them.
+ * A Profile's author and notes are text Decaid holds none of as empty
+ * (`decaidText`), so clearing one sets it empty, not null.
  */
 export type FieldType =
   | "text"
+  | "decaidText"
   | "name"
   | "flag"
   | "number"
@@ -68,9 +72,7 @@ export const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "b
 
 /** What the management interface may set of a kind's content, as its description says (`editable` in kinds.ts). */
 function editable(kind: LibraryKind): EditableContent {
-  const content = KINDS[kind].editable;
-  if (!content) throw new BadRequestException(`A ${KINDS[kind].name}'s content is not set here`);
-  return content;
+  return KINDS[kind].editable;
 }
 
 /**
@@ -129,6 +131,8 @@ function readFields(kind: LibraryKind, content: Record<string, unknown>): Record
 function readValue(type: FieldType, value: unknown): { value: unknown } | string {
   if (value === null || value === "") {
     if (type === "name") return "cannot be empty";
+    // Decaid holds none of a Profile's author or notes as empty.
+    if (type === "decaidText") return { value: "" };
     if (type === "flag") return "must be true or false";
     return { value: null };
   }
@@ -137,6 +141,7 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
     case "name":
       return typeof value === "string" && value.trim() !== "" ? { value: value.trim() } : "must be text";
     case "text":
+    case "decaidText":
       return typeof value === "string" ? { value } : "must be text";
     case "flag":
       return typeof value === "boolean" ? { value } : "must be true or false";

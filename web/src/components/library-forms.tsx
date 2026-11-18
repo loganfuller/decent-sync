@@ -52,6 +52,13 @@ interface FormField {
   signed?: boolean;
 }
 
+/** A Profile's title, author and notes, outside the steps that decide its id (ADR-0032): its title can't be cleared, as Decaid refuses a profile with none. */
+export const PROFILE_FIELDS: FormField[] = [
+  { field: "title", label: "Title", kind: "text", required: true },
+  { field: "author", label: "Author", kind: "text" },
+  { field: "notes", label: "Notes", kind: "longText" },
+];
+
 /** A Bean's fields, in Decaid's order. */
 export const BEAN_FIELDS: FormField[] = [
   { field: "roaster", label: "Roaster", kind: "text", required: true },

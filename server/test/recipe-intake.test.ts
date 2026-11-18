@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, profileAtBrewTemperature, sameValue } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, profileAtBrewTemperature, profileOf, sameValue } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { editedContent } from "../src/library/equipment-intake.js";
 import {
@@ -127,7 +127,7 @@ const writing = (ids = otherIds): WriteContext => ({
     [GLOBAL.wdtTool, "Fixture WDT Tool"],
     [GLOBAL.puckScreen, "Fixture Puck Screen"],
   ]),
-  profiles: new Map([[ADAPTIVE, adaptive]]),
+  profiles: new Map([[ADAPTIVE, profileOf(adaptive)!]]),
 });
 
 /** Slot 1's content as the Library takes it in: the dial DYE2 saved, and what it names by global ids. */
@@ -318,8 +318,8 @@ describe("DYE2's recipes as Recipes", () => {
   it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, the settings it holds, its feed rate as typed, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
     const view = recipeRecord({ ...slot1Content, feedRate: "MF" }, 1, writing(), GLOBAL.recipe);
     // Adaptive v3 starts at 93 °C: at the Recipe's 92, every step is a degree cooler.
-    const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92);
-    expect((adaptiveAt92?.steps as Record_[]).map((step) => step.temperature)).toEqual([92, 92, 87, 87, 87, 87, 87]);
+    const adaptiveAt92 = profileAtBrewTemperature(profileOf(adaptive)!, 92);
+    expect(adaptiveAt92?.steps.map((step) => step.temperature)).toEqual([92, 92, 87, 87, 87, 87, 87]);
     expect(view).toEqual({
       name: "Fixture Ethiopia Espresso",
       beverage: "Fixture Flat White",

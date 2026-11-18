@@ -1,12 +1,14 @@
-import { expect, test } from "@playwright/test";
-import { derivedProfile } from "../server/test/support/simulated-tablet.js";
+import { type Browser, type Page, expect, test } from "@playwright/test";
+import { de1ProOnDecaid092, derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { field, rows } from "./support/locators.js";
 import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 
 // Showing and hiding Profiles at Locations in the management interface,
 // which is how a lab Profile is promoted to a cafe, and Archiving and
-// deleting them there (ticket #88). A simulated tablet running the built
+// deleting them there (ticket #88); and editing a Profile's title, author
+// and notes on its page (ticket #576). A simulated tablet running the built
 // plugin at the lab creates each Profile, as Profiles have no REST create;
 // what each Location's tablets are written of them is
 // server/test/library-profile-management.test.ts's.
@@ -87,3 +89,68 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
   await expect(page.getByRole("table", { name: "Profiles" }).or(page.getByText(/^No Profiles yet\./))).toBeVisible();
   await expect(page.getByRole("link", { name: "Retired Bloom", exact: true })).toHaveCount(0);
 });
+
+test("a Profile's title, author and notes are edited on its page, its history listing the edit, but neither a bundled Profile's nor by a Viewer", async ({ page, browser }) => {
+  // What reaches the tablets, and the refusals, are server/test/library-profile-text.test.ts's.
+  const lab = await createLocation(page, "Text lab");
+  const bundled = (de1ProOnDecaid092()["/profiles"] as Record<string, unknown>[]).find((record) => record.isDefault === true)!;
+  const labTablet = await tabletAt(page, server, "Text lab group", lab, "17021", { ...tabletApi, "/profiles": [bundled] });
+  const record = await labTablet.addProfile({ ...derivedProfile("Edit Bloom", 6.75), author: "Lab", notes: "First notes" });
+  const id = String(record.id);
+  await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(id)}`)).status()).toBe(200);
+
+  await page.goto(`/library/profiles/${encodeURIComponent(id)}`);
+  const card = page.getByLabel("Title, author and notes", { exact: true });
+  const editButton = page.getByRole("button", { name: "Edit the title, author and notes" });
+  await expect(field(card, "Author")).toHaveText("Lab");
+  await editButton.click();
+  const form = page.getByRole("form", { name: "Edit the title, author and notes" });
+  await expect(form.getByLabel("Title")).toHaveValue("Edit Bloom");
+  await form.getByLabel("Title").fill("Edit Bloom v2");
+  await form.getByLabel("Author").fill("Coffee lead");
+  await form.getByLabel("Notes").fill("A longer bloom, then 6 bar.");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("heading", { name: "Edit Bloom v2", level: 1 })).toBeVisible();
+  await expect(field(card, "Title")).toHaveText("Edit Bloom v2");
+  await expect(field(card, "Author")).toHaveText("Coffee lead");
+  await expect(field(card, "Notes")).toHaveText("A longer bloom, then 6 bar.");
+  // Its id is the same: the steps that decide it are as they were.
+  await expect(page.getByText(id, { exact: true })).toBeVisible();
+  await expect.poll(() => (labTablet.profiles().find((held) => held.id === id)?.profile as Record<string, unknown> | undefined)?.title).toBe("Edit Bloom v2");
+
+  // Its history lists the edit, made here.
+  const history = rows(page.getByRole("table", { name: "History" }));
+  await expect(history.nth(0)).toContainText("You, here");
+  await expect(history.nth(0)).toContainText("TitleEdit Bloom v2");
+  await expect(history.nth(0)).toContainText("AuthorCoffee lead");
+
+  // A bundled Profile's are Decaid's: its page offers no Edit.
+  await page.goto(`/library/profiles/${encodeURIComponent(String(bundled.id))}`);
+  await expect(field(card, "Title")).toHaveText(String((bundled.profile as Record<string, unknown>).title));
+  await expect(page.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+  await expect(editButton).toHaveCount(0);
+
+  // A Viewer reads the card, with no control.
+  await asViewer(page, browser, async (valsPage) => {
+    await valsPage.goto(`/library/profiles/${encodeURIComponent(id)}`);
+    await expect(field(valsPage.getByLabel("Title, author and notes", { exact: true }), "Title")).toHaveText("Edit Bloom v2");
+    await expect(valsPage.getByRole("button", { name: "Edit the title, author and notes" })).toHaveCount(0);
+  });
+});
+
+/** Runs `work` with a page signed in as a new Viewer. */
+async function asViewer(page: Page, browser: Browser, work: (page: Page) => Promise<void>) {
+  const response = await page.request.post("/api/invites", { data: { email: "viewer-576@example.com", role: "viewer", locationIds: [] } });
+  expect(response.status()).toBe(201);
+  const { link } = (await response.json()) as { link: string };
+  const context = await browser.newContext({ baseURL: server.url() });
+  try {
+    const accepted = await context.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, {
+      data: { name: "Val Viewer", password: "account password 1" },
+    });
+    expect(accepted.status()).toBe(201);
+    await work(await context.newPage());
+  } finally {
+    await context.close();
+  }
+}

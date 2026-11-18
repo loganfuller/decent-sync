@@ -1,3 +1,4 @@
+import { profileOf } from "@decent-sync/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -57,7 +58,7 @@ async function loadShot(id: string): Promise<ShotData> {
     api<{ shot: Shot }>("GET", path),
     api<{ measurements: unknown }>("GET", `${path}/measurements`),
   ]);
-  return { shot, samples: shotSamples(measurements, record(shot.record.workflow)?.profile) };
+  return { shot, samples: shotSamples(measurements, profileOf(record(shot.record.workflow)?.profile)) };
 }
 
 function ShotDetails({ id }: { id: string }) {

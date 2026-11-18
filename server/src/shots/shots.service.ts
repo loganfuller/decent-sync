@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type ShotDelivery, type ShotIndex, isRecordId, shotSamples } from "@decent-sync/protocol";
+import { type ShotDelivery, type ShotIndex, isRecordId, profileOf, shotSamples } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { viewLocation } from "../locations/locations.service.js";
@@ -306,7 +306,7 @@ export class ShotsService {
       this.previous(shot!),
       shotSpecs(this.prisma, [id]),
     ]);
-    const samples = shotSamples(measurements?.data ?? null, object(object(found.record).workflow).profile);
+    const samples = shotSamples(measurements?.data ?? null, profileOf(object(object(found.record).workflow).profile));
     return { shot: { ...shownShot(shot!), ...recordedDetails(found.record), ...measuredDetails(samples), spec: specs.get(id)!.spec, previousShot }, samples };
   }
 

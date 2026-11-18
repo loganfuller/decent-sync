@@ -6,6 +6,7 @@ import {
   type RecipeSetting,
   WHOLE_SHOT_PARTS,
   WORKFLOW_YIELD_OFF,
+  type Profile,
   dye2Fingerprint,
   grindSettingOf,
   isZero,
@@ -13,6 +14,7 @@ import {
   sameValue,
   steamTimeOf,
   workflowValueAt,
+  profileOf,
 } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 
@@ -333,7 +335,7 @@ export function recipeParts(
 export function heldByRecord(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
   record: Readonly<Record<string, unknown>> | null,
-  profile: unknown,
+  profile: Profile | null,
 ): Record<LoadedRecipePart, PartValue | undefined> {
   const variables = isObject(record?.dashboardVariables) ? record.dashboardVariables : {};
   const [dose, ratio] = [nonePart("dose", variables.dose) ? null : numberOf(variables.dose), numberOf(variables.ratio)];
@@ -358,10 +360,15 @@ export function heldByRecord(
   return parts;
 }
 
-/** The profile DYE2 compares the Workflow's with for a recipe: its record's embedded Workflow's, or else its snapshot (`profileOf` in dye2:dye2-plugin/src/utils/workflow-record.ts). */
-export function recordProfile(record: Readonly<Record<string, unknown>> | null): unknown {
+/**
+ * The profile DYE2 compares the Workflow's with for a recipe: its record's
+ * embedded Workflow's, or else its snapshot (`profileOf` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts), as Decaid reads it; null
+ * for none, or one Decaid would not read.
+ */
+export function recordProfile(record: Readonly<Record<string, unknown>> | null): Profile | null {
   const workflow = isObject(record?.workflow) ? record.workflow : undefined;
-  return workflow?.profile || record?.profileSnapshot || null;
+  return profileOf(workflow?.profile || record?.profileSnapshot || null);
 }
 
 /**
@@ -370,7 +377,7 @@ export function recordProfile(record: Readonly<Record<string, unknown>> | null):
  * copies them, and the Profile whole, as Decaid keeps it.
  */
 export interface PartNames {
-  profile: Record<string, unknown> | null;
+  profile: Profile | null;
   grinderModel: string | null;
   basketName: string | null;
   coffeeName: string | null;

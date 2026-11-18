@@ -10,10 +10,12 @@
 // carries the Machine's token.
 
 import { type Chunk, utf8Length } from "./chunking.js";
+import type { Profile } from "./profile.js";
 import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.js";
 
 export * from "./chunking.js";
 export * from "./machine-states.js";
+export * from "./profile.js";
 export * from "./record-samples.js";
 export * from "./settings-fields.js";
 export * from "./settings-history.js";
@@ -1058,16 +1060,13 @@ export function dye2RecipeIdOf(workflow: unknown): string | null {
  * are the yield, which Streamline sends with the profile, so they are left
  * out (decentespresso/dye2#18). The same text as DYE2's; null for none.
  */
-export function dye2Fingerprint(profile: unknown): string | null {
-  if (!isObject(profile)) return null;
-  const steps = Array.isArray(profile.steps)
-    ? profile.steps.map((step: unknown) => {
-        if (!isObject(step)) return step;
-        const { temperature: _, limiter, ...rest } = step;
-        // Kept unless it is none, or of value 0, as DYE2 reads one (`limiter && Number(limiter.value) !== 0`).
-        return { ...rest, limiter: Boolean(limiter) && Number(isObject(limiter) ? limiter.value : undefined) !== 0 ? limiter : null };
-      })
-    : profile.steps;
+export function dye2Fingerprint(profile: Profile | null): string | null {
+  if (profile === null) return null;
+  const steps = profile.steps.map((step) => {
+    const { temperature: _, limiter, ...rest } = step;
+    // Kept unless it is none, or of value 0, as DYE2 reads one (`limiter && Number(limiter.value) !== 0`).
+    return { ...rest, limiter: limiter !== null && limiter.value !== 0 ? limiter : null };
+  });
   return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps }, sortedKeys);
 }
 
@@ -1103,12 +1102,13 @@ export const BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
  * is moved. Null for a profile with no usable first step temperature, which
  * is written none.
  */
-export function profileAtBrewTemperature(profile: unknown, temperature: number): Record<string, unknown> | null {
-  if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
-  const steps = profile.steps as unknown[];
-  const temperatures = shiftedTemperatures(steps.map((step) => (isObject(step) ? step.temperature : undefined)), temperature);
+export function profileAtBrewTemperature(profile: Profile, temperature: number): Profile | null {
+  const temperatures = shiftedTemperatures(
+    profile.steps.map((step) => step.temperature),
+    temperature,
+  );
   if (temperatures === null) return null;
-  return { ...profile, steps: steps.map((step, index) => (isObject(step) ? { ...step, temperature: temperatures[index] } : step)) };
+  return { ...profile, steps: profile.steps.map((step, index) => ({ ...step, temperature: temperatures[index]! })) };
 }
 
 /**

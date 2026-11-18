@@ -12,6 +12,7 @@ import {
   steamStopAt,
   stepSpans,
   timeToFirstDrip,
+  profileOf,
 } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
@@ -664,7 +665,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const { curves } = await assistant.call<{ curves: Record<string, Curve> & { shaded: Shaded[] } }>("get_shot", { id: "assistant-preheat", curves: true });
     // The management interface reads the same samples, and shades the same Preheat, 7.36 s before the profile starts.
-    const samples = shotSamples(measurements, workflow.profile);
+    const samples = shotSamples(measurements, profileOf(workflow.profile));
     expect(samples.length).toBeGreaterThan(100);
     expect(curves.shaded).toEqual(shadedSpans(samples).map(({ name, from, until }) => ({ phase: name, from: hundredths(from), until: hundredths(until) })));
     expect(curves.shaded).toEqual([{ phase: "Preheat", from: -7.36, until: 0 }]);
@@ -700,7 +701,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     const recorded = { ...workflow, machine: { ...workflow.machine, model: hardware.uptown1.model, serialNumber: hardware.uptown1.serial } };
     await deliverShots(uptown1, hardware.uptown1, [{ ...fixture, id: "assistant-window", workflow: recorded }]);
     const { measurements } = await api.get<{ measurements: unknown }>("/shots/assistant-window/measurements");
-    const samples = shotSamples(measurements, workflow.profile);
+    const samples = shotSamples(measurements, profileOf(workflow.profile));
     type Read = { curves: Record<string, Curve> & { shaded: Shaded[]; thinnedTo: number | null } };
 
     const all = await assistant.call<Read>("get_shot", { id: "assistant-window", curves: true });
@@ -756,7 +757,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     for (const [id, samples] of Object.entries(shots)) {
       // The REST API's, from the samples the Shot page reads, and the tool's the same, to hundredths.
       const rest = (await api.get<{ shot: RestShot }>(`/shots/${id}`)).shot;
-      const read = shotSamples(samples, workflow.profile);
+      const read = shotSamples(samples, profileOf(workflow.profile));
       const steps = stepSpans(read);
       expect(rest.steps, id).toEqual(steps);
       expect(rest.lastStep, id).toEqual(steps.length === 0 ? null : { frame: steps.at(-1)!.frame, name: steps.at(-1)!.name });

@@ -1,6 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
-import { type LibraryKind, MAX_SHOT_RATING } from "@decent-sync/protocol";
+import {
+  BEVERAGE_TYPES,
+  EXIT_CONDITIONS,
+  EXIT_TYPES,
+  type LibraryKind,
+  MAX_SHOT_RATING,
+  STEP_SENSORS,
+  STEP_TRANSITIONS,
+} from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBeanBatchId } from "../library/bean-batches.service.js";
@@ -88,6 +96,46 @@ const batchSummary = z.object({
   createdAt: joinedAt,
   createdLocation,
 });
+
+/** A profile step's fields but its pump and target, which differ by what the pump controls. */
+const stepFields = {
+  name: z.string(),
+  transition: z.enum(STEP_TRANSITIONS).describe("fast: it gets to its target at once; smooth: over the whole step, from the value measured as it begins."),
+  exit: z
+    .object({ type: z.enum(EXIT_TYPES), condition: z.enum(EXIT_CONDITIONS), value: z.number() })
+    .nullable()
+    .describe("It moves on to the next step once the pressure (bar) or flow (ml/s) goes over or under the value; null for none."),
+  volume: z.number().describe("The water it may pump, in ml; 0 for no limit."),
+  seconds: z.number().describe("Its maximum time, in seconds."),
+  weight: z.number().nullable().describe("The weight in the cup that ends it, in grams, which needs a scale; null or 0 for none."),
+  temperature: z.number().describe("°C, measured where sensor says."),
+  sensor: z.enum(STEP_SENSORS).describe("Where its temperature is measured: coffee, in the puck, or water, at the group."),
+  limiter: z
+    .object({ value: z.number(), range: z.number() })
+    .nullable()
+    .describe("The cap on what its pump does not control, a flow limit (ml/s) on a pressure step or a pressure limit (bar) on a flow step, eased into over range; null for none."),
+};
+
+/** A profile as Decaid reads it (`Profile` in protocol/src/profile.ts), each field as Decaid names it. Its steps are never cut. */
+export const profileShape = z
+  .object({
+    version: z.string().nullable(),
+    title: z.string(),
+    notes: z.string(),
+    author: z.string(),
+    beverage_type: z.enum(BEVERAGE_TYPES).describe("What kind of drink it makes; Decaid reads any other as espresso."),
+    steps: z.array(
+      z.discriminatedUnion("pump", [
+        z.object({ ...stepFields, pump: z.literal("pressure").describe("The pump controls pressure."), pressure: z.number().describe("Its target, in bar.") }),
+        z.object({ ...stepFields, pump: z.literal("flow").describe("The pump controls flow."), flow: z.number().describe("Its target, in ml/s.") }),
+      ]),
+    ),
+    target_volume: z.number().nullable().describe("The volume pumped, in ml, that stops a Shot with no scale, counted from the step at target_volume_count_start; null or 0 for none."),
+    target_weight: z.number().nullable().describe("The weight in the cup, in grams, that stops a Shot; null or 0 for none. A Recipe's yield replaces it."),
+    target_volume_count_start: z.number().describe("How many steps, from the first, are preinfusion."),
+    tank_temperature: z.number().describe("The water tank's temperature, °C; 0 for none."),
+  })
+  .describe("Its profile as Decaid reads it: what the machine executes, and its title, author and notes.");
 
 const profileSummary = z.object({
   id: id.describe("Decaid's id, the same on every tablet."),
@@ -283,6 +331,7 @@ export const itemOutput = z.object({
   profile: profileSummary
     .extend({
       content: content(`${RECORD_FIELDS} Its visibility is each Location's, so left out.`),
+      profile: profileShape.nullable().describe("Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it."),
       parent: z.object({ id, title: z.string().nullable() }).nullable().describe("The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it."),
       locations: decidedAt,
     })
@@ -597,7 +646,7 @@ function profileOf(profile: ProfileSummary | ProfileView): z.infer<typeof profil
 }
 
 function profileViewOf(profile: ProfileView): NonNullable<GetOutput["profile"]> {
-  return { ...profileOf(profile), content: profile.content, parent: profile.parent && { id: profile.parent.id, title: profile.parent.title }, locations: decidedOf(profile) };
+  return { ...profileOf(profile), content: profile.content, profile: profile.profile, parent: profile.parent && { id: profile.parent.id, title: profile.parent.title }, locations: decidedOf(profile) };
 }
 
 function grinderOf(grinder: GrinderSummary | GrinderView): z.infer<typeof grinderSummary> {

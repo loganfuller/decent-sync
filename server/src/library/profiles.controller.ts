@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -7,16 +7,16 @@ import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
-import { readArchived, readShown } from "./item-input.js";
+import { readArchived, readContentEdit, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
 
 /**
  * The Library's Profiles, and the Locations showing each. Staff read them,
- * and Archive and restore them, as Admins do, but show and hide them only at
- * their own Locations; only an Admin hard-deletes one. No Profile is created
- * or edited here: Decaid computes a Profile's id from what the machine
- * executes, so Profiles join the Library from tablets.
+ * edit their title, author and notes, and Archive and restore them, as
+ * Admins do, but show and hide them only at their own Locations; only an
+ * Admin hard-deletes one. Their steps change only on tablets so far: Decaid
+ * computes a Profile's id from what the machine executes (ADR-0032).
  */
 @Controller("api/profiles")
 export class ProfilesController {
@@ -37,6 +37,19 @@ export class ProfilesController {
   @Get(":id")
   async get(@Param("id") id: string): Promise<{ profile: ProfileView }> {
     return { profile: await this.profiles.get(readProfileId(id)) };
+  }
+
+  /**
+   * Edits its title, author and notes: `{ content }`, each to change, an
+   * empty author or notes for none; a title cannot be cleared. 409 for one
+   * of Decaid's bundled Profiles.
+   */
+  @AllowStaff()
+  @Patch(":id")
+  async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ profile: ProfileView }> {
+    const profileId = readProfileId(id);
+    await this.edits.editProfile(profileId, readContentEdit("profile", body), managementEditor(session.account.id));
+    return { profile: await this.profiles.get(profileId) };
   }
 
   /** Shows it at the Location or hides it there: `{ shown }`. */

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { isRecordId } from "@decent-sync/protocol";
+import { type Profile, isRecordId, profileOf, profileTextOf } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -31,6 +31,8 @@ export interface ProfileSummary {
 export interface ProfileView extends ProfileSummary {
   /** Decaid's record fields, as the tablet that created it sent them, those this server does not know included, but its visibility, which is each Location's. */
   content: Record<string, unknown>;
+  /** Its profile, as Decaid reads it (`readProfile` in protocol/); null where Decaid would not. */
+  profile: Profile | null;
   /** The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it. */
   parent: { id: string; title: string | null } | null;
   /**
@@ -69,6 +71,7 @@ export class ProfilesService {
     return {
       ...summary(profile),
       content,
+      profile: profileOf(content.profile),
       parent: parent ? { id: parent.id, title: titled(parent.content).title } : null,
       locations: decided
         .map((here) => ({ location: viewLocation(here.location), shown: here.shown, since: here.decidedAt.toISOString() }))
@@ -103,18 +106,15 @@ function summary(profile: ListedProfile): ProfileSummary {
   };
 }
 
-/** The title, author and beverage type a Profile's content names. */
+/** The title, author and beverage type a Profile's content names, as Decaid reads them: its title and author whatever its steps hold, each null where it has none. */
 function titled(content: Prisma.JsonValue): Pick<ProfileSummary, "title" | "author" | "beverageType"> {
-  const profile = object(object(content).profile as Prisma.JsonValue);
-  return { title: text(profile.title), author: text(profile.author), beverageType: text(profile.beverage_type) };
+  const raw = object(content).profile;
+  const { title, author } = profileTextOf(raw);
+  return { title: title || null, author: author || null, beverageType: profileOf(raw)?.beverage_type ?? null };
 }
 
 function object(value: Prisma.JsonValue | undefined): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function text(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
 }
 
 /** Text compared ignoring case, with none last. */

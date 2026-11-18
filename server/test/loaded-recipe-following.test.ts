@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, dye2GlobalIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, dye2GlobalIdOf, profileAtBrewTemperature, profileOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet, workflowCauses } from "./support/loaded-tablets.js";
@@ -248,7 +248,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
 
     // Its brew temperature, set on A as Streamline's Brew tile sets one: every step moved by the same amount.
     const temperatures = await editsOf(one, "brewTemperature");
-    await a.changeSettings({ profile: profileAtBrewTemperature(profile(a), 90)! });
+    await a.changeSettings({ profile: { ...profileAtBrewTemperature(profileOf(profile(a))!, 90)! } });
     await expect.poll(async () => (await recipe(one)).content.brewTemperature, { timeout: 15_000 }).toBe(90);
     await expect.poll(() => firstTemperature(c), { timeout: 15_000 }).toBe(90);
     expect(((profile(c).steps as Record_[])[2] ?? {}).temperature).toBe(85);
@@ -1214,11 +1214,12 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const profileWrite = { profile: { title: "Classic Italian espresso", temperatures: [92, 92, 92, 92] } };
     expect({ a: writes[0]!.map(shownWrite), c: writes[1]!.map(shownWrite) }).toEqual({ a: [profileWrite], c: [profileWrite] });
     for (const tablet of [a, c]) {
-      // The tablet's record holds the Profile in jsonb's key order, as the server writes a record: another order than the
-      // Workflow's, which DYE2 v0.1.33's fingerprint ignores.
+      // The tablet's record holds the Profile in Decaid's key order, as the server reads a profile before writing it
+      // (`readProfile` in protocol/), not the order PostgreSQL's jsonb keeps it in: the Workflow's order, though DYE2's
+      // fingerprint ignores the order either way (decentespresso/dye2#43).
       const held = (record(tablet, ETHIOPIA)!.workflow as Record_).profile as Record_;
       expect(held.title).toBe("Classic Italian espresso");
-      expect(Object.keys((held.steps as Record_[])[0]!)).not.toEqual(Object.keys((profile(tablet).steps as Record_[])[0]!));
+      expect(Object.keys((held.steps as Record_[])[0]!)).toEqual(Object.keys((profile(tablet).steps as Record_[])[0]!));
     }
     expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
     expect([dye2.a.cleared, dye2.c.cleared]).toEqual([[], []]);
@@ -1230,7 +1231,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("2.8");
   });
 
-  it("keeps the Recipe loaded as a barista applies it again on DYE2's dashboard after its Profile was edited, A's record holding the Profile in PostgreSQL's key order (decentespresso/dye2#43)", async () => {
+  it("keeps the Recipe loaded as a barista applies it again on DYE2's dashboard after its Profile was edited, A's record holding the new Profile and its Workflow the old", async () => {
     const { machines, dye2, a, one, quiet } = await lab("Reapplied", 48271);
     const times = await loadedTimes(machines.a);
     // Decaid refuses the edit's write of the profile into A's Workflow, so A's record holds the new Profile, and its Workflow
@@ -1242,8 +1243,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await quiet();
     a.refuseWrites = undefined;
     expect([profile(a).title, recipeIdInWorkflow(a)]).toEqual(["Adaptive v3", ETHIOPIA]);
-    // In jsonb's key order, as the server writes a record: another order than the Workflow's.
-    expect(Object.keys((held()!.steps as Record_[])[0]!)).not.toEqual(Object.keys(((profile(a).steps as Record_[]) ?? [])[0] ?? {}));
+    // In Decaid's key order, as the server reads a profile before writing it (`readProfile` in protocol/).
+    expect(Object.keys((held()!.steps as Record_[])[0]!)).toEqual(Object.keys(((profile(a).steps as Record_[]) ?? [])[0] ?? {}));
     const cleared = dye2.a.cleared.length;
     expect((await (await openDye2Dashboard(a)).applyRecipe(ETHIOPIA)).workflow?.status).toBe(200);
     await dye2.a.settled();

@@ -32,7 +32,8 @@ import { type ConflictOutput, type ItemOutput, LibraryTools, TIMES, beanBatchIte
 import { callerOf } from "./token-verifier.js";
 
 // The Library changed through an assistant (#411, #412, ADR-0026): Beans,
-// Bean Batches, Grinders, Baskets and Tools created and edited, any item
+// Bean Batches, Grinders, Baskets and Tools created and edited, a Profile's
+// title, author and notes edited (#576), any item
 // Archived or restored, what a Location offers changed, and a Conflict's
 // value used or dismissed, each by the service its REST route calls, so a
 // change is timed and merged as the management interface's are (ADR-0020),
@@ -45,11 +46,16 @@ import { callerOf } from "./token-verifier.js";
 
 const id = z.string();
 
-/** The kinds whose content the management interface sets, as an assistant does (`editable` in kinds.ts). */
-export type EditableKind = Exclude<LibraryKind, "profile">;
+/** The kinds whose content the management interface sets, as an assistant does (`editable` in kinds.ts): of a Profile, its title, author and notes. */
+export type EditableKind = LibraryKind;
 
 /** What each field of each kind an assistant creates and edits is, as Decaid or DYE2 keeps it, for the tools' schemas. */
 const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>>>> = {
+  profile: {
+    title: "Its title, as every tablet lists it.",
+    author: "Who made it.",
+    notes: "What it is for and how to use it.",
+  },
   bean: {
     roaster: "Who roasted it, such as a company or brand.",
     name: "Its name, as its roaster sells it, such as a single origin or a blend.",
@@ -154,6 +160,8 @@ function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
     case "name":
     case "text":
       return { schema: z.string() };
+    case "decaidText":
+      return { schema: z.string(), note: "Empty or null for none." };
     case "flag":
       return { schema: z.boolean() };
     case "number":
@@ -198,7 +206,7 @@ function capitalized(text: string): string {
  * clearing it in an edit, as the REST API reads null.
  */
 export function contentFields(kind: EditableKind, edit: boolean): z.ZodRawShape {
-  const fields = KINDS[kind].editable!.fields;
+  const fields = KINDS[kind].editable.fields;
   return Object.fromEntries(
     Object.entries(fields).map(([field, type]) => {
       const read = fieldSchema(type);
@@ -231,6 +239,8 @@ const newGrinderInput = z.strictObject({
   ...contentFields("grinder", false),
 });
 const grinderEditInput = z.strictObject({ id: id.describe("The Grinder's id, as find_library_items gives it."), ...contentFields("grinder", true) });
+
+const profileEditInput = z.strictObject({ id: id.describe("The Profile's id, Decaid's, as find_library_items gives it."), ...contentFields("profile", true) });
 
 const newEquipmentInput = (kind: EquipmentKind) =>
   z.strictObject({ locationId: id.describe("The id of the Location it is first shown at, as list_locations gives it."), ...contentFields(kind, false) });
@@ -386,6 +396,21 @@ export class LibraryChangesTools {
     const grinderId = readGrinderId(given);
     await this.edits.editGrinder(grinderId, readContentEdit("grinder", { content: values }), editorOf(context), callerOf(context).scope);
     return this.library.read("grinder", grinderId);
+  }
+
+  @BudgetedTool({
+    name: "edit_profile",
+    title: "Edit a Profile's title, author and notes",
+    description: `Edits a Profile's title, author and notes, given only the fields to change: every tablet that holds it is written the change. They are outside the id Decaid gives a Profile from what the machine executes, so it stays the same Profile, and its steps are not changed. Its title can't be cleared; an author or notes given null or empty is cleared. Decaid's bundled Profiles keep the title, author and notes Decaid gives them, so an edit of one is refused. ${STAFF_SHARED} ${TIMES}`,
+    inputSchema: profileEditInput,
+    outputSchema: z.object({ profile: itemOutput.shape.profile.unwrap() }),
+    annotations: { ...CHANGES, idempotentHint: true },
+    scopes: [READ, CHANGE],
+  })
+  async editProfile({ id: given, ...fields }: z.infer<typeof profileEditInput>, context: McpContext): Promise<ItemOutput> {
+    const profileId = readProfileId(given);
+    await this.edits.editProfile(profileId, readContentEdit("profile", { content: changed(fields) }), editorOf(context));
+    return this.library.read("profile", profileId);
   }
 
   @BudgetedTool({

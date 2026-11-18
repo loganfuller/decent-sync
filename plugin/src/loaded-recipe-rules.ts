@@ -8,6 +8,9 @@ import {
   WORKFLOW_YIELD_OFF,
   dye2Fingerprint,
   dye2GlobalIdOf,
+  profileOf,
+  profileStepsKey,
+  type Profile,
   noneAtZero,
   sameValue,
   sameGrindSetting,
@@ -25,48 +28,14 @@ import {
 // decides.
 
 /**
- * What Decaid hashes for a Profile's id (`ProfileHash.calculateProfileHash`
- * in decaid:lib/src/models/data/profile_hash.dart) but its target weight,
- * and its steps as `stepsKey` reads them: what the machine executes, but for
- * what a skin overrides as it loads a profile into the Workflow, the yield
- * and each step's temperature, as a Shot's Profile is found (`profileOfSql`
- * in the server's shots/links.ts). Null for a profile without steps.
+ * A profile's key as the server finds a Shot's Profile (`profileStepsKey` in
+ * protocol/): what the machine executes, but for what a Skin overrides as it
+ * loads a profile into the Workflow, the yield and each step's temperature.
+ * Null for one without steps, or that Decaid would not read.
  */
 export function profileKey(profile: unknown): string | null {
-  const steps = isObject(profile) ? stepsKey(profile.steps) : null;
-  if (steps === null || !isObject(profile)) return null;
-  const hashed = Object.fromEntries(HASHED.map((field) => [field, profile[field] ?? null]));
-  return stableJson({ ...hashed, steps: JSON.parse(steps) as unknown });
-}
-
-/** What Decaid hashes for a Profile's id, but its steps and target weight. */
-const HASHED = ["version", "beverage_type", "tank_temperature", "target_volume", "target_volume_count_start"] as const;
-
-/**
- * A profile's steps as they identify it, as text that is the same for the
- * same steps, its keys sorted, as a Shot's Workflow and a profile's record
- * hold them alike; null if it has none. As the server compares them
- * (`profile_steps_key`), each step's temperature is left out and a limiter
- * of value 0, which is no limiter, is read as none: a skin overrides the
- * temperature in the profile it loads into the Workflow, and streamline-js
- * sends such a limiter as null while the record keeps it.
- */
-export function stepsKey(steps: unknown): string | null {
-  if (!Array.isArray(steps)) return null;
-  return stableJson(
-    steps.map((step: unknown) => {
-      if (!isObject(step)) return step;
-      const { temperature: _, ...rest } = step;
-      return isObject(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
-    }),
-  );
-}
-
-/** JSON with every object's keys sorted. */
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
-  return JSON.stringify(value ?? null);
+  const read = profileOf(profile);
+  return read === null || read.steps.length === 0 ? null : profileStepsKey(read);
 }
 
 /**
@@ -77,7 +46,7 @@ function stableJson(value: unknown): string {
  * dial, nor its steam, hot water or flush settings.
  */
 export function movedBeanOrProfile(previous: Record<string, unknown>, workflow: Record<string, unknown>): boolean {
-  if (dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return true;
+  if (dye2Fingerprint(profileOf(previous.profile)) !== dye2Fingerprint(profileOf(workflow.profile))) return true;
   return LOADED_RECIPE_PARTS.batch.some((field) => !sameValue(workflowValueAt(previous, field) ?? null, workflowValueAt(workflow, field) ?? null));
 }
 
@@ -118,7 +87,7 @@ export function vacatedIds(before: readonly Record<string, unknown>[], after: re
 
 /** What a load writes besides the record: the recipe's full Profile at its brew temperature, as applying it loads one. */
 export interface LoadContext {
-  profile: Record<string, unknown> | null;
+  profile: Profile | null;
 }
 
 /**
@@ -211,7 +180,7 @@ export function loadWrite(
 
   const write: Record<string, unknown> = {};
   if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
-  const key = profileKey(load.profile);
+  const key = load.profile === null ? null : profileStepsKey(load.profile);
   if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
   const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
     const { dye2, workflow: path } = RECIPE_SETTINGS[setting];

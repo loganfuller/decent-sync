@@ -1,9 +1,8 @@
-import { LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, recordGlobalId, sameValue } from "@decent-sync/protocol";
+import { LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileOf, recordGlobalId, sameValue } from "@decent-sync/protocol";
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 import { KINDS } from "./kinds.js";
 import { lacksBeanNulls, recordValueAt, withHeldFieldFlags, withoutZeros } from "./recipe-intake.js";
-import { isObject } from "./listed.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
 // bring it there. A tablet holds only what its Location offers: each Bean,
@@ -444,9 +443,9 @@ function parentsFirst(profiles: readonly ShownProfile[]): ShownProfile[] {
   return ordered;
 }
 
-/** What Decaid's `POST /profiles` takes to create a Profile's record, from its content: the profile, its parent and its metadata. */
+/** What Decaid's `POST /profiles` takes to create a Profile's record, from its content: the profile, as Decaid reads it, its parent and its metadata. */
 function profileToCreate(content: Record<string, unknown>): Record<string, unknown> {
-  return { profile: content.profile, parentId: content.parentId ?? null, metadata: content.metadata ?? null };
+  return { profile: profileOf(content.profile), parentId: content.parentId ?? null, metadata: content.metadata ?? null };
 }
 
 /**
@@ -477,20 +476,17 @@ function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unk
 
 /**
  * The value a tablet's record holds for a field a write sets, as Decaid
- * names it: a field edits merge is in the record's field that holds them
- * (`editedIn`), as a Profile's title, author and notes are in its `profile`,
- * and a Recipe's at its path (`recordValues`), as the record itself holds
- * it (`recordValueAt`): a dose, grind setting or RPM of 0 there is read as
- * none when records are compared, but the plugin sets a field only while the
- * record holds exactly what the write expects.
+ * names it: a field edits merge as `recordValues` reads it, as a Profile's
+ * title, author and notes are read from its `profile` (`profileTextOf` in
+ * protocol/), as the plugin reads them, and a Recipe's at its path, as the
+ * record itself holds it (`recordValueAt`): a dose, grind setting or RPM of
+ * 0 there is read as none when records are compared, but the plugin sets a
+ * field only while the record holds exactly what the write expects.
  */
 function heldValue(kind: LibraryKind, record: Record<string, unknown>, field: string): unknown {
-  const { editedIn, recordValues } = KINDS[kind];
-  const values = recordValues(record);
+  const values = KINDS[kind].recordValues(record);
   if (!(field in values)) return record[field] ?? null;
   // A Recipe's fields are named by their paths in its record (`recipeView`).
   if (kind === "recipe") return recordValueAt(record, field) ?? null;
-  if (editedIn === null) return values[field] ?? null;
-  const edited = record[editedIn];
-  return (isObject(edited) ? edited[field] : undefined) ?? null;
+  return values[field] ?? null;
 }

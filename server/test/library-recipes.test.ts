@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileAtBrewTemperature, recipeSlotOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileAtBrewTemperature, profileOf, recipeSlotOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { recipeIdInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -500,7 +500,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     const stored = (await api.get<{ profile: { content: { profile: Record_ } } }>(`/profiles/${encodeURIComponent(ADAPTIVE)}`)).profile.content.profile;
     // As the Library holds it, and in the embedded Workflow Streamline applies at the recipe's brew temperature, 92 °C, its
     // steps moved by the same amount, as DYE2's dashboard applies it (ADR-0022, decentespresso/dye2#26).
-    const library = profileAtBrewTemperature(stored, 92)!;
+    const library = profileAtBrewTemperature(profileOf(stored)!, 92)!;
     expect(byId(two, SLOT_RECIPE)!.profileSnapshot).toEqual(stored);
     expect((byId(two, SLOT_RECIPE)!.workflow as Record_).profile).toEqual(library);
 
@@ -515,7 +515,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect((await loaded()).title).toBe("Classic Italian espresso");
     expect((await (await startStreamline(two)).applyRecipe(5)).workflow?.status).toBe(200);
     // Streamline sends a step limiter of 0 as none (`updateWorkflow` in streamline-js:src/modules/api.js).
-    const sanitised = (library.steps as Record_[]).map((step) => ((step.limiter as Record_ | null)?.value === 0 ? { ...step, limiter: null } : step));
+    const sanitised = library.steps.map((step) => (step.limiter?.value === 0 ? { ...step, limiter: null } : step));
     expect(await loaded()).toMatchObject({ title: "Adaptive v3", steps: sanitised });
   });
 

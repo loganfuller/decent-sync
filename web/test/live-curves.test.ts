@@ -1,4 +1,4 @@
-import { type RelayedLiveFrame, machineStateOf } from "@decent-sync/protocol";
+import { type RelayedLiveFrame, machineStateOf, profileOf } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import flush from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/flush.json" with { type: "json" };
 import hotWater from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/hot-water.json" with { type: "json" };
@@ -77,7 +77,12 @@ describe("the Live View's curves", () => {
     expect(curve!.measurements.map(({ scale }) => scale)).toEqual(paired);
     expect(paired.every((scale) => typeof scale?.weight === "number")).toBe(true);
 
-    const profile = { steps: [{ name: "Fill" }, { name: "Infuse" }, { name: "Pressure Up" }, { name: "Pressure Decline" }, { name: "Stop" }] };
+    // Derived: a profile of five steps of these names, as Decaid reads one.
+    const names = ["Fill", "Infuse", "Pressure Up", "Pressure Decline", "Stop"];
+    const profile = profileOf({
+      title: "Live",
+      steps: names.map((name) => ({ name, pump: "pressure", transition: "fast", exit: null, volume: 0, seconds: 10, temperature: 92, sensor: "coffee", pressure: 9, limiter: null })),
+    })!;
     const live = liveSamples(curve!, profile);
     if (live.activity !== "shot") throw new Error(`Not a shot's samples: ${live.activity}`);
     const { samples } = live;

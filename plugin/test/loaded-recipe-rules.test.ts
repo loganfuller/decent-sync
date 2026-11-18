@@ -5,7 +5,9 @@ import {
   type RecipeSetting,
   dye2Fingerprint,
   dye2RecipeIdOf,
+  type Profile,
   profileAtBrewTemperature,
+  profileOf,
   shiftedTemperatures,
   workflowValueAt,
 } from "@decent-sync/protocol";
@@ -76,7 +78,7 @@ describe("a profile compared by what Decaid hashes for its id", () => {
 });
 
 describe("a profile at a brew temperature", () => {
-  const adaptive = library.profiles.find((profile) => profile.profile.title === "Adaptive v3")!.profile;
+  const adaptive = profileOf(library.profiles.find((profile) => profile.profile.title === "Adaptive v3")!.profile)!;
 
   it("moves its first step to it and every other by the same amount, as Streamline's Brew tile does", () => {
     expect(temperatures(adaptive).slice(0, 3)).toEqual([93, 93, 88]);
@@ -91,15 +93,15 @@ describe("a profile at a brew temperature", () => {
     expect(temperatures(profileAtBrewTemperature(moved, 92))).toEqual(temperatures(profileAtBrewTemperature(adaptive, 92)));
   });
 
-  it("is none for a profile with no usable first step temperature", () => {
-    expect(profileAtBrewTemperature({ title: "No steps" }, 92)).toBeNull();
-    expect(profileAtBrewTemperature({ steps: [{ name: "pour" }] }, 92)).toBeNull();
+  it("is none for a profile with no first step to measure from", () => {
+    expect(profileAtBrewTemperature({ ...adaptive, steps: [] }, 92)).toBeNull();
     expect(shiftedTemperatures([], 92)).toBeNull();
+    expect(shiftedTemperatures([undefined, 90], 92)).toBeNull();
   });
 });
 
 describe("DYE2's fingerprint of a profile", () => {
-  const profile = library.profiles[0]!.profile;
+  const profile: Profile = profileOf(library.profiles[0]!.profile)!;
 
   it("leaves out each step's temperature, as DYE2's does, so a brew temperature change is no change of profile", () => {
     expect(dye2Fingerprint(profileAtBrewTemperature(profile, 80))).toBe(dye2Fingerprint(profile));
@@ -112,9 +114,9 @@ describe("DYE2's fingerprint of a profile", () => {
   });
 
   it("reads a step limiter of value 0 as none, as Streamline sends it, so a profile Streamline sent is the same profile (dye2#32)", () => {
-    const steps = (profile.steps as Record_[]).map((step) => ({ ...step, limiter: { value: 0, range: 0.6 } }));
+    const steps = profile.steps.map((step) => ({ ...step, limiter: { value: 0, range: 0.6 } }));
     expect(dye2Fingerprint({ ...profile, steps })).toBe(dye2Fingerprint({ ...profile, steps: steps.map((step) => ({ ...step, limiter: null })) }));
-    expect(dye2Fingerprint({ ...profile, steps: steps.map(({ limiter: _, ...step }) => step) })).toBe(dye2Fingerprint({ ...profile, steps }));
+    expect(dye2Fingerprint(profileOf({ ...profile, steps: steps.map(({ limiter: _, ...step }) => step) }))).toBe(dye2Fingerprint({ ...profile, steps }));
     expect(dye2Fingerprint({ ...profile, steps: steps.map((step) => ({ ...step, limiter: { value: 2, range: 0.6 } })) })).not.toBe(dye2Fingerprint({ ...profile, steps }));
   });
 });
@@ -136,7 +138,7 @@ describe("a change a Skin may have written the Loaded Recipe's record for (#570)
 
   it("is none for a dose, yield or grind setting, a profile at another brew temperature or target weight, or no change", () => {
     expect(movedBeanOrProfile(workflow, changed({ targetDoseWeight: 19.5, targetYield: 44, grinderSetting: "3.1" }))).toBe(false);
-    expect(movedBeanOrProfile(workflow, { ...workflow, profile: { ...profileAtBrewTemperature(workflow.profile as Record_, 80), target_weight: 40 } })).toBe(false);
+    expect(movedBeanOrProfile(workflow, { ...workflow, profile: { ...profileAtBrewTemperature(profileOf(workflow.profile)!, 80), target_weight: 40 } })).toBe(false);
     expect(movedBeanOrProfile(workflow, structuredClone(workflow))).toBe(false);
   });
 });
@@ -173,7 +175,7 @@ describe("recording a load", () => {
   /** The settings the write sets, by the Workflow's paths. */
   const settingsWritten = (write: Record_) =>
     Object.fromEntries(RECIPE_SETTING_NAMES.flatMap((setting) => (workflowValueAt(write, RECIPE_SETTINGS[setting].workflow) === undefined ? [] : [[setting, workflowValueAt(write, RECIPE_SETTINGS[setting].workflow)]])));
-  const adaptive = library.profiles.find((candidate) => candidate.profile.title === "Adaptive v3")!.profile;
+  const adaptive = profileOf(library.profiles.find((candidate) => candidate.profile.title === "Adaptive v3")!.profile)!;
   /** Recipe `1`'s Profile at its brew temperature, as the Workflow embedded in its record holds it. */
   const profile = profileAtBrewTemperature(adaptive, 92)!;
   const basket = (recipe("1").dashboardVariables as Record_).basketId as string;
@@ -205,11 +207,11 @@ describe("recording a load", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
     Object.assign(record.dashboardVariables as Record_, { dose: 19.5, drink: 40, grind: 2.9, rpm: 950 });
-    const other = profileAtBrewTemperature(library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile, 92)!;
+    const other = profileAtBrewTemperature(profileOf(library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile)!, 92)!;
     const write = loadWrite(workflow, record, { profile: other })!;
     expect(write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
     expect(write.profile).toEqual(other);
-    expect(dye2Fingerprint(write.profile)).not.toBe(dye2Fingerprint(workflow.profile));
+    expect(dye2Fingerprint(profileOf(write.profile))).not.toBe(dye2Fingerprint(profileOf(workflow.profile)));
     // A grind setting the Workflow holds as written otherwise, `.5` for the recipe's 0.5, is the same one, as the server judges it.
     Object.assign(record.dashboardVariables as Record_, { grind: 0.5 });
     const typed = { ...workflow, context: { ...(workflow.context as Record_), grinderSetting: ".5" } };
