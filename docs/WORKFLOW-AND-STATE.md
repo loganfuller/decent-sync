@@ -704,7 +704,8 @@ parts to the Recipe's content both ways.
   (`grindSettingOf`). It skips a Workflow
   whose profile, by `dye2Fingerprint`, differs from the Machine's Workflow
   stored before it (`profileChanged`), as DYE2 clears `recipeId` a moment
-  later. A part recorded is taken as the Workflow having taken it (`base`),
+  later, but for one onto the profile the tablet's record of the Recipe
+  holds, which DYE2 keeps it named through (`recordHoldsProfile`, #570). A part recorded is taken as the Workflow having taken it (`base`),
   but one that lost to an edit the tablet had not seen, which is written
   back. The Recipe's tablets are written the edit, and the Workflows of the
   other Machines that have it loaded.

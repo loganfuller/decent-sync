@@ -838,11 +838,10 @@ writes it to every tablet at the Location.
   alone unloads the Recipe, as DYE2 clears it, unless the record holds that
   profile already: DYE2 compares the Workflow's profile with the record's
   embedded `workflow.profile`, or else its `profileSnapshot`, so write the
-  new profile there too, whole. The server takes nothing else from a
-  Workflow change that moves the profile, as DYE2 clears the recipe a
-  moment after one it does not keep, so write every other part changed
-  with the profile into the record too, the Bean and batch included, or
-  change the profile in a `PUT /workflow` of its own.
+  new profile there too, whole. The server takes the rest of a Workflow
+  change that moves the profile, such as a batch picked with it, only where
+  the record it has been reported holds the new profile already, as DYE2
+  clears the recipe a moment after any other.
 - **What is not taken.** An Archived Bean, or a batch held with its Bean
   that is Archived, of an Archived Bean or not at the Recipe's Location
   (never added there, or finished there), changes neither the Recipe's Bean nor its batch. A `profileId`

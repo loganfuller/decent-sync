@@ -259,7 +259,10 @@ async function followMachine(
   }
   if (continued && known !== null && known.recipeId === recipe.id) {
     const base = { ...known.base };
-    const { recorded, lost } = (await profileChanged(tx, tablet.machineId, workflow)) ? { recorded: [], lost: [] } : await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt);
+    // A change of profile DYE2 clears the recipe on a moment later is no edit of it; one onto the profile the tablet's record
+    // holds, as a Skin writes the record first, DYE2 keeps the recipe named through, so the rest of it is taken (#570).
+    const unloading = (await profileChanged(tx, tablet.machineId, workflow)) && !(await recordHoldsProfile(tx, tablet.tabletId, recipe.id, workflow));
+    const { recorded, lost } = unloading ? { recorded: [], lost: [] } : await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt);
     for (const part of recorded) base[part] = now[part];
     // A part the Workflow holds, or held before this change, as the Recipe does has taken it, however it came there, as
     // DYE2's editor applies a save of the Recipe again, which may reach the server before the save: a change of it on the
@@ -294,6 +297,22 @@ async function profileChanged(tx: Prisma.TransactionClient, machineId: string, w
   const profile = (value: unknown) => dye2Fingerprint(isObject(value) ? value.profile : undefined);
   const previous = rows.length === 2 ? rows[1]!.workflow : undefined;
   return previous !== undefined && profile(previous) !== profile(workflow);
+}
+
+/**
+ * Whether the tablet's record of the Recipe holds the Workflow's profile, as
+ * DYE2 fingerprints one (`dye2Fingerprint`): its embedded Workflow's, or
+ * else its `profileSnapshot`, which DYE2 keeps the Workflow's recipe named
+ * through a change of profile onto (decentespresso/dye2#38).
+ */
+async function recordHoldsProfile(tx: Prisma.TransactionClient, tabletId: string, recipeId: string, workflow: unknown): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ record: unknown }[]>`
+    SELECT record FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND recipe_id = ${recipeId}::uuid`;
+  const record = isObject(row?.record) ? row.record : null;
+  if (record === null || !isObject(workflow)) return false;
+  const embedded = isObject(record.workflow) ? record.workflow.profile : undefined;
+  const held = isObject(embedded) ? embedded : record.profileSnapshot;
+  return isObject(held) && dye2Fingerprint(held) === dye2Fingerprint(workflow.profile);
 }
 
 /**

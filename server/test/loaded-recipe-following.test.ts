@@ -973,6 +973,28 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(recipeReads(a)).toBe(unloaded);
   });
 
+  it("takes a batch of another Bean that a Skin puts into A's Workflow with the profile its record holds already, in one write, as the Recipe's, with the Profile, writing both into C's Workflow, the Recipe loaded on both (#570)", async () => {
+    const { machines, dye2, a, c, one, quiet } = await lab("Profile and bag", 48451, { pollSeconds: 3600 });
+    // As in the Skin's write test above: no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    const classic = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const brazilRecord = record(a, BRAZIL)!;
+    // The record holds the new profile, and not the batch; the Workflow is written both at once. DYE2 keeps the recipe named,
+    // as the record holds the profile, so the batch is a pick of the Workflow's, as any.
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: CLASSIC, profileTitle: classic.title, profileSnapshot: classic, workflow: { ...(entry.workflow as Record_), profile: classic } }));
+    const written = await a.callApi("PUT", "/workflow", { profile: classic, context: { beanBatchId: RECORDED_BRAZIL_BATCH, coffeeName: brazilRecord.beanName, coffeeRoaster: brazilRecord.beanRoaster } });
+    expect(written.status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ profileId: CLASSIC, beanBatchId: brazilBatch });
+    await expect.poll(async () => [profile(c).title, context(c).beanBatchId], { timeout: 15_000 }).toEqual(["Classic Italian espresso", await localId(c, "/bean-batches", brazilBatch)]);
+    await quiet();
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    expect(dye2.a.cleared).toEqual([]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
   it("takes no batch of an Archived Bean, Archived batch or batch finished at the Location picked on A, in its Workflow or written into its record, the Recipe keeping its Bean and batch, which are written back into the record, A's Workflow keeping its pick with the Recipe loaded, and nothing offered or added at the Location (#570)", async () => {
     const { here, machines, a, c, one, quiet } = await lab("Retired", 48381);
     const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
