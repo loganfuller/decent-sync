@@ -1075,6 +1075,149 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
+  /** A new Bean, in no batch anywhere, by its global id. */
+  const newBean = async (roaster: string, name: string) => (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster, name } }, 201)).bean.id;
+  /**
+   * Sets the Recipe's Bean alone, or none, in the management interface, as only using a Conflict's value about it does
+   * (a Recipe's edit sets a batch, with its Bean): a Conflict about its Bean, as a tablet's edit that lost leaves, copied
+   * in PostgreSQL, whose value is used. A Bean with no batch at the Location leaves the Recipe naming no batch.
+   */
+  const useBean = async (recipeId: string, beanId: string | null) => {
+    const database = await server.connectDatabase();
+    let id: string;
+    try {
+      const { rows } = await database.query<{ id: string }>(
+        `INSERT INTO conflicts (id, kind, item_id, field, value, edited_at)
+         VALUES (gen_random_uuid(), 'recipe', $1, 'beanId', $2::jsonb, transaction_timestamp()) RETURNING id::text AS id`,
+        [recipeId, JSON.stringify(beanId)],
+      );
+      id = rows[0]!.id;
+    } finally {
+      await database.end();
+    }
+    const { conflicts } = await api.get<{ conflicts: { id: string; current: { versionId: string | null } }[] }>("/conflicts");
+    const seen = conflicts.find((conflict) => conflict.id === id)!.current.versionId;
+    expect((await api.call("POST", `/conflicts/${id}/use`, { seen })).status).toBe(200);
+  };
+  /** The batch, coffee and roaster the tablet's Workflow holds, none as null. */
+  const coffee = (tablet: SimulatedTablet) => [context(tablet).beanBatchId ?? null, context(tablet).coffeeName ?? null, context(tablet).coffeeRoaster ?? null];
+
+  it("writes the Bean set in the management interface on a Recipe naming no batch, by a Conflict's value, into A's and C's Workflows, its name and roaster, or none once it is removed, over a coffee typed on A, which stays A's own until then, a Shot pulled on C recording it (#572)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Bean alone", 48801);
+    const roaster = "Bean Alone Roasters";
+    const [kenya, peru, sumatra] = [await newBean(roaster, "Bean alone Kenya"), await newBean(roaster, "Bean alone Peru"), await newBean(roaster, "Bean alone Sumatra")];
+    // A Bean with no batch at the Location, set alone: the Recipe names it and no batch, which clears the Workflows' batch.
+    await useBean(one, kenya);
+    expect((await recipe(one)).content).not.toHaveProperty("beanBatchId");
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Bean alone Kenya", roaster]);
+    await quiet();
+
+    // Another Bean with no batch: the Workflows hold no batch on either side, and still follow the Bean.
+    await useBean(one, peru);
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Bean alone Peru", roaster]);
+    await quiet();
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+    c.pullShot(shotOf(c, "bean-alone-48801", 48802));
+    await expect.poll(async () => (await api.call("GET", "/shots/bean-alone-48801")).status, { timeout: 15_000 }).toBe(200);
+    const { shot } = await api.get<{ shot: { recipe: { id: string } | null; coffeeName: string | null; coffeeRoaster: string | null } }>("/shots/bean-alone-48801");
+    expect([shot.recipe?.id, shot.coffeeName, shot.coffeeRoaster]).toEqual([one, "Bean alone Peru", roaster]);
+
+    // A coffee typed on A: A's own, not the Recipe's, not C's, and never written back while the Recipe's Bean stays.
+    const received = a.received.length;
+    const versionsBefore = (await versions(one)).length;
+    await a.changeSettings({ context: { coffeeName: "Typed on A" } });
+    await quiet();
+    expect((await recipe(one)).content.beanId).toBe(peru);
+    expect((await versions(one)).length).toBe(versionsBefore);
+    expect([coffee(a), coffee(c)]).toEqual([
+      [null, "Typed on A", roaster],
+      [null, "Bean alone Peru", roaster],
+    ]);
+    expect(loadedRecipeWrites(a, received)).toEqual([]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+
+    // A later change of the Recipe's Bean is written over it.
+    await useBean(one, sumatra);
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Bean alone Sumatra", roaster]);
+    await quiet();
+
+    // The Bean removed: both Workflows' coffee and roaster are cleared.
+    await useBean(one, null);
+    expect((await recipe(one)).content).not.toHaveProperty("beanId");
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, null, null]);
+    await quiet();
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("writes the Bean a Skin sets in A's record of a Recipe naming no batch, as the Recipe's, into C's Workflow and A's, the Recipe loaded on both (#572)", async () => {
+    const { machines, a, c, one, two, quiet } = await lab("Skin bean", 48811);
+    const roaster = "Skin Bean Roasters";
+    const [kenya, peru] = [await newBean(roaster, "Skin bean Kenya"), await newBean(roaster, "Skin bean Peru")];
+    await useBean(one, kenya);
+    // The Peru set on the other Recipe, so it is offered at the Location and every tablet there holds a record of it.
+    await useBean(two, peru);
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Skin bean Kenya", roaster]);
+    let local: unknown;
+    await expect.poll(async () => (local = await localId(a, "/beans", peru)), { timeout: 15_000 }).toEqual(expect.any(String));
+    await quiet();
+
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, beanId: local, beanName: "Skin bean Peru", beanRoaster: roaster, beanBatchId: null }));
+    await expect.poll(async () => (await recipe(one)).content.beanId, { timeout: 15_000 }).toBe(peru);
+    expect((await recipe(one)).content).not.toHaveProperty("beanBatchId");
+    for (const tablet of [c, a]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Skin bean Peru", roaster]);
+    await quiet();
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  /** Takes the Bean taken out of the base of each of the Recipe's two tablets, as the previous release saves one. */
+  const stripBeanTaken = async (recipeId: string) => {
+    const database = await server.connectDatabase();
+    try {
+      const { rowCount } = await database.query(`UPDATE tablet_loaded_recipes SET base = base - 'bean' WHERE recipe_id = $1::uuid AND base ? 'bean'`, [recipeId]);
+      expect(rowCount).toBe(2);
+    } finally {
+      await database.end();
+    }
+  };
+
+  it("writes nothing of the Bean into a Workflow whose base the previous release saved, keeping no Bean taken, until the Recipe's Bean changes, which is then written into it (#572)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Kept base", 48821);
+    const roaster = "Kept Base Roasters";
+    const [kenya, peru] = [await newBean(roaster, "Kept base Kenya"), await newBean(roaster, "Kept base Peru")];
+    await useBean(one, kenya);
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Kept base Kenya", roaster]);
+    await quiet();
+    // As the previous release saves it: the base keeps no Bean taken. A coffee typed on C meanwhile is C's own.
+    await stripBeanTaken(one);
+    await c.changeSettings({ context: { coffeeName: "Typed on C" } });
+    await quiet();
+    // Another edit of the Recipe is written, but nothing of the Bean, which the Workflows took as it is now.
+    const received = c.received.length;
+    await patch(one, { grindSetting: 3.3 });
+    for (const tablet of [a, c]) await expect.poll(() => context(tablet).grinderSetting, { timeout: 15_000 }).toBe("3.3");
+    await quiet();
+    expect(loadedRecipeWrites(c, received).flatMap((fields) => Object.keys(fields))).not.toContain("context.coffeeName");
+    expect([coffee(a), coffee(c)]).toEqual([
+      [null, "Kept base Kenya", roaster],
+      [null, "Typed on C", roaster],
+    ]);
+    // A change of the Recipe's Bean is written into both.
+    await useBean(one, peru);
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Kept base Peru", roaster]);
+    await quiet();
+
+    // And one a Skin makes in A's record, A's report re-saving A's row as it read it before the edit.
+    await stripBeanTaken(one);
+    let kenyaOnA: unknown;
+    await expect.poll(async () => (kenyaOnA = await localId(a, "/beans", kenya)), { timeout: 15_000 }).toEqual(expect.any(String));
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, beanId: kenyaOnA, beanName: "Kept base Kenya", beanRoaster: roaster, beanBatchId: null }));
+    await expect.poll(async () => (await recipe(one)).content.beanId, { timeout: 15_000 }).toBe(kenya);
+    for (const tablet of [c, a]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, "Kept base Kenya", roaster]);
+    await quiet();
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
   it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe loaded and saving, a Shot pulled then linked", async () => {
     const { here, machines, a, c, one, quiet } = await lab("New roast", 48501);
     const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);

@@ -732,7 +732,11 @@ parts to the Recipe's content both ways.
   setting and RPM a Grinder's pick left; steam turned
   off; and a steam setting changed while steam is off, which DYE2 does not
   save. None is an edit, and `held` takes it while `base` still holds the
-  Recipe's, so no write of the Recipe's value is planned over it.
+  Recipe's, so no write of the Recipe's value is planned over it. A coffee
+  name or roaster typed on the Machine is its own the same way: `held`
+  holds no coffee name, so it is never taken into the Recipe, and it is
+  written over only by a later change of the Recipe's Bean (#572, To every
+  Machine that has it loaded, below).
 - **A load.** A Recipe is the whole Shot (#550), so the server takes
   nothing into it from a Workflow that loads it: until #550 a load gained it
   each value it held none of that the Machine had. Its `base` starts as the
@@ -746,7 +750,8 @@ parts to the Recipe's content both ways.
   same; one naming
   it while its Machine still has it loaded, the tablet's record of what it
   named forgotten, is taken as having taken the Recipe's parts as they
-  stand, so nothing is written for them until they change.
+  stand, so nothing is written for them until they change. Either way
+  `base` takes the Recipe's Bean as it stands (`BEAN_TAKEN`, #572).
 - **Steam on and off.** Steam on and off stays each Machine's own
   (ADR-0022, Steam on and off). The server reads each delivered Workflow's
   steam temperature only as one of its parts, never as an edit, and steam
@@ -784,7 +789,17 @@ parts to the Recipe's content both ways.
   the whole Shot in (`WHOLE_SHOT_PARTS`), cleared, every field of it null,
   its yield 0, and a batch's coffee and roaster the Recipe's Bean's where it
   names one, so a Basket cleared from a Recipe is cleared in the Workflow of
-  each Machine that has it loaded, while a steam time cleared from it is
+  each Machine that has it loaded; where the Recipe names no batch, its batch
+  part is due too once the Recipe's Bean is another than the Workflow last
+  took (`base` keeps it under `BEAN_TAKEN`, by its global id, `beanDue`,
+  #572), the same write, the batch null and the Bean's name and roaster, or
+  nulls for no Bean, over any coffee typed on the Machine; a `base`
+  keeping no Bean, as the previous release saves one, took the Recipe's Bean as it is now, and an edit changing the
+  Recipe's Bean keeps the Bean it named before in every such `base`
+  (`keepBeanTaken` in `content-edits.ts`), so the deploy writes nothing and
+  the next change is written; a Recipe naming a batch is unchanged by
+  this, and so is a rename of the Bean, which no Workflow's coffee text
+  follows; while a steam time cleared from it is
   not, staying each Machine's own; a dose, grind setting, RPM or yield of 0
   in a Workflow being none held (`nonePart`); its Profile whole, expecting nothing, as a skin
   overrides parts of the one it loads, and its brew temperature
@@ -820,7 +835,9 @@ parts to the Recipe's content both ways.
   does, or holds otherwise than before as a barista changed it meanwhile,
   which the plugin kept, and a steam temperature or time left
   out of a Workflow whose steam is off, so none is written again until the
-  Recipe changes. Decaid refuses the steam, hot water and flush settings
+  Recipe changes; and, where it set the batch and carried the Recipe's
+  latest edit of its Bean, the Recipe's Bean as taken (`BEAN_TAKEN`, #572),
+  which otherwise stays due. Decaid refuses the steam, hot water and flush settings
   while no machine is connected: the rest is written, and those, still due,
   once the machine is back and the plugin reconnects. Once Decaid takes a write that
   changed the Workflow, the plugin pushes `{"what":"workflow"}` on its

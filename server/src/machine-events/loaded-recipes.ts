@@ -20,6 +20,7 @@ import type { CurrentEntry } from "../library/join-plan.js";
 import { currentEntry } from "../library/joining.js";
 import { isObject } from "../library/listed.js";
 import {
+  BEAN_TAKEN,
   type BaseParts,
   type ItemKind,
   PARTS,
@@ -33,6 +34,7 @@ import {
   partsWrite,
   readBase,
   readParts,
+  recipeBean,
   recipeParts,
   recordProfile,
   samePart,
@@ -281,7 +283,9 @@ async function followMachine(
   // named: the Recipe takes nothing from the Workflow, and each part the Workflow holds otherwise is written, or cleared.
   const target = await targetParts(tx, tablet.tabletId, recipe.id);
   // Named again with its Machine still having it loaded, as after an upgrade forgot it: taken as it stood.
-  const base = continued && target !== null && known === null ? { ...target } as BaseParts : target === null ? {} : heldAlready(target, now);
+  const base: BaseParts = continued && target !== null && known === null ? { ...target } : target === null ? {} : heldAlready(target, now);
+  // Its Bean is taken as it stands, as a load brings the Bean's name and roaster with it (#572).
+  if (target !== null) base[BEAN_TAKEN] = recipeBean(recipe.content);
   await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
 }
 
@@ -449,7 +453,7 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
     -- The batch's Bean, or the Recipe's where it names no batch, whose name and roaster a cleared batch leaves, as DYE2's apply does.
     LEFT JOIN beans AS bean ON bean.id::text = COALESCE(batch.bean_id::text, lower(${String(content.beanId ?? "")}))`;
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  const due = partsWrite(dueParts(target, known.held, known.base), known.held, {
+  const due = partsWrite(dueParts(target, known.held, known.base, recipeBean(content)), known.held, {
     profile: isObject(names?.profile) ? names.profile : null,
     grinderModel: text(names?.grinderModel),
     basketName: text(names?.basketName),
@@ -624,6 +628,11 @@ export async function recordLoadedRecipeWritten(
       // not one Decaid refused for want of a machine, which stays due.
       if (!carried || value === undefined) continue;
       if (samePart(part, now[part], value) || !samePart(part, now[part], known.held[part]) || (STEAM_OFF_KEPT.has(part) && steamOff(record))) base[part] = value;
+    }
+    // A batch written carried the name and roaster of the Recipe's Bean as of the latest edit the write carried (#572).
+    const beanDecided = fieldEdits.beanId?.decidedAt;
+    if (set.has("batch") && contentSeen !== null && (beanDecided === undefined || new Date(beanDecided).getTime() <= contentSeen.getTime())) {
+      base[BEAN_TAKEN] = recipeBean(isObject(row.content) ? row.content : {});
     }
     await saveNamed(tx, tablet.tabletId, { ...known, held, base });
     return "recorded";

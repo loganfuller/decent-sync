@@ -1787,7 +1787,9 @@ model TabletLoadedRecipe {
   /// held already, as `held` names them: a part of the Recipe that differs
   /// from it changed since, and is due where the Workflow holds otherwise. A
   /// part it does not name is due wherever the Workflow holds otherwise, as
-  /// on a load.
+  /// on a load. Its `bean` key holds the Recipe's Bean as the Workflow last
+  /// took it, by its global id, or null for none (#572); a base without it
+  /// took the Recipe's Bean as it is now.
   base          Json      @default("{}") @db.JsonB
 
   @@index([recipeId])

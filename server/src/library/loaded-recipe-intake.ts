@@ -135,20 +135,41 @@ export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolea
   return sameValue(a, b);
 }
 
+/** The key of `BaseParts` holding the Recipe's Bean as the Workflow last took it. */
+export const BEAN_TAKEN = "bean";
+
 /**
  * The Recipe's parts as a tablet's Workflow last took them
  * (`tablet_loaded_recipes.base`), each as `WorkflowParts` holds it; a part
- * it does not name was never taken.
+ * it does not name was never taken. With them, under `BEAN_TAKEN`, the
+ * Recipe's Bean as the Workflow last took it, by its global id, or null for
+ * none: where the Recipe names no Bean Batch, the batch part's coffee name
+ * and roaster follow a change of it (#572). A base without it, as a release
+ * before that saved, took the Recipe's Bean as it is now, until an edit of
+ * the Recipe changes it (`keepBeanTaken`).
  */
-export type BaseParts = Partial<WorkflowParts>;
+export type BaseParts = Partial<WorkflowParts> & { [BEAN_TAKEN]?: string | null };
 
-/** Base parts as stored: known parts only. */
+/** Base parts as stored: known parts only, and the Bean taken where it is kept. */
 export function readBase(value: unknown): BaseParts {
   const stored = isObject(value) ? value : {};
   const base: BaseParts = {};
   for (const part of PARTS) if (Object.prototype.hasOwnProperty.call(stored, part)) base[part] = partValue(part, stored[part]);
+  if (Object.prototype.hasOwnProperty.call(stored, BEAN_TAKEN)) base[BEAN_TAKEN] = beanIdOf(stored[BEAN_TAKEN]);
   return base;
 }
+
+/** The Bean a Recipe with this content names, by its global id, lower case; null for none. */
+export function recipeBean(content: Readonly<Record<string, unknown>>): string | null {
+  return beanIdOf(content.beanId);
+}
+
+function beanIdOf(value: unknown): string | null {
+  return textOf(value)?.toLowerCase() ?? null;
+}
+
+/** The parts of a Recipe a tablet's Workflow is due (`dueParts`): each part's value, and whether its batch part is due for a change of the Recipe's Bean alone. */
+export type DueParts = Record<LoadedRecipePart, PartValue | undefined> & { beanDue?: true };
 
 /**
  * The parts of a Recipe (`target`, as `recipeParts` reads it) a tablet's
@@ -159,19 +180,29 @@ export function readBase(value: unknown): BaseParts {
  * Recipe holds none of is due cleared (null) where the Recipe is the whole
  * Shot in it (WHOLE_SHOT_PARTS), as a Grinder or a dose, and never where the
  * Machine keeps its own, as a steam time. The rest are left out (undefined).
+ * Where the Recipe names no batch, its batch part is due cleared too once
+ * the Recipe's Bean (`bean`, as `recipeBean` reads it) is another than the
+ * Workflow last took (`BEAN_TAKEN`), so the Bean's name and roaster are
+ * written into it, or cleared, over any the Machine holds as its own
+ * (`beanDue`, #572); a base keeping no Bean took the Recipe's as it is now.
  */
 export function dueParts(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
   held: WorkflowParts,
   base: BaseParts,
-): Record<LoadedRecipePart, PartValue | undefined> {
-  const due = {} as Record<LoadedRecipePart, PartValue | undefined>;
+  bean?: string | null,
+): DueParts {
+  const due = {} as DueParts;
   for (const part of PARTS) {
     const value = target[part];
     const none = nonePart(part, value);
     const taken = Object.prototype.hasOwnProperty.call(base, part) && samePart(part, base[part], value);
     const left = value === undefined || (none && !WHOLE_SHOT_PARTS.has(part));
     due[part] = left || samePart(part, held[part], value) || taken ? undefined : none ? null : value;
+  }
+  if (target.batch === null && bean !== undefined && Object.prototype.hasOwnProperty.call(base, BEAN_TAKEN) && base[BEAN_TAKEN] !== bean) {
+    due.batch = null;
+    due.beanDue = true;
   }
   // A Profile written whole holds its own step temperatures, which are moved to the Recipe's brew temperature with it.
   if (due.profile !== undefined && typeof target.brewTemperature === "number") due.brewTemperature = target.brewTemperature;
@@ -265,13 +296,13 @@ export function valuesFromWorkflow(
       }
     }
   }
-  const recipeBean = textOf(content.beanId)?.toLowerCase() ?? null;
+  const beanBefore = recipeBean(content);
   if (changed("batch")) {
     const batchId = context.item("beanBatch", now.batch as string);
     const beanId = batchId === undefined ? undefined : context.batchBeans.get(batchId);
     if (batchId !== undefined && beanId !== undefined && !context.retired.has(batchId)) {
       values.beanBatchId = batchId;
-      if (recipeBean !== beanId) values.beanId = beanId;
+      if (beanBefore !== beanId) values.beanId = beanId;
       parts.add("batch");
     }
   }
@@ -387,13 +418,15 @@ export interface PartNames {
  * Shot in (WHOLE_SHOT_PARTS), cleared, every field of it null, as DYE2's
  * apply clears one, but its yield, set to WORKFLOW_YIELD_OFF, as Decaid
  * refuses a null there, and a batch's coffee and roaster, which are the
- * Recipe's Bean's where it names one (`names`). One the tablet holds no
+ * Recipe's Bean's where it names one (`names`), and so are written into a
+ * Workflow holding no batch already where its batch part is due for a
+ * change of the Recipe's Bean (`beanDue`, #572). One the tablet holds no
  * record of yet waits. A Profile is written whole, expecting nothing, as a
  * skin overrides parts of the one it loads, and only where the Library
  * holds it. Null if none differs.
  */
 export function partsWrite(
-  target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
+  target: Readonly<Record<LoadedRecipePart, PartValue | undefined>> & { readonly beanDue?: boolean },
   held: WorkflowParts,
   names: PartNames,
 ): { fields: Record<string, unknown>; expected: Record<string, unknown> } | null {
@@ -402,7 +435,8 @@ export function partsWrite(
   for (const part of PARTS) {
     const value = target[part];
     const none = nonePart(part, value);
-    if (value === undefined || (none && !WHOLE_SHOT_PARTS.has(part)) || samePart(part, held[part], value)) continue;
+    const beanDue = part === "batch" && target.beanDue === true;
+    if (value === undefined || (none && !WHOLE_SHOT_PARTS.has(part)) || (samePart(part, held[part], value) && !beanDue)) continue;
     const [first, ...rest] = LOADED_RECIPE_PARTS[part] as readonly [string, ...string[]];
     if (part === "profile") {
       if (names.profile !== null) fields[first] = names.profile;
