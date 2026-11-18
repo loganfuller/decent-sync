@@ -61,8 +61,9 @@ import { profileOfSql } from "../shots/links.js";
 // server as the tablet's change of the record (`recordedByDye2`, recipes.ts),
 // and the server records itself what DYE2 saves none of
 // (`valuesFromWorkflow`): a Grinder, with the grind setting and RPM its pick
-// left, a Bean Batch of the Recipe's Bean, and a dose, yield, grind setting,
-// RPM or feed rate the Recipe holds none of. A Recipe is the whole Shot, so a
+// left, a Bean Batch, with its Bean where it is another Bean's, but one the
+// Library retired, and a dose, yield, grind setting, RPM or feed rate the
+// Recipe holds none of. A Recipe is the whole Shot, so a
 // load takes nothing into it: the Workflow is brought to it instead, what
 // the Recipe holds none of cleared from it, but for its steam, hot water and
 // flush settings, which the Machine keeps its own of. An edit of
@@ -70,8 +71,8 @@ import { profileOfSql } from "../shots/links.js";
 // that has it loaded (`loadedRecipeDue`), each part that changed since the
 // Workflow took it, one cleared from the Recipe cleared there, so the
 // plugin's own write is never read as the tablet's edit, and what stays the
-// Machine's own, as a batch of another Bean, a value cleared or steam turned
-// off, is never written back. A Workflow
+// Machine's own, as a batch the Library retired, a value cleared or steam
+// turned off, is never written back. A Workflow
 // naming a Recipe its Machine does not have loaded, as one Archived, or of
 // a Location it left, or the one the server last had as its Loaded Recipe
 // as it was made capture-only, has the recipe cleared from it; one loaded
@@ -315,12 +316,21 @@ async function recordFromWorkflow(
   const grinders = await tx.$queryRaw<{ id: string }[]>`
     SELECT id::text AS id FROM grinders WHERE location_id = ${recipe.locationId}::uuid AND NOT archived`;
   const batch = now.batch === null ? undefined : local.item("beanBatch", now.batch as string);
-  const beans = batch === undefined ? [] : await tx.$queryRaw<{ id: string; beanId: string }[]>`
-    SELECT id::text AS id, bean_id::text AS "beanId" FROM bean_batches WHERE id = ${batch}::uuid`;
+  // The batch picked, with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or finished at the
+  // Recipe's Location.
+  const beans = batch === undefined ? [] : await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
+    SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
+      batch.archived OR bean.archived OR EXISTS (
+        SELECT 1 FROM batch_locations AS here
+        WHERE here.batch_id = batch.id AND here.location_id = ${recipe.locationId}::uuid AND here.finished_at IS NOT NULL
+      ) AS retired
+    FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
+    WHERE batch.id = ${batch}::uuid`;
   const { values, parts } = valuesFromWorkflow(recipe.content, target, held, now, {
     item: (kind, localId) => local.item(kind, localId),
     grinders: new Set(grinders.map((row) => row.id)),
     batchBeans: new Map(beans.map((row) => [row.id, row.beanId])),
+    retired: new Set(beans.flatMap((row) => (row.retired ? [row.id] : []))),
   });
   if (parts.length === 0) return [];
   const [seen] = await tx.$queryRaw<{ contentSeenAt: Date | null }[]>`

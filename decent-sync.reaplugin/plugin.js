@@ -1563,6 +1563,10 @@ var __decentSync = (() => {
     if (isObject2(value)) return `{${Object.keys(value).sort().map((key2) => `${JSON.stringify(key2)}:${stableJson(value[key2])}`).join(",")}}`;
     return JSON.stringify(value ?? null);
   }
+  function movedBeanOrProfile(previous, workflow) {
+    if (dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return true;
+    return LOADED_RECIPE_PARTS.batch.some((field) => !sameValue(workflowValueAt(previous, field) ?? null, workflowValueAt(workflow, field) ?? null));
+  }
   function clearRecipe() {
     return workflowPatch({ [DYE2_RECIPE_FIELD]: null });
   }
@@ -1818,6 +1822,8 @@ var __decentSync = (() => {
        * needs none of its own, as DYE2 saves the Workflow as it is then.
        */
       __publicField(this, "queuedSave", null);
+      /** Whether a read of DYE2's recipes is waiting its turn (`readSoon`): one more change needs none of its own. */
+      __publicField(this, "readQueued", false);
       /** The Recipe, by its global id, whose load is held until the Shot being pulled ends, or null for none. */
       __publicField(this, "heldLoad", null);
       /**
@@ -1952,7 +1958,9 @@ var __decentSync = (() => {
      * held for a Shot as the plugin last stopped; a change of it
      * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
      * for one changing the profile from `previous`, as DYE2 fingerprints one,
-     * which DYE2 clears the recipe on. One leaving steam on where it was off
+     * which DYE2 clears the recipe on. One moving the bean or the profile
+     * from `previous` (`movedBeanOrProfile`) has DYE2's recipes read first
+     * (`readSoon`). One leaving steam on where it was off
      * since the last decision (`steamWasOff`, `steamOnWith`), turned back on,
      * has the save write the Recipe's steam temperature and time first. A
      * read of the recipes (`changed` false) saves nothing.
@@ -1977,6 +1985,7 @@ var __decentSync = (() => {
         return;
       }
       if (!changed || globalId === null || !this.sharing()) return;
+      if (previous !== void 0 && movedBeanOrProfile(previous, workflow)) this.readSoon();
       if (previous !== void 0 && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
       if (turnedOn !== null) this.steamBackOn = { globalId, load: this.loads, turnedOn };
       this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
@@ -2019,6 +2028,26 @@ var __decentSync = (() => {
         if (!await this.steamBackOnFirst(workflow, recordId, save, steamBackOn) || !current()) return;
         if (await recordIntoRecipe() === "saved") await this.reportRecipes();
         this.failing = false;
+      }).catch((error) => this.failed(error)).finally(() => this.changes.release());
+    }
+    /**
+     * Reads DYE2's recipes in `library`'s turn, and reports them where they
+     * changed (`reportRecipes`), holding the Workflow's changes back until
+     * then: a Skin that edits the Loaded Recipe writes its record, which
+     * Decaid's store announces none of, and then the Workflow, so the server
+     * takes in the record's edit before the Workflow change, and the other
+     * Machines are written it then, not at the next poll (#570). In
+     * `library`'s turn, a read follows a save of DYE2's under way rather than
+     * racing it. The read reaches `decide` as no change, so queues no save.
+     * One read waiting its turn covers every change after it.
+     */
+    readSoon() {
+      if (this.readQueued) return;
+      this.readQueued = true;
+      this.changes.hold();
+      void this.library.run(async () => {
+        this.readQueued = false;
+        if (!this.stopped) await this.reportRecipes();
       }).catch((error) => this.failed(error)).finally(() => this.changes.release());
     }
     /** Loads the Recipe in `library`'s turn (`loadRecipe`), or, while a Shot is being pulled, holds its load until the Shot ends. */

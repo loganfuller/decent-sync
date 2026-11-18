@@ -47,6 +47,7 @@ import {
   recipeContent,
   recipeRecord,
   recipeView,
+  refusedPaths,
   savedInEditor,
   slotMove,
   steamOffPaths,
@@ -166,9 +167,20 @@ async function intakeContext(
   // The Recipes' batches, and those the records hold, as DYE2's editor picks one with its Bean.
   const picked = views.flatMap((view) => (typeof view.beanBatchId === "string" ? [ids.item("beanBatch", view.beanBatchId)] : [])).filter((id): id is string => id !== undefined);
   const batches = [...current.flatMap((content) => (typeof content.beanBatchId === "string" ? [content.beanBatchId] : [])), ...picked];
-  const batchBeans = await tx.$queryRaw<{ id: string; beanId: string }[]>`
-    SELECT id::text AS id, bean_id::text AS "beanId" FROM bean_batches WHERE id = ANY(${uuids(batches)}::uuid[])`;
+  // Each with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or finished at the Location.
+  const batchBeans = await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
+    SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
+      batch.archived OR bean.archived OR EXISTS (
+        SELECT 1 FROM batch_locations AS here
+        WHERE here.batch_id = batch.id AND here.location_id = ${locationId}::uuid AND here.finished_at IS NOT NULL
+      ) AS retired
+    FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
+    WHERE batch.id = ANY(${uuids(batches)}::uuid[])`;
   const beans = [...new Set(views.flatMap((view) => (typeof view.beanId === "string" ? [ids.item("bean", view.beanId)] : [])))].filter((id): id is string => id !== undefined);
+  const archivedBeans = await tx.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM beans WHERE id = ANY(${beans}::uuid[]) AND archived`;
+  // The Library's Profiles among those the records name.
+  const named = [...new Set(views.flatMap((view) => (typeof view.profileId === "string" && view.profileId !== "" ? [view.profileId] : [])))];
+  const profiles = named.length === 0 ? [] : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM profiles WHERE id = ANY(${named}::text[])`;
   // Each Bean's batch most recently added at the Location that is still there.
   const latest = await tx.$queryRaw<{ beanId: string; id: string }[]>`
     SELECT DISTINCT ON (batch.bean_id) batch.bean_id::text AS "beanId", batch.id::text AS id
@@ -181,6 +193,9 @@ async function intakeContext(
     ids,
     grinders: new Set(grinders.map((row) => row.id)),
     batchBeans: new Map(batchBeans.map((row) => [row.id, row.beanId])),
+    retiredBatches: new Set(batchBeans.flatMap((row) => (row.retired ? [row.id] : []))),
+    archivedBeans: new Set(archivedBeans.map((row) => row.id)),
+    profiles: new Set(profiles.map((row) => row.id)),
     latestBatches: new Map(latest.map((row) => [row.beanId, row.id])),
   };
   return async (view) => ({ ...base, snapshotProfile: await snapshotProfile(tx, view) });
@@ -521,11 +536,13 @@ export async function recordRecipeWritten(
       const steamOff = steamOffPaths(answered.values).length > 0;
       for (const path of recorded) delete answered.values[path];
       const paths = editedPaths(answered.values);
+      // And so is a pick of what the Library does not offer the Recipe, as an Archived Bean or a Profile it does not have.
+      const refused = paths.length > 0 && here && refusedPaths(view, paths, await context(view)).length > 0;
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       const now = await recordFor(tx, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, slot, itemId);
-      stale = (answered.stale || recorded.size > 0 || steamOff) && !holdsRecipe(view, now);
+      stale = (answered.stale || recorded.size > 0 || steamOff || refused) && !holdsRecipe(view, now);
       // Moved on the tablet since its last report, as the write set neither its slot nor whether it is shown.
       const moved = !written.has(RECIPE_SLOT_FIELD) && !written.has(RECIPE_SHOWN_FIELD);
       const move = here && moved ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;

@@ -155,7 +155,7 @@ export function readBase(value: unknown): BaseParts {
  * Workflow is due: each the Workflow holds otherwise than the Recipe
  * (`held`), but one the Workflow took as the Recipe holds it now (`base`),
  * which a change on the Machine since left as the Machine's own, as a batch
- * of another Bean, a value cleared or steam turned off (ADR-0022). One the
+ * the Library retired, a value cleared or steam turned off (ADR-0022). One the
  * Recipe holds none of is due cleared (null) where the Recipe is the whole
  * Shot in it (WHOLE_SHOT_PARTS), as a Grinder or a dose, and never where the
  * Machine keeps its own, as a steam time. The rest are left out (undefined).
@@ -193,7 +193,11 @@ export function heldAlready(target: Readonly<Record<LoadedRecipePart, PartValue 
   return base;
 }
 
-/** What `valuesFromWorkflow` reads besides the parts: the tablet's map back to the Library, and the Location's Grinders and each batch's Bean. */
+/**
+ * What `valuesFromWorkflow` reads besides the parts: the tablet's map back to
+ * the Library, the Location's Grinders, each batch's Bean, and the batches
+ * the Library retired.
+ */
 export interface WorkflowValuesContext {
   /** The Library item a record of the tablet's is, by its id there; undefined where the map holds none. */
   item(kind: ItemKind, localId: string): string | undefined;
@@ -201,6 +205,8 @@ export interface WorkflowValuesContext {
   grinders: ReadonlySet<string>;
   /** Each Bean Batch's Bean, by their global ids. */
   batchBeans: ReadonlyMap<string, string>;
+  /** The Bean Batches the Library retired for the Recipe: each Archived, of an Archived Bean, or finished at its Location. */
+  retired: ReadonlySet<string>;
 }
 
 /** The parts Decent Sync takes into a Recipe from its Machine's Workflow, but where the Recipe holds a value already: its dial but the brew temperature and the Basket, which are DYE2's to save. */
@@ -223,11 +229,12 @@ const PICKED_WITH_GRINDER = { grind: "grindSetting", rpm: "rpm" } as const satis
  * none included, as DYE2 from v0.1.37 writes the picked grinder's defaults
  * with it, or none where it declares neither (`grinderDefaultsPatch` in
  * dye2:dye2-plugin/src/utils/grinder-form.ts), a dial position belonging to
- * the grinder it was read off; and a Bean Batch of the Recipe's own Bean, or
- * with its Bean for a Recipe naming no Bean. Nothing is taken on a load:
- * this reads only a Workflow that goes on naming the Recipe. A batch of
- * another Bean, a value cleared, and anything the map does not hold stay the
- * Machine's own. With the parts they record.
+ * the grinder it was read off; and a Bean Batch, with its Bean where it is
+ * another Bean's (#570), but one the Library retired (`retired`): Archived,
+ * of an Archived Bean, or finished at the Recipe's Location. Nothing is
+ * taken on a load: this reads only a Workflow that goes on naming the
+ * Recipe. A retired batch, a value cleared, and anything the map does not
+ * hold stay the Machine's own. With the parts they record.
  */
 export function valuesFromWorkflow(
   content: Readonly<Record<string, unknown>>,
@@ -262,9 +269,9 @@ export function valuesFromWorkflow(
   if (changed("batch")) {
     const batchId = context.item("beanBatch", now.batch as string);
     const beanId = batchId === undefined ? undefined : context.batchBeans.get(batchId);
-    if (batchId !== undefined && beanId !== undefined && (recipeBean === null || recipeBean === beanId)) {
+    if (batchId !== undefined && beanId !== undefined && !context.retired.has(batchId)) {
       values.beanBatchId = batchId;
-      if (recipeBean === null) values.beanId = beanId;
+      if (recipeBean !== beanId) values.beanId = beanId;
       parts.add("batch");
     }
   }

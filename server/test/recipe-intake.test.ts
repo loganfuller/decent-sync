@@ -17,6 +17,7 @@ import {
   recipeView,
   recipeWorkflow,
   recordOf,
+  refusedPaths,
   slotMove,
   steamOffPaths,
   tabletIds,
@@ -103,6 +104,9 @@ const intake = (context: Partial<IntakeContext> = {}): IntakeContext => ({
     [GLOBAL.ethiopiaBatch, GLOBAL.ethiopia],
     [GLOBAL.laterEthiopiaBatch, GLOBAL.ethiopia],
   ]),
+  retiredBatches: new Set(),
+  archivedBeans: new Set(),
+  profiles: new Set([ADAPTIVE]),
   latestBatches: new Map([
     [GLOBAL.ethiopia, GLOBAL.laterEthiopiaBatch],
     [GLOBAL.brazil, null],
@@ -228,6 +232,42 @@ describe("DYE2's recipes as Recipes", () => {
       beanBatchId: null,
     });
     expect(libraryValues(recipeView({ ...slot1, beanId: "bean-of-its-own" }), ["beanId"], {}, intake())).toEqual({ beanId: null, beanBatchId: null });
+  });
+
+  it("takes no Bean, batch or Profile the Library does not offer the Recipe, an Archived Bean, a batch Archived, of an Archived Bean or finished at its Location, or a Profile it does not have, which the Recipe keeps its own of, but a batch held under another Bean, as the Bean wins (#570)", () => {
+    const brazil = { beanId: GLOBAL.brazil, beanBatchId: null, profileId: ADAPTIVE };
+    const ethiopia = (fields: Record_ = {}) => recipeView({ ...slot1, beanId: LOCAL.ethiopia, beanBatchId: LOCAL.ethiopiaBatch, ...fields });
+    const bean = ["beanId", "beanBatchId"];
+    // Taken as the Library offers both.
+    expect(libraryValues(ethiopia(), bean, brazil, intake())).toEqual({ beanId: GLOBAL.ethiopia, beanBatchId: GLOBAL.ethiopiaBatch });
+    // The Ethiopia Archived, with its batch or none: the Recipe keeps the Brazil.
+    const archived = intake({ archivedBeans: new Set([GLOBAL.ethiopia]) });
+    expect(libraryValues(ethiopia(), bean, brazil, archived)).toEqual({});
+    expect(libraryValues(ethiopia({ beanBatchId: null }), bean, brazil, archived)).toEqual({});
+    expect(refusedPaths(ethiopia(), bean, archived)).toEqual(bean);
+    // Its batch retired, picked with it, on its own under the Recipe's Bean, or named with no Bean as DYE2's save-recipe
+    // saves one: the Recipe keeps its Bean and batch.
+    const retired = intake({ retiredBatches: new Set([GLOBAL.ethiopiaBatch]) });
+    expect(libraryValues(ethiopia(), bean, brazil, retired)).toEqual({});
+    expect(libraryValues(ethiopia(), ["beanBatchId"], { beanId: GLOBAL.ethiopia, beanBatchId: GLOBAL.laterEthiopiaBatch }, retired)).toEqual({});
+    const { beanId: _, ...beanless } = slot1;
+    expect(libraryValues(recipeView({ ...beanless, beanBatchId: LOCAL.ethiopiaBatch }), ["beanBatchId"], brazil, retired)).toEqual({});
+    expect(refusedPaths(ethiopia(), ["beanBatchId"], retired)).toEqual(bean);
+    // Held under the Brazil, a batch of another Bean is none, retired or not: the Brazil is taken.
+    expect(libraryValues(ethiopia({ beanId: LOCAL.brazil }), bean, {}, retired)).toEqual({ beanId: GLOBAL.brazil, beanBatchId: null });
+    expect(refusedPaths(ethiopia({ beanId: LOCAL.brazil }), bean, retired)).toEqual([]);
+    // A new Recipe from such a record names none.
+    expect(recipeContent(ethiopia(), archived)).not.toHaveProperty("beanId");
+    expect(recipeContent(ethiopia(), retired)).not.toHaveProperty("beanBatchId");
+
+    // A Profile the Library does not have, as one made on the tablet the plugin has not reported yet: the Recipe keeps its own.
+    const unknown = recipeView({ ...slot1, profileId: "profile:0000000000000000ffff" });
+    expect(libraryValues(unknown, ["profileId"], { profileId: ADAPTIVE }, intake())).toEqual({});
+    expect(refusedPaths(unknown, ["profileId", "name"], intake())).toEqual(["profileId"]);
+    expect(recipeContent(unknown, intake())).not.toHaveProperty("profileId");
+    expect(libraryValues(unknown, ["profileId"], { profileId: ADAPTIVE }, intake({ profiles: new Set(["profile:0000000000000000ffff"]) }))).toEqual({
+      profileId: "profile:0000000000000000ffff",
+    });
   });
 
   it("takes each steam, hot water and flush setting a record holds, a blank one holding none, but no steam turned off, and keeps a Recipe's Tools the tablet holds no record of", () => {

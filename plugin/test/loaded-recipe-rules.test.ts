@@ -10,7 +10,7 @@ import {
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { clearRecipe, loadWrite, loadable, profileKey, steamBackOnWrite, steamOnWith, vacatedIds } from "../src/loaded-recipe-rules.js";
+import { clearRecipe, loadWrite, loadable, movedBeanOrProfile, profileKey, steamBackOnWrite, steamOnWith, vacatedIds } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as it loads a
 // Recipe the Workflow names, or as steam is turned back on with one loaded
@@ -116,6 +116,28 @@ describe("DYE2's fingerprint of a profile", () => {
     expect(dye2Fingerprint({ ...profile, steps })).toBe(dye2Fingerprint({ ...profile, steps: steps.map((step) => ({ ...step, limiter: null })) }));
     expect(dye2Fingerprint({ ...profile, steps: steps.map(({ limiter: _, ...step }) => step) })).toBe(dye2Fingerprint({ ...profile, steps }));
     expect(dye2Fingerprint({ ...profile, steps: steps.map((step) => ({ ...step, limiter: { value: 2, range: 0.6 } })) })).not.toBe(dye2Fingerprint({ ...profile, steps }));
+  });
+});
+
+describe("a change a Skin may have written the Loaded Recipe's record for (#570)", () => {
+  const workflow = library.workflow;
+  const context = workflow.context as Record_;
+  const changed = (fields: Record_) => ({ ...workflow, context: { ...context, ...fields } });
+
+  it("moves the bean, any of the batch's id, coffee or roaster, or the profile, as DYE2 fingerprints one", () => {
+    expect(movedBeanOrProfile(workflow, changed({ beanBatchId: "another-batch" }))).toBe(true);
+    expect(movedBeanOrProfile(workflow, changed({ coffeeName: "Fixture Kenya", coffeeRoaster: "Fixture Roasters" }))).toBe(true);
+    // Cleared, from a Workflow on a batch.
+    const onBatch = changed({ beanBatchId: "a-batch", coffeeName: "Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" });
+    expect(movedBeanOrProfile(onBatch, changed({ beanBatchId: null, coffeeName: null, coffeeRoaster: null }))).toBe(true);
+    expect(movedBeanOrProfile(onBatch, structuredClone(onBatch))).toBe(false);
+    expect(movedBeanOrProfile(workflow, { ...workflow, profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
+  });
+
+  it("is none for a dose, yield or grind setting, a profile at another brew temperature or target weight, or no change", () => {
+    expect(movedBeanOrProfile(workflow, changed({ targetDoseWeight: 19.5, targetYield: 44, grinderSetting: "3.1" }))).toBe(false);
+    expect(movedBeanOrProfile(workflow, { ...workflow, profile: { ...profileAtBrewTemperature(workflow.profile as Record_, 80), target_weight: 40 } })).toBe(false);
+    expect(movedBeanOrProfile(workflow, structuredClone(workflow))).toBe(false);
   });
 });
 
