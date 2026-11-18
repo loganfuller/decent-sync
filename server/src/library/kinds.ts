@@ -349,7 +349,6 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   flushFlow: { min: 1, max: 8 },
 };
 
-/** Each kind of Library item, described once. */
 /**
  * Whether the Bean Batch aliased `batch`, of the Bean aliased `bean`, is one
  * the Location does not offer, so a Tablet's pick of it is not taken into a
@@ -364,6 +363,7 @@ export function batchRetiredSql(locationId: string | null): Prisma.Sql {
   ))`;
 }
 
+/** Each kind of Library item, described once. */
 export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   bean: {
     name: "Bean",

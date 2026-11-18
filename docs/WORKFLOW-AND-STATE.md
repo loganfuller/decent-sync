@@ -437,9 +437,10 @@ through `plugin/src/dye2.ts`, and writes what the pure
   write. The read takes its turn among the reads and writes of the tablet's
   lists, so it follows a save of DYE2's under way rather than racing it,
   queues the recipes connected or not (`recipesNow`), the tablet's Profiles
-  read and queued before them, as every read of the recipes does, so a
-  record naming a profile just saved on the tablet names one the server
-  has, and holds the change back until then, so the server takes the
+  read and queued before them where a record names one not among those
+  last read, as on every read of the recipes, so a record naming a profile
+  just saved on the tablet names one the server has, and holds the change
+  back until then, so the server takes the
   record's edit first. One read
   waiting its turn covers the changes after it, and it reaches `decide` as
   no change, so queues no save. A dose, yield, grind or steam change reads

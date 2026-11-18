@@ -848,10 +848,10 @@ writes it to every tablet at the Location.
 - **What is not taken.** An Archived Bean, or a batch held with its Bean
   that is Archived, of an Archived Bean or not at the Recipe's Location
   (never added there, or finished there), changes neither the Recipe's Bean nor its batch. A `profileId`
-  that is none of the Library's Profiles changes none. The plugin reads the
-  tablet's profiles before DYE2's recipes whenever it reads the recipes, so
-  a profile saved on this tablet before the record that names it is the
-  Library's by then. The Recipe's own is written back
+  that is none of the Library's Profiles changes none. Where a recipe names
+  a profile the plugin has not read among the tablet's, it reads and sends
+  the tablet's profiles before the recipes, so a profile saved on this
+  tablet before the record that names it is the Library's by then. The Recipe's own is written back
   over the record, and nothing is offered or added at the Location. The
   Workflow keeps what was picked: such a batch stays that Machine's own,
   with the Recipe loaded.

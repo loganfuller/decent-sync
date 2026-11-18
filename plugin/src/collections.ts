@@ -6,6 +6,7 @@ import {
   LIBRARY_LISTS,
   SETTINGS_COLLECTION_NAMES,
   dye2Key,
+  dye2Records,
   hasUtcOffset,
   isDye2List,
   isLibraryList,
@@ -61,7 +62,7 @@ const SOURCES: readonly Source[] = [
 /** Where DYE2's recipes are read. */
 const RECIPES = SOURCES.find((source) => source.name === "dye2Recipes")!;
 
-/** Where the tablet's Profiles are read: before DYE2's recipes whenever they are read, so a recipe names none the server has not heard of (#570). */
+/** Where the tablet's Profiles are read: before DYE2's recipes where one names a Profile not among the last read, so the server has heard of it first (#570). */
 const PROFILES = SOURCES.find((source) => source.name === "profiles")!;
 
 /**
@@ -150,6 +151,8 @@ const FROM_MACHINE: ReadonlySet<CollectionName> = new Set([...MACHINE_SETTINGS, 
 export class CollectionCapture {
   /** What was last queued for each collection. */
   private readonly last = new Map<CollectionName, Fingerprint>();
+  /** The ids of the tablet's Profiles as last read, or undefined before the first read. */
+  private profileIds: ReadonlySet<string> | undefined;
   /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
   private readonly firstReads = new Map<CollectionName, FirstReads>();
   /** For each collection, the latest delivery queued, and the latest queued with a value. */
@@ -229,16 +232,11 @@ export class CollectionCapture {
    * DYE2's recipes, read now and queued if they changed, connected or not,
    * resolving once queued: as DYE2 saved into the Loaded Recipe a change of
    * the Workflow the plugin holds back until then, so the server takes in
-   * the edit before the Workflow that brought it (ADR-0022). The tablet's
-   * Profiles are read and queued first, so a Profile made on the tablet
-   * just before a recipe names it reaches the server before that recipe
-   * (#570). Made within the
+   * the edit before the Workflow that brought it (ADR-0022). Made within the
    * reads and writes of the tablet's lists (`LibraryAccess.run`), as every
    * read of a list the server writes to is.
    */
   async recipesNow(): Promise<void> {
-    if (this.stopped) return;
-    await this.capture(PROFILES, false);
     if (this.stopped) return;
     await this.capture(RECIPES, false);
   }
@@ -308,7 +306,7 @@ export class CollectionCapture {
     try {
       while ((this.wanted !== undefined || this.recipesWanted || this.fromMachineDue()) && !this.stopped) {
         const full = this.wanted === "full";
-        // A poll reads DYE2's recipes too, and any read of them the tablet's Profiles before them (`recipesNow`).
+        // A poll reads DYE2's recipes too.
         const polled = this.wanted !== undefined;
         const recipes = polled || this.recipesWanted;
         this.wanted = undefined;
@@ -320,7 +318,7 @@ export class CollectionCapture {
             if (this.fromMachineWanted.has(source.name)) await this.settings.run(() => this.readFromMachine(source));
             continue;
           }
-          if (!(source.name === RECIPES.name || source.name === PROFILES.name ? recipes : polled)) continue;
+          if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
@@ -411,7 +409,17 @@ export class CollectionCapture {
       await ("read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name))),
     );
     if (this.stopped) return false;
-    if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
+    if (source.name === PROFILES.name && reading.kind === "value") this.profileIds = profileIdsOf(reading.value);
+    if (source.name === RECIPES.name && reading.kind === "value") {
+      this.sawRecipes(reading.value);
+      // A recipe naming a Profile not among those last read, as one saved on the tablet just before, has the Profiles read
+      // and queued first, so the server has it before the recipe names it, and does not refuse it as none of the Library's
+      // (#570). Within the same turn of the tablet's lists, as every recipes read is made in.
+      if (namesUnreadProfile(reading.value, this.profileIds)) {
+        await this.capture(PROFILES, false);
+        if (this.stopped) return false;
+      }
+    }
     return this.queueReading(source.name, reading, full);
   }
 
@@ -530,4 +538,16 @@ function selected(source: Source, reading: Reading): Reading {
   if (reading.kind !== "value" || !source.select) return reading;
   const value = source.select(reading.value);
   return value === null ? { kind: "unavailable" } : { ...reading, value };
+}
+
+/** The ids of a read of the tablet's Profiles, each record's `id`; undefined for a list in a shape not recognised. */
+function profileIdsOf(value: unknown): ReadonlySet<string> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return new Set(value.flatMap((entry: unknown) => (typeof entry === "object" && entry !== null && typeof (entry as { id?: unknown }).id === "string" ? [(entry as { id: string }).id] : [])));
+}
+
+/** Whether a read of DYE2's recipes names a Profile, by a record's `profileId`, not among `known`, or any where none was read yet. */
+function namesUnreadProfile(value: unknown, known: ReadonlySet<string> | undefined): boolean {
+  const records = dye2Records(value) ?? [];
+  return records.some((record) => typeof record.profileId === "string" && record.profileId !== "" && (known === undefined || !known.has(record.profileId)));
 }
