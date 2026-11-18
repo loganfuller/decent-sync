@@ -416,7 +416,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // The Skin's profile keeps the Workflow's brew temperature, so nothing but the profile moves around the plugin's write.
     const listed = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
     const temperature = (profile(a).steps as Record_[])[0]!.temperature;
-    const classic = { ...listed, steps: (listed.steps as Record_[]).map((step, index) => (index === 0 ? { ...step, temperature } : step)) };
+    const classic: Record_ = { ...listed, steps: (listed.steps as Record_[]).map((step, index) => (index === 0 ? { ...step, temperature } : step)) };
     const reads = a.requests.filter((route) => route === "/workflow").length;
     slow = true;
     await patch(one, { hotWaterVolume: 130 });
