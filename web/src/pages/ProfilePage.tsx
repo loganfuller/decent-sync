@@ -99,11 +99,14 @@ function ProfileDetails({ id }: { id: string }) {
       <Card>
         <CardHeader>
           <CardTitleWithInfo title="Title, author and notes">
-            <p>
-              Outside the steps that decide the Profile&apos;s id, so a change here keeps it the same Profile, and every tablet that holds it is written the change. Its title can&apos;t be
-              cleared.
-            </p>
-            {profile.bundled && <p>One of Decaid&apos;s bundled Profiles, which keep the title, author and notes Decaid gives them.</p>}
+            {profile.bundled ? (
+              <p>One of Decaid&apos;s bundled Profiles, which keep the title, author and notes Decaid gives them.</p>
+            ) : (
+              <p>
+                Outside the steps that decide the Profile&apos;s id, so a change here keeps it the same Profile, and every tablet that holds it is written the change. Its title can&apos;t
+                be cleared.
+              </p>
+            )}
           </CardTitleWithInfo>
         </CardHeader>
         <CardContent className="grid gap-4">
