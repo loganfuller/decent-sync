@@ -350,6 +350,20 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
 };
 
 /** Each kind of Library item, described once. */
+/**
+ * Whether the Bean Batch aliased `batch`, of the Bean aliased `bean`, is one
+ * the Location does not offer, so a Tablet's pick of it is not taken into a
+ * Recipe there (#570): Archived, of an Archived Bean, or not at the Location,
+ * never added there or finished there, as `holdings.offered` reads one; at
+ * no Location (null), every batch.
+ */
+export function batchRetiredSql(locationId: string | null): Prisma.Sql {
+  return Prisma.sql`(batch.archived OR bean.archived OR NOT EXISTS (
+    SELECT 1 FROM batch_locations AS here
+    WHERE here.batch_id = batch.id AND here.location_id = ${locationId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL
+  ))`;
+}
+
 export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   bean: {
     name: "Bean",

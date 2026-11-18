@@ -359,7 +359,7 @@ export function heldByRecord(
 }
 
 /** The profile DYE2 compares the Workflow's with for a recipe: its record's embedded Workflow's, or else its snapshot (`profileOf` in dye2:dye2-plugin/src/utils/workflow-record.ts). */
-function recordProfile(record: Readonly<Record<string, unknown>> | null): unknown {
+export function recordProfile(record: Readonly<Record<string, unknown>> | null): unknown {
   const workflow = isObject(record?.workflow) ? record.workflow : undefined;
   return workflow?.profile || record?.profileSnapshot || null;
 }

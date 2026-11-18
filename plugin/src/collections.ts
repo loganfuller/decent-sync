@@ -61,6 +61,9 @@ const SOURCES: readonly Source[] = [
 /** Where DYE2's recipes are read. */
 const RECIPES = SOURCES.find((source) => source.name === "dye2Recipes")!;
 
+/** Where the tablet's Profiles are read: before DYE2's recipes whenever they are read, so a recipe names none the server has not heard of (#570). */
+const PROFILES = SOURCES.find((source) => source.name === "profiles")!;
+
 /**
  * The Library lists the server writes to, read only between its writes
  * (`LibraryAccess`): a report of one of them must hold each write that began
@@ -226,11 +229,16 @@ export class CollectionCapture {
    * DYE2's recipes, read now and queued if they changed, connected or not,
    * resolving once queued: as DYE2 saved into the Loaded Recipe a change of
    * the Workflow the plugin holds back until then, so the server takes in
-   * the edit before the Workflow that brought it (ADR-0022). Made within the
+   * the edit before the Workflow that brought it (ADR-0022). The tablet's
+   * Profiles are read and queued first, so a Profile made on the tablet
+   * just before a recipe names it reaches the server before that recipe
+   * (#570). Made within the
    * reads and writes of the tablet's lists (`LibraryAccess.run`), as every
    * read of a list the server writes to is.
    */
   async recipesNow(): Promise<void> {
+    if (this.stopped) return;
+    await this.capture(PROFILES, false);
     if (this.stopped) return;
     await this.capture(RECIPES, false);
   }
@@ -300,7 +308,7 @@ export class CollectionCapture {
     try {
       while ((this.wanted !== undefined || this.recipesWanted || this.fromMachineDue()) && !this.stopped) {
         const full = this.wanted === "full";
-        // A poll reads DYE2's recipes too.
+        // A poll reads DYE2's recipes too, and any read of them the tablet's Profiles before them (`recipesNow`).
         const polled = this.wanted !== undefined;
         const recipes = polled || this.recipesWanted;
         this.wanted = undefined;
@@ -312,7 +320,7 @@ export class CollectionCapture {
             if (this.fromMachineWanted.has(source.name)) await this.settings.run(() => this.readFromMachine(source));
             continue;
           }
-          if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
+          if (!(source.name === RECIPES.name || source.name === PROFILES.name ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))

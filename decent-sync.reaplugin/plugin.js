@@ -3198,6 +3198,7 @@ var __decentSync = (() => {
     { name: "sensors", path: "/sensors" }
   ];
   var RECIPES2 = SOURCES.find((source) => source.name === "dye2Recipes");
+  var PROFILES = SOURCES.find((source) => source.name === "profiles");
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
   var SETTINGS = new Set(SETTINGS_COLLECTION_NAMES);
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
@@ -3277,11 +3278,16 @@ var __decentSync = (() => {
      * DYE2's recipes, read now and queued if they changed, connected or not,
      * resolving once queued: as DYE2 saved into the Loaded Recipe a change of
      * the Workflow the plugin holds back until then, so the server takes in
-     * the edit before the Workflow that brought it (ADR-0022). Made within the
+     * the edit before the Workflow that brought it (ADR-0022). The tablet's
+     * Profiles are read and queued first, so a Profile made on the tablet
+     * just before a recipe names it reaches the server before that recipe
+     * (#570). Made within the
      * reads and writes of the tablet's lists (`LibraryAccess.run`), as every
      * read of a list the server writes to is.
      */
     async recipesNow() {
+      if (this.stopped) return;
+      await this.capture(PROFILES, false);
       if (this.stopped) return;
       await this.capture(RECIPES2, false);
     }
@@ -3353,7 +3359,7 @@ var __decentSync = (() => {
               if (this.fromMachineWanted.has(source.name)) await this.settings.run(() => this.readFromMachine(source));
               continue;
             }
-            if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
+            if (!(source.name === RECIPES2.name || source.name === PROFILES.name ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
             const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
             if (sent) sentLists.add(source.name);

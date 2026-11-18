@@ -34,10 +34,12 @@ import {
   readBase,
   readParts,
   recipeParts,
+  recordProfile,
   samePart,
   valuesFromWorkflow,
   workflowParts,
 } from "../library/loaded-recipe-intake.js";
+import { batchRetiredSql } from "../library/kinds.js";
 import { lockLocation } from "../library/location-state.js";
 import { latestDecision, readFieldEdits } from "../library/merge.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -302,17 +304,15 @@ async function profileChanged(tx: Prisma.TransactionClient, machineId: string, w
 /**
  * Whether the tablet's record of the Recipe holds the Workflow's profile, as
  * DYE2 fingerprints one (`dye2Fingerprint`): its embedded Workflow's, or
- * else its `profileSnapshot`, which DYE2 keeps the Workflow's recipe named
- * through a change of profile onto (decentespresso/dye2#38).
+ * else its `profileSnapshot` (`recordProfile`), which DYE2 keeps the
+ * Workflow's recipe named through a change of profile onto
+ * (decentespresso/dye2#38).
  */
 async function recordHoldsProfile(tx: Prisma.TransactionClient, tabletId: string, recipeId: string, workflow: unknown): Promise<boolean> {
   const [row] = await tx.$queryRaw<{ record: unknown }[]>`
     SELECT record FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND recipe_id = ${recipeId}::uuid`;
-  const record = isObject(row?.record) ? row.record : null;
-  if (record === null || !isObject(workflow)) return false;
-  const embedded = isObject(record.workflow) ? record.workflow.profile : undefined;
-  const held = isObject(embedded) ? embedded : record.profileSnapshot;
-  return isObject(held) && dye2Fingerprint(held) === dye2Fingerprint(workflow.profile);
+  const held = recordProfile(isObject(row?.record) ? row.record : null);
+  return isObject(held) && isObject(workflow) && dye2Fingerprint(held) === dye2Fingerprint(workflow.profile);
 }
 
 /**
@@ -342,10 +342,7 @@ async function recordFromWorkflow(
   // the Recipe's Location, as one never added there or finished there: the Location offers none of these.
   const beans = batch === undefined ? [] : await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
     SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
-      batch.archived OR bean.archived OR NOT EXISTS (
-        SELECT 1 FROM batch_locations AS here
-        WHERE here.batch_id = batch.id AND here.location_id = ${recipe.locationId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-      ) AS retired
+      ${batchRetiredSql(recipe.locationId)} AS retired
     FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
     WHERE batch.id = ${batch}::uuid`;
   const { values, parts } = valuesFromWorkflow(recipe.content, target, held, now, {

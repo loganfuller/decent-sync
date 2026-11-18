@@ -16,7 +16,7 @@ import {
 import { quiesced } from "./support/quiet.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
-import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for tickets #146, #173, #177, #187, #188, #189, #216, #389 and
@@ -971,6 +971,27 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await a.changeSettings({ context: { coffeeName: "Fixture Kenya AA" } });
     await quiet();
     expect(recipeReads(a)).toBe(unloaded);
+  });
+
+  it("takes a Profile saved on A just before a Skin writes it into A's record and Workflow as the Recipe's, the plugin reading A's profiles before its recipes, and writes it into C's Workflow, the Recipe loaded on both (#570)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Profile just made", 48461, { pollSeconds: 3600 });
+    // As in the Skin's write test above: no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    // Saved on A, as in Streamline, which the plugin reports at its poll, an hour away: the Library has no such Profile yet.
+    const made = await a.addProfile(derivedProfile("Lab Just Made", 7.5));
+    const id = made.id as string;
+    expect((await api.call("GET", `/profiles/${encodeURIComponent(id)}`)).status).toBe(404);
+    const madeProfile = made.profile as Record_;
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: id, profileTitle: madeProfile.title, profileSnapshot: madeProfile, workflow: { ...(entry.workflow as Record_), profile: madeProfile } }));
+    expect((await a.callApi("PUT", "/workflow", { profile: madeProfile })).status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content.profileId, { timeout: 15_000 }).toBe(id);
+    await expect.poll(() => profile(c).title, { timeout: 15_000 }).toBe("Lab Just Made");
+    await quiet();
+    expect(record(a, ETHIOPIA)?.profileId).toBe(id);
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
   it("takes a batch of another Bean that a Skin puts into A's Workflow with the profile its record holds already, in one write, as the Recipe's, with the Profile, writing both into C's Workflow, the Recipe loaded on both (#570)", async () => {

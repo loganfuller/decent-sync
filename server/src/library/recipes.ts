@@ -11,6 +11,7 @@ import {
   writtenRecipeSlot,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { batchRetiredSql } from "./kinds.js";
 import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -171,10 +172,7 @@ async function intakeContext(
   // Location, as one never added there or finished there: the Location offers none of these.
   const batchBeans = await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
     SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
-      batch.archived OR bean.archived OR NOT EXISTS (
-        SELECT 1 FROM batch_locations AS here
-        WHERE here.batch_id = batch.id AND here.location_id = ${locationId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-      ) AS retired
+      ${batchRetiredSql(locationId)} AS retired
     FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
     WHERE batch.id = ANY(${uuids(batches)}::uuid[])`;
   const beans = [...new Set(views.flatMap((view) => (typeof view.beanId === "string" ? [ids.item("bean", view.beanId)] : [])))].filter((id): id is string => id !== undefined);

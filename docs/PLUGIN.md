@@ -831,7 +831,10 @@ writes it to every tablet at the Location.
   Recipe's Bean on every Machine.
 - **Write the record before the Workflow.** Write the record, then the
   Workflow: its profile, or its `beanBatchId` with `coffeeName` and
-  `coffeeRoaster`. The plugin reads DYE2's recipes as a Workflow change
+  `coffeeRoaster`. With a new profile, write the record's brew temperature
+  (`dashboardVariables.brewC`) too, and put the Workflow's profile at it:
+  the other Machines are written the new profile at the Recipe's brew
+  temperature, as DYE2 applies one. The plugin reads DYE2's recipes as a Workflow change
   moves the bean or the profile under a Loaded Recipe, and holds that change
   back until it has, so the server takes the record's edit first, and the
   other Machines have it within seconds. A profile changed in the Workflow
@@ -845,9 +848,10 @@ writes it to every tablet at the Location.
 - **What is not taken.** An Archived Bean, or a batch held with its Bean
   that is Archived, of an Archived Bean or not at the Recipe's Location
   (never added there, or finished there), changes neither the Recipe's Bean nor its batch. A `profileId`
-  that is none of the Library's Profiles changes none, as one made on this
-  tablet that the plugin has not reported yet: it reports the tablet's
-  profiles at its poll, 30 s by default. The Recipe's own is written back
+  that is none of the Library's Profiles changes none. The plugin reads the
+  tablet's profiles before DYE2's recipes whenever it reads the recipes, so
+  a profile saved on this tablet before the record that names it is the
+  Library's by then. The Recipe's own is written back
   over the record, and nothing is offered or added at the Location. The
   Workflow keeps what was picked: such a batch stays that Machine's own,
   with the Recipe loaded.

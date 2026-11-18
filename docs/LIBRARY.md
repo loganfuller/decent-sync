@@ -1420,8 +1420,8 @@ are never matched (ADR-0018).
   (`refusedPaths`, #570). DYE2 never saves a batch picked on a Machine into
   the recipe, so Decent Sync records it: a batch picked on a Machine with
   the Recipe loaded becomes the Recipe's, with its Bean where it is another
-  Bean's, on any Skin (#570), but one the Library retired so, which stays
-  that Machine's own, the Recipe still loaded; nothing is taken on the load,
+  Bean's, on any Skin (#570), but not one the Library retired (above), which
+  stays that Machine's own, the Recipe still loaded; nothing is taken on the load,
   which leaves a Recipe naming no Bean none, as it means no bean as DYE2
   v0.1.32 applies it (ADR-0022, `WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
