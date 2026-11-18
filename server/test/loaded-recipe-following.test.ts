@@ -811,6 +811,47 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
+  it("writes the Recipe's batch back into A's Workflow over a batch of another Bean picked on A that lost to C's pick of the Recipe's own batch again, made just after it and taken in first, though that left the Recipe as A's Workflow held it before (#570)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Lost pick", 48431);
+    const { beanBatchId: first } = (await recipe(one)).content as { beanBatchId: string };
+    const firstOnA = context(a).beanBatchId;
+    const firstOnC = context(c).beanBatchId;
+    // C's batch cleared: the Machine's own, the Recipe unchanged.
+    await c.changeSettings({ context: { beanBatchId: null } });
+    await quiet();
+    expect((await recipe(one)).content.beanBatchId).toBe(first);
+    // A picks a batch of the Brazil, its change held back as in the crossed picks above.
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const releaseA = a.holdWorkflowReads();
+    const requested = a.requests.length;
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    await expect.poll(() => a.requests.slice(requested).includes("/workflow"), { timeout: 15_000 }).toBe(true);
+    // Then C picks the Recipe's batch again, which the server takes as an edit leaving it as it was.
+    const versionsBefore = (await versions(one)).length;
+    await c.changeSettings({ context: { beanBatchId: firstOnC } });
+    await expect.poll(async () => (await versions(one)).length, { timeout: 15_000 }).toBeGreaterThan(versionsBefore);
+    // A's pick, made first, loses, and A is written the Recipe's batch, as it would be had C's edit changed it.
+    releaseA();
+    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
+    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
+    await expect.poll(() => context(a).beanBatchId, { timeout: 15_000 }).toBe(firstOnA);
+    expect((await recipe(one)).content.beanBatchId).toBe(first);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("writes the Recipe's Profile back over a `profileId` none of the Library's that a Skin wrote into A's record, read as the plugin writes an edit of the Recipe into the record, and not only at the poll (#570)", async () => {
+    const { a, one, quiet } = await lab("Unknown profile answered", 48441, { pollSeconds: 3600 });
+    const { profileId, dose } = (await recipe(one)).content as { profileId: string; dose: number };
+    await quiet();
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: "profile:000000000000000000fe" }));
+    // An edit of the dose, which the server writes into A's record: the plugin reads the record as it writes it, so the
+    // server hears of the Skin's profileId then, refuses it, and writes the record again, with no poll for an hour.
+    await patch(one, { dose: dose + 1 });
+    await expect.poll(() => record(a, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(profileId);
+    await quiet();
+    expect((await recipe(one)).content).toMatchObject({ profileId, dose: dose + 1 });
+  });
+
   it("takes no `profileId` a Skin writes into A's record that is none of the Library's Profiles, writing the Recipe's back into the record, the Recipe unchanged and loaded (#570)", async () => {
     const { machines, a, c, one, quiet } = await lab("Unknown profile", 48421);
     const { profileId } = (await recipe(one)).content as { profileId: string };

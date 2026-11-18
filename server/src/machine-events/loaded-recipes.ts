@@ -259,14 +259,16 @@ async function followMachine(
   }
   if (continued && known !== null && known.recipeId === recipe.id) {
     const base = { ...known.base };
-    if (!(await profileChanged(tx, tablet.machineId, workflow))) {
-      for (const part of await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt)) base[part] = now[part];
-    }
+    const { recorded, lost } = (await profileChanged(tx, tablet.machineId, workflow)) ? { recorded: [], lost: [] } : await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt);
+    for (const part of recorded) base[part] = now[part];
     // A part the Workflow holds, or held before this change, as the Recipe does has taken it, however it came there, as
     // DYE2's editor applies a save of the Recipe again, which may reach the server before the save: a change of it on the
-    // Machine since, as a value cleared, is the Machine's own, not written back.
+    // Machine since, as a value cleared, is the Machine's own, not written back. But not one whose change lost to an edit
+    // the tablet had not seen, though that edit left the Recipe as the Workflow held it before: the Recipe's is written
+    // back over it (#570).
     const target = await targetParts(tx, tablet.tabletId, recipe.id);
     if (target !== null) Object.assign(base, heldAlready(target, known.held), heldAlready(target, now));
+    for (const part of lost) delete base[part];
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
@@ -299,9 +301,10 @@ async function profileChanged(tx: Prisma.TransactionClient, machineId: string, w
  * Machine's Workflow (`valuesFromWorkflow`), from `held`, as the Workflow
  * last held its parts, as the tablet's edit, timed as the plugin observed the Workflow, merged
  * per field with Conflicts (ADR-0020), judged by what the tablet's record of
- * the Recipe has seen. Returns the parts recorded. The Recipe's tablets are
- * written the edit, and so are the Workflows of the Machines that have it
- * loaded.
+ * the Recipe has seen. Returns the parts recorded, and those that lost to an
+ * edit the tablet had not seen, which the Recipe's value is written back
+ * over. The Recipe's tablets are written the edit, and so are the Workflows
+ * of the Machines that have it loaded.
  */
 async function recordFromWorkflow(
   tx: Prisma.TransactionClient,
@@ -310,7 +313,7 @@ async function recordFromWorkflow(
   held: WorkflowParts,
   now: WorkflowParts,
   observedAt: string,
-): Promise<LoadedRecipePart[]> {
+): Promise<{ recorded: LoadedRecipePart[]; lost: LoadedRecipePart[] }> {
   const local = await tabletLocals(tx, tablet.tabletId);
   const target = recipeParts(recipe.content, (kind, itemId) => local.local(kind, itemId));
   const grinders = await tx.$queryRaw<{ id: string }[]>`
@@ -332,7 +335,7 @@ async function recordFromWorkflow(
     batchBeans: new Map(beans.map((row) => [row.id, row.beanId])),
     retired: new Set(beans.flatMap((row) => (row.retired ? [row.id] : []))),
   });
-  if (parts.length === 0) return [];
+  if (parts.length === 0) return { recorded: [], lost: [] };
   const [seen] = await tx.$queryRaw<{ contentSeenAt: Date | null }[]>`
     SELECT content_seen_at AS "contentSeenAt" FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND recipe_id = ${recipe.id}::uuid`;
   const edited = await editContent(tx, { kind: "recipe", id: recipe.id }, { values, at: new Date(observedAt), seenAt: seen?.contentSeenAt ?? null }, tabletSource(tablet));
@@ -341,7 +344,8 @@ async function recordFromWorkflow(
   if (after && isObject(after.content)) recipe.content = after.content;
   // Only those the Recipe holds now as the Workflow does: one that lost to an edit the tablet had not seen is written back.
   const nowTarget = recipeParts(recipe.content, (kind, itemId) => local.local(kind, itemId));
-  return parts.filter((part) => samePart(part, nowTarget[part], now[part]));
+  const recorded = parts.filter((part) => samePart(part, nowTarget[part], now[part]));
+  return { recorded, lost: parts.filter((part) => !recorded.includes(part)) };
 }
 
 /** The Library Profile a Workflow's profile is, found as a Shot's is (`profileOfSql`), or null. */
