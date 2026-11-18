@@ -621,7 +621,15 @@ Conflict names is kept, still refused, so history goes on naming it
   (ADR-0020) and written to every tablet that holds it as a tablet's edit of
   them is, in its `profile` through Decaid's `PUT /profiles/{id}`, which the
   plugin sends the profile whole, as Decaid reads it, with the three
-  replaced (`updateProfile` in `plugin/src/library-writes.ts`). Its title is
+  replaced (`updateProfile` in `plugin/src/library-writes.ts`). A profile
+  JSON would carry to Decaid changed, so that Decaid would hash it to
+  another id and replace the record with it, as a tank temperature of -0.0
+  that JSON writes as 0, is refused instead, shown in the Machine's sharing
+  status. A tablet's Workflow is left as it is: one that has the Profile
+  loaded keeps its old title until a profile or Recipe is loaded again, and
+  until then Streamline, which finds the Workflow's profile by title, saves
+  its dose, yield, grind and temperature changes to no Profile, or to
+  another holding the old title. Its title is
   never cleared, as Decaid refuses a profile with none, and an author or
   notes cleared is kept empty, as Decaid holds none (`decaidText` in
   `item-input.ts`), so a tablet's record never differs from it for that

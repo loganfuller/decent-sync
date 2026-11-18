@@ -356,6 +356,16 @@ export type ItemOutput = z.infer<typeof itemOutput>;
 export type ConflictOutput = z.infer<typeof conflict>;
 
 /**
+ * What the machine executes of a Profile, in its record and in its profile
+ * as Decaid reads it, given as it is (`Budget.whole`): its numbers rounded
+ * would be another profile, with another id. Its title, author and notes
+ * are free text still.
+ */
+export const PROFILE_WHOLE = ["/profile/content/profile", "/profile/profile"].flatMap((profile) =>
+  ["steps", "tank_temperature", "target_weight", "target_volume"].map((field) => `${profile}/${field}`),
+);
+
+/**
  * The Library, read through an assistant: each kind's items as the REST API
  * lists them, filtered by Location, name and whether Archived and paged, one
  * item as the REST API returns it, with its history and open Conflicts when
@@ -443,7 +453,7 @@ export class LibraryTools {
     outputSchema: getOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { rest: "Asked for without its history and Conflicts, or fewer of them at a time, it has more of its text." },
+    budget: { whole: PROFILE_WHOLE, rest: "Asked for without its history and Conflicts, or fewer of them at a time, it has more of its text." },
   })
   async getLibraryItem(input: z.infer<typeof getInput>, context: McpContext): Promise<GetOutput> {
     const { item, ref, itemLocation } = await this.item(input.kind, input.id);

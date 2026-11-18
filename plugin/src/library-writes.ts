@@ -46,6 +46,7 @@ import {
   type ProfileTextField,
   profileAtBrewTemperature,
   profileOf,
+  profileId,
   profileTextOf,
   readProfile,
   sameValue,
@@ -920,6 +921,9 @@ async function updateProfile(write: LibraryWrite, id: string): Promise<WriteAnsw
     if (!read.profile) return refused(write, null, read.problem);
     // Decaid holds none of an author or notes as empty, and refuses a profile with no title, which the server never writes.
     const profile = { ...read.profile, ...Object.fromEntries(text.map((field) => [field, typeof fields[field] === "string" ? fields[field] : ""])) };
+    // Decaid replaces a record whose profile hashes to another id, so one JSON would carry to it changed, as a tank
+    // temperature of -0.0 that JSON writes as 0, is refused rather than written: the tablet keeps the Profile it holds.
+    if (sentProfileId(profile) !== id) return refused(write, null, "The profile as sent would hash to another id, which Decaid would replace this Profile with");
     const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
     const updated = answer.ok ? parsed(answer.text) : undefined;
     if (!isObject(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
@@ -955,6 +959,12 @@ function settable(write: LibraryWrite, current: (field: string) => unknown): Rec
   return Object.fromEntries(
     Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field])),
   );
+}
+
+/** The id Decaid gives a profile as it reads one sent to it as JSON, or null where it would not read it. */
+function sentProfileId(profile: Readonly<Record<string, unknown>>): string | null {
+  const sent = readProfile(JSON.parse(JSON.stringify(profile)));
+  return sent.profile ? profileId(sent.profile) : null;
 }
 
 /** The tablet's record of the Profile with that id, none if Decaid answers 404, or Decaid's refusal to read it. */

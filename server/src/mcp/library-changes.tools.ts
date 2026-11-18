@@ -28,7 +28,7 @@ import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { readLocationId } from "../locations/input.js";
 import { BudgetedTool } from "./budget.js";
-import { type ConflictOutput, type ItemOutput, LibraryTools, TIMES, beanBatchItem, beanItem, conflict, itemOutput, kind } from "./library.tools.js";
+import { type ConflictOutput, type ItemOutput, LibraryTools, PROFILE_WHOLE, TIMES, beanBatchItem, beanItem, conflict, itemOutput, kind } from "./library.tools.js";
 import { callerOf } from "./token-verifier.js";
 
 // The Library changed through an assistant (#411, #412, ADR-0026): Beans,
@@ -406,6 +406,7 @@ export class LibraryChangesTools {
     outputSchema: z.object({ profile: itemOutput.shape.profile.unwrap() }),
     annotations: { ...CHANGES, idempotentHint: true },
     scopes: [READ, CHANGE],
+    budget: { whole: PROFILE_WHOLE },
   })
   async editProfile({ id: given, ...fields }: z.infer<typeof profileEditInput>, context: McpContext): Promise<ItemOutput> {
     const profileId = readProfileId(given);
@@ -473,6 +474,7 @@ export class LibraryChangesTools {
     outputSchema: itemOutput,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     scopes: [READ, CHANGE],
+    budget: { whole: PROFILE_WHOLE },
   })
   async setArchived({ kind: itemKind, id: itemId, archived }: z.infer<typeof archivedInput>, context: McpContext): Promise<ItemOutput> {
     const editor = editorOf(context);
@@ -508,6 +510,7 @@ export class LibraryChangesTools {
     outputSchema: itemOutput,
     annotations: { ...CHANGES, idempotentHint: true },
     scopes: [READ, CHANGE],
+    budget: { whole: PROFILE_WHOLE },
   })
   async setLocationOffering(input: z.infer<typeof offeringInput>, context: McpContext): Promise<ItemOutput> {
     const editor = editorOf(context);

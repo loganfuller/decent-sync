@@ -134,6 +134,9 @@ describe("reading a profile", () => {
     expect(readProfile({ steps: [{ ...step, flow: undefined }] }).problem).toBe("Step 1: flow must be a number");
     expect(readProfile({ steps: [{ ...step, exit: { type: "weight", condition: "over", value: 1 } }] }).problem).toBe('Step 1: exit.type must be "pressure" or "flow"');
     expect(readProfile({ steps: [], target_volume_count_start: "1.5" }).problem).toBe("target_volume_count_start must be a whole number");
+    // Beyond what a double holds exactly, which Decaid's int would read as another number: refused, not hashed as one near it.
+    for (const count of ["9007199254740993", "1".repeat(400), 2 ** 60]) expect(readProfile({ steps: [], target_volume_count_start: count }).problem, String(count)).toBe("target_volume_count_start must be a whole number");
+    expect(readProfile({ steps: [], target_volume_count_start: "9007199254740991" }).profile?.target_volume_count_start).toBe(9007199254740991);
   });
 
   it("refuses a number written as text that JavaScript can't read as Decaid does", () => {

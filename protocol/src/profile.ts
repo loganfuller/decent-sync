@@ -118,8 +118,9 @@ export type ReadProfile = { profile: Profile; problem?: undefined } | { profile?
  * Unlike Decaid, it keeps a missing title as empty, which Decaid reads as
  * "Unknown profile", so the checks can name it, and it refuses what Decaid
  * would read in a way JavaScript can't follow: a number written as text that
- * is not decimal (hexadecimal, `NaN`, `Infinity`), and a number too large to
- * be a double.
+ * is not decimal (hexadecimal, `NaN`, `Infinity`), a number too large to
+ * be a double, and a preinfusion count beyond the whole numbers a double
+ * holds exactly.
  */
 export function readProfile(value: unknown): ReadProfile {
   if (!isObject(value)) return { problem: "A profile must be an object" };
@@ -372,11 +373,15 @@ function readOptionalDouble(value: unknown): number | null | undefined {
   return /^\s*[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)\s*$/.test(value) || DECIMAL.test(value.trim()) ? undefined : null;
 }
 
-/** Decaid's `parseInt`: a whole number, a double cut to one, or a whole number written as text. */
+/**
+ * Decaid's `parseInt`: a whole number, a double cut to one, or a whole
+ * number written as text; undefined where Decaid refuses it, or where it is
+ * beyond the whole numbers JavaScript holds exactly, which Decaid's 64-bit
+ * `int` would read as another.
+ */
 function readInt(value: unknown): number | undefined {
-  if (typeof value === "number") return Number.isFinite(value) ? Math.trunc(value) + 0 : undefined;
-  if (typeof value === "string" && /^\s*[+-]?\d+\s*$/.test(value)) return Number.parseInt(value, 10) + 0;
-  return undefined;
+  const int = typeof value === "number" ? (Number.isFinite(value) ? Math.trunc(value) + 0 : undefined) : typeof value === "string" && /^\s*[+-]?\d+\s*$/.test(value) ? Number.parseInt(value, 10) + 0 : undefined;
+  return int !== undefined && Number.isSafeInteger(int) ? int : undefined;
 }
 
 /** Decaid's `parseOptionalString`: text as it is, a number or flag as its text, anything else as none. */

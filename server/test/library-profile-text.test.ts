@@ -127,10 +127,13 @@ describe("A Profile's title, author and notes edited in the management interface
     const { cafe, labTablet, cafeTablet } = await labAndCafe("Merge", 57611);
     const id = await sharedProfile(labTablet, cafeTablet, cafe, "Merge Bloom", 7.25);
 
-    // The cafe changes the notes on its tablet while the title is edited here: each field keeps its own edit.
+    // The cafe, offline, changes the notes on its tablet while the title is edited here, its report reaching the server
+    // after the edit: each field keeps its own edit.
+    cafeTablet.loseNetwork();
     await cafeTablet.editProfile(id, { ...heldOn(cafeTablet, id)!, notes: "Cafe notes" });
-    await expect.poll(async () => (await viewProfile(id)).profile?.notes).toBe("Cafe notes");
+    await delay(1000);
     expect((await edit(id, { title: "Merge Bloom v2" })).status).toBe(200);
+    cafeTablet.restoreNetwork();
     const merged = { title: "Merge Bloom v2", author: "Lab", notes: "Cafe notes" };
     for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => textOn(tablet, id), { timeout: 15_000 }).toEqual(merged);
 
@@ -177,6 +180,29 @@ describe("A Profile's title, author and notes edited in the management interface
     expect((await history(bundledId)).length).toBe(versions);
     expect((await edit("profile:00000000000000000000", { title: "None" })).status).toBe(404);
     expect(textOn(labTablet, id)).toEqual({ title: "Refused Bloom", author: "", notes: "" });
+  });
+
+  it("leaves a tablet's record as it is, refused, where the profile sent would hash to another id, which Decaid would replace it with", async () => {
+    const lab = await api.createLocation("Negative zero lab", "America/Chicago");
+    const machine = await api.createMachine("Negative zero lab 1", lab.id);
+    const tablet = load(machine, "57641", server);
+    await api.waitForOnline(machine);
+    // A tank temperature of -0.0, which Decaid hashes as written and JSON carries to it as 0: written as text, so it stays -0.0.
+    const text = JSON.stringify({ profile: { ...derivedProfile("Zero Bloom", 3.25), tank_temperature: 1234.5, notes: "First notes" } }).replace("1234.5", "-0.0");
+    const { status, body } = await tablet.callApiWithText("POST", "/profiles", text);
+    expect(status).toBe(201);
+    const id = String((body as Record_).id);
+    await expect.poll(async () => (await api.call("GET", profilePath(id))).status).toBe(200);
+
+    expect((await edit(id, { notes: "Zero notes" })).status).toBe(200);
+    const refusals = async () =>
+      (await api.get<{ status: { refused: { item: { id: string } | null; error: string }[] } }>(`/machines/${machine.machine.id}/sharing-status`)).status.refused.filter(
+        (refused) => refused.item?.id === id,
+      );
+    await expect.poll(async () => (await refusals()).map((refused) => refused.error), { timeout: 15_000 }).toEqual(["The profile as sent would hash to another id, which Decaid would replace this Profile with"]);
+    // The tablet still holds the Profile under its id, and nothing under another.
+    expect(tablet.profiles().map((record) => record.id)).toEqual([id]);
+    expect(heldOn(tablet, id)).toMatchObject({ title: "Zero Bloom", notes: "First notes" });
   });
 
   it("lets Staff edit any Profile's, wherever it is shown, and refuses a Viewer", async () => {

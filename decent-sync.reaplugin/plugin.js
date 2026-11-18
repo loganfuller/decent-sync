@@ -666,6 +666,74 @@ var __decentSync = (() => {
     3204031479,
     3329325298
   ]);
+  function utf8Bytes(text) {
+    const bytes = [];
+    for (let i = 0; i < text.length; i++) {
+      let code = text.charCodeAt(i);
+      if (code >= 55296 && code <= 56319 && i + 1 < text.length) {
+        const next = text.charCodeAt(i + 1);
+        if (next >= 56320 && next <= 57343) {
+          code = 65536 + (code - 55296 << 10) + (next - 56320);
+          i++;
+        }
+      }
+      if (code >= 55296 && code <= 57343) code = 65533;
+      if (code < 128) bytes.push(code);
+      else if (code < 2048) bytes.push(192 | code >> 6, 128 | code & 63);
+      else if (code < 65536) bytes.push(224 | code >> 12, 128 | code >> 6 & 63, 128 | code & 63);
+      else bytes.push(240 | code >> 18, 128 | code >> 12 & 63, 128 | code >> 6 & 63, 128 | code & 63);
+    }
+    return Uint8Array.from(bytes);
+  }
+  function sha256Hex(text) {
+    const message = utf8Bytes(text);
+    const blocks = Math.ceil((message.length + 9) / 64);
+    const padded = new Uint8Array(blocks * 64);
+    padded.set(message);
+    padded[message.length] = 128;
+    const bits = message.length * 8;
+    const view = new DataView(padded.buffer);
+    view.setUint32(padded.length - 8, Math.floor(bits / 4294967296));
+    view.setUint32(padded.length - 4, bits >>> 0);
+    const hash = new Uint32Array([1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225]);
+    const w = new Uint32Array(64);
+    for (let block = 0; block < blocks; block++) {
+      for (let t = 0; t < 16; t++) w[t] = view.getUint32(block * 64 + t * 4);
+      for (let t = 16; t < 64; t++) {
+        const x = w[t - 15];
+        const y = w[t - 2];
+        const s0 = (x >>> 7 | x << 25) ^ (x >>> 18 | x << 14) ^ x >>> 3;
+        const s1 = (y >>> 17 | y << 15) ^ (y >>> 19 | y << 13) ^ y >>> 10;
+        w[t] = w[t - 16] + s0 + w[t - 7] + s1 >>> 0;
+      }
+      let [a, b, c, d, e, f, g, h] = [hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]];
+      for (let t = 0; t < 64; t++) {
+        const S1 = (e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7);
+        const ch = e & f ^ ~e & g;
+        const t1 = h + S1 + ch + K[t] + w[t] >>> 0;
+        const S0 = (a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10);
+        const maj = a & b ^ a & c ^ b & c;
+        const t2 = S0 + maj >>> 0;
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1 >>> 0;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2 >>> 0;
+      }
+      hash[0] = hash[0] + a >>> 0;
+      hash[1] = hash[1] + b >>> 0;
+      hash[2] = hash[2] + c >>> 0;
+      hash[3] = hash[3] + d >>> 0;
+      hash[4] = hash[4] + e >>> 0;
+      hash[5] = hash[5] + f >>> 0;
+      hash[6] = hash[6] + g >>> 0;
+      hash[7] = hash[7] + h >>> 0;
+    }
+    return Array.from(hash, (word) => word.toString(16).padStart(8, "0")).join("");
+  }
 
   // ../protocol/src/profile.ts
   var BEVERAGE_TYPES = ["espresso", "pourover", "cleaning", "calibrate", "manual"];
@@ -748,6 +816,21 @@ var __decentSync = (() => {
     const name = value.name;
     return pump === "pressure" ? { name, pump, transition, exit, volume, seconds, weight, temperature, sensor, pressure: numbers.pressure, limiter } : { name, pump, transition, exit, volume, seconds, weight, temperature, sensor, flow: numbers.flow, limiter };
   }
+  function stepTarget(step) {
+    return step.pump === "pressure" ? step.pressure : step.flow;
+  }
+  function profileId(profile) {
+    const data = {
+      version: profile.version,
+      beverage_type: profile.beverage_type,
+      steps: profile.steps.map(stepHashed),
+      tank_temperature: double(profile.tank_temperature),
+      target_weight: optionalDouble(profile.target_weight),
+      target_volume: optionalDouble(profile.target_volume),
+      target_volume_count_start: { int: profile.target_volume_count_start }
+    };
+    return `profile:${sha256Hex(dartJson(data)).slice(0, 20)}`;
+  }
   function profileStepsKey(profile) {
     return stableJson({
       version: profile.version,
@@ -770,6 +853,42 @@ var __decentSync = (() => {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
     if (isObject(value)) return `{${Object.keys(value).sort().map((key2) => `${JSON.stringify(key2)}:${stableJson(value[key2])}`).join(",")}}`;
     return JSON.stringify(value ?? null);
+  }
+  function double(value) {
+    return { double: value };
+  }
+  function optionalDouble(value) {
+    return value === null ? null : { double: value };
+  }
+  function stepHashed(step) {
+    const hashed = {
+      name: step.name,
+      pump: step.pump,
+      transition: step.transition,
+      exit: step.exit === null ? null : { type: step.exit.type, condition: step.exit.condition, value: double(step.exit.value) },
+      volume: double(step.volume),
+      seconds: double(step.seconds),
+      weight: optionalDouble(step.weight),
+      temperature: double(step.temperature),
+      sensor: step.sensor,
+      limiter: step.limiter === null ? null : { value: double(step.limiter.value), range: double(step.limiter.range) }
+    };
+    hashed[step.pump] = double(stepTarget(step));
+    return hashed;
+  }
+  function dartJson(value) {
+    if (value === null) return "null";
+    if (typeof value === "string") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(dartJson).join(",")}]`;
+    if ("double" in value && typeof value.double === "number") return dartDouble(value.double);
+    if ("int" in value && typeof value.int === "number") return String(Math.trunc(value.int));
+    const object3 = value;
+    return `{${Object.keys(object3).sort().map((key2) => `${JSON.stringify(key2)}:${dartJson(object3[key2])}`).join(",")}}`;
+  }
+  function dartDouble(value) {
+    if (Object.is(value, -0)) return "-0.0";
+    if (Number.isInteger(value) && Math.abs(value) < 1e21) return `${value}.0`;
+    return String(value);
   }
   function isObject(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -797,9 +916,8 @@ var __decentSync = (() => {
     return /^\s*[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)\s*$/.test(value) || DECIMAL.test(value.trim()) ? void 0 : null;
   }
   function readInt(value) {
-    if (typeof value === "number") return Number.isFinite(value) ? Math.trunc(value) + 0 : void 0;
-    if (typeof value === "string" && /^\s*[+-]?\d+\s*$/.test(value)) return Number.parseInt(value, 10) + 0;
-    return void 0;
+    const int = typeof value === "number" ? Number.isFinite(value) ? Math.trunc(value) + 0 : void 0 : typeof value === "string" && /^\s*[+-]?\d+\s*$/.test(value) ? Number.parseInt(value, 10) + 0 : void 0;
+    return int !== void 0 && Number.isSafeInteger(int) ? int : void 0;
   }
   function readOptionalString(value) {
     if (typeof value === "string") return value;
@@ -3061,6 +3179,7 @@ var __decentSync = (() => {
     if (text.length > 0) {
       if (!read.profile) return refused(write, null, read.problem);
       const profile = { ...read.profile, ...Object.fromEntries(text.map((field) => [field, typeof fields[field] === "string" ? fields[field] : ""])) };
+      if (sentProfileId(profile) !== id) return refused(write, null, "The profile as sent would hash to another id, which Decaid would replace this Profile with");
       const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
       const updated = answer.ok ? parsed3(answer.text) : void 0;
       if (!isObject6(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
@@ -3089,6 +3208,10 @@ var __decentSync = (() => {
     return Object.fromEntries(
       Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field]))
     );
+  }
+  function sentProfileId(profile) {
+    const sent = readProfile(JSON.parse(JSON.stringify(profile)));
+    return sent.profile ? profileId(sent.profile) : null;
   }
   async function heldProfile(id) {
     const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);

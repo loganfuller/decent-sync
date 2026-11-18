@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, globalIdOf, profileId, readProfile } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -145,7 +145,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     machine = await api.createMachine("Uptown bar", uptown.id);
     tablet = tablets.syncing(machine, other, { api: emptyLibrary("41190") });
     await api.waitForOnline(machine);
-    const profile = String((await tablet.addProfile(derivedProfile("Uptown Bloom", 8.25))).id);
+    const profile = String((await tablet.addProfile(derivedProfile("Uptown Bloom", 8.125))).id);
     await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(profile)}`)).status).toBe(200);
     const send = async (path: string, body: Record_) => Object.values(await api.send<Record<string, { id: string }>>("POST", path, body, 201))[0]!.id;
     uptownItems = {
@@ -220,6 +220,8 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     const edited = await assistant.call<{ profile: Record_ }>("edit_profile", { id, title: "Uptown Bloom v2", author: null, notes: "Bloom longer." });
     expect(comparable(edited.profile)).toEqual(comparable(await restItem("profile", id)));
     expect(edited.profile).toMatchObject({ id, title: "Uptown Bloom v2", author: null, profile: { title: "Uptown Bloom v2", author: "", notes: "Bloom longer.", steps } });
+    // What it executes given as it is, not rounded as other numbers are (its pressure is 8.125): it hashes to its id.
+    expect(profileId(readProfile(edited.profile.profile).profile!)).toBe(id);
     await expect.poll(() => heldProfile()).toMatchObject({ title: "Uptown Bloom v2", author: "", notes: "Bloom longer.", steps });
     const [latest] = await versions("profile", id);
     expect(latest).toMatchObject({ fields: { title: "Uptown Bloom v2", author: "", notes: "Bloom longer." }, source: throughApp });
