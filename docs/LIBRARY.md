@@ -1379,7 +1379,10 @@ are never matched (ADR-0018).
   record naming no `profileId`, as DYE2 saves a Profile read from the
   Workflow, names the Library Profile its `profileSnapshot` is, found as a
   Shot's Profile is (`profileOfSql` in `shots/links.ts`); a snapshot that is
-  none of the Library's changes none, and is written over with the Recipe's. A barista or
+  none of the Library's changes none, and is written over with the Recipe's.
+  So does a `profileId` that is none of the Library's Profiles, as one made
+  on the tablet that the plugin has not reported yet (`refusedPaths`,
+  #570). A barista or
   drinker typed into a recipe is not shared: it is no field of a Recipe, and
   is written back blank.
 - **Steam, hot water and flush.** Each setting is taken in from DYE2's
@@ -1401,13 +1404,19 @@ are never matched (ADR-0018).
   the Recipe's. A Bean picked with no batch, or with one of another Bean,
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
-  batch where the Bean has none there. DYE2 never saves a batch picked on a
-  Machine into the recipe, so Decent Sync records it: a batch of the
-  Recipe's Bean picked on a Machine with the Recipe loaded becomes the
-  Recipe's, while a batch of another Bean stays that Machine's own, the
-  Recipe still loaded; a Recipe naming no Bean takes the batch picked, with
-  its Bean, but not on the load, which leaves it none, as it means no bean
-  as DYE2 v0.1.32 applies it (ADR-0022, `WORKFLOW-AND-STATE.md`).
+  batch where the Bean has none there. `beanId` wins: a `beanBatchId`
+  changed under the Bean the record names already changes nothing. A record
+  naming an Archived Bean, or holding with its Bean a batch that is
+  Archived, of an Archived Bean or finished at the Recipe's Location,
+  changes neither: the Recipe keeps its Bean and batch, which are written
+  back over the record's, and nothing is offered or added at the Location
+  (`refusedPaths`, #570). DYE2 never saves a batch picked on a Machine into
+  the recipe, so Decent Sync records it: a batch picked on a Machine with
+  the Recipe loaded becomes the Recipe's, with its Bean where it is another
+  Bean's, on any Skin (#570), but one the Library retired so, which stays
+  that Machine's own, the Recipe still loaded; nothing is taken on the load,
+  which leaves a Recipe naming no Bean none, as it means no bean as DYE2
+  v0.1.32 applies it (ADR-0022, `WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
 - **Its Grinder** is one of its Location's: a record naming another, or one
@@ -1566,9 +1575,9 @@ record, each where the record holds one, and a Basket or steam, hot water or flu
 setting it holds none of once it moves off its value at the apply, which
 reaches the server as the tablet's change of the record, the Machine's edit
 of its Loaded Recipe; and the server records itself, from the Workflow, a
-grinder, a batch of the Recipe's Bean, and a dose, yield, grind setting,
-RPM or feed rate the Recipe holds none of, and on the load a Basket it holds none of,
-which DYE2 never saves (#389). What DYE2 saves that is no edit, as the Workflow left
+grinder, a batch, with its Bean where it is another Bean's, and a dose,
+yield, grind setting, RPM or feed rate the Recipe holds none of, which DYE2
+never saves (#389, #570), and nothing on the load (#550). What DYE2 saves that is no edit, as the Workflow left
 behind a write of the server's still to land, is written back
 (`recordedByDye2`, `WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
 sets the Recipe's value its tablet's own latest edit set already is no edit

@@ -146,7 +146,7 @@ One of a location's nine numbered positions for a recipe, 1 to 9, shared by ever
 _Avoid_: Recipe number, index
 
 **Loaded Recipe**:
-The recipe a barista last applied on a machine, while they are still dialling it in, until they apply another recipe or a favourite, or change the profile. It belongs to the machine, as its workflow does: a change made on that machine is saved into the recipe, and a change to the recipe reaches that machine's workflow at once.
+The recipe a barista last applied on a machine, while they are still dialling it in, until they apply another recipe or a favourite, or change the profile. It belongs to the machine, as its workflow does: a change made on that machine is saved into the recipe, a bean batch of another bean picked there included, and a change to the recipe reaches that machine's workflow at once.
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:

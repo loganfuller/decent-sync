@@ -307,6 +307,11 @@ nothing to write, and a Skin that applies a recipe by naming it in the
 Workflow needs no clearing of its own. The steam, hot water and flush
 settings the Recipe holds none of are left as the Machine has them.
 
+A bean batch picked on a Machine with a Recipe loaded becomes the Recipe's
+Bean and batch, of another Bean too, on every Machine that has it loaded.
+One Archived, of an Archived Bean, or finished at the Recipe's Location
+stays that Machine's own.
+
 ## Tablet identity and backups
 
 On its first run, the plugin gives the tablet an id. It keeps the id in
@@ -340,7 +345,9 @@ Location](#the-locations-shots), [any one of them whole](#a-shot-whole) and
 [a Recipe's Reference Shot](#a-recipes-reference-shot),
 [chooses a Recipe's Reference Shot](#choosing-a-recipes-reference-shot), and
 [edits the rating and note of any Shot at the
-Location](#editing-a-shots-rating-and-note).
+Location](#editing-a-shots-rating-and-note). It may also edit a Recipe by
+writing its DYE2 record itself ([Writing DYE2's
+recipes](#writing-dye2s-recipes)).
 
 ### Calling the plugin
 
@@ -799,3 +806,59 @@ The plugin's `skin` endpoint and its `changed` WebSocket are the ones
 Streamline reads, and are unchanged. `changed` pushes only
 `{"what":"workflow"}`, which Streamline reads as a change to the Workflow or
 DYE2's recipes. Nothing above is pushed there.
+
+### Writing DYE2's recipes
+
+A Skin may edit a Recipe by writing its record in DYE2's list of recipes,
+`recipes` under `dye2.reaplugin` in Decaid's store, as DYE2's editor does.
+The Streamline Cafe Skin does so to change a Loaded Recipe's Profile or
+Bean, renaming one still under the name DYE2 generated for it
+([ADR-0022](adr/0022-loaded-recipe-worked-out-from-the-workflow.md)). The
+server takes the record's change as the Machine's edit of the Recipe and
+writes it to every tablet at the Location.
+
+- **What the server reads.** `profileId`, `beanId` with `beanBatchId`,
+  `name`, and the dial and settings in `dashboardVariables` that DYE2's
+  editor saves. Beside a `profileId` it reads no `profileTitle` or
+  `profileSnapshot`, and beside a `beanId` no `beanName` or `beanRoaster`.
+  It rewrites `title`, `subtitle`, the names DYE2 copies and the embedded
+  `workflow` from the Recipe, so a Skin writes those for DYE2 alone.
+- **Write `beanId` and `beanBatchId` together.** `beanId` wins: a
+  `beanBatchId` changed under the Bean the record names already changes
+  nothing. A `beanId` with no batch of its own gives the Recipe its batch of
+  that Bean, or else that Bean's batch most recently added at the Location,
+  or none. A `beanId` this tablet holds no record of is none, and clears the
+  Recipe's Bean on every Machine.
+- **Write the record before the Workflow.** Write the record, then the
+  Workflow: its profile, or its `beanBatchId` with `coffeeName` and
+  `coffeeRoaster`. The plugin reads DYE2's recipes as a Workflow change
+  moves the bean or the profile under a Loaded Recipe, and holds that change
+  back until it has, so the server takes the record's edit first, and the
+  other Machines have it within seconds. A profile changed in the Workflow
+  alone unloads the Recipe, as DYE2 clears it, unless the record holds that
+  profile already: DYE2 compares the Workflow's profile with the record's
+  embedded `workflow.profile`, or else its `profileSnapshot`, so write the
+  new profile there too, whole.
+- **What is not taken.** An Archived Bean, or a batch held with its Bean
+  that is Archived, of an Archived Bean or finished at the Recipe's
+  Location, changes neither the Recipe's Bean nor its batch. A `profileId`
+  that is none of the Library's Profiles changes none, as one made on this
+  tablet that the plugin has not reported yet: it reports the tablet's
+  profiles at its poll, 30 s by default. The Recipe's own is written back
+  over the record, and nothing is offered or added at the Location. The
+  Workflow keeps what was picked: such a batch stays that Machine's own,
+  with the Recipe loaded.
+- **The server renames nothing.** A Recipe's name changes only as a record
+  or an edit sets it, so a rule renaming one under a generated name is the
+  Skin's, written in the same record. On a Skin with no such rule, as
+  Streamline, a Recipe keeps its generated name as its Bean changes.
+- **Gaps.**
+  - DYE2, the plugin and a Skin each rewrite DYE2's whole list, and
+    Decaid's store takes no conditional write, so a write lost to another
+    made at the same moment is never heard of. Read the list just before
+    writing it, and change only your record.
+  - A record written with no Workflow change, as a name edited on its own,
+    reaches the server at the plugin's next poll, 30 s by default.
+  - With a Recipe loaded, any bean batch picked becomes the Recipe's, so a
+    one-off Shot of another coffee can no longer be pulled under it without
+    changing it.
