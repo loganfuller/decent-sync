@@ -394,7 +394,7 @@ Profile's are never edits, and never written.
   loses both, each kept as a Conflict where it differs, so a Recipe never
   names one edit's Bean beside another's batch, as when a batch of another
   Bean picked on one Machine reaches the server after the Bean's next bag
-  picked on another (`together` in `kinds.ts`, #570). Each edit that decides a field is
+  picked on another (ADR-0020; `together` in `kinds.ts`, #570). Each edit that decides a field is
   kept as a version, with the fields it decided. A Bean whose roaster or name
   is edited keeps its match key to them, so another Bean of the same roaster
   and name lists it as a likely duplicate; they are not merged (ADR-0018).
