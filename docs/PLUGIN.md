@@ -862,6 +862,6 @@ writes it to every tablet at the Location.
     writing it, and change only your record.
   - A record written with no Workflow change, as a name edited on its own,
     reaches the server at the plugin's next poll, 30 s by default.
-  - With a Recipe loaded, any bean batch picked becomes the Recipe's, so a
-    one-off Shot of another coffee can no longer be pulled under it without
-    changing it.
+  - With a Recipe loaded, any bean batch picked that the Recipe's Location
+    offers becomes the Recipe's, so a one-off Shot of another coffee can no
+    longer be pulled under it without changing it.
