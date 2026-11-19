@@ -22,6 +22,28 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### Check every tablet runs the 1.10.0 plugin or later before deploying
+
+This release raises the wire revision, for a Machine following a Draft
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
+Deploying). Before deploying, check on each Machine's page that it runs the
+plugin of 1.10.0 or later, 1.11.1's among them. A tablet still on the 1.9.0
+plugin or earlier is refused as too old until its plugin is updated, at the
+tablet or through Decaid's API from its network with
+`POST /api/v1/plugins/update`.
+
+### A Machine follows a Draft only once its plugin is this release's
+
+A Location can now be marked as one where Drafts may be tried, by an Admin
+on the Locations page, and a Machine there can follow a Draft of a Profile
+from the Draft's page. Following needs this release's plugin: a Machine
+whose tablet is still on the previous release's is listed on the Draft's
+page as needing its plugin updated, and can't be chosen until Decaid updates
+it. Nothing else is needed, and nothing changes at a Location that is not
+marked.
+
 ## 1.11.1
 
 ### A Shot Summary no longer gives stoppedOnWeight

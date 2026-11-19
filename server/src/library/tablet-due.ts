@@ -1,3 +1,4 @@
+import { draftFollowed, followedDraftDue } from "./draft-following.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type DeletedKind, LIBRARY_ITEM_KINDS, LIBRARY_KINDS, REMOVAL_ORDER, type WrittenKind, isLibraryKind } from "@decent-sync/protocol";
@@ -5,6 +6,7 @@ import {
   type LocationOffer,
   type PlannedChange,
   type PlannedDelete,
+  type PlannedWrite,
   type TabletHoldings,
   batchesAwaitingBeans,
   deleteKey,
@@ -127,17 +129,29 @@ export async function changesDue(
   // Nothing is written to one of DYE2's lists the tablet holds in a shape that is not recognised (ADR-0005).
   const unrecognised = await unrecognisedLists(tx, tablet.tabletId);
   const writable = (change: { kind: WrittenKind }) => !isLibraryKind(change.kind) || !unrecognised.has(LIBRARY_ITEM_KINDS[change.kind].list);
-  // The Loaded Recipe's fields last, once the Recipe's record, and the Basket and batch they name, are written.
-  const loaded = await loadedRecipeDue(tx, tablet, locationId);
+  // The Loaded Recipe's fields last, once the Recipe's record, and the Basket and batch they name, are written. A Machine
+  // following a Draft is due that Draft's profile instead (ADR-0032): its write ends the Loaded Recipe, which its Workflow
+  // no longer names by the time the tablet reports it, so nothing of the Recipe is written over the Draft meanwhile. Until
+  // the Draft is written, where it can't be, as the tablet refused it or its model can't run it, the Recipe's still are.
+  const following = await draftFollowed(tx, tablet.machineId);
+  const due = (write: PlannedWrite | null) => (write === null || skipped.has(writeKey(write.kind, write.globalId)) ? [] : [write]);
+  const draftWrite = following ? due(await followedDraftDue(tx, tablet, locationId)) : [];
+  // A write carrying a profile the Machine's model can't run is marked not to be written (#588).
+  const draft = await markUnrunnable(tx, tablet.machineId, draftWrite);
+  // One the tablet refused is kept with why until the Draft changes, and its writer holds it back until then.
+  const refused = async ({ kind, globalId }: PlannedWrite) =>
+    (await tx.$queryRaw<unknown[]>`SELECT 1 FROM tablet_refusals WHERE tablet_id = ${tablet.tabletId}::uuid AND change_key = ${writeKey(kind, globalId)}`).length > 0;
+  const blocked = draft.every((write) => "notWritten" in write && write.notWritten !== undefined) || (draftWrite.length > 0 && (await refused(draftWrite[0]!)));
+  const loaded = following === null || (!following.written && blocked) ? due(await loadedRecipeDue(tx, tablet, locationId)) : [];
   const changes = [
     ...writes,
     ...(await deletesDue(tx, tablet.tabletId, skipped)),
     ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
     ...plannedWrites(offer as LocationOffer, held as TabletHoldings, skipped),
-    ...(loaded === null || skipped.has(writeKey(loaded.kind, loaded.globalId)) ? [] : [loaded]),
+    ...draft,
+    ...loaded,
   ].filter(writable);
   return {
-    // A write carrying a profile the Machine's model can't run is marked not to be written (#588).
     changes: await markUnrunnable(tx, tablet.machineId, changes),
     batchesAwaitingBeans: batchesAwaitingBeans(offer as LocationOffer, held as TabletHoldings),
   };

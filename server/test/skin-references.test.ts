@@ -1,11 +1,10 @@
-import { MAX_REFERENCE_COPY_BYTES, REFERENCE_COPIES_WIRE_REVISION, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { MAX_REFERENCE_COPY_BYTES, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { longShot, shotFixture } from "./support/shot-fixtures.js";
 import { dye2List } from "./support/simulated-dye2.js";
-import { RawConnection, Refusal, type SimulatedTablet, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
-import { StandInServer } from "./support/stand-in-server.js";
+import { RawConnection, type SimulatedTablet, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -476,36 +475,4 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
     });
   });
 
-  it("answers a Skin from the tablet's copy, sending nothing, while its server is of the release before the copies", async () => {
-    // The left tablet's storage, with its copies, on a tablet whose plugin connects to a server at the revision before.
-    const standIn = await StandInServer.start({ wireRevision: REFERENCE_COPIES_WIRE_REVISION - 1 });
-    const live = await reference(left, espresso);
-    const records = recipeRecords(left);
-    await left.unload();
-    const tablet = tablets.load({
-      settings: settingsFor({ token: "stand-in token 51005", serverUrl: standIn.url }),
-      timeScale: 50,
-      api: { ...emptyLibrary(LEFT_SERIAL), "/store/dye2.reaplugin/recipes": records },
-      storage: left.storage,
-    });
-    try {
-      await expect.poll(() => connectionPushes(tablet).at(-1)).toBe(true);
-      expect(await reference(tablet, espresso)).toEqual({ status: 200, body: { ...live.body, source: "tablet" } });
-      expect(await reference(tablet, spare)).toMatchObject({ status: 503, body: { code: "serverTooOld" } });
-      expect([sentOf(tablet, "referencesHeld"), sentOf(tablet, "request")]).toEqual([[], []]);
-      // A tablet whose Decaid doesn't give DYE2's recipes, or gives them in a shape that is not a list of them, can't say which Recipe is asked about.
-      for (const [serial, recipes] of [[51_006, new Refusal(500, { error: "Store unavailable" })], [51_007, { recipes: [] }]] as const) {
-        const unread = tablets.load({
-          settings: settingsFor({ token: `stand-in token ${serial}`, serverUrl: standIn.url }),
-          timeScale: 50,
-          api: { ...emptyLibrary(serial), "/store/dye2.reaplugin/recipes": recipes },
-        });
-        expect(await call(unread, "reference", { recipe: "1" })).toEqual({ status: 500, body: { code: "recipesUnread", message: expect.stringContaining("DYE2's recipes") } });
-        await unread.unload();
-      }
-    } finally {
-      await tablet.unload();
-      await standIn.stop();
-    }
-  });
 });

@@ -3,7 +3,7 @@ import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { readLocationEdit, readLocationId, readNewLocation } from "../locations/input.js";
-import { LocationsService, viewLocation } from "../locations/locations.service.js";
+import { LocationsService, viewLocationSettings } from "../locations/locations.service.js";
 import { TimeZones } from "../locations/time-zones.js";
 import { BudgetedTool } from "./budget.js";
 import { requireAdmin } from "./token-verifier.js";
@@ -17,7 +17,7 @@ import { requireAdmin } from "./token-verifier.js";
 const name = z.string().describe("Its name, which no other Location has, at most 100 characters.");
 const timeZone = z.string().describe("Its IANA time zone, such as America/Chicago, in which its days are counted.");
 
-const locationOutput = z.object({ location: z.object({ id: z.string(), name: z.string(), timeZone: z.string() }) });
+const locationOutput = z.object({ location: z.object({ id: z.string(), name: z.string(), timeZone: z.string(), triesDrafts: z.boolean() }) });
 
 const newLocationInput = z.strictObject({ name, timeZone });
 
@@ -25,6 +25,10 @@ const locationEditInput = z.strictObject({
   locationId: z.string().describe("The Location's id, as list_locations gives it."),
   name: name.optional(),
   timeZone: timeZone.optional(),
+  triesDrafts: z
+    .boolean()
+    .optional()
+    .describe("Whether Drafts may be tried at it: only a Machine at such a Location can follow a Draft (follow_draft). Turning it off ends the following of each of its Machines."),
 });
 
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
@@ -48,13 +52,13 @@ export class LocationChangesTools {
   })
   async createLocation(input: z.infer<typeof newLocationInput>, context: McpContext): Promise<z.infer<typeof locationOutput>> {
     requireAdmin(context);
-    return { location: viewLocation(await this.locations.create(await readNewLocation(input, this.timeZones))) };
+    return { location: viewLocationSettings(await this.locations.create(await readNewLocation(input, this.timeZones))) };
   }
 
   @BudgetedTool({
     name: "edit_location",
     title: "Edit a Location",
-    description: "Renames a Location, changes its time zone, or both, given only what changes. Admins only.",
+    description: "Renames a Location, changes its time zone, or turns on or off that Drafts may be tried at it, given only what changes. Admins only.",
     inputSchema: locationEditInput,
     outputSchema: locationOutput,
     annotations: { ...CHANGES, idempotentHint: true },
@@ -63,6 +67,6 @@ export class LocationChangesTools {
   async editLocation({ locationId, ...fields }: z.infer<typeof locationEditInput>, context: McpContext): Promise<z.infer<typeof locationOutput>> {
     requireAdmin(context);
     const location = await this.locations.update(readLocationId(locationId).toLowerCase(), await readLocationEdit(fields, this.timeZones));
-    return { location: viewLocation(location) };
+    return { location: viewLocationSettings(location) };
   }
 }

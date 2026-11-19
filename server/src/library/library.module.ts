@@ -10,6 +10,7 @@ import { ConflictsController } from "./conflicts.controller.js";
 import { ConflictsService } from "./conflicts.service.js";
 import { DraftsController } from "./drafts.controller.js";
 import { DraftsService } from "./drafts.service.js";
+import { DraftFollowingService } from "./draft-following.service.js";
 import { PublishingService } from "./publishing.service.js";
 import { GrindersController } from "./grinders.controller.js";
 import { GrindersService } from "./grinders.service.js";
@@ -60,11 +61,13 @@ import { SharingService } from "./sharing.service.js";
     SharingService,
     ProfileSimulationService,
     DraftsService,
+    DraftFollowingService,
     PublishingService,
   ],
   exports: [
     ProfileSimulationService,
     DraftsService,
+    DraftFollowingService,
     PublishingService,
     BeansService,
     BeanBatchesService,

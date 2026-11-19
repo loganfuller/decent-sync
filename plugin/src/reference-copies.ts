@@ -1,13 +1,11 @@
 import {
   RECIPE_SLOTS,
-  REFERENCE_COPIES_WIRE_REVISION,
   type ReferenceCopy,
   type ReferencesHeld,
   type SkinRecipe,
   type SkinReference,
   type SkinReferenceShot,
   isRecipeSlot,
-  peerHasWireRevision,
 } from "@decent-sync/protocol";
 import type { PluginStorage } from "./storage.js";
 
@@ -84,11 +82,9 @@ export class ReferenceCopies {
   /**
    * The server welcomed a connection: it is told what the tablet holds, once
    * that is read and the copies an earlier connection brought are kept,
-   * where `current` says the connection is still the one welcomed. A server
-   * behind the copies' wire revision is told nothing, and sends none.
+   * where `current` says the connection is still the one welcomed.
    */
-  async welcomed(send: (held: ReferencesHeld) => Promise<void>, serverRevision: number, current: () => boolean): Promise<void> {
-    if (!peerHasWireRevision(serverRevision, REFERENCE_COPIES_WIRE_REVISION)) return;
+  async welcomed(send: (held: ReferencesHeld) => Promise<void>, current: () => boolean): Promise<void> {
     await this.settled();
     if (this.stopped || !current()) return;
     const held: Record<string, string> = {};

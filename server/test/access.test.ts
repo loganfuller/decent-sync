@@ -85,6 +85,10 @@ const STAFF = [
   "DELETE /api/drafts/:id",
   "GET /api/drafts/:id/simulation",
   "POST /api/drafts/:id/publish",
+  "GET /api/drafts/:id/trying",
+  "PUT /api/drafts/:id/following",
+  "DELETE /api/drafts/:id/following",
+  "GET /api/drafts/:id/trials/:trialId",
   "GET /api/baskets",
   "POST /api/baskets",
   "GET /api/baskets/:id",
@@ -155,7 +159,7 @@ const STAFF = [
 ];
 
 /** Staff's routes that read Drafts, which a Viewer, who may change nothing in the Library, never sees (ADR-0032). */
-const DRAFT_READS = ["GET /api/drafts", "GET /api/drafts/:id", "GET /api/drafts/:id/simulation"];
+const DRAFT_READS = ["GET /api/drafts", "GET /api/drafts/:id", "GET /api/drafts/:id/simulation", "GET /api/drafts/:id/trying", "GET /api/drafts/:id/trials/:trialId"];
 
 /**
  * Routes a Viewer may use, who sees what Staff see but Drafts and changes nothing: Staff's that read, signing out,

@@ -1,7 +1,6 @@
 import {
   CHUNK_LIMITS,
   CLOSE_CODES,
-  CONFIRMED_CHUNKS_WIRE_REVISION,
   type ErrorCode,
   MISSED_HEARTBEATS,
   type MachineHardware,
@@ -13,9 +12,9 @@ import {
   acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
-  peerHasWireRevision,
   sameHardware,
   wireRevisionOf,
+  workflowDeliveryFor,
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
 import { findMilkProbe, readMachineHardware, readTabletIdentity } from "./decaid.js";
@@ -140,8 +139,6 @@ export class SyncConnection {
   private sender: Sender | undefined;
   /** Puts the open handle's chunked messages from the server back together. */
   private chunks = new Reassembly();
-  /** Whether the server that welcomed the open handle waits for its chunks to be confirmed (CONFIRMED_CHUNKS_WIRE_REVISION). */
-  private confirmsChunks = false;
   /** Bumped by every attempt and drop, so late results of an older one are ignored. */
   private attempt = 0;
   private connecting = false;
@@ -386,7 +383,6 @@ export class SyncConnection {
       this.handle = handle;
       this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
       this.chunks = new Reassembly();
-      this.confirmsChunks = false;
       this.welcomed = false;
       this.sentHardware = identity.machine;
       this.machineAway = false;
@@ -460,12 +456,10 @@ export class SyncConnection {
     const added = this.chunks.add(decoded.message, CHUNK_LIMITS);
     if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
     // Decaid holds the chunk for the plugin no longer, so the server may send more (protocol/src/chunking.ts).
-    if (this.confirmsChunks) {
-      const { id, index } = decoded.message;
-      this.send(handle, { type: "chunkReceived", id, index }).catch((error: unknown) => {
-        this.sendFailed(handle, `could not confirm a chunk: ${describe(error)}`);
-      });
-    }
+    const { id, index } = decoded.message;
+    this.send(handle, { type: "chunkReceived", id, index }).catch((error: unknown) => {
+      this.sendFailed(handle, `could not confirm a chunk: ${describe(error)}`);
+    });
     if (added.status === "incomplete") return;
     const whole = decodeServerMessage(added.text);
     if (!whole.ok) return this.log(`Ignoring a message from the server: ${whole.problem}`);
@@ -488,8 +482,6 @@ export class SyncConnection {
             `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`,
           );
         }
-        // The previous release's server closes the connection on a confirmation, which it doesn't know.
-        this.confirmsChunks = peerHasWireRevision(wireRevisionOf(message), CONFIRMED_CHUNKS_WIRE_REVISION);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
@@ -498,8 +490,10 @@ export class SyncConnection {
         // the Shot and Steam Record indices, which later welcomes resume
         // rather than send again. Steam Records are polled at once.
         this.machineEvents.welcome();
+        const serverRevision = wireRevisionOf(message);
         this.outbox.welcome(async (delivery) => {
-          try { await this.send(handle, delivery); }
+          // The previous release's server refuses the name of a write it never asked for (`workflowDeliveryFor`).
+          try { await this.send(handle, delivery.type === "workflow" ? workflowDeliveryFor(delivery, serverRevision) : delivery); }
           catch (error) {
             this.sendFailed(handle, "could not send a delivery");
             throw error;
@@ -515,7 +509,7 @@ export class SyncConnection {
             this.sendFailed(handle, "could not send a request");
             throw error;
           }
-        }, wireRevisionOf(message));
+        });
         tellConnection(this.host, this.log, true);
         // The server sends the Reference Shot copies the tablet is due once told which it holds.
         void this.references.welcomed(
@@ -526,7 +520,6 @@ export class SyncConnection {
               throw error;
             }
           },
-          wireRevisionOf(message),
           () => handle === this.handle,
         );
         break;

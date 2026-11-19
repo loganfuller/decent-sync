@@ -87,7 +87,7 @@ export function DiscardDraftButton({ draft, label = "Discard", onDone }: { draft
         label={label}
         ariaLabel={`Discard the Draft ${draft.title || "with no title"}`}
         title={`Discard ${draft.title ? `"${draft.title}"` : "this Draft"}?`}
-        description="Nothing of it is kept, and it can't be brought back. It was never on a tablet, so no tablet changes."
+        description="Nothing of it is kept, and it can't be brought back. It was never among a tablet's Profiles, so none changes; a Machine following it keeps the steps it has, and is written nothing more."
         confirmLabel="Discard"
         variant="destructive"
         onConfirm={() => void discard()}

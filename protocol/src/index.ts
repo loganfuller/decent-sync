@@ -52,7 +52,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
  * raises. A test reads a release's from the source at its tag, so it stays
  * declared as it is here.
  */
-export const WIRE_REVISION = 3;
+export const WIRE_REVISION = 4;
 
 /**
  * The wire revision of a peer that sends none: the wire of every release
@@ -531,10 +531,29 @@ export type WorkflowCause = (typeof WORKFLOW_CAUSES)[number];
  *   its Recipe or before a post of DYE2's recipes replaces its record, or
  *   the grinder, batch and Basket a Location does not offer (WORKFLOW_KIND);
  * - `steamOn`: the Loaded Recipe's steam temperature and time, as steam is
- *   turned back on.
+ *   turned back on;
+ * - `draft`: the profile of the Draft the Machine follows, which the server
+ *   writes (DRAFT_KIND, ADR-0032), from FOLLOWED_DRAFTS_WIRE_REVISION: a
+ *   server before it refuses a value it doesn't know, so it is sent one as
+ *   another's change (`workflowDeliveryFor`).
  */
-export const PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn"] as const;
+export const PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn", "draft"] as const;
 export type PluginWorkflowWrite = (typeof PLUGIN_WORKFLOW_WRITES)[number];
+
+/**
+ * A Workflow delivery as a server at wire revision `peer` takes it: as it
+ * is, but for the plugin's write of a followed Draft (`draft`) to a server
+ * from before FOLLOWED_DRAFTS_WIRE_REVISION, which reads it as a change that
+ * is not the plugin's, as the previous release's server never asked for one
+ * and refuses a `pluginWrite` it doesn't know. Such a delivery reaches that
+ * server only where the connection that asked for the write dropped before
+ * it was sent, and the next is to an instance of the previous release.
+ */
+export function workflowDeliveryFor(delivery: WorkflowDelivery, peer: number): WorkflowDelivery {
+  if (delivery.pluginWrite !== "draft" || peerHasWireRevision(peer, FOLLOWED_DRAFTS_WIRE_REVISION)) return delivery;
+  const { pluginWrite: _, ...rest } = delivery;
+  return { ...rest, cause: "other" };
+}
 
 /** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
 export interface MachineStateDelivery {
@@ -668,25 +687,6 @@ export const RECIPE_SLOTS = 9;
 /** Whether a value is a Recipe Slot's number: a whole number from 1 to RECIPE_SLOTS. */
 export function isRecipeSlot(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
-}
-
-/**
- * The wire revision a `stripSlot` of 6 to 9 arrived in (#506): the plugin
- * before it writes one as given without taking the slot from the record
- * holding it, and reads one as no slot.
- */
-export const HIGH_SLOTS_WIRE_REVISION = 3;
-
-/**
- * The Recipe Slot a plugin at wire revision `peer` is written for a Recipe
- * in that slot: the slot, but none for a slot of 6 to 9 to a plugin before
- * HIGH_SLOTS_WIRE_REVISION, whose tablet holds the Recipe in no slot until
- * its plugin connects at that revision.
- */
-export function writtenRecipeSlot(slot: number | null, peer: number): number | null {
-  const high = peerHasWireRevision(peer, HIGH_SLOTS_WIRE_REVISION);
-  // 5 is the last slot the wire before that revision had.
-  return slot !== null && slot > 5 && !high ? null : slot;
 }
 
 /**
@@ -1089,6 +1089,35 @@ function sortedKeys(_key: string, value: unknown): unknown {
 export const LOADED_RECIPE_KIND = "loadedRecipe";
 
 /**
+ * What the server writes to the tablet of a Machine following a Draft
+ * (ADR-0032): the Draft's profile, set whole as its Workflow's profile, on
+ * turning following on and again on each save. A `write` of this kind
+ * carries it, named by the Draft's id. The Draft is never a record in the
+ * tablet's profile list.
+ */
+export const DRAFT_KIND = "draft";
+
+/**
+ * The wire revision a Machine following a Draft arrived in (#581,
+ * ADR-0032): the server sends a `write` of DRAFT_KIND only to a plugin at
+ * it, and a Machine whose plugin is behind it is listed as needing its
+ * plugin updated; the plugin names its write of one (`pluginWrite`, `draft`)
+ * only to a server at it.
+ */
+export const FOLLOWED_DRAFTS_WIRE_REVISION = 4;
+
+/**
+ * The title a followed Draft's profile is written into a Workflow under: the
+ * Draft's with "(Draft)" after it. Streamline finds a tablet's record of
+ * the Workflow's profile by its title (`active-profile.js` in
+ * streamline-js), and under the Profile's own would save the tablet's dose,
+ * yield, grind and temperature changes onto the published Profile.
+ */
+export function followedDraftTitle(title: string): string {
+  return `${title} (Draft)`;
+}
+
+/**
  * A Workflow's brew temperature, by its path: its profile's first step's
  * temperature. A write of LOADED_RECIPE_KIND setting it moves every step of
  * the profile by the same amount, as Streamline's Brew tile does
@@ -1223,17 +1252,18 @@ export function workflowPatch(fields: Readonly<Record<string, unknown>>): Record
  * Workflow's grinder, batch and Basket, cleared, or its Loaded Recipe's
  * fields.
  */
-export type WrittenKind = LibraryKind | typeof WORKFLOW_KIND | typeof LOADED_RECIPE_KIND;
+export type WrittenKind = LibraryKind | typeof WORKFLOW_KIND | typeof LOADED_RECIPE_KIND | typeof DRAFT_KIND;
 
 export function isWrittenKind(kind: string): kind is WrittenKind {
-  return kind === WORKFLOW_KIND || kind === LOADED_RECIPE_KIND || isLibraryKind(kind);
+  return kind === WORKFLOW_KIND || kind === LOADED_RECIPE_KIND || kind === DRAFT_KIND || isLibraryKind(kind);
 }
 
 /**
  * What the id of an item of that kind is: what a Library kind declares
  * (`LIBRARY_ITEM_KINDS`); otherwise a UUID: a Workflow's is the tablet's id,
- * a Loaded Recipe's is its Recipe's global id, and a kind this side does not
- * know is taken to have global ids.
+ * a Loaded Recipe's is its Recipe's global id, a followed Draft's is the
+ * Draft's id, and a kind this side does not know is taken to have global
+ * ids.
  */
 export function itemIdRule(kind: string): ItemIdRule {
   return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
@@ -1426,14 +1456,30 @@ export function noneAtZero<T>(value: T): T | null {
  * steam, hot water and flush settings and its `profile` as Decaid returned
  * them, timed as a WORKFLOW_KIND write's is, and the Workflow change it
  * causes is sent after the answer, as that write's is.
+ *
+ * A write of DRAFT_KIND sets the profile of the Draft the Machine follows
+ * as its Workflow's profile (ADR-0032), sent only to a plugin at
+ * FOLLOWED_DRAFTS_WIRE_REVISION: `globalId` is the Draft's id, `localId`
+ * null, and `fields` holds `profile` alone, the Draft's under the title a
+ * tablet shows it by (`followedDraftTitle`), with no `expected`: the Draft
+ * replaces whatever profile the Workflow holds, as the person turning
+ * following on was told. The plugin sets it whole through one `PUT
+ * /workflow`, with DYE2_RECIPE_FIELD null where the Workflow names a recipe,
+ * as DYE2 clears it on a change of profile, so the Machine's Loaded Recipe
+ * ends; its dose, yield, Bean Batch, Grinder and Basket stay. It is held
+ * while a Shot runs, as every write is. Its answer's `record` is the
+ * Workflow's `context` and `profile` as Decaid returned them, and `draft`,
+ * the profile the write carried, which the server keeps as what the Machine
+ * was tried with; it is timed as a WORKFLOW_KIND write's is, and the Workflow
+ * change it causes is sent after the answer, as that write's is.
  */
 export interface LibraryWrite {
   type: "write";
   /** Names this write, which its answer repeats. */
   id: string;
-  /** One of LIBRARY_KINDS, WORKFLOW_KIND or LOADED_RECIPE_KIND. A plugin answers a kind it does not know with `writeRefused`. */
+  /** One of LIBRARY_KINDS, WORKFLOW_KIND, LOADED_RECIPE_KIND or DRAFT_KIND. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id, a Profile's id, the tablet's id for a Workflow, or a Loaded Recipe's global id (`itemIdRule`). */
+  /** The item's global id, a Profile's id, the tablet's id for a Workflow, a Loaded Recipe's global id, or a followed Draft's id (`itemIdRule`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;
@@ -1867,8 +1913,7 @@ export interface Ack {
  * is no longer in flight and can send more. The server confirms every chunk,
  * which then has left the tablet; it says nothing about storage: a chunked
  * delivery is acknowledged once, by its `ack`. The plugin confirms every
- * chunk a server at CONFIRMED_CHUNKS_WIRE_REVISION sends it, which Decaid
- * then no longer holds for it.
+ * chunk the server sends it, which Decaid then no longer holds for it.
  */
 export interface ChunkReceived {
   type: "chunkReceived";
@@ -1989,21 +2034,6 @@ export function liveFrameFits(live: LiveFrame): boolean {
   const uuid = "00000000-0000-0000-0000-000000000000";
   return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
 }
-
-/**
- * The wire revision the plugin's confirmations of the server's chunks
- * arrived in (ticket #508): the plugin sends `chunkReceived` only to a
- * server at it, which closes the connection on a message it doesn't know
- * otherwise, and the server waits for one only from a plugin at it.
- */
-export const CONFIRMED_CHUNKS_WIRE_REVISION = 3;
-
-/**
- * The wire revision the plugin's requests and the server's answers arrived
- * in (ticket #507, ADR-0030): the plugin sends a request only to a server at
- * it, and the server takes one only from a plugin at it.
- */
-export const REQUESTS_WIRE_REVISION = 3;
 
 /**
  * What a request may ask (`SkinRequest.ask`): `status`, whether the
@@ -2242,15 +2272,6 @@ export type SkinAnswer = { type: "answer"; id: string } & (
 );
 
 /**
- * The wire revision the Reference Shot copies arrived in (ticket #510,
- * ADR-0030): the plugin says what copies it holds (`referencesHeld`) only to
- * a server at it, which closes the connection on a message it doesn't know
- * otherwise, and the server sends a copy (`referenceCopy`) only to a plugin
- * at it.
- */
-export const REFERENCE_COPIES_WIRE_REVISION = 3;
-
-/**
  * The largest copy of a Reference Shot a tablet keeps: 1 MiB of its JSON
  * (`ReferenceCopy.copy`), in UTF-8. It is the largest value Decaid's store takes
  * through its own API (`largeRequestBodyBytes` in
@@ -2265,8 +2286,7 @@ export const MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
 
 /**
  * What the plugin holds of the Reference Shot copies, sent once on each
- * connection, after its `welcome`, to a server at
- * REFERENCE_COPIES_WIRE_REVISION: the version of the copy it keeps for each
+ * connection, after its `welcome`: the version of the copy it keeps for each
  * Recipe Slot, as the server gave it (`ReferenceCopy.version`), by the
  * slot's number; a slot it keeps nothing for is left out. The server then
  * sends each slot's copy where it differs, and no copy before this arrives.
@@ -2284,8 +2304,7 @@ export const MAX_REFERENCE_VERSION_LENGTH = 128;
 /**
  * What a tablet is to keep for one Recipe Slot (ticket #510, ADR-0030), so
  * a Skin still reads the Reference Shot of the Recipe in it while the server
- * can't be reached: sent to each served tablet at
- * REFERENCE_COPIES_WIRE_REVISION, for each slot whose copy differs from the
+ * can't be reached: sent to each served tablet, for each slot whose copy differs from the
  * one its plugin said it holds, on each connection and whenever it changes
  * since. The plugin keeps it in its storage in place of what the slot held,
  * and never answers it: what it holds is what it says on its next
@@ -2316,14 +2335,6 @@ export interface ReferenceCopy {
     tooLarge?: boolean;
   } | null;
 }
-
-/**
- * The wire revision a Shot's edits arrived in (ticket #512, ADR-0031): the
- * server sends a `shotEdit` only to a plugin at it, as one behind it ignores
- * a message it doesn't know and would never answer, and the plugin sends
- * `shotEdited` only in answer to one, on the connection that asked.
- */
-export const SHOT_EDITS_WIRE_REVISION = 3;
 
 /**
  * The highest rating a Shot takes, on Decaid's scale of 0 to 10
@@ -2433,7 +2444,7 @@ export function isLaterRecordTime(time: unknown, than: unknown): boolean {
  * Asks the plugin to write a Shot's rating, note or both, as edited
  * through the server (ADR-0031, ticket #512), into the Shot its tablet
  * holds: sent to the tablet that last reported the Shot, on the connection
- * holding its Machine, to a plugin at SHOT_EDITS_WIRE_REVISION, one at a
+ * holding its Machine, one at a
  * time, each once the one before it is answered. One write carries the
  * latest value of each field the Shot's edits still awaiting their tablet
  * set, so several edits made while the tablet was off arrive as one. The

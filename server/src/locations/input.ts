@@ -12,6 +12,11 @@ export interface LocationFields {
   timeZone: string;
 }
 
+/** What an edit of a Location may change: its name, its time zone, and whether Drafts may be tried there (ADR-0032). */
+export interface LocationEdit extends Partial<LocationFields> {
+  triesDrafts?: boolean;
+}
+
 export async function readNewLocation(body: unknown, timeZones: TimeZones): Promise<LocationFields> {
   const fields = asObject(body);
   const problems: string[] = [];
@@ -22,16 +27,17 @@ export async function readNewLocation(body: unknown, timeZones: TimeZones): Prom
 }
 
 /** An edit: the fields present are changed, and at least one must be. */
-export async function readLocationEdit(body: unknown, timeZones: TimeZones): Promise<Partial<LocationFields>> {
+export async function readLocationEdit(body: unknown, timeZones: TimeZones): Promise<LocationEdit> {
   const fields = asObject(body);
-  if (fields.name === undefined && fields.timeZone === undefined) {
-    throw new BadRequestException("Send a new name or time zone");
+  if (fields.name === undefined && fields.timeZone === undefined && fields.triesDrafts === undefined) {
+    throw new BadRequestException("Send a new name or time zone, or whether Drafts may be tried here");
   }
   const problems: string[] = [];
+  if (fields.triesDrafts !== undefined && typeof fields.triesDrafts !== "boolean") problems.push("triesDrafts must be true or false");
   const name = fields.name === undefined ? undefined : readName(fields.name, problems);
   const timeZone = fields.timeZone === undefined ? undefined : await readTimeZone(fields.timeZone, timeZones, problems);
   if (problems.length > 0) throw new BadRequestException(problems);
-  return { name, timeZone };
+  return { name, timeZone, ...(typeof fields.triesDrafts === "boolean" ? { triesDrafts: fields.triesDrafts } : {}) };
 }
 
 /** A Location id from a path; anything that is not a UUID names no Location. */

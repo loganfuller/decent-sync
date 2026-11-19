@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { REQUESTS_WIRE_REVISION, type ServerMessage } from "@decent-sync/protocol";
+import type { ServerMessage } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
@@ -285,19 +285,12 @@ describe("The plugin's status endpoint, against a server", () => {
       expect(answersTo(raw, "replaced")).toEqual([]);
     });
 
-    it("refuses a request that asks for nothing it knows, and one from a plugin behind the wire revision requests came in", async () => {
+    it("refuses a request that asks for nothing it knows", async () => {
       const machine = await api.createMachine("Skin status, raw refusals", location.id);
       const unknown = await RawConnection.welcomed(server.url, helloWith(machine.token));
       unknown.send({ type: "request", id: "unknown", ask: "everything" });
       expect((await unknown.closed).code).toBe(4000);
       expect(unknown.messages.at(-1)).toMatchObject({ type: "error", code: "protocol_error", message: expect.stringContaining("request.ask") });
-
-      // The release before requests sends none, so one from a plugin at its revision is no plugin's.
-      const behind = await RawConnection.welcomed(server.url, helloWith(machine.token, { wireRevision: REQUESTS_WIRE_REVISION - 1 }));
-      behind.send({ type: "request", id: "behind", ask: "status" });
-      expect((await behind.closed).code).toBe(4000);
-      expect(behind.messages.at(-1)).toMatchObject({ type: "error", code: "protocol_error", message: expect.stringContaining("wire revision") });
-      expect(answersTo(behind, "behind")).toEqual([]);
     });
   });
 });
@@ -386,19 +379,6 @@ describe("A request the server does not answer", () => {
       expect((await asked).status).toBe(200);
       expect(tablet.acks(waiting.id)).toBe(0);
       release();
-    } finally {
-      await server.stop();
-    }
-  });
-
-  it("is not sent to a server of the release before requests, which is answered as too old to ask", async () => {
-    const { server, tablet } = await standIn("stand-in token 49614", 49_614, { wireRevision: REQUESTS_WIRE_REVISION - 1 });
-    try {
-      expect(await status(tablet)).toEqual({
-        status: 503,
-        body: { connected: true, served: false, machine: null, location: null, code: "serverTooOld", message: expect.stringContaining("too old") },
-      });
-      expect(requestsSent(tablet)).toEqual([]);
     } finally {
       await server.stop();
     }

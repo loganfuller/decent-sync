@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SHOT_EDITS_WIRE_REVISION, WIRE_REVISION } from "@decent-sync/protocol";
+import { WIRE_REVISION } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
@@ -579,18 +579,13 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
       await again.close();
     });
 
-    it("refuses an answer it can't read, and one from a plugin behind the edits' wire revision, which is sent none", async () => {
+    it("refuses an answer it can't read", async () => {
       const machine = await api.createMachine("Raw 4", belmont.id);
       const tabletId = randomUUID();
-      const behind = await connect(machine, "51207", tabletId, SHOT_EDITS_WIRE_REVISION - 1);
-      await report(behind, shotOf("edit-raw-behind", "2026-11-11T11:00:00.000Z", "51207"));
+      const first = await connect(machine, "51207", tabletId);
+      await report(first, shotOf("edit-raw-behind", "2026-11-11T11:00:00.000Z", "51207"));
+      await first.close();
       await edit("edit-raw-behind", { rating: 2 });
-      // Nothing is sent it: the edit waits for a plugin at the revision.
-      await handled(behind);
-      expect(editsTo(behind)).toEqual([]);
-      expect(await states("edit-raw-behind")).toEqual(["awaitingTablet"]);
-      behind.send({ type: "shotEdited", id: randomUUID(), outcome: "written" });
-      expect(await next(behind, (message) => message.type === "error")).toMatchObject({ code: "protocol_error", message: expect.stringContaining("shotEdited needs a plugin at wire revision") });
 
       const current = await connect(machine, "51207", tabletId);
       const sent = await next(current, (message) => message.type === "shotEdit");

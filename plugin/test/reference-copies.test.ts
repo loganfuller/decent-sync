@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REFERENCE_COPIES_WIRE_REVISION, type ReferenceCopy, type ReferencesHeld, type SkinRecipe, WIRE_REVISION } from "@decent-sync/protocol";
+import type { ReferenceCopy, ReferencesHeld, SkinRecipe } from "@decent-sync/protocol";
 import type { PluginHost, StorageCommand } from "../src/host.js";
 import { ReferenceCopies } from "../src/reference-copies.js";
 import { PluginStorage } from "../src/storage.js";
@@ -40,9 +40,9 @@ function loaded(values: Record<string, unknown> = {}, unanswered: (command: Stor
     tell(recipe);
   });
   /** What the plugin tells a server that welcomes it now. */
-  const stated = async (serverRevision = WIRE_REVISION, current = true): Promise<ReferencesHeld | undefined> => {
+  const stated = async (current = true): Promise<ReferencesHeld | undefined> => {
     let sent: ReferencesHeld | undefined;
-    await copies.welcomed(async (message) => void (sent = message), serverRevision, () => current);
+    await copies.welcomed(async (message) => void (sent = message), () => current);
     return sent;
   };
   return { copies, held, logs, told, written, stated };
@@ -62,9 +62,8 @@ describe("the plugin's Reference Shot copies", () => {
       "reference.7": JSON.stringify({ version: "seven" }),
     });
     expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "one", "2": "two" } });
-    // A server of the release before the copies is told nothing, and a connection no longer the one welcomed neither.
-    expect(await stated(REFERENCE_COPIES_WIRE_REVISION - 1)).toBeUndefined();
-    expect(await stated(WIRE_REVISION, false)).toBeUndefined();
+    // A connection no longer the one welcomed is told nothing.
+    expect(await stated(false)).toBeUndefined();
   });
 
   it("keeps each copy in place of what its slot held, one after another, and tells Skins of its Recipe", async () => {

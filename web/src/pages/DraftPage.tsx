@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { SourceText } from "@/components/conflicts";
+import { FollowingCard, TrialShotsCard } from "@/components/draft-trying";
 import { type DraftArrival, DiscardDraftButton, SavedBy, draftBecomes } from "@/components/drafts";
 import { RelativeTime } from "@/components/relative-time";
 import { type HandleField } from "@/components/profile-graph";
@@ -13,10 +14,11 @@ import { PublishDialog } from "@/components/publish-profile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ApiError, type Draft, type Profile, type ProfileSummary, type ProfileVersion, type SavedDraft, api } from "@/lib/api";
+import { ApiError, type Draft, type DraftTrying, type Profile, type ProfileSummary, type ProfileVersion, type SavedDraft, api } from "@/lib/api";
 import { type EditHistory, canRedo, canUndo, recordChange, redo, startHistory, undo } from "@/lib/edit-history";
 import { setStep, withTarget } from "@/lib/profile-edits";
 import { versionNames } from "@/lib/profile-versions";
+import { usePolled } from "@/lib/use-polled";
 import { HowItRuns, definitionOf } from "@/pages/ProfilePage";
 
 /** What the server answers for a Draft it has none of (`DraftsService`). */
@@ -33,7 +35,10 @@ const SAVE_AFTER_MS = 500;
  * are added, duplicated, deleted and reordered; and every change can be
  * undone and redone through the session. It is saved as it changes, naming
  * the count of saves it started from, and says when another save came
- * between. A Viewer sees no Draft.
+ * between. A Machine at a Location marked for it follows the Draft (#581):
+ * a card says whether it has the Draft's steps, and the Draft's Trial Shots
+ * are listed, the latest on its steps laid over the graph as it arrives,
+ * with the simulation moved to its puck. A Viewer sees no Draft.
  */
 export function DraftPage() {
   const { id = "" } = useParams();
@@ -63,6 +68,28 @@ function DraftEditor({ id }: { id: string }) {
   const pending = useRef<ProfileDefinition | null>(null);
   const inFlight = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // How it is tried, asked again as a Machine's status is: the Machine takes a save, and a Trial Shot arrives, by themselves.
+  const loadTrying = useCallback(async () => (mayChange ? (await api<{ trying: DraftTrying }>("GET", `${path}/trying`, undefined, { reportRefusal: false })).trying : undefined), [path, mayChange]);
+  const { data: polled, reload: reloadTrying } = usePolled(loadTrying);
+  // What a change made here answered, until the next poll's answer.
+  const [changed, setChanged] = useState<DraftTrying>();
+  useEffect(() => setChanged(undefined), [polled]);
+  const trying = changed ?? polled;
+  // A poll asked before the change may answer after it: asking again drops that answer.
+  const followingChanged = useCallback(
+    (next: DraftTrying) => {
+      setChanged(next);
+      void reloadTrying();
+    },
+    [reloadTrying],
+  );
+  // The Trial Shot the graph is moved to: the latest on the Draft's steps, as it arrives, or the one chosen from the list.
+  const latestTrial = trying?.trialShots.find((trial) => trial.steps === "current")?.shot.id;
+  const [usedTrial, setUsedTrial] = useState<{ shotId: string; asked: number }>();
+  const [puckShot, setPuckShot] = useState<string>();
+  useEffect(() => {
+    if (latestTrial) setUsedTrial((now) => (now?.shotId === latestTrial ? now : { shotId: latestTrial, asked: 0 }));
+  }, [latestTrial]);
 
   useEffect(() => {
     let current = true;
@@ -137,6 +164,8 @@ function DraftEditor({ id }: { id: string }) {
         if (saved.between) setBetween(saved.between);
         setSaving(pending.current ? "saving" : "saved");
         setError(undefined);
+        // Whether the following Machine has this save yet.
+        void reloadTrying();
       }
       if (pending.current) again = SAVE_AFTER_MS;
     } catch (caught) {
@@ -163,7 +192,7 @@ function DraftEditor({ id }: { id: string }) {
       // The one more try a change made during the last save gets, which is not tried again.
       if (pending.current && again === SAVE_AFTER_MS) void flush();
     } else if (again !== null) timer.current = setTimeout(() => void flush(), again);
-  }, [path]);
+  }, [path, reloadTrying]);
   // A change not yet saved is saved as the page is left, and as the tab is closed, by a request that outlives it.
   useEffect(() => {
     left.current = false;
@@ -354,9 +383,13 @@ function DraftEditor({ id }: { id: string }) {
         </Alert>
       )}
 
+      {trying && <FollowingCard draftPath={path} title={profile.title} trying={trying} unsaved={saving !== "saved"} onChanged={followingChanged} />}
+
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid min-w-0 gap-6">
           <HowItRuns
+            trial={usedTrial}
+            onPuckShot={setPuckShot}
             title={profile.title.trim() || "the Draft"}
             machineModel={draft.machineModel}
             definition={profile}
@@ -367,6 +400,15 @@ function DraftEditor({ id }: { id: string }) {
             runLabel="This Draft, simulated"
             editing={steps > 0 ? { step: chosen, limits, onSelect: select, onChange: onHandle } : null}
           />
+          {trying && (trying.trialShots.length > 0 || (trying.following !== null && trying.following.state !== "ended")) && (
+            <TrialShotsCard
+              draftPath={path}
+              trialShots={trying.trialShots}
+              shown={puckShot}
+              machineModel={draft.machineModel}
+              onUse={(shotId) => setUsedTrial((now) => ({ shotId, asked: (now?.asked ?? 0) + 1 }))}
+            />
+          )}
           <ChecksCard checks={checks} onSelect={select} />
           <EditableStepsCard profile={profile} run={run} selected={chosen} onSelect={select} onChange={change} />
         </div>

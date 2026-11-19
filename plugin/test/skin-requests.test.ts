@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type PluginMessage, type SkinAnswer, WIRE_REVISION } from "@decent-sync/protocol";
+import type { PluginMessage, SkinAnswer } from "@decent-sync/protocol";
 import type { PluginHost, StorageCommand } from "../src/host.js";
 import { KeptDeliveries } from "../src/kept-deliveries.js";
 import { type Delivery, Outbox } from "../src/outbox.js";
@@ -60,7 +60,7 @@ async function connected(options: { follows: boolean; restored?: boolean }) {
   const sent: PluginMessage[] = [];
   const welcome = () => {
     outbox.welcome(async (message) => void sent.push(message));
-    requests.welcomed(async (request) => void sent.push(request), WIRE_REVISION);
+    requests.welcomed(async (request) => void sent.push(request));
   };
   welcome();
   if (options.restored !== false) await outbox.restore();

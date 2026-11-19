@@ -113,6 +113,12 @@ Each server has one owner: a household, or a business with all of its sites.
   target the run never reaches. Publish a Draft as a new version, in the old
   one's place at the Locations you choose with the Recipes you choose, or as
   a separate Profile, or return to an earlier version the same way.
+- **Try a Draft on a Machine before publishing it.** At a Location an Admin
+  marks for it, such as a lab, a Machine follows a Draft: the Draft's steps
+  become what the Machine does next, and again on each save, without the
+  Draft joining any tablet's Profiles. A Shot pulled on them is a Trial Shot,
+  laid over the Draft's graph as it arrives, with the simulation moved to its
+  puck, so what was simulated and what happened sit side by side.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.

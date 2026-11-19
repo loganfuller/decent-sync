@@ -1,5 +1,6 @@
 import { ConflictException } from "@nestjs/common";
 import {
+  DRAFT_KIND,
   LOADED_RECIPE_KIND,
   LOADED_RECIPE_PARTS,
   MACHINE_MODELS,
@@ -107,8 +108,8 @@ function listed(names: readonly string[]): string {
  * (`PlannedWrite.notWritten`), which its writer records as refused and its
  * sharing status shows: a Profile's record created, or made visible, a
  * Recipe's record carrying its Profile (`profileSnapshot`, and the
- * Workflow DYE2 derives), and a Loaded Recipe's Profile written into the
- * Workflow. Each is judged on the Library's Profile as authored, never on
+ * Workflow DYE2 derives), and a Loaded Recipe's Profile, or the profile of
+ * the Draft the Machine follows, written into the Workflow. Each is judged on the Library's Profile as authored, never on
  * the copy a Recipe's Workflow holds moved to its brew temperature
  * (`recipeWorkflow`), as a Recipe's checks are. Read in the caller's
  * snapshot.
@@ -170,12 +171,14 @@ function carriedProfile(change: PlannedChange): { raw: unknown } | { id: string 
     const field = LOADED_RECIPE_PARTS.profile[0];
     return fields[field] === undefined || fields[field] === null ? null : { raw: fields[field] };
   }
+  // The profile of the Draft the Machine follows (ADR-0032).
+  if (change.kind === DRAFT_KIND) return { raw: fields.profile };
   return null;
 }
 
 /** Why a write is not made to a Machine of the model, or held to its ranges as its hardware isn't known, for its sharing status. */
 function notWrittenWhy(change: PlannedWrite, profile: Profile, model: MachineModel, known: boolean, values: readonly ValueOutOfRange[]): string {
-  const what = change.kind === "profile" ? "this Profile" : `its Profile, "${profile.title}"`;
+  const what = change.kind === "profile" ? "this Profile" : change.kind === DRAFT_KIND ? "this Draft" : `its Profile, "${profile.title}"`;
   const who = known ? `a ${model} can't run` : `this Machine's hardware isn't known yet, so it is held to a ${model}'s ranges and can't run`;
   return `Not written: ${who} ${what}: ${values.map((value) => outOfRangeText(profile, value)).join("; ")}`;
 }

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  DRAFT_KIND,
+  FOLLOWED_DRAFTS_WIRE_REVISION,
+  PLUGIN_WORKFLOW_WRITES,
+  followedDraftTitle,
+  isWrittenKind,
+  workflowDeliveryFor,
   CLOSE_CODES,
   COLLECTION_NAMES,
   type ErrorMessage,
   GLOBAL_ID_KEY,
   GLOBAL_ITEM_ID,
-  HIGH_SLOTS_WIRE_REVISION,
   type Hello,
   type ItemDeleted,
   type ItemLeftOut,
@@ -33,7 +38,6 @@ import {
   MAX_REFERENCE_COPY_BYTES,
   MAX_REFERENCE_VERSION_LENGTH,
   RECIPE_SLOTS,
-  REFERENCE_COPIES_WIRE_REVISION,
   RECIPE_SLOT_FIELD,
   SETTINGS_EDITED_REFUSALS,
   type SettingsEdit,
@@ -55,8 +59,6 @@ import {
   NOT_SERVED,
   PROTOCOL_VERSION,
   REMOVAL_ORDER,
-  REQUESTS_WIRE_REVISION,
-  SHOT_EDITS_WIRE_REVISION,
   MAX_SHOT_RATING,
   MAX_SKIN_NOTE_LENGTH,
   type PluginMessage,
@@ -97,7 +99,6 @@ import {
   parentKind,
   parentList,
   sameValue,
-  writtenRecipeSlot,
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
@@ -503,15 +504,15 @@ describe("Workflow and machine state envelopes", () => {
   });
 
   it("reads who changed a Workflow, where it says: one of the plugin's writes, by name, or another writer", () => {
-    for (const pluginWrite of ["load", "loadedRecipe", "clear", "steamOn"]) {
+    for (const pluginWrite of ["load", "loadedRecipe", "clear", "steamOn", "draft"]) {
       expect(decodePluginMessage(frame({ ...workflow, cause: "plugin", pluginWrite }))).toEqual({ ok: true, message: { ...workflow, cause: "plugin", pluginWrite } });
     }
     expect(decodePluginMessage(frame({ ...workflow, cause: "other" }))).toEqual({ ok: true, message: { ...workflow, cause: "other" } });
     for (const [extra, problem] of [
       [{ cause: "barista" }, "workflow.cause must be one of plugin, other"],
       [{ cause: null }, "workflow.cause must be one of plugin, other"],
-      [{ cause: "plugin" }, "workflow.pluginWrite must be one of load, loadedRecipe, clear, steamOn"],
-      [{ cause: "plugin", pluginWrite: "save" }, "workflow.pluginWrite must be one of load, loadedRecipe, clear, steamOn"],
+      [{ cause: "plugin" }, "workflow.pluginWrite must be one of load, loadedRecipe, clear, steamOn, draft"],
+      [{ cause: "plugin", pluginWrite: "save" }, "workflow.pluginWrite must be one of load, loadedRecipe, clear, steamOn, draft"],
       [{ cause: "other", pluginWrite: "load" }, "workflow.pluginWrite must be absent"],
       [{ pluginWrite: "load" }, "workflow.pluginWrite must be absent"],
     ] as const) {
@@ -604,6 +605,27 @@ describe("Live View messages", () => {
   });
 });
 
+describe("a Machine following a Draft", () => {
+  it("came in the wire revision after the latest release's, as a write kind of its own under a title a tablet tells from the Profile's", () => {
+    expect(FOLLOWED_DRAFTS_WIRE_REVISION).toBe(WIRE_REVISION);
+    expect(DRAFT_KIND).toBe("draft");
+    expect(isWrittenKind(DRAFT_KIND)).toBe(true);
+    expect(followedDraftTitle("Lab Baseline")).toBe("Lab Baseline (Draft)");
+    expect(PLUGIN_WORKFLOW_WRITES).toContain("draft");
+  });
+
+  it("names the plugin's write of one only to a server at that revision, and gives one before it the change as another's", () => {
+    const delivery = { type: "workflow", id: "delivery-1", observedAt: "2026-11-19T10:00:00.000Z", workflow: { profile: {} }, cause: "plugin", pluginWrite: "draft" } as const;
+    expect(workflowDeliveryFor(delivery, FOLLOWED_DRAFTS_WIRE_REVISION)).toBe(delivery);
+    expect(workflowDeliveryFor(delivery, FOLLOWED_DRAFTS_WIRE_REVISION + 1)).toBe(delivery);
+    const behind = workflowDeliveryFor({ ...delivery, recipeNamedAt: "2026-11-19T09:59:59.000Z" }, FOLLOWED_DRAFTS_WIRE_REVISION - 1);
+    expect(behind).toEqual({ type: "workflow", id: "delivery-1", observedAt: delivery.observedAt, workflow: delivery.workflow, cause: "other", recipeNamedAt: "2026-11-19T09:59:59.000Z" });
+    // Any other write's is every release's, and goes as it is, whatever the revision.
+    const load = { ...delivery, pluginWrite: "load" } as const;
+    expect(workflowDeliveryFor(load, FOLLOWED_DRAFTS_WIRE_REVISION - 1)).toBe(load);
+  });
+});
+
 describe("Requests for a Skin", () => {
   const request: SkinRequest = { type: "request", id: "1j2k3l-4m5n-17", ask: "status" };
   const machine = { id: "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", name: "Belmont Left" };
@@ -614,8 +636,7 @@ describe("Requests for a Skin", () => {
     return result.ok ? null : result.problem;
   };
 
-  it("arrived in the release's wire revision, with every ask and reason for not being served named once", () => {
-    expect(REQUESTS_WIRE_REVISION).toBe(3);
+  it("names every ask and reason for not being served once", () => {
     expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference", "chooseReference", "editShot"]);
     expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
     expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"]);
@@ -714,8 +735,7 @@ describe("A Recipe's Reference Shot for a Skin, and the copies a tablet keeps", 
   const fromPlugin = (message: unknown) => problem(decodePluginMessage(frame(message)));
   const fromServer = (message: unknown) => problem(decodeServerMessage(frame(message)));
 
-  it("came in the release's wire revision, a copy no larger than Decaid's store takes as one value", () => {
-    expect(REFERENCE_COPIES_WIRE_REVISION).toBe(3);
+  it("takes a copy no larger than Decaid's store takes as one value", () => {
     expect(MAX_REFERENCE_COPY_BYTES).toBe(1024 * 1024);
   });
 
@@ -829,10 +849,6 @@ describe("A Shot's edit made through the server", () => {
   const fromPlugin = (message: unknown) => problem(decodePluginMessage(frame(message)));
   const fromServer = (message: unknown) => problem(decodeServerMessage(frame(message)));
   const id = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a72";
-
-  it("came in the release's wire revision", () => {
-    expect(SHOT_EDITS_WIRE_REVISION).toBe(3);
-  });
 
   it("takes the ratings Decaid's own Shot update takes, from 0 to 10, whole or not, and no other value", () => {
     expect(MAX_SHOT_RATING).toBe(10);
@@ -1265,16 +1281,6 @@ describe("Library writes", () => {
     expect(recipeSlotOf({ id: "a", stripSlot: 7, showOnStreamlineDashboard: false })).toBeNull();
     expect(RECIPE_SLOTS).toBe(9);
     expect(RECIPE_SLOT_FIELD).toBe("stripSlot");
-  });
-
-  it("writes a Recipe's slot of 6 to 9 only to a plugin at the wire revision that brought them, and none to one before it", () => {
-    expect(HIGH_SLOTS_WIRE_REVISION).toBe(3);
-    for (const slot of [null, 1, 5, 6, 7, 9]) {
-      expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION)).toBe(slot);
-      expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION + 1)).toBe(slot);
-    }
-    for (const slot of [null, 1, 5]) expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION - 1)).toBe(slot);
-    for (const slot of [6, 7, 9]) expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION - 1)).toBeNull();
   });
 
   it("keeps a grind setting as DYE2 v0.1.32 does: a number where it reads as one, otherwise the text as typed", () => {

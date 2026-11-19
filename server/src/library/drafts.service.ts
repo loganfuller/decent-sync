@@ -23,6 +23,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Editor } from "./history.js";
 import { type SourceView, viewSource } from "./history.service.js";
 import { type ProfileSimulation, ProfileSimulationService, type SimulationAsk } from "./profile-simulation.service.js";
+import { followedDraftSaved, lockFollowingForDelete } from "./draft-following.js";
 import { accountModels } from "./profile-reach.js";
 import { MAX_PROFILE_VERSIONS, ProfilesService } from "./profiles.service.js";
 
@@ -34,7 +35,9 @@ import { MAX_PROFILE_VERSIONS, ProfilesService } from "./profiles.service.js";
 // sees none. A save names the count it started from: it is taken either way,
 // the later save winning, and the answer says whether another came between.
 // Publishing one, and returning to an earlier version, are in
-// publishing.service.ts (#580).
+// publishing.service.ts (#580); a Machine following one, and its Trial
+// Shots, in draft-following.service.ts (#581), both gone with the Draft's
+// row as it is published or discarded.
 
 /** What publishing a Draft makes: a new Profile Version of the Profile it started from, or a separate Profile. */
 export type DraftPublishesAs = "version" | "separate";
@@ -247,6 +250,8 @@ export class DraftsService {
           saved_at = statement_timestamp(),
           saves = saves + 1
         WHERE id = ${draftId}::uuid`;
+      // A Machine following it is written the Draft again (ADR-0032, #581).
+      if (profile !== undefined) await followedDraftSaved(tx, draftId);
       const row = await tx.draft.findUniqueOrThrow({ where: { id: draftId }, include: withSaver });
       return { row, between: earlier && { saves: before.saves - save.saves, savedBy: source(earlier, scope), savedAt: earlier.savedAt.toISOString() } };
     });
@@ -256,7 +261,14 @@ export class DraftsService {
   /** Discards the Draft, which leaves nothing behind. 404 for no such Draft; 403 for a Viewer. */
   async discard(id: string, scope: Scope): Promise<void> {
     refuseViewer(scope);
-    const { count } = await this.prisma.draft.deleteMany({ where: { id: readDraftId(id) } });
+    const draftId = readDraftId(id);
+    // The Draft's row, then its following's and trials' before the delete cascades to them, as ending a following takes them.
+    const count = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM drafts WHERE id = ${draftId}::uuid FOR UPDATE`;
+      if (rows.length === 0) return 0;
+      await lockFollowingForDelete(tx, draftId);
+      return tx.$executeRaw`DELETE FROM drafts WHERE id = ${draftId}::uuid`;
+    });
     if (count === 0) throw draftNotFound();
   }
 

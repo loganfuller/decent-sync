@@ -2,13 +2,11 @@ import {
   LIBRARY_ITEM_KINDS,
   RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
-  WIRE_REVISION,
   dye2GlobalIdOf,
   dye2Records,
   isRecordId,
   recipeSlotOf,
   sameValue,
-  writtenRecipeSlot,
   profileOf,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
@@ -126,8 +124,7 @@ async function writeContext(tx: Prisma.TransactionClient, ids: TabletIds, conten
  * Each Recipe of the Location that is not Archived, in a slot or not, in
  * slot order, then as they joined, with the record the tablet is to hold of
  * it (`recipeRecord`), as the tablet's writer plans its writes: in its
- * Recipe's slot, or in none where that is 6 to 9 and its plugin is from
- * before them (`writtenRecipeSlot`).
+ * Recipe's slot.
  */
 export async function offeredRecipes(tx: Prisma.TransactionClient, tablet: PlannedTablet, locationId: string): Promise<OfferedRecipe[]> {
   const rows = await tx.$queryRaw<{ id: string; recordId: string; slot: number | null; content: unknown; fieldEdits: unknown }[]>`
@@ -139,7 +136,7 @@ export async function offeredRecipes(tx: Prisma.TransactionClient, tablet: Plann
   return rows.map((row, index) => ({
     id: row.id,
     recordId: row.recordId,
-    record: recipeRecord(contents[index]!, writtenRecipeSlot(row.slot, tablet.wireRevision ?? WIRE_REVISION), context, row.id),
+    record: recipeRecord(contents[index]!, row.slot, context, row.id),
     contentDecidedAt: latestDecision(readFieldEdits(row.fieldEdits)),
   }));
 }
@@ -368,7 +365,7 @@ export async function takeInRecipes(
     if (step.kind !== "update") await recordMapped(tx, tablet, itemId, record.localId);
   }
   writesDue = (await takeInUnseen(tx, "recipe", unseen.map((held) => ({ ...held, field: "feedRate" })), source)) || writesDue;
-  await moveSlots(tx, locationId, moves, source, tablet.wireRevision ?? WIRE_REVISION);
+  await moveSlots(tx, locationId, moves, source);
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
 }
@@ -398,14 +395,7 @@ function heldFeedRates(reported: readonly ReportedRecipe[], mapped: readonly Map
  * takes it from the Recipe there, which leaves it. A move is made only
  * where the Recipe is still in the slot the tablet knew it in (`from`), so
  * one made over a move the tablet had not seen, as in the management
- * interface, is not, and the Recipe's slot is written back. A tablet whose
- * plugin is from before slots 6 to 9 (`wireRevision`) knew a Recipe in one
- * of them in no slot, as it was written (`writtenRecipeSlot`), or in its
- * slot where its record still holds it, as the previous release's server
- * wrote it, so its move of that Recipe into a slot is made either way,
- * rather than only the half of it that takes the slot from its holder; a
- * move out of that slot to none is not, as this server's write of none to
- * it reads the same. Each change is a
+ * interface, is not, and the Recipe's slot is written back. Each change is a
  * version of its own, from the tablet, timed as the record moved. Slots
  * left are emptied first, so no two Recipes are ever in one.
  */
@@ -414,7 +404,6 @@ async function moveSlots(
   locationId: string,
   moves: readonly SlotMove[],
   source: ReturnType<typeof tabletSource>,
-  wireRevision: number,
 ): Promise<void> {
   if (moves.length === 0) return;
   const rows = await tx.$queryRaw<{ id: string; slot: number | null }[]>`
@@ -425,11 +414,8 @@ async function moveSlots(
     const slot = slots.get(move.itemId)!;
     // A move into the slot the Recipe is in changes nothing.
     if (move.to === slot) return false;
-    // The slot the tablet was written, which for a current plugin is the Recipe's.
-    if (move.from === writtenRecipeSlot(slot, wireRevision)) return true;
-    // A plugin behind whose record still held the Recipe's slot of 6 to 9: its move into a slot is the barista's. Its move
-    // to none is not taken, as the server's own write of none, its answer not recorded, reads the same.
-    return move.from === slot && move.to !== null;
+    // The slot the tablet was written, which is the Recipe's.
+    return move.from === slot;
   });
   for (const move of made) {
     if (slots.get(move.itemId) !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
@@ -517,8 +503,7 @@ export async function recordRecipeWritten(
     const content = isObject(item.content) ? item.content : {};
     const ids = await readTabletIds(tx, tablet.tabletId);
     const view = recipeView(record);
-    // The slot this connection's plugin is written, none for one of 6 to 9 to a plugin from before them.
-    const slot = writtenRecipeSlot(item.slot, tablet.wireRevision);
+    const slot = item.slot;
     const context = await intakeContext(tx, ids, item.locationId, [view], [content]);
     let edited: EditOutcome | null = null;
     // A field DYE2 saved from the Workflow that is no edit, which no longer holds the Recipe's value, is written again.
@@ -548,7 +533,7 @@ export async function recordRecipeWritten(
       const moved = !written.has(RECIPE_SLOT_FIELD) && !written.has(RECIPE_SHOWN_FIELD);
       const move = here && moved ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;
       if (move && locationId !== null) {
-        await moveSlots(tx, locationId, [move], source, tablet.wireRevision);
+        await moveSlots(tx, locationId, [move], source);
         stale = true;
       }
     } else if (!linked) {

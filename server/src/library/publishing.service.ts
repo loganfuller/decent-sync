@@ -15,6 +15,7 @@ import { accountModels, refuseUnrunnableAt } from "./profile-reach.js";
 import { PROFILE_JOINING_LOCK } from "./profiles.js";
 import { type ProfileVersionView, ProfilesService } from "./profiles.service.js";
 import { recipeEditValues } from "./recipe-edits.service.js";
+import { lockFollowingForDelete } from "./draft-following.js";
 
 // Publishing a Draft, and returning to an earlier Profile Version (ADR-0032,
 // ticket #580). Publishing makes the Draft a Library Profile under the id
@@ -166,6 +167,7 @@ export class PublishingService {
       const by = accountSource(editor);
       await recordJoined(tx, { kind: "profile", id }, profileText(content), at, by);
       const done = await replaceAt(tx, { from: source?.id ?? null, to: id, places, recipes: ask.recipes }, by, at);
+      await lockFollowingForDelete(tx, draftId);
       await tx.$executeRaw`DELETE FROM drafts WHERE id = ${draftId}::uuid`;
       return {
         profile: { id, title: profile.title.trim() || null },

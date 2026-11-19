@@ -11,7 +11,6 @@ import {
   SHOTS_STILL_TO_READ,
   CHUNK_LIMITS,
   CLOSE_CODES,
-  CONFIRMED_CHUNKS_WIRE_REVISION,
   type Chunk,
   type ChunkReceived,
   type Decoded,
@@ -31,10 +30,7 @@ import {
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
-  REFERENCE_COPIES_WIRE_REVISION,
-  REQUESTS_WIRE_REVISION,
   Reassembly,
-  SHOT_EDITS_WIRE_REVISION,
   type ReferenceCopy,
   type ReferencesHeld,
   type ReassemblyLimits,
@@ -58,7 +54,6 @@ import {
   isLibraryKind,
   isLibraryList,
   isWrittenKind,
-  peerHasWireRevision,
   utf8Length,
   wireRevisionOf,
 } from "@decent-sync/protocol";
@@ -636,9 +631,6 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * enormous, which would have its plugin drop the connection each time.
    */
   private async request(session: Session, request: SkinRequest): Promise<void> {
-    if (!peerHasWireRevision(session.wireRevision!, REQUESTS_WIRE_REVISION)) {
-      return this.refuse(session, "protocol_error", `A request needs a plugin at wire revision ${REQUESTS_WIRE_REVISION} or newer`);
-    }
     const waiting = session.sender?.waitingBytes ?? 0;
     if (waiting > MAX_WAITING_BYTES) {
       if (!session.unanswering) this.logger.warn(`Leaving the requests of ${this.describe(session)} unanswered while ${waiting} bytes wait to be sent to its tablet`);
@@ -662,15 +654,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * The plugin said which Reference Shot copies its tablet holds (ticket
    * #510), which it does once on each connection: the connection is sent
-   * those it is due from now on. The statement came with a wire revision, so
-   * one from a plugin behind it, which no plugin sends, is a protocol error.
-   * One from a mismatched connection is ignored, as nothing is written to
+   * those it is due from now on. One from a mismatched connection is ignored, as nothing is written to
    * its tablet.
    */
   private referencesHeld(session: Session, message: ReferencesHeld): void {
-    if (!peerHasWireRevision(session.wireRevision!, REFERENCE_COPIES_WIRE_REVISION)) {
-      return this.refuse(session, "protocol_error", `referencesHeld needs a plugin at wire revision ${REFERENCE_COPIES_WIRE_REVISION} or newer`);
-    }
     session.references?.stated(message.held);
   }
 
@@ -687,14 +674,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * edit waits for the tablet's report of that change, which decides it. A
    * refusal is logged, escaped, as it repeats what Decaid answered, and
    * leaves the edit to be written: the connection sends its Shot nothing
-   * more until it tries again. The answer came with a wire revision, so
-   * one from a plugin behind it, which no plugin sends, is a protocol
-   * error.
+   * more until it tries again.
    */
   private async shotEdited(session: Session, answer: ShotEdited): Promise<void> {
-    if (!peerHasWireRevision(session.wireRevision!, SHOT_EDITS_WIRE_REVISION)) {
-      return this.refuse(session, "protocol_error", `shotEdited needs a plugin at wire revision ${SHOT_EDITS_WIRE_REVISION} or newer`);
-    }
     const id = answer.id.toLowerCase();
     if (!session.shotEdits?.awaits(id)) return;
     if (answer.outcome === "written") await this.shotEdits.written(session.live!.tabletId, id);
@@ -1044,11 +1026,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.awaitingHello.delete(session);
     session.machine = machine;
     session.wireRevision = wireRevisionOf(hello);
-    if (peerHasWireRevision(session.wireRevision, CONFIRMED_CHUNKS_WIRE_REVISION)) {
-      session.sender = new Sender((frame) => {
-        if (!session.closing) session.socket.send(frame);
-      });
-    }
+    session.sender = new Sender((frame) => {
+      if (!session.closing) session.socket.send(frame);
+    });
     session.identity = identity;
     const live: LiveConnection = {
       sessionId: session.id,
@@ -1097,7 +1077,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       );
     }
     // Its tablet keeps the Reference Shot copies it is due, once its plugin has said which it holds.
-    if (identity.kind !== "mismatch" && peerHasWireRevision(session.wireRevision, REFERENCE_COPIES_WIRE_REVISION)) {
+    if (identity.kind !== "mismatch") {
       const asking = { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId, identity };
       session.references = new ReferenceCopies(
         (held) => this.skinRequests.referenceCopiesDue(asking, held),
@@ -1108,7 +1088,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       );
     }
     // Its tablet is written the edits of the Shots it holds made through the server, those made while it was off first.
-    if (identity.kind !== "mismatch" && peerHasWireRevision(session.wireRevision, SHOT_EDITS_WIRE_REVISION)) {
+    if (identity.kind !== "mismatch") {
       const edited = { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId };
       session.shotEdits = new ShotEditWrites(
         (skipped) => this.shotEdits.due(edited, skipped),
