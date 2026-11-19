@@ -2360,8 +2360,10 @@ fit.
   (`sentStep`). Each sample names the
   step the run is in from that moment, so `stepSpans` reads the run's steps
   as it reads a Shot's. The
-  Shot stops when the cup reaches the stop-at weight, or when its last step
-  ends. A step that gets to its target over the whole step ramps from what
+  Shot stops when the weight in the cup, judged a second ahead at its rate,
+  reaches the stop-at weight, as Decaid stops one, so the cup holds a few
+  grams less at the stop (what lands after it isn't modelled), or when its
+  last step ends. A step that gets to its target over the whole step ramps from what
   the run measured as it began, not from the step before's target, as
   recorded Shots show and Decaid's simulated machine does not. A limiter
   caps the quantity the pump doesn't control, eased over its range as Decaid's
@@ -2390,11 +2392,12 @@ fit.
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
   profile, are run on that puck on its own Machine's model, ended as it
-  ended (`shotFitStop`): with its steps run out where a DE1 ended it in its
-  last step, and otherwise at its scale's last weight or with its last
-  step, whichever comes first, as Decaid stops on weight, a Bengle at the
-  Workflow's yield itself, or a person stopped it; a Shot with no scale runs
-  with no step's weight, as Decaid checks none without one; and
+  ended (`shotFitStop`): at the weight its scale last read, as reached, or
+  with its last step, whichever comes first, however it stopped, as Decaid
+  records a stop on the Machine's own button as it does a profile's end; with
+  no scale, with its steps run out only where a DE1 ran its last step out.
+  A Shot with no scale runs with no step's weight, as Decaid checks none
+  without one; and
   the answer gives the Shot's duration, time to first drip, peak pressure
   and each step's end beside the run's (`fitToShot`), to say how far to
   trust the simulation on that puck. On the Shots in
@@ -2471,11 +2474,12 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
   where Decaid would not read the Shot's own profile or it has more than 20
-  steps, or where the run can't end as the Shot did (`shotFitStop`): it
-  stopped, other than by a DE1 in its last step, with no scale or before
-  anything reached the cup, or its scale dropped out more than a second
-  before the stop, unless a DE1 ran its steps out and none has a weight, as
-  Decaid checks no step's weight once the scale is lost. 400 for a value out of range, or both `grind` and `shotId`; 404 for
+  steps, or where the run can't end as the Shot did (`shotFitStop`): with no
+  weight above 0 read within a second of its stop, as with no scale, a stop
+  before anything reached the cup or a scale that dropped out, unless a DE1
+  ran its last step out and, with its scale lost, no step has a weight, as
+  Decaid checks no step's weight once the scale is lost. The two lists of
+  steps leave out steps of no length; match them by `index`. 400 for a value out of range, or both `grind` and `shotId`; 404 for
   no such Profile or Shot; 409 for a Profile whose profile Decaid would not
   read or that has more than 20 steps, the most a machine takes, or a Shot
   whose samples show nothing of its puck's resistance: no pressure and flow

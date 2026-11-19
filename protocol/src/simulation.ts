@@ -400,6 +400,13 @@ export interface Simulation {
   dose?: number | null;
   /** The weight the Shot stops at, g; null or 0 to run until its last step ends. */
   stopAt: number | null;
+  /**
+   * How the stop-at weight is judged: `ahead`, the default, as Decaid stops a
+   * Shot, once the weight plus its rate times WEIGHT_LOOKAHEAD reaches it,
+   * so the cup holds a little less at the stop; `reached`, once the weight
+   * itself does, as a fit stops at the weight a Shot reached.
+   */
+  stopOn?: "ahead" | "reached";
   /** A DE1 where none is given. */
   model?: MachineModel;
 }
@@ -413,7 +420,7 @@ export interface Simulation {
  * the cup reaches the stop-at weight, or when its last step ends. A profile
  * of no steps runs for none.
  */
-export function simulateProfile({ profile, puck: given, dose, stopAt, model = "DE1" }: Simulation): SimulatedRun {
+export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "ahead", model = "DE1" }: Simulation): SimulatedRun {
   const figures = MODEL_FIGURES[model];
   const puck = puckForDose(given, dose ?? given.dose);
   const stopWeight = stopAt !== null && stopAt > 0 ? stopAt : null;
@@ -516,12 +523,13 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
 
     // Whether the step or the Shot ends now; the sample is then of the step that begins, as a Shot's sample is of the frame the machine is on.
     const ran = index;
-    if (stopWeight !== null && weight >= stopWeight) {
+    const ahead = weight + weightFlow * WEIGHT_LOOKAHEAD;
+    if (stopWeight !== null && (stopOn === "ahead" ? ahead : weight) >= stopWeight) {
       steps[index]!.end = round(time);
       steps[index]!.reason = "stop";
       stop = { seconds: round(time), reason: "weight" };
     } else {
-      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: weight + weightFlow * WEIGHT_LOOKAHEAD });
+      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: ahead });
       if (reason) {
         steps[index]!.end = round(time);
         steps[index]!.reason = reason;
@@ -648,7 +656,8 @@ export function runFigures(run: SimulatedRun): RunFigures {
     duration: run.duration,
     timeToFirstDrip: run.timeToFirstDrip,
     peakPressure: run.peakPressure,
-    steps: run.steps.flatMap((step) => (step.end === null ? [] : [{ index: step.index, name: step.name.trim() || `Step ${step.index + 1}`, end: step.end }])),
+    // A step passed through at once has no sample, as a Shot has none of it, so it is left out as from a Shot's.
+    steps: run.steps.flatMap((step) => (step.end === null || step.end === step.start ? [] : [{ index: step.index, name: step.name.trim() || `Step ${step.index + 1}`, end: step.end }])),
   };
 }
 
@@ -657,41 +666,42 @@ const SCALE_GAP = 1;
 
 /**
  * How a run of a Shot's own steps, its Workflow's `profile`, on the model of
- * its Machine, ends as the Shot did: `{ stopAt }`, the weight it stops at, or
- * null to run its steps out; or null where it can't.
+ * its Machine, ends as the Shot did: `{ stopAt }`, the weight it stops at,
+ * as reached, or null to run its steps out; or null where it can't.
  *
- * - Where a DE1 ended it (Decaid's `machineEnded`) in its last step of any
- *   length, it ran its steps out, and so does the run.
- * - Otherwise it stopped at the scale's last weight before the stop
- *   (`lastRecordedWeight`), as Decaid stops a Shot before the weight it is set
- *   to, by what is still to land, a Bengle ends one itself at the Workflow's
- *   yield (`EndOfShotWeight`), or a person stopped it, in the app or on the
- *   Machine; so does the run, or with its last step, whichever comes first.
- * - Not where that weight is 0 or none, as with no scale or a stop before
- *   anything reached the cup, nor where the scale dropped out more than
- *   SCALE_GAP before the stop, as neither the weight it stopped at nor
- *   whether a step's weight fired is then known: Decaid checks no step's
- *   weight once its scale is lost. A DE1's run out with its scale lost is
- *   still known if no step has a weight.
+ * - Where its scale read a weight above 0 within SCALE_GAP of the stop, the
+ *   run stops at that weight or with its last step, whichever comes first,
+ *   however it stopped: Decaid stops a Shot on weight before the weight it
+ *   is set to, by what is still to land, a Bengle stops one at the Workflow's
+ *   yield itself, a person stops one in the app or on the Machine, and a
+ *   Shot that ran its steps out reached that weight as its last step ended.
+ *   Decaid records a stop on the Machine as `machineEnded`, as it does a
+ *   profile's end.
+ * - With no such weight, as with no scale, the run runs its steps out where
+ *   a DE1 ended the Shot having run its last step of any length out: for
+ *   its time, within SCALE_GAP, or to an exit or water limit that could have
+ *   ended it. Not otherwise, nor where its scale dropped out and a step has
+ *   a weight, as Decaid checks no step's weight once its scale is lost.
  */
 export function shotFitStop(samples: readonly Sample<ShotCurve>[], stopReason: unknown, model: MachineModel, profile: Profile): { stopAt: number | null } | null {
   const shot = samples.filter((sample) => sample.shade === null);
   const last = lastRecordedWeight(shot);
   const lost = last !== null && shot[shot.length - 1]!.seconds - last.seconds > SCALE_GAP;
-  if (stopReason === "machineEnded" && model !== "Bengle" && endedInLastStep(shot, profile, model)) {
-    const weighs = profile.steps.some((step) => step.weight !== null && step.weight > 0);
-    return lost && weighs ? null : { stopAt: null };
-  }
-  return last !== null && last.weight > 0 && !lost ? { stopAt: last.weight } : null;
+  if (last !== null && last.weight > 0 && !lost) return { stopAt: last.weight };
+  const weighs = profile.steps.some((step) => step.weight !== null && step.weight > 0);
+  if (stopReason === "machineEnded" && model !== "Bengle" && ranLastStepOut(shot, profile, model) && !(lost && weighs)) return { stopAt: null };
+  return null;
 }
 
-/** Whether a Shot's samples end in its profile's last step of any length, as sent to the model, or name no step to tell by. */
-function endedInLastStep(shot: readonly Sample<ShotCurve>[], profile: Profile, model: MachineModel): boolean {
+/** Whether a Shot's samples end in its profile's last step of any length, as sent to the model, having run it for its time, within SCALE_GAP, or with an exit or water limit that could have ended it. */
+function ranLastStepOut(shot: readonly Sample<ShotCurve>[], profile: Profile, model: MachineModel): boolean {
   const spans = stepSpans(shot);
-  if (spans.length === 0) return true;
+  const span = spans[spans.length - 1];
   let lastStep = profile.steps.length - 1;
   while (lastStep >= 0 && !(sentStep(profile.steps[lastStep]!, model).seconds > 0)) lastStep--;
-  return spans[spans.length - 1]!.frame === lastStep;
+  if (!span || span.frame !== lastStep) return false;
+  const step = sentStep(profile.steps[lastStep]!, model);
+  return span.until - span.from >= step.seconds - SCALE_GAP || (step.exit !== null && step.exit.value > 0) || step.volume > 0;
 }
 
 /** A Shot's own steps run on its own puck, and how close the run comes to the Shot. */
@@ -710,6 +720,6 @@ export interface FittedShot {
 export function fitToShot({ samples, profile, puck, stopAt, model }: { samples: readonly Sample<ShotCurve>[]; profile: Profile; puck: Puck; stopAt: number | null; model?: MachineModel }): FittedShot {
   const weighed = lastRecordedWeight(samples) !== null;
   const ran = weighed ? profile : { ...profile, steps: profile.steps.map((step) => ({ ...step, weight: null })) };
-  const run = simulateProfile({ profile: ran, puck, stopAt, ...(model ? { model } : {}) });
+  const run = simulateProfile({ profile: ran, puck, stopAt, stopOn: "reached", ...(model ? { model } : {}) });
   return { run, fit: { shot: shotFigures(samples), simulated: runFigures(run) } };
 }

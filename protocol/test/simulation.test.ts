@@ -91,7 +91,7 @@ describe("a run", () => {
     expect(fill).toMatchObject({ index: 0, name: "Fill", start: 0, reason: "exit" });
     expect(extract).toMatchObject({ index: 1, name: "Extract", start: fill!.end, end: result.duration, reason: "stop" });
     expect(result.stop).toEqual({ seconds: result.duration, reason: "weight" });
-    expect(result.weight).toBeGreaterThanOrEqual(36);
+    expect(result.weight + result.weightFlowAtStop).toBeGreaterThanOrEqual(36);
     // The samples name the steps as a Shot's do, each from the moment it begins, so a Shot's helpers read a run.
     expect(stepSpans(result.samples).map(({ frame, from, until }) => [frame, from, until])).toEqual(result.steps.map((step) => [step.index, step.start, step.end]));
   });
@@ -189,13 +189,20 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
     expect(weighed.steps[0]!.reason).toBe("stop");
   });
 
-  it("and the Shot ends at the stop-at weight, the step it was in ending with it", () => {
+  it("and the Shot ends at the stop-at weight, judged a second ahead as Decaid stops one, the step it was in ending with it", () => {
     const result = run([flow("Pours", 4, { seconds: 60 }), after], { stopAt: 20 });
     expect(result.stop.reason).toBe("weight");
     expect(result.steps[0]).toMatchObject({ end: result.stop.seconds, reason: "stop" });
     expect(result.steps[1]).toMatchObject({ start: null, end: null, reason: null });
-    expect(result.weight).toBeGreaterThanOrEqual(20);
-    expect(result.weight).toBeLessThan(20 + 4 * SIMULATION_TICK + 0.5);
+    const [before, at] = result.samples.slice(-2) as [(typeof result.samples)[number], (typeof result.samples)[number]];
+    expect(before.values.weight! + before.values.weightFlow!).toBeLessThan(20);
+    expect(at.values.weight! + at.values.weightFlow!).toBeGreaterThanOrEqual(20);
+    expect(result.weight).toBeLessThan(20);
+    // Judged as reached, as a fit stops at the weight a Shot reached.
+    const reached = simulateProfile({ profile: profile([flow("Pours", 4, { seconds: 60 }), after]), puck: standardPuck(), stopAt: 20, stopOn: "reached" });
+    expect(reached.weight).toBeGreaterThanOrEqual(20);
+    expect(reached.weight).toBeLessThan(20 + 4 * SIMULATION_TICK + 0.5);
+    expect(reached.duration).toBeGreaterThan(result.duration);
   });
 
   it("or with its last step, where the weight is never reached or none is given", () => {
@@ -513,10 +520,23 @@ describe("a Shot's puck", () => {
     const last = samples.filter((sample) => sample.values.weight !== null).pop()!.values.weight;
     expect(shotFitStop(samples, "targetWeight", "DE1", shotProfile)).toEqual({ stopAt: last });
     expect(shotFitStop(samples, "appStop", "DE1", shotProfile)).toEqual({ stopAt: last });
-    // It ends in its last step, so a DE1 ending it ran its steps out.
-    expect(shotFitStop(samples, "machineEnded", "DE1", shotProfile)).toEqual({ stopAt: null });
-    // A Bengle ends a Shot itself at the Workflow's yield, or with its last step.
+    // Ended by the Machine, as on its own button, at its yield on a Bengle, or with its last step: at its last weight too.
+    expect(shotFitStop(samples, "machineEnded", "DE1", shotProfile)).toEqual({ stopAt: last });
     expect(shotFitStop(samples, "machineEnded", "Bengle", shotProfile)).toEqual({ stopAt: last });
+  });
+
+  it("with no scale, runs its steps out only where a DE1 ran its last step out", () => {
+    const steps = [flow("Fill", 6, { seconds: 8 }), pressure("Extract", 9, { seconds: 20 })];
+    const unweighed = (result: SimulatedRun) => result.samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: null } }));
+    const ranOut = run(steps);
+    expect(shotFitStop(unweighed(ranOut), "machineEnded", "DE1", profile(steps))).toEqual({ stopAt: null });
+    // Stopped on the Machine 5 s into its last step.
+    const stopped = unweighed(ranOut).filter((sample) => sample.seconds <= 13);
+    expect(shotFitStop(stopped, "machineEnded", "DE1", profile(steps))).toBeNull();
+    // A last step with an exit could have ended it then.
+    const exits = [steps[0]!, pressure("Extract", 9, { seconds: 20, exit: { type: "flow", condition: "over", value: 3 } })];
+    expect(shotFitStop(stopped, "machineEnded", "DE1", profile(exits))).toEqual({ stopAt: null });
+    expect(shotFitStop(stopped, "appStop", "DE1", profile(exits))).toBeNull();
   });
 
   it("where a DE1 ended it before its last step, as stopped on the Machine, ends at its last weight", () => {
@@ -556,14 +576,15 @@ describe("a Shot's puck", () => {
     expect(shotFitStop(dropped, "targetWeight", "DE1", shotProfile)).toBeNull();
     // Run out by a DE1, its lost scale matters only where a step has a weight, which Decaid stops checking then.
     const weighs = { ...shotProfile, steps: shotProfile.steps.map((step, n) => (n === shotProfile.steps.length - 1 ? { ...step, weight: 30 } : step)) };
-    expect(shotFitStop(dropped, "machineEnded", "DE1", shotProfile)).toEqual({ stopAt: null });
+    // This one stopped 6 s into a last step of 32 s: not run out, so unknown with its scale lost.
+    expect(shotFitStop(dropped, "machineEnded", "DE1", shotProfile)).toBeNull();
     expect(shotFitStop(dropped, "machineEnded", "DE1", weighs)).toBeNull();
     // A Bengle may have ended it at its yield, at a weight then unknown.
     expect(shotFitStop(dropped, "machineEnded", "Bengle", shotProfile)).toBeNull();
     // Stopped by hand with no scale, or before anything reached the cup.
     const unweighed = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: null } }));
     expect(shotFitStop(unweighed, "appStop", "DE1", shotProfile)).toBeNull();
-    expect(shotFitStop(unweighed, "machineEnded", "DE1", shotProfile)).toEqual({ stopAt: null });
+    expect(shotFitStop(unweighed, "machineEnded", "DE1", shotProfile)).toBeNull();
     const dry = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: sample.values.weight === null ? null : 0 } }));
     expect(shotFitStop(dry, "appStop", "DE1", shotProfile)).toBeNull();
   });
