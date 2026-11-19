@@ -2733,8 +2733,8 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   tablet is due a `write` of the kind `draft` whenever the profile it was
   last written since following began differs from the Draft's
   (`followedDraftDue`), in place of its Loaded Recipe's fields (those are
-  still written until the Draft first is, where it can't be: refused, or
-  not runnable on the model), through the
+  still written until the Draft first is, where it can't be: refused by
+  the tablet, or not runnable on the model), through the
   same writer as every write (Writing to tablets, above): planned again on
   each `library_changes` notification, which starting to follow and each
   save of the Draft's profile send, one at a time, held while a Shot runs,
@@ -2753,8 +2753,10 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   whatever changed it, a barista, a Recipe or Streamline's wake profile
   (`followedWorkflowReported`, in the transaction storing the Workflow);
   when a person stops it, or has the Draft follow another Machine; when its
-  Location stops trying Drafts or the Machine moves to any other Location,
-  leaves or becomes capture-only (`endStrandedFollowings`); and, its row
+  Location stops trying Drafts or the Machine moves to any other Location
+  (its latest Location entry is another than when following began, a
+  correction of that entry's time aside), leaves or becomes capture-only
+  (`endStrandedFollowings`); and, its row
   gone with the Draft's, when the Draft is published or discarded. A
   Workflow reported before the Machine was first written the Draft ends
   nothing, and one holding the steps it was last written doesn't either,

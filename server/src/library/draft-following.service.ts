@@ -6,7 +6,7 @@ import { readMachineId } from "../machines/input.js";
 import { Notifications, notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { ShotsService } from "../shots/shots.service.js";
-import { type FollowingEnded, canFollow, endFollowingsSql, endStrandedFollowings, followedProfile, sameJson, sendable, trialShotsSql } from "./draft-following.js";
+import { type FollowingEnded, canFollow, endFollowings, endStrandedFollowings, followedProfile, sameJson, sendable, trialShotsSql } from "./draft-following.js";
 import { VIEWER_SEES_NO_DRAFTS, readDraftId } from "./drafts.service.js";
 import { writeKey } from "./holdings.js";
 
@@ -101,7 +101,7 @@ export class DraftFollowingService {
     // A Machine that moved, left its Location or became capture-only follows no Draft from then on; after listening
     // anew, when a move may have been missed, every following is looked at.
     notifications.subscribe("machine_locations", (machineId) => {
-      void endStrandedFollowings(this.prisma, machineId ?? undefined).catch(() => {});
+      void this.prisma.$transaction((tx) => endStrandedFollowings(tx, machineId ?? undefined)).catch(() => {});
     });
   }
 
@@ -172,12 +172,21 @@ export class DraftFollowingService {
         const [draft] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT profile FROM drafts WHERE id = ${draftId}::uuid FOR UPDATE`;
         if (!draft) throw draftNotFound();
         const [found] = await tx.$queryRaw<
-          { name: string; sharing: boolean; wireRevision: number | null; pluginVersion: string | null; locationId: string | null; locationName: string | null; triesDrafts: boolean | null }[]
+          {
+            name: string;
+            sharing: boolean;
+            wireRevision: number | null;
+            pluginVersion: string | null;
+            assignmentId: string | null;
+            locationId: string | null;
+            locationName: string | null;
+            triesDrafts: boolean | null;
+          }[]
         >`
-          SELECT m.name, m.sharing, m.wire_revision AS "wireRevision", m.plugin_version AS "pluginVersion",
+          SELECT m.name, m.sharing, m.wire_revision AS "wireRevision", m.plugin_version AS "pluginVersion", latest.id::text AS "assignmentId",
             l.id::text AS "locationId", l.name AS "locationName", l.tries_drafts AS "triesDrafts"
           FROM machines m
-          LEFT JOIN LATERAL (SELECT location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS latest ON true
+          LEFT JOIN LATERAL (SELECT id, location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS latest ON true
           LEFT JOIN locations l ON l.id = latest.location_id
           WHERE m.id = ${machineId}::uuid
           -- Held, so two Drafts beginning to follow it are decided one after the other.
@@ -200,14 +209,18 @@ export class DraftFollowingService {
           WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND f.draft_id <> ${draftId}::uuid`;
         if (other) throw new ConflictException(`${found.name} is following another Draft, "${other.title?.trim() || "untitled"}": a Machine follows one Draft at a time, so stop that first`);
         // A following going on elsewhere ends there, and Shots pulled there from now are none of the Draft's.
-        await tx.$executeRaw(
-          endFollowingsSql(Prisma.sql`
+        await endFollowings(
+          tx,
+          Prisma.sql`
             UPDATE draft_followings SET ended_at = statement_timestamp(), ended_why = 'stopped'
-            WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL AND machine_id <> ${machineId}::uuid RETURNING draft_id`),
+            WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL AND machine_id <> ${machineId}::uuid RETURNING draft_id::text AS draft_id`,
         );
+        // Begun anew, at the Location entry it is at now, unless the Machine follows the Draft already.
         await tx.$executeRaw`
-          INSERT INTO draft_followings (draft_id, machine_id) VALUES (${draftId}::uuid, ${machineId}::uuid)
-          ON CONFLICT (draft_id) DO UPDATE SET machine_id = EXCLUDED.machine_id, started_at = statement_timestamp(), trial_id = NULL, ended_at = NULL, ended_why = NULL`;
+          INSERT INTO draft_followings (draft_id, machine_id, location_assignment_id) VALUES (${draftId}::uuid, ${machineId}::uuid, ${found.assignmentId}::uuid)
+          ON CONFLICT (draft_id) DO UPDATE SET machine_id = EXCLUDED.machine_id, location_assignment_id = EXCLUDED.location_assignment_id,
+            started_at = statement_timestamp(), trial_id = NULL, ended_at = NULL, ended_why = NULL
+          WHERE draft_followings.ended_at IS NOT NULL OR draft_followings.machine_id <> EXCLUDED.machine_id`;
         // Its tablet's writer, on whichever instance, looks for what it is due.
         await notify(tx, "library_changes", found.locationId);
       });
@@ -223,9 +236,9 @@ export class DraftFollowingService {
       if (drafts.length === 0) throw draftNotFound();
       const going = await tx.$queryRaw<unknown[]>`SELECT 1 FROM draft_followings WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL`;
       if (going.length === 0) throw new ConflictException("No Machine is following the Draft");
-      await tx.$executeRaw(
-        endFollowingsSql(Prisma.sql`
-          UPDATE draft_followings SET ended_at = statement_timestamp(), ended_why = 'stopped' WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL RETURNING draft_id`),
+      await endFollowings(
+        tx,
+        Prisma.sql`UPDATE draft_followings SET ended_at = statement_timestamp(), ended_why = 'stopped' WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL RETURNING draft_id::text AS draft_id`,
       );
     });
     return this.trying(draftId, scope);

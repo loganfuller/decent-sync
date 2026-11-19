@@ -1548,13 +1548,17 @@ model DraftFollowing {
   machine   Machine     @relation(fields: [machineId], references: [id], onDelete: Cascade)
   /// When it was last turned on, by PostgreSQL's clock.
   startedAt DateTime    @default(dbgenerated("statement_timestamp()")) @map("started_at") @db.Timestamptz(3)
+  /// The Machine's latest Location entry then (`location_assignments.id`):
+  /// once another is its latest, it moved, and following ends.
+  locationAssignmentId String? @map("location_assignment_id") @db.Uuid
   /// The profile the Machine's Workflow was last written since then; null
   /// until it is written one.
   trialId   String?     @map("trial_id") @db.Uuid
   trial     DraftTrial? @relation(fields: [trialId], references: [id], onDelete: SetNull)
   /// When it ended, and why: `workflow`, as the Machine's Workflow came to
-  /// hold another profile; `stopped`, by a person; `location`, as its
-  /// Location stopped trying Drafts or the Machine left it. Null while
+  /// hold another profile; `stopped`, by a person, or as the Draft was
+  /// followed on another Machine; `location`, as its Location stopped
+  /// trying Drafts or the Machine left it. Null while
   /// following.
   endedAt   DateTime?   @map("ended_at") @db.Timestamptz(3)
   endedWhy  String?     @map("ended_why")

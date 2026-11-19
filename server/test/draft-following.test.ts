@@ -221,6 +221,27 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
   });
 
+  it("keeps writing the Loaded Recipe where the tablet refuses the Draft before it is ever written", async () => {
+    expect((await selectRecipeInDye2(tablet, ETHIOPIA)).applied?.workflow?.status).toBe(200);
+    await expect.poll(() => loadedRecipe(labMachine), { timeout: 15_000 }).not.toBeNull();
+    tablet.refuseWrites = ({ method, route, body }) =>
+      method === "PUT" && route === "/workflow" && String(((body as Fields).profile as Fields | undefined)?.title ?? "").endsWith("(Draft)") ? { status: 400, body: { error: "Not taken" } } : undefined;
+    try {
+      const draft = await start(shaped("Refused", 14));
+      await follow(draft, labMachine);
+      await expect.poll(async () => (await trying(draft)).following?.waitingFor ?? null, { timeout: 15_000 }).not.toBeNull();
+      expect(await state(draft)).toBe("waiting");
+      const recipe = (await loadedRecipe(labMachine))!;
+      expect(recipe).not.toBeNull();
+      // An edit of the Loaded Recipe still reaches the Machine's Workflow.
+      expect((await api.call("PATCH", `/recipes/${recipe}`, { content: { hotWaterVolume: 133 } })).status).toBe(200);
+      await expect.poll(() => (tablet.workflow() as Fields & { hotWaterData?: Fields }).hotWaterData?.volume, { timeout: 15_000 }).toBe(133);
+      await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
+    } finally {
+      tablet.refuseWrites = undefined;
+    }
+  });
+
   it("holds a save while a Shot runs, and ties each Shot pulled on the Draft's steps to the steps it ran, whatever the tablet's brew temperature and yield", async () => {
     let draft = await start(shaped("Held", 0));
     await followed(draft);
@@ -367,14 +388,32 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
   });
 
-  it("stops following as the Machine moves, even to another Location that tries Drafts", async () => {
+  it("stops following as the Machine moves, even to another Location that tries Drafts or as a move entered earlier, and not as its entry's time is corrected", async () => {
     const moving = await api.createMachine("Trial lab moving", lab.id);
     const raw = await RawConnection.welcomed(server.url, helloWith(moving.token, { machine: { model: "DE1Pro", serial: "58105" }, tabletId: randomUUID() }));
+    const history = async () => (await api.get<{ machine: { locationHistory: { id: string; effectiveFrom: string }[] } }>(`/machines/${moving.machine.id}`)).machine.locationHistory;
     const draft = await start(shaped("Moving trial", 13));
     await follow(draft, moving);
     expect(await state(draft)).toBe("waiting");
+    // Following it again on the same Machine leaves it as it is.
+    const began = (await trying(draft)).following!.startedAt;
+    expect((await follow(draft, moving)).following).toMatchObject({ startedAt: began, ended: null });
+    // Its arrival is corrected to a time after following began: it has not moved, and following goes on whatever ends others.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const [arrival] = await history();
+    const corrected = new Date(Date.parse(began) + 100).toISOString();
+    expect((await api.call("PATCH", `/machines/${moving.machine.id}/location-history/${arrival!.id}`, { effectiveFrom: corrected })).status).toBe(200);
     await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: true });
-    await api.send("POST", `/machines/${moving.machine.id}/location-history`, { locationId: cafe.id }, 201);
+    await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: false });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await state(draft)).toBe("waiting");
+    await api.send("DELETE", `/drafts/${draft.id}/following`, undefined, 200);
+    // Followed again, then moved to the cafe, which tries Drafts now, by an entry dated before following began again: following ends.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const again = (await follow(draft, moving)).following!.startedAt;
+    await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: true });
+    const movedAt = new Date((Date.parse(corrected) + Date.parse(again)) / 2).toISOString();
+    await api.send("POST", `/machines/${moving.machine.id}/location-history`, { locationId: cafe.id, effectiveFrom: movedAt }, 201);
     await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("ended");
     expect((await trying(draft)).following).toMatchObject({ ended: { why: "location" }, machine: { id: moving.machine.id } });
     await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: false });

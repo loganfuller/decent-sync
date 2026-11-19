@@ -61,16 +61,19 @@ export async function draftFollowed(tx: Prisma.TransactionClient, machineId: str
 /**
  * Ends followings: `ended` is an UPDATE of `draft_followings` that ends some
  * and returns their `draft_id`s. Each profile those Drafts were written with
- * is no longer followed from now (`draft_trials.followed_until`), so a Shot
- * pulled afterwards is none of their Trial Shots: a Draft has one following,
- * so every profile of its still followed is that following's. One statement,
- * after the common table expressions in `before`, each followed by a comma.
+ * is then no longer followed from now (`draft_trials.followed_until`), so a
+ * Shot pulled afterwards is none of their Trial Shots: a Draft has one
+ * following, so every profile of its still followed is that following's.
+ * Two statements, the second seeing a profile whose recording the first
+ * waited for, so call it in a transaction.
  */
-export function endFollowingsSql(ended: Prisma.Sql, before: Prisma.Sql = Prisma.empty): Prisma.Sql {
-  return Prisma.sql`
-    WITH ${before} ended AS (${ended})
+export async function endFollowings(tx: Prisma.TransactionClient, ended: Prisma.Sql): Promise<number> {
+  const rows = await tx.$queryRaw<{ draft_id: string }[]>(ended);
+  if (rows.length === 0) return 0;
+  await tx.$executeRaw`
     UPDATE draft_trials SET followed_until = statement_timestamp()
-    WHERE draft_id IN (SELECT draft_id FROM ended) AND followed_until IS NULL`;
+    WHERE draft_id = ANY(${rows.map((row) => row.draft_id)}::uuid[]) AND followed_until IS NULL`;
+  return rows.length;
 }
 
 /**
@@ -176,17 +179,16 @@ export async function recordFollowedDraftWritten(
 export async function followedWorkflowReported(tx: Prisma.TransactionClient, machineId: string, workflow: Record<string, unknown>): Promise<void> {
   // The reported profile bound once, as the comparisons name it many times.
   const reported = Prisma.sql`(SELECT profile FROM reported)`;
-  await tx.$executeRaw(
-    endFollowingsSql(
-      Prisma.sql`
-        UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'workflow'
-        FROM drafts d, draft_trials t
-        WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND d.id = f.draft_id AND t.id = f.trial_id
-          AND NOT ${sameStepsSql(reported, Prisma.sql`d.profile`)}
-          AND NOT ${sameStepsSql(reported, Prisma.sql`t.profile`)}
-        RETURNING f.draft_id`,
-      Prisma.sql`reported AS (SELECT ${JSON.stringify(workflow)}::jsonb -> 'profile' AS profile),`,
-    ),
+  await endFollowings(
+    tx,
+    Prisma.sql`
+      WITH reported AS (SELECT ${JSON.stringify(workflow)}::jsonb -> 'profile' AS profile)
+      UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'workflow'
+      FROM drafts d, draft_trials t
+      WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND d.id = f.draft_id AND t.id = f.trial_id
+        AND NOT ${sameStepsSql(reported, Prisma.sql`d.profile`)}
+        AND NOT ${sameStepsSql(reported, Prisma.sql`t.profile`)}
+      RETURNING f.draft_id::text AS draft_id`,
   );
 }
 
@@ -194,23 +196,23 @@ export async function followedWorkflowReported(tx: Prisma.TransactionClient, mac
  * Ends each following whose Machine no longer takes part at a Location that
  * tries Drafts, as its Location's setting was turned off, or the Machine
  * left, or became capture-only, and each whose Machine moved since it began,
- * to whichever Location: all of them, or the Machine's.
+ * to whichever Location, as its latest Location entry is no longer the one
+ * it began at (`location_assignment_id`; a correction of that entry's time
+ * keeps it): all of them, or the Machine's. In the caller's transaction.
  */
-export async function endStrandedFollowings(db: Prisma.TransactionClient, machineId?: string): Promise<void> {
-  await db.$executeRaw(
-    endFollowingsSql(Prisma.sql`
+export async function endStrandedFollowings(tx: Prisma.TransactionClient, machineId?: string): Promise<void> {
+  await endFollowings(
+    tx,
+    Prisma.sql`
       UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'location'
       WHERE f.ended_at IS NULL AND (${machineId ?? null}::uuid IS NULL OR f.machine_id = ${machineId ?? null}::uuid)
         AND NOT EXISTS (
           SELECT 1 FROM machines m
-          JOIN LATERAL (SELECT location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS latest ON true
-          JOIN LATERAL (
-            SELECT location_id FROM location_assignments WHERE machine_id = m.id AND effective_from <= f.started_at ORDER BY effective_from DESC LIMIT 1
-          ) AS began ON began.location_id = latest.location_id
+          JOIN LATERAL (SELECT id, location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS latest ON true
           JOIN locations l ON l.id = latest.location_id AND l.tries_drafts
-          WHERE m.id = f.machine_id AND m.sharing
+          WHERE m.id = f.machine_id AND m.sharing AND latest.id IS NOT DISTINCT FROM f.location_assignment_id
         )
-      RETURNING f.draft_id`),
+      RETURNING f.draft_id::text AS draft_id`,
   );
 }
 
@@ -229,17 +231,17 @@ export async function followedDraftSaved(tx: Prisma.TransactionClient, draftId: 
  * after the brew temperature or the yield was changed on the tablet, until
  * following on that Machine ended (by PostgreSQL's clock); tied to the
  * latest such profile written before it was pulled. Read through the
- * Shots' index on their Machine and time, from the first profile the
- * Machine was written, or the one on their steps.
+ * Shots' index on their Machine and time, over each following's span, or
+ * the one on their steps.
  */
 export function trialShotsSql(draftId: string, limit: number): Prisma.Sql {
   const shot = Prisma.sql`(s.record -> 'workflow' -> 'profile')`;
   return Prisma.sql`
     SELECT s.id, tied.id::text AS "trialId"
     FROM (
-      SELECT machine_id, min(tablet_written_at) AS since,
-        CASE WHEN bool_and(followed_until IS NOT NULL) THEN max(followed_until) END AS until
-      FROM draft_trials WHERE draft_id = ${draftId}::uuid GROUP BY machine_id
+      -- One span a following: the profiles written in one are no longer followed from the same moment.
+      SELECT machine_id, min(tablet_written_at) AS since, followed_until AS until
+      FROM draft_trials WHERE draft_id = ${draftId}::uuid GROUP BY machine_id, followed_until
     ) AS tried
     JOIN shots s ON s.machine_id = tried.machine_id AND s.pulled_at >= tried.since AND (tried.until IS NULL OR s.pulled_at <= tried.until)
       AND s.has_full_record

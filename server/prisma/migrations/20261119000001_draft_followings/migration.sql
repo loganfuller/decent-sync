@@ -41,6 +41,7 @@ CREATE TABLE "draft_followings" (
     "draft_id" UUID NOT NULL,
     "machine_id" UUID NOT NULL,
     "started_at" TIMESTAMPTZ(3) NOT NULL DEFAULT statement_timestamp(),
+    "location_assignment_id" UUID,
     "trial_id" UUID,
     "ended_at" TIMESTAMPTZ(3),
     "ended_why" TEXT,

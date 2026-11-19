@@ -135,9 +135,13 @@ export async function changesDue(
   // the Draft is written, where it can't be, as the tablet refused it or its model can't run it, the Recipe's still are.
   const following = await draftFollowed(tx, tablet.machineId);
   const due = (write: PlannedWrite | null) => (write === null || skipped.has(writeKey(write.kind, write.globalId)) ? [] : [write]);
+  const draftWrite = following ? due(await followedDraftDue(tx, tablet, locationId)) : [];
   // A write carrying a profile the Machine's model can't run is marked not to be written (#588).
-  const draft = following ? await markUnrunnable(tx, tablet.machineId, due(await followedDraftDue(tx, tablet, locationId))) : [];
-  const blocked = draft.every((write) => "notWritten" in write && write.notWritten !== undefined);
+  const draft = await markUnrunnable(tx, tablet.machineId, draftWrite);
+  // One the tablet refused is kept with why until the Draft changes, and its writer holds it back until then.
+  const refused = async ({ kind, globalId }: PlannedWrite) =>
+    (await tx.$queryRaw<unknown[]>`SELECT 1 FROM tablet_refusals WHERE tablet_id = ${tablet.tabletId}::uuid AND change_key = ${writeKey(kind, globalId)}`).length > 0;
+  const blocked = draft.every((write) => "notWritten" in write && write.notWritten !== undefined) || (draftWrite.length > 0 && (await refused(draftWrite[0]!)));
   const loaded = following === null || (!following.written && blocked) ? due(await loadedRecipeDue(tx, tablet, locationId)) : [];
   const changes = [
     ...writes,
