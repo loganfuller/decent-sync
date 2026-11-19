@@ -7,6 +7,7 @@
 //
 // Pure: no Node or browser API, as the plugin bundles this package.
 
+import { MODEL_FIGURES } from "./machine-models.js";
 import { sha256Hex } from "./sha256.js";
 
 /** Decaid's drink kinds (`BeverageType`); it reads any other as espresso. */
@@ -445,8 +446,8 @@ export const PROFILE_LIMITS = {
 /** The most steps a profile may have, as Streamline's editor allows. */
 export const MAX_PROFILE_STEPS = 20;
 
-/** About the most flow a DE1's pump gives, ml/s; a Bengle's gives more. */
-export const PUMP_MAX_FLOW = 8;
+/** About the most flow a DE1's pump gives, ml/s, as the simulation's DE1 has it; a Bengle's gives more. */
+export const PUMP_MAX_FLOW = MODEL_FIGURES.DE1.maxFlow;
 
 /** A profile's field, named by its path in Decaid's JSON (`steps.2.limiter.value`), and the step it is of, by index, or null for the profile's own. */
 export interface ProfileField {

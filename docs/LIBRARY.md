@@ -2330,6 +2330,94 @@ the Machine's new Location; one an answer to a write brings means what it
 would at the Machine's new Location, as the server reads it where the
 Machine is when it is taken in.
 
+## Simulating a Profile
+
+A Library Profile can be simulated on a puck (#577, ADR-0032), so a person
+or an assistant can see what it does before pulling a Shot. One pure module,
+`protocol/src/simulation.ts`, runs it, for the management interface in the
+browser and for the server's REST route and MCP tool alike. Everything it
+returns is simulated, and says so, but the recorded Shot's figures beside a
+fit.
+
+- **The run.** `simulateProfile` takes a profile, a puck, a dose, a stop-at
+  weight and a Machine model, and returns the run: a sample each 0.1 s from
+  the start of the profile, in the shape of a Shot's samples
+  (`record-samples.ts`), with pressure, the pump's flow, the weight in the
+  cup and its rate, and the plan's targets, each step's start, end and why
+  it ended, the stop and why, the time to first drip and the peaks. It
+  starts with the pump at rest, with no Preheat, and assumes a scale under
+  the cup. Temperature is not simulated: a sample's temperature target is
+  its step's, and it has no temperature of its own.
+- **Steps.** A step ends at its maximum time, its exit, the water it may pump
+  or its weight in the cup, judged a second ahead at its rate as Decaid
+  judges it, whichever comes first; a step under 0.05 s, which
+  Decaid sends as none, is passed through at once, whatever its exit. A
+  step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
+  tenth of a second below 12.75 s and to a whole second from there, up to
+  127 s, as the machine's wire format holds no more, and pumps the water
+  Decaid sends, in whole ml, cut down; its target, exit and limiter are
+  Decaid's too, in sixteenths of a unit to a DE1 and tenths to a Bengle
+  (`sentStep`). Each sample names the
+  step the run is in from that moment, so `stepSpans` reads the run's steps
+  as it reads a Shot's. The
+  Shot stops when the weight in the cup, judged a second ahead at its rate,
+  reaches the stop-at weight, as Decaid stops one, so the cup holds a few
+  grams less at the stop (what lands after it isn't modelled), or when its
+  last step ends. A Bengle stops itself at that weight, by its firmware's
+  judgement, which Decaid's sources don't show; it is modelled the same
+  way. A step that gets to its target over the whole step ramps from what
+  the run measured as it began, not from the step before's target, as
+  recorded Shots show and Decaid's simulated machine does not. A limiter
+  caps the quantity the pump doesn't control, eased over its range as Decaid's
+  simulated machine eases it. An exit of 0 or less is none, as there.
+- **The machine.** The pump follows what a step asks within its model's
+  figures, held in one place (`MODEL_FIGURES` in
+  `protocol/src/machine-models.ts`): a DE1 gives about 8 ml/s, and about 6
+  on a step whose pump controls pressure, as its recorded Shots fill the
+  group; a Bengle keeps up with about 15, its 250 V/15 A heater's figure
+  (#588). Pressure builds in the group as the pump gives more than passes
+  the puck and falls as it drains, over seconds, and the DE1 is slow to
+  push pressure up to a target. The DE1's figures were tuned against
+  recorded Shots; the Bengle's are Decent's, unchecked against a Bengle's.
+- **The puck** is its resistance through the Shot, the pressure a flow
+  through it takes, against the water pumped, and the water it takes before
+  the first drip. The standard puck (`standardPuck`) is a fixed curve for
+  18 g, scaled by a grind from -1, the finest, four times the resistance, to
+  1, the coarsest, a quarter of it. A Shot's puck (`shotPuck`) is worked out
+  from its samples after its Preheat: its resistance from its pressure and
+  the flow through the puck at each sample where the pump was running and
+  pressure had built, the water it took before its first drip, and the
+  grams that reached the cup for each ml through it after, past a cup's
+  weight read before Decaid's tare at the profile's start landed; none
+  where no sample shows its resistance. Another dose
+  scales a puck's resistance in proportion and the water its coffee soaks
+  up.
+- **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
+  profile, are run on that puck on its own Machine's model, ended as it
+  ended (`shotFitStop`): with its steps run out where a DE1 ran its last
+  step for its time, within a second; otherwise at the weight its scale
+  last read, 1 g or more, as reached, or with its last step, whichever comes
+  first, however it stopped, as Decaid records a stop on the Machine's own
+  button as it does a profile's end; with no scale, with its steps run out
+  only where a DE1 ran its last step out.
+  A Shot with no scale runs with no step's weight, as Decaid checks none
+  without one; and
+  the answer gives the Shot's duration, time to first drip, peak pressure
+  and each step's end beside the run's (`fitToShot`), to say how far to
+  trust the simulation on that puck. On the Shots in
+  `server/test/fixtures/decaid/simulated-shots-v0.9.2/`, each lands within
+  5% of the Shot's duration or 1 s, whichever is more, and its peak pressure
+  within 0.5 bar.
+
+`GET /api/profiles/:id/simulation` (REST API, below) and the
+`simulate_profile` tool (`server/src/mcp/simulation.tools.ts`) simulate a
+Library Profile through `ProfileSimulationService`
+(`server/src/library/profile-simulation.service.ts`), with its checks
+(`checkProfile`). Anyone who reads Profiles may, a Viewer too. The tool
+answers within the size budget (ADR-0028): the headline figures, each
+step's end and why, never cut, the checks and the fit, and the run's curves
+thinned as a Shot's are.
+
 ## REST API
 
 Every endpoint requires the account session; Staff read them as Admins do.
@@ -2376,6 +2464,32 @@ Every endpoint requires the account session; Staff read them as Admins do.
   whether it shows it, by name, `{ location, shown, since }`, kept while it
   is Archived; or 404. A Location not listed does not show it. The id goes in
   the path as it is or percent-encoded.
+- `GET /api/profiles/:id/simulation` returns `{ simulation }`, the Profile
+  simulated (Simulating a Profile, above): `{ profile, model, puck, dose,
+  stopAt, run, checks, fit }`. It runs on the standard puck at `grind`, from
+  -1 to 1, 0 where left out, or on the puck of the Shot `shotId`, with
+  `dose` in grams, above 0 and up to 50, else the Shot's, as weighed or else
+  as set, or 18; stopping at `stopAt` grams, 0 to run until the last step
+  ends, else the Profile's stop-at weight; on a Machine of `model`, `DE1` or
+  `Bengle`, a DE1 where left out. `puck` is `{ kind: "standard", grind }` or
+  `{ kind: "shot", shotId, model }`, the model of the Machine the Shot
+  recorded, which its fit runs on; `run` is `simulateProfile`'s, every
+  sample; `checks` are the Profile's (`checkProfile`); `fit` is
+  `{ shot, simulated }` on a Shot's puck, each `{ duration,
+  timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
+  where Decaid would not read the Shot's own profile or it has more than 20
+  steps, or where the run can't end as the Shot did (`shotFitStop`): a DE1
+  that ran its last step for its time runs its steps out, and otherwise the
+  fit stops at a weight of 1 g or more read within a second of the stop; so
+  none with no such weight, as with no scale, a stop before anything reached
+  the cup or a scale that dropped out, unless a DE1 ran its last step out,
+  and none where its scale dropped out and a step has a weight, as Decaid
+  checks no step's weight once the scale is lost. The two lists of
+  steps leave out steps of no length; match them by `index`. 400 for a value out of range, or both `grind` and `shotId`; 404 for
+  no such Profile or Shot; 409 for a Profile whose profile Decaid would not
+  read or that has more than 20 steps, the most a machine takes, or a Shot
+  whose samples show nothing of its puck's resistance: no pressure and flow
+  together.
 - `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
   required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
   roaster, name } }` if the Library has a Bean of that roaster and name.
@@ -2701,6 +2815,7 @@ the same Profiles.
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
 `server/test/library-profile-text.test.ts`,
+`server/test/profile-simulation.test.ts`,
 `server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,
@@ -2710,8 +2825,8 @@ the same Profiles.
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
-`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`
-and `server/test/join-plan.test.ts`
+`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
+`server/test/join-plan.test.ts` and `protocol/test/simulation.test.ts`
 the pure modules;
 `server/test/simulated-bean-writes.test.ts`,
 `server/test/simulated-batch-writes.test.ts`,

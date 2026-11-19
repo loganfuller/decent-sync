@@ -53,6 +53,8 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/settings-history.ts`: how a Settings History compares values and folds changes.
 - `src/machine-states.ts`: naming a Machine State.
 - `src/profile.ts`: a profile as Decaid reads and writes one, its limits and checks, and Decaid's id for it; `src/sha256.ts` the hash that id is of.
+- `src/simulation.ts`: the simulation of a profile on a puck, the standard one or a Shot's, and how close it comes to a Shot.
+- `src/machine-models.ts`: the models a profile runs on, a DE1 or a Bengle, and each one's figures.
 - `src/record-samples.ts`, `src/steam-phases.ts`: samples and phases of Shots and Steam Records.
 - `test/`: module tests; `wire-revision.test.ts` needs the release tags.
 

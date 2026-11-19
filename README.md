@@ -436,7 +436,9 @@ Recipe, Bean, Bean Batch, Profile, Grinder, Basket, Barista or Location,
 two at once, such as two Machines on the same Recipe side by side, and by
 day or by week, each Location's own, to read a trend, Steam
 Records, and the Library
-with each item's history and Conflicts. It can create
+with each item's history and Conflicts, and simulate a Profile on a standard
+puck, finer or coarser, or on a Shot's, for a DE1 or a Bengle, saying how
+close its simulation of that Shot's own steps comes to the Shot. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, edit a
 Profile's title, author and notes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe

@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ShotsModule } from "../shots/shots.module.js";
 import { BeanBatchesController } from "./bean-batches.controller.js";
 import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
@@ -11,6 +12,7 @@ import { GrindersController } from "./grinders.controller.js";
 import { GrindersService } from "./grinders.service.js";
 import { HistoryService } from "./history.service.js";
 import { LibraryEditsService } from "./library-edits.service.js";
+import { ProfileSimulationService } from "./profile-simulation.service.js";
 import { ProfilesController } from "./profiles.controller.js";
 import { ProfilesService } from "./profiles.service.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
@@ -28,6 +30,7 @@ import { SharingService } from "./sharing.service.js";
  * (`server/src/mcp/library-changes.tools.ts`).
  */
 @Module({
+  imports: [ShotsModule],
   controllers: [
     BeansController,
     BeanBatchesController,
@@ -51,8 +54,10 @@ import { SharingService } from "./sharing.service.js";
     LibraryEditsService,
     RecipeEditsService,
     SharingService,
+    ProfileSimulationService,
   ],
   exports: [
+    ProfileSimulationService,
     BeansService,
     BeanBatchesService,
     GrindersService,
