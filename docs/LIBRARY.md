@@ -2363,7 +2363,9 @@ fit.
   Shot stops when the weight in the cup, judged a second ahead at its rate,
   reaches the stop-at weight, as Decaid stops one, so the cup holds a few
   grams less at the stop (what lands after it isn't modelled), or when its
-  last step ends. A step that gets to its target over the whole step ramps from what
+  last step ends. A Bengle stops itself at that weight, by its firmware's
+  judgement, which Decaid's sources don't show; it is modelled the same
+  way. A step that gets to its target over the whole step ramps from what
   the run measured as it began, not from the step before's target, as
   recorded Shots show and Decaid's simulated machine does not. A limiter
   caps the quantity the pump doesn't control, eased over its range as Decaid's
@@ -2392,10 +2394,12 @@ fit.
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
   profile, are run on that puck on its own Machine's model, ended as it
-  ended (`shotFitStop`): at the weight its scale last read, as reached, or
-  with its last step, whichever comes first, however it stopped, as Decaid
-  records a stop on the Machine's own button as it does a profile's end; with
-  no scale, with its steps run out only where a DE1 ran its last step out.
+  ended (`shotFitStop`): with its steps run out where a DE1 ran its last
+  step for its time, within half a second; otherwise at the weight its scale
+  last read, 1 g or more, as reached, or with its last step, whichever comes
+  first, however it stopped, as Decaid records a stop on the Machine's own
+  button as it does a profile's end; with no scale, with its steps run out
+  only where a DE1 ran its last step out.
   A Shot with no scale runs with no step's weight, as Decaid checks none
   without one; and
   the answer gives the Shot's duration, time to first drip, peak pressure

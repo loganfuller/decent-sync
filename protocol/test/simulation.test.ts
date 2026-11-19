@@ -525,6 +525,17 @@ describe("a Shot's puck", () => {
     expect(shotFitStop(samples, "machineEnded", "Bengle", shotProfile)).toEqual({ stopAt: last });
   });
 
+  it("where a DE1 ran its last step out, runs its steps out though its scale worked, as the weight may have all but stopped rising", () => {
+    const steps = [flow("Fill", 6, { seconds: 8, exit: { type: "pressure", condition: "over", value: 4 } }), pressure("Extract", 9, { seconds: 12 }), flow("Off", 0, { seconds: 10 })];
+    const shot = run(steps);
+    expect(shotFitStop(shot.samples, "machineEnded", "DE1", profile(steps))).toEqual({ stopAt: null });
+    const { fit } = fitToShot({ samples: shot.samples, profile: profile(steps), puck: standardPuck(), stopAt: null });
+    expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(Math.max(1, 0.05 * fit.shot.duration));
+    // Stopped on the Machine 2 s before the end of its last step: at its last weight.
+    const stopped = shot.samples.filter((sample) => sample.seconds <= shot.duration - 2);
+    expect(shotFitStop(stopped, "machineEnded", "DE1", profile(steps))).toEqual({ stopAt: stopped[stopped.length - 1]!.values.weight });
+  });
+
   it("with no scale, runs its steps out only where a DE1 ran its last step out", () => {
     const steps = [flow("Fill", 6, { seconds: 8 }), pressure("Extract", 9, { seconds: 20 })];
     const unweighed = (result: SimulatedRun) => result.samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: null } }));
@@ -587,5 +598,8 @@ describe("a Shot's puck", () => {
     expect(shotFitStop(unweighed, "machineEnded", "DE1", shotProfile)).toBeNull();
     const dry = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: sample.values.weight === null ? null : 0 } }));
     expect(shotFitStop(dry, "appStop", "DE1", shotProfile)).toBeNull();
+    // Scale noise under a gram is no weight reached.
+    const noisy = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: sample.values.weight === null ? null : 0.2 } }));
+    expect(shotFitStop(noisy, "appStop", "DE1", shotProfile)).toBeNull();
   });
 });
