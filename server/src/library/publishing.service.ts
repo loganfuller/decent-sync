@@ -13,7 +13,7 @@ import { lockLocation, showAt } from "./location-state.js";
 import { profileText } from "./profile-intake.js";
 import { accountModels, refuseUnrunnableAt } from "./profile-reach.js";
 import { PROFILE_JOINING_LOCK } from "./profiles.js";
-import { ProfilesService } from "./profiles.service.js";
+import { type ProfileVersionView, ProfilesService } from "./profiles.service.js";
 import { recipeEditValues } from "./recipe-edits.service.js";
 
 // Publishing a Draft, and returning to an earlier Profile Version (ADR-0032,
@@ -108,13 +108,12 @@ export class PublishingService {
     refuseElsewhere(ask.locations, scope, "publish a Profile");
     const draft = await this.prisma.draft.findUnique({ where: { id: draftId }, select: { startedFromId: true, publishesAs: true } });
     if (!draft) throw new NotFoundException("No such Draft");
-    // The versions a new version replaces, whose titles it may share, but for a bundled Profile the chain was saved from: read before the transaction, as the chain only grows.
+    // The versions a new version replaces, whose titles it may share: read before the transaction, as the chain only grows.
     const chain =
       draft.publishesAs === "VERSION" && draft.startedFromId !== null
-        ? new Set(
-            (await this.profiles.versions(draft.startedFromId, scope).catch((caught: unknown) => (caught instanceof NotFoundException ? [] : Promise.reject(caught))))
-              .filter((version) => !version.bundled)
-              .map((version) => version.id),
+        ? replacedVersions(
+            draft.startedFromId,
+            await this.profiles.versions(draft.startedFromId, scope).catch((caught: unknown) => (caught instanceof NotFoundException ? [] : Promise.reject(caught))),
           )
         : new Set<string>();
     return this.prisma.$transaction(async (tx) => {
@@ -207,6 +206,24 @@ export class PublishingService {
       return { profile: { id: to, title: earlier.title }, replaced: { id: from, title: later?.title ?? null }, ...done, forked: [] };
     }, INTAKE_TRANSACTION);
   }
+}
+
+/**
+ * The versions of a chain a new version of `sourceId` replaces, whose titles
+ * it may share: the source and those it was saved from, and of the rest, as
+ * a fork or a separate Profile saved from one of them, those titled as one
+ * of these, compared as Streamline compares titles. A separate Profile
+ * retitled is not among them, nor a bundled Profile the chain was saved
+ * from: a tablet would show either beside the new version under one title.
+ */
+function replacedVersions(sourceId: string, versions: readonly ProfileVersionView[]): Set<string> {
+  const saved = versions.filter((version) => !version.bundled);
+  const byId = new Map(saved.map((version) => [version.id, version]));
+  const lineage = new Set<string>();
+  for (let at = byId.get(sourceId); at && !lineage.has(at.id); at = at.parentId === null ? undefined : byId.get(at.parentId)) lineage.add(at.id);
+  const key = (title: string | null) => (title ?? "").trim().toLowerCase();
+  const titles = new Set([...lineage].map((id) => key(byId.get(id)!.title)).filter((title) => title !== ""));
+  return new Set(saved.filter((version) => lineage.has(version.id) || titles.has(key(version.title))).map((version) => version.id));
 }
 
 /** 403 for Staff choosing a Location they do not work at. */

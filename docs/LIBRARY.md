@@ -2662,12 +2662,18 @@ Locations' tablets as any Profile, parents first.
 - **As a separate Profile**, its `parentId` is the Profile it started from
   too, as Streamline sets a Duplicate's, so it is listed among that
   Profile's versions as a tablet's Duplicate is; but it takes that
-  Profile's place nowhere: it moves no Recipes and hides nothing.
+  Profile's place nowhere: it moves no Recipes and hides nothing. As a
+  tablet's Duplicate does, it then counts as a newer version in the fork
+  warning of a Draft of that Profile begun before it, and its page offers
+  Return to it on that Profile.
 - **Refused** (409, with the checks) for what its checks stop
   (`checkProfile`): among them steps a Library Profile has, naming it, and a
   title a Profile shown at one of the Locations chosen has, compared as
-  Streamline compares titles, but those of the versions in a new version's
-  chain, other than a bundled Profile the chain was saved from; at a
+  Streamline compares titles, but those of the versions a new version
+  replaces: the Profile it started from, those that was saved from, and
+  the rest of the chain titled as one of these, so a fork keeps its title
+  and a separate Profile retitled, or a bundled Profile the chain was saved
+  from, does not; at a
   Location where a Machine can't run it (`refuseUnrunnableAt`, #588); and
   when the Draft was saved since the person read it, as they would publish
   what they have not seen (`saves`, the count of saves read).

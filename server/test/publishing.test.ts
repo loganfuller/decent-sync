@@ -308,6 +308,9 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     // A new version shares its title with the versions it replaces.
     const again = await save(await start({ profileId: third, as: "version" }), soak("Publish soak", 6.8));
     expect((await publish(again, { locations: [cafe.id] })).profile.title).toBe("Publish soak");
+    // Nor with a separate Profile saved from the chain under a title of its own: the copy published at the roastery above.
+    const asCopy = await save(await start({ profileId: third, as: "version" }), soak("Publish soak copy", 6.2));
+    expect((await refusal(api, "POST", `/drafts/${asCopy.id}/publish`, { saves: asCopy.saves, locations: [roastery.id] }, 409)).checks?.map((check) => check.code)).toEqual(["titleInUse"]);
     // But not with the bundled Profile its chain was saved from, which is not one of them.
     const fromClassic = await cafeTablet.addProfile(derivedProfile("Publish from Classic", 9.4), { parentId: CLASSIC });
     await expect.poll(async () => (await api.call("GET", path(String(fromClassic.id)))).status, { timeout: 15_000 }).toBe(200);
