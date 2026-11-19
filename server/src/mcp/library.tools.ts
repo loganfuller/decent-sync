@@ -5,6 +5,7 @@ import {
   EXIT_CONDITIONS,
   EXIT_TYPES,
   type LibraryKind,
+  MACHINE_MODELS,
   MAX_SHOT_RATING,
   STEP_SENSORS,
   STEP_TRANSITIONS,
@@ -334,6 +335,9 @@ export const itemOutput = z.object({
       profile: profileShape.nullable().describe("Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it."),
       parent: z.object({ id, title: z.string().nullable() }).nullable().describe("The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it."),
       locations: decidedAt,
+      machineModel: z
+        .enum(MACHINE_MODELS)
+        .describe("The Machine model simulate_profile runs it as where none is asked for: Bengle where every Machine at the Locations showing it is one, otherwise DE1."),
     })
     .optional(),
   grinder: grinderSummary.extend({ content: content(RECORD_FIELDS) }).optional(),
@@ -701,7 +705,14 @@ function profileOf(profile: ProfileSummary | ProfileView): z.infer<typeof profil
 }
 
 function profileViewOf(profile: ProfileView): NonNullable<GetOutput["profile"]> {
-  return { ...profileOf(profile), content: profile.content, profile: profile.profile, parent: profile.parent && { id: profile.parent.id, title: profile.parent.title }, locations: decidedOf(profile) };
+  return {
+    ...profileOf(profile),
+    content: profile.content,
+    profile: profile.profile,
+    parent: profile.parent && { id: profile.parent.id, title: profile.parent.title },
+    locations: decidedOf(profile),
+    machineModel: profile.machineModel,
+  };
 }
 
 function grinderOf(grinder: GrinderSummary | GrinderView): z.infer<typeof grinderSummary> {
