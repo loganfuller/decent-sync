@@ -15,6 +15,7 @@ import { editTime, staffElsewhere } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
 import { NoDoseForRatio, ratioValues } from "./recipe-intake.js";
 import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from "./location-state.js";
+import { refuseUnrunnableAt } from "./profile-reach.js";
 
 // Recipes created and edited in the management interface, moved between the
 // Recipe Slots of their Location, taken out of them, Archived and restored
@@ -469,12 +470,14 @@ async function batchOfBean(tx: Prisma.TransactionClient, locationId: string, bea
  * - a Bean Batch not Archived, added at the Location if it is not there, and
  *   its Bean set as the Recipe's; none clears the Bean too;
  * - a Profile, Basket or Tool not Archived, shown at the Location if it is
- *   not shown there;
+ *   not shown there; a Profile only one every Machine there can run
+ *   (`refuseUnrunnableAt`, #588);
  * - each Tool's attributes only for the Tools the Recipe names then, those of
  *   a Tool it no longer names dropped.
  *
  * 400 for an item the Library does not have, or attributes of a Tool the
- * Recipe does not name; 409 for one Archived, or another Location's Grinder.
+ * Recipe does not name; 409 for one Archived, another Location's Grinder,
+ * or a Profile a Machine there can't run.
  */
 async function setUses(
   tx: Prisma.TransactionClient,
@@ -527,6 +530,8 @@ async function setUses(
         FOR SHARE OF items`;
       if (!item) throw new BadRequestException(`No such ${name}`);
       if (item.archived) throw new ConflictException(`This ${name} is Archived: restore it before a Recipe uses it`);
+      // A Recipe shows its Profile at its Location, shown there already or not, which may have gained a Machine that can't run it since (#588).
+      if (kind === "profile") await refuseUnrunnableAt(tx, itemId, locationId);
       if (!item.shown) await showAt(tx, kind, itemId, locationId, source, true, at, seenAt);
     }
   }

@@ -6,7 +6,6 @@ import {
   type SimulatedRun,
   MACHINE_MODELS,
   MODEL_FIGURES,
-  PUMP_MAX_FLOW,
   SIMULATION_TICK,
   eased,
   fitToShot,
@@ -414,7 +413,6 @@ describe("a machine of a model", () => {
     expect(MACHINE_MODELS).toEqual(["DE1", "Bengle"]);
     expect(MODEL_FIGURES.DE1.maxFlow).toBe(8);
     expect(MODEL_FIGURES.Bengle.maxFlow).toBe(15);
-    expect(PUMP_MAX_FLOW).toBe(MODEL_FIGURES.DE1.maxFlow);
   });
 
   it("runs a step that asks for more flow than a DE1 gives, a Bengle keeping up", () => {

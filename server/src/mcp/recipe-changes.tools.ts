@@ -60,7 +60,7 @@ const copyInput = z.strictObject({
 const recipeOutput = z.object({ recipe: itemOutput.shape.recipe.unwrap() });
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const USES =
-  "What it uses must be offered at its Location: its Grinder is one of the Location's, and a Bean Batch, Profile, Basket or Tool not offered there is offered there from then on. None may be Archived.";
+  "What it uses must be offered at its Location: its Grinder is one of the Location's, and a Bean Batch, Profile, Basket or Tool not offered there is offered there from then on. None may be Archived, and a Profile newly named must be one every Machine there can run: a DE1 is held to Streamline's ranges, as a step's flow up to 15 ml/s and a flow limit or flow exit up to 8, and a Bengle to the same but with each of those up to 20; one it can't run is refused, naming the Machines and values.";
 
 /**
  * Recipes changed through an assistant: each tool calls the service its

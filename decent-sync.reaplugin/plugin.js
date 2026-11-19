@@ -938,7 +938,32 @@ var __decentSync = (() => {
     const name = typeof value === "string" ? value.toLowerCase() : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
     return isOneOf(BEVERAGE_TYPES, name) ? name : "espresso";
   }
-  var PUMP_MAX_FLOW = MODEL_FIGURES.DE1.maxFlow;
+  var DE1_LIMITS = {
+    pressure: { min: 0, max: 12 },
+    flow: { min: 0, max: 15 },
+    temperature: { min: 0, max: 105 },
+    seconds: { min: 0, max: 127 },
+    volume: { min: 0, max: 500 },
+    weight: { min: 0, max: 500 },
+    /** A flow limit, on a pressure step. */
+    flowLimit: { min: 0, max: 8 },
+    /** A pressure limit, on a flow step. */
+    pressureLimit: { min: 0, max: 12 },
+    limiterRange: { min: 0, max: 5 },
+    pressureExit: { min: 0, max: 12 },
+    flowExit: { min: 0, max: 8 },
+    tankTemperature: { min: 0, max: 110 },
+    targetWeight: { min: 0, max: 500 },
+    targetVolume: { min: 0, max: 500 }
+  };
+  var MODEL_LIMITS = {
+    DE1: DE1_LIMITS,
+    Bengle: { ...DE1_LIMITS, flow: { min: 0, max: 20 }, flowLimit: { min: 0, max: 20 }, flowExit: { min: 0, max: 20 } }
+  };
+  var KEEPS_UP = {
+    DE1: `a DE1's pump gives about ${MODEL_FIGURES.DE1.maxFlow} ml/s at most`,
+    Bengle: `a Bengle's heater keeps up with about ${MODEL_FIGURES.Bengle.maxFlow} ml/s at most`
+  };
   var PROFILE_TEXT_FIELDS = ["title", "author", "notes"];
   function profileTextOf(value) {
     const profile = isObject(value) ? value : {};

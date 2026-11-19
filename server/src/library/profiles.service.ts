@@ -6,6 +6,7 @@ import { type LocationView, viewLocation } from "../locations/locations.service.
 import { PrismaService } from "../prisma.service.js";
 import { shotListedSql, shotPulledWithSql } from "../shots/links.js";
 import { type SourceView, viewSource, withSource } from "./history.service.js";
+import { accountModels } from "./profile-reach.js";
 
 /** A Profile as the REST API lists it. */
 export interface ProfileSummary {
@@ -193,6 +194,11 @@ export class ProfilesService {
     const [row] = await this.prisma.$queryRaw<{ count: number }[]>`
       SELECT count(*)::int AS count FROM shots s WHERE ${shotListedSql("s")} AND ${shotPulledWithSql("s", profileId)}`;
     return row?.count ?? 0;
+  }
+
+  /** The models the account has Machines of (`accountModels`), which a Profile's checks hold it to the widest ranges of (#588). */
+  async accountModels(): Promise<MachineModel[]> {
+    return accountModels(this.prisma);
   }
 
   /** The model a Profile shown at these Locations is simulated as (`ProfileView.machineModel`): of the Machines there now, by their latest Location History entry. */

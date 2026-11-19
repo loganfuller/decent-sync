@@ -6,6 +6,7 @@ import type { Config } from "../config.js";
 import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
 import type { LocationView } from "../locations/locations.service.js";
 import { type LoadedRecipeView, currentLoadedRecipes } from "../machine-events/loaded-recipes.js";
+import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import { type JudgedShot, shotSpecs } from "../shots/shot-specs.js";
@@ -247,6 +248,8 @@ export class MachinesService {
         // The Machine takes over whatever was held for its hardware.
         await transferPendingRecords(tx, hardware, id);
         await tx.pendingMachine.deleteMany({ where: hardware });
+        // Its model is known now, so its tablet's writers look again: a write held to a DE1's ranges meanwhile may be due (#588).
+        await notify(tx, "machine_locations", id);
       }, CREDITING_TRANSACTION)
       .catch(async (error: unknown) => {
         // A hello bound the hardware to another Machine meanwhile.

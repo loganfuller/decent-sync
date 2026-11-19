@@ -46,6 +46,7 @@ import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
 import { addBatchAt, enterRemainingWeight, finishBatchAt, showAt, showProfileAt } from "./location-state.js";
+import { refuseUnrunnableAt } from "./profile-reach.js";
 import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 import { recordProfileWritten, takeInProfiles } from "./profiles.js";
@@ -672,6 +673,8 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
       },
       use: async (tx, profileId, locationId, field, value, at, seenAt, source) => {
         if (field !== "shown" || typeof value !== "boolean") throw new Error(`A Conflict about ${field} at a Location cannot be used`);
+        // A Profile reaches only the Machines that can run it (#588).
+        if (value) await refuseUnrunnableAt(tx, profileId, locationId);
         await showProfileAt(tx, profileId, locationId, source, value, at, seenAt);
       },
     },

@@ -18,7 +18,9 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   Location's tablets may hold;
  * - `machine_locations`, a Machine's id: the Location it is at now has
  *   changed, or its sharing was turned off or on, so its tablet's Library is
- *   to be taken in afresh, or no longer;
+ *   to be taken in afresh, or no longer; or its hardware was entered, so its
+ *   model may have changed, and with it what its tablet may be written
+ *   (#588);
  * - `settings_edits`, a Machine's id: a Settings Edit was made for the
  *   connection holding it, which its instance is to send;
  * - `shot_edits`, a tablet's id: an edit of a Shot that tablet holds was

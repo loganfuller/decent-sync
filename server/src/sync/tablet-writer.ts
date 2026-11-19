@@ -371,6 +371,12 @@ export class TabletWriter {
       const item = "leaveOut" in due ? `${name} record ${due.localId}` : `${name} ${due.globalId}`;
       const fields =
         "delete" in due ? "delete" : "remove" in due ? "remove" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
+      if ("fields" in due && due.notWritten !== undefined) {
+        // It carries a profile the Machine's model can't run (#588): shown with the tablet's refusals, with why.
+        this.skip(key, change.signature);
+        await recordRefused(this.prisma, this.tablet.tabletId, change, null, due.notWritten);
+        continue;
+      }
       const last = this.lastWritten.get(key);
       const created = "fields" in due && due.localId === null;
       if (last !== undefined && last.fields === fields && !(created && last.reports !== this.reportsTakenIn)) {

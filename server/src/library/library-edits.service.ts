@@ -12,6 +12,7 @@ import { type EditSource, type Editor, type ItemRef, accountSource, recordVersio
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, idSql } from "./kinds.js";
 import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showAt } from "./location-state.js";
+import { refuseUnrunnableAt } from "./profile-reach.js";
 
 // Creating and editing Beans, Bean Batches and Grinders in the management
 // interface, Archiving and restoring them, and adding and finishing batches
@@ -206,7 +207,8 @@ export class LibraryEditsService {
    * state of it, as having seen every decision made there before it. An
    * Archived Profile is shown nowhere, but keeps each Location's state of
    * it, so restoring it shows it again where it is shown. 404 if there is
-   * no such Profile or Location, 403 for Staff elsewhere.
+   * no such Profile or Location, 403 for Staff elsewhere, and 409 for
+   * showing it where a Machine can't run its values (`refuseUnrunnableAt`).
    */
   async showProfile(id: string, locationId: string, shown: boolean, editor: Editor, scope: Scope): Promise<void> {
     await this.show("profile", id, locationId, shown, editor, scope);
@@ -302,6 +304,8 @@ export class LibraryEditsService {
       // Under its key's lock, so it is not hard-deleted until its state here changes.
       const item = await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, id)} FOR KEY SHARE`;
       if (item.length === 0) throw notFound(kind);
+      // A Profile reaches only the Machines that can run it (#588).
+      if (kind === "profile" && shown) await refuseUnrunnableAt(tx, id, locationId);
       const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
       await showAt(tx, kind, id, locationId, accountSource(editor), shown, await editTime(tx), seenAt);
       await notify(tx, "library_changes", locationId);

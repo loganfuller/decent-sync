@@ -16,6 +16,7 @@ import { standing } from "./join-plan.js";
 import { workflowClearDue } from "./joining.js";
 import { KINDS } from "./kinds.js";
 import { leaveOutsDue } from "./left-out.js";
+import { markUnrunnable } from "./profile-reach.js";
 import { loadedRecipeDue } from "../machine-events/loaded-recipes.js";
 
 // What a connection's tablet is due: the next write that brings it to what
@@ -128,14 +129,16 @@ export async function changesDue(
   const writable = (change: { kind: WrittenKind }) => !isLibraryKind(change.kind) || !unrecognised.has(LIBRARY_ITEM_KINDS[change.kind].list);
   // The Loaded Recipe's fields last, once the Recipe's record, and the Basket and batch they name, are written.
   const loaded = await loadedRecipeDue(tx, tablet, locationId);
+  const changes = [
+    ...writes,
+    ...(await deletesDue(tx, tablet.tabletId, skipped)),
+    ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
+    ...plannedWrites(offer as LocationOffer, held as TabletHoldings, skipped),
+    ...(loaded === null || skipped.has(writeKey(loaded.kind, loaded.globalId)) ? [] : [loaded]),
+  ].filter(writable);
   return {
-    changes: [
-      ...writes,
-      ...(await deletesDue(tx, tablet.tabletId, skipped)),
-      ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
-      ...plannedWrites(offer as LocationOffer, held as TabletHoldings, skipped),
-      ...(loaded === null || skipped.has(writeKey(loaded.kind, loaded.globalId)) ? [] : [loaded]),
-    ].filter(writable),
+    // A write carrying a profile the Machine's model can't run is marked not to be written (#588).
+    changes: await markUnrunnable(tx, tablet.machineId, changes),
     batchesAwaitingBeans: batchesAwaitingBeans(offer as LocationOffer, held as TabletHoldings),
   };
 }
