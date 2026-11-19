@@ -636,8 +636,9 @@ Conflict names is kept, still refused, so history goes on naming it
   finds a tablet's record of the Workflow's profile, and of the one it
   loads at wake, by title, so would take one for the other. That is
   checked only for an edit made here: a tablet's rename is taken in as it
-  is, and so is a Conflict's title used; and a title kept as it is, sent
-  with other fields, is not refused for one that is another's already. An
+  is, and so is a Conflict's title used; and a title the Profile has
+  already, up to case and the spaces around it, sent with other fields, is
+  not refused for one that is another's already. An
   author or notes cleared is kept empty, as Decaid holds none (`decaidText` in
   `item-input.ts`), so a tablet's record never differs from it for that
   alone. A bundled Profile's are refused (409), as Decaid refuses to change
