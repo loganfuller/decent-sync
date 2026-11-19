@@ -544,6 +544,7 @@ function GraphPointer({
   children: ReactNode;
 }) {
   const [pointer, setPointer] = useState<number | null>(null);
+  const slider = useRef<HTMLDivElement>(null);
   // Each record's values only while it runs: none for the run after it stopped, nor for the Shot after it did.
   const runEnd = Math.max(run.duration, run.samples.at(-1)?.seconds ?? 0);
   const last = Math.max(run.duration, compared?.end ?? 0);
@@ -579,6 +580,9 @@ function GraphPointer({
       style={{ width: layout.width, height: layout.height }}
       onPointerMove={onPointer}
       onPointerDown={onPointer}
+      // A click gives the slider the keys, as a click on a slider does, so the arrows move on from where it was:
+      // on the click, after the press has moved the focus where a press does.
+      onClick={() => slider.current?.focus({ preventScroll: true })}
       onPointerLeave={(event) => event.pointerType === "mouse" && setPointer(null)}
     >
       {children}
@@ -625,6 +629,7 @@ function GraphPointer({
         </div>
       )}
       <div
+        ref={slider}
         role="slider"
         tabIndex={0}
         aria-label="A moment on the graph"

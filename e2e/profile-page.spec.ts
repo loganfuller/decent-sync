@@ -104,6 +104,9 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await svg.hover({ position: { x: 300, y: 120 } });
   await expect(svg.locator("[data-readout]")).toContainText("Pressure");
   await expect(svg.locator("[data-readout]")).toContainText("In the cup");
+  // A click gives the graph's time slider the keys.
+  await svg.click({ position: { x: 300, y: 120 } });
+  await expect(svg.getByRole("slider", { name: "A moment on the graph" })).toBeFocused();
   // A finer puck runs longer.
   const medium = await time();
   await graph.getByRole("slider", { name: "Puck, finer to coarser" }).focus();
