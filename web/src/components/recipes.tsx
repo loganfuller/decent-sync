@@ -670,7 +670,9 @@ export function NewRecipeDialog({ places }: { places: { location: Location; reci
   const [open, setOpen] = useState(false);
   const choosable = (places ?? []).filter(({ location }) => mayChangeAt(location.id));
   const [locationId, setLocationId] = useState("");
-  const chosen = choosable.length === 1 ? choosable[0] : choosable.find(({ location }) => location.id === locationId);
+  // The only Location is chosen as if picked, so another one a later poll brings keeps the form and what it holds.
+  if (open && locationId === "" && choosable.length === 1) setLocationId(choosable[0]!.location.id);
+  const chosen = choosable.find(({ location }) => location.id === locationId);
   const id = useId();
   return (
     <Dialog
