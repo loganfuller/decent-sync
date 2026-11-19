@@ -2353,7 +2353,8 @@ fit.
   Decaid sends as none, is passed through at once, whatever its exit. A
   step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
   tenth of a second below 12.75 s and to a whole second from there, up to
-  127 s, as the machine's wire format holds no more. Each sample names the
+  127 s, as the machine's wire format holds no more, and pumps the water
+  Decaid sends, in whole ml, cut down. Each sample names the
   step the run is in from that moment, so `stepSpans` reads the run's steps
   as it reads a Shot's. The
   Shot stops when the cup reaches the stop-at weight, or when its last step

@@ -41,6 +41,8 @@ const FLOWLESS = "simulated-classic-flowless";
 /** Classic Italian espresso's steps repeated to 21, one more than a machine takes, under a made-up id; and a Shot recorded on that profile. */
 const LONG = "profile:0000000000000005770a";
 const LONG_SHOT = "simulated-classic-long-profile";
+/** The Shot again, as recorded on hardware no Machine has, 57709, which an Admin then dismisses. */
+const DISMISSED = "simulated-classic-dismissed";
 
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
@@ -87,6 +89,10 @@ describe("A Library Profile simulated on a puck", () => {
     await answers(api, `/shots/${SHOT}`);
     await answers(api, `/shots/${FLOWLESS}`);
     await answers(api, `/shots/${LONG_SHOT}`);
+    tablet.pullShot({ ...recorded, id: DISMISSED, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57709" } } });
+    await answers(api, `/shots/${DISMISSED}`);
+    const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === "57709")!;
+    expect((await api.call("POST", `/pending-machines/${pending.id}/dismiss`)).status).toBe(200);
   });
   afterAll(async () => {
     await assistant?.close();
@@ -160,6 +166,9 @@ describe("A Library Profile simulated on a puck", () => {
     expect((await refused({ stopAt: "501" })).status).toBe(400);
     expect(await refused({}, "profile:00000000000000000000")).toEqual({ status: 404, message: "No such Profile" });
     expect(await refused({ shotId: "no-such-shot" })).toEqual({ status: 404, message: "Shot not found" });
+    // A Shot of dismissed hardware, which no Shot read shows.
+    expect((await api.call("GET", `/shots/${DISMISSED}`)).status).toBe(404);
+    expect(await refused({ shotId: DISMISSED })).toEqual({ status: 404, message: "Shot not found" });
     expect(await refused({ shotId: FLOWLESS })).toEqual({ status: 409, message: `Shot ${FLOWLESS} recorded no pressure and flow to work its puck out from` });
     expect(await refused({}, LONG)).toEqual({ status: 409, message: `Profile ${LONG} has 21 steps, more than the 20 a machine takes, so it can't be simulated` });
   });
@@ -240,6 +249,7 @@ describe("A Library Profile simulated on a puck", () => {
       };
       expect(await refusal({ profileId: CLASSIC, shotId: SHOT, grind: 0 })).toContain("Choose a Shot's puck or the standard puck's grind, not both");
       expect(await refusal({ profileId: CLASSIC, shotId: "no-such-shot" })).toContain("Shot not found");
+      expect(await refusal({ profileId: CLASSIC, shotId: DISMISSED })).toContain("Shot not found");
       expect(await refusal({ profileId: "profile:00000000000000000000" })).toContain("No such Profile");
       expect(await refusal({ profileId: CLASSIC, grind: 3 })).toMatch(/grind/);
     });

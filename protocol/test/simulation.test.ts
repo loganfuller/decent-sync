@@ -245,6 +245,14 @@ describe("a step's time", () => {
   });
 });
 
+describe("a step's water", () => {
+  it("is what Decaid sends the machine: whole ml, cut down", () => {
+    const ending = (volume: number) => run([flow("Fill", 1, { seconds: 20, volume }), flow("Rest", 0, { seconds: 1 })]).steps[0]!;
+    expect(ending(1.9)).toMatchObject({ reason: "water", end: ending(1).end });
+    expect(ending(0.9)).toMatchObject({ reason: "time", end: 20 });
+  });
+});
+
 describe("a step longer than the machine runs one", () => {
   it("runs 127 s, as the machine's wire format holds no more", () => {
     const result = run([flow("Endless", 0.2, { seconds: 12_700 })]);
@@ -443,6 +451,12 @@ describe("a Shot's puck", () => {
     expect(shotPuck(without("flow"), 18)).toBeNull();
     expect(shotPuck(without("pressure"), 18)).toBeNull();
     expect(shotPuck([], 18)).toBeNull();
+  });
+
+  it("of one measured sample is its resistance there, not a mean with the fill's", () => {
+    const values = { pressure: 9, flow: 1, weight: null, weightFlow: null, temperature: null };
+    const targets = { pressure: null, flow: null, weight: null, weightFlow: null, temperature: null };
+    expect(shotPuck([{ seconds: 0, shade: null, values, targets }], 18)!.resistance).toEqual([[0, 9]]);
   });
 
   it("stops a run as the Shot stopped: at its last weight, or with its steps where its machine ended it", () => {

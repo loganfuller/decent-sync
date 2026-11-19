@@ -58,6 +58,15 @@ export function stepSeconds(step: ProfileStep): number {
   return Math.trunc(0.5 + seconds * 10) / 10;
 }
 
+/**
+ * The water a step may pump as the machine runs it, ml: Decaid sends it as a
+ * whole number of ml, cut down, up to 1023 (`convert_float_to_U10P0`, as
+ * above), so 1.9 ml runs as 1.
+ */
+function stepVolume(step: ProfileStep): number {
+  return step.volume > 0 ? Math.min(1023, Math.trunc(step.volume)) : 0;
+}
+
 /** The least resistance a puck has, where water fills the space above it and meets none. */
 const LEAST_RESISTANCE = 0.001;
 
@@ -201,7 +210,11 @@ export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | n
       if (filling) points.splice(0, points.length, [pumped[n]!, LEAST_RESISTANCE]);
       continue;
     }
-    if (filling && points.length === 0) points.push([0, LEAST_RESISTANCE]);
+    if (filling) {
+      // The fill's point of least resistance, where it comes before this, the first measured.
+      if (points.length === 0) points.push([0, LEAST_RESISTANCE]);
+      if (points[0]![0] >= pumped[n]! - 1e-9) points.pop();
+    }
     filling = false;
     points.push([pumped[n]!, pressure[n]! / (puckFlow * puckFlow)]);
   }
@@ -497,7 +510,8 @@ function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; f
     const reading = exit.type === "pressure" ? at.pressure : at.flow;
     if (exit.condition === "over" ? reading >= exit.value : reading <= exit.value) return "exit";
   }
-  if (step.volume > 0 && at.water >= step.volume) return "water";
+  const volume = stepVolume(step);
+  if (volume > 0 && at.water >= volume) return "water";
   if (step.weight !== null && step.weight > 0 && at.weight >= step.weight) return "weight";
   if (at.elapsed >= stepSeconds(step) - 1e-9) return "time";
   return null;
