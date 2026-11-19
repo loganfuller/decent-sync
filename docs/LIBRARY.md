@@ -2466,8 +2466,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
   where Decaid would not read the Shot's own profile or it has more than 20
-  steps, or where its scale dropped out more than a second before a stop its
-  Machine didn't make (`shotStopKnown`). 400 for a value out of range, or both `grind` and `shotId`; 404 for
+  steps, or where it stopped other than by its Machine without a weight
+  above 0 read within a second of its stop: with no scale, before anything
+  reached the cup, or after its scale dropped out (`shotStopKnown`). 400 for a value out of range, or both `grind` and `shotId`; 404 for
   no such Profile or Shot; 409 for a Profile whose profile Decaid would not
   read or that has more than 20 steps, the most a machine takes, or a Shot
   whose samples show nothing of its puck's resistance: no pressure and flow

@@ -62,7 +62,8 @@ export interface ProfileSimulation {
    * beside the Shot: each's duration, time to first drip, peak pressure and
    * each step's end. Null on the standard puck, and where Decaid would not
    * read the Shot's own profile or it has more steps than a machine takes,
-   * and where its scale dropped out before it stopped (`shotStopKnown`).
+   * and where it stopped other than by its Machine with no recent weight to
+   * stop a run at (`shotStopKnown`).
    */
   fit: ShotFit | null;
 }

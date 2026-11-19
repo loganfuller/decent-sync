@@ -623,12 +623,12 @@ export interface ShotFit {
   simulated: RunFigures;
 }
 
-/** A Shot's figures from its samples (`shotSamples`) after its Preheat. */
+/** A Shot's figures from its samples (`shotSamples`) after its Preheat, its first drip past a cup weighed before the tare landed (`tareLanded`), as its puck reads it. */
 export function shotFigures(samples: readonly Sample<ShotCurve>[]): RunFigures {
   const shot = samples.filter((sample) => sample.shade === null);
   return {
     duration: shot.length > 0 ? shot[shot.length - 1]!.seconds : 0,
-    timeToFirstDrip: timeToFirstDrip(shot),
+    timeToFirstDrip: timeToFirstDrip(shot.slice(tareLanded(shot))),
     peakPressure: shot.reduce((peak, sample) => Math.max(peak, sample.values.pressure ?? 0), 0),
     steps: stepSpans(shot).map((span: StepSpan) => ({ index: span.frame, name: span.name, end: span.until })),
   };
@@ -661,15 +661,16 @@ const SCALE_GAP = 1;
 
 /**
  * Whether a run of a Shot's own steps can be stopped as it stopped
- * (`shotStopAt`): not where its scale dropped out more than SCALE_GAP before
- * a stop its machine didn't make, as the weight it stopped at is then
- * unknown.
+ * (`shotStopAt`): where its machine ended it, or at a weight above 0 its
+ * scale read within SCALE_GAP of its stop. Not where it stopped otherwise
+ * with no scale, before anything reached the cup, or after its scale dropped
+ * out, as the run has no weight to stop at then.
  */
 export function shotStopKnown(samples: readonly Sample<ShotCurve>[], stopReason: unknown): boolean {
   if (stopReason === "machineEnded") return true;
   const shot = samples.filter((sample) => sample.shade === null);
   const last = lastRecordedWeight(shot);
-  return !last || shot.length === 0 || shot[shot.length - 1]!.seconds - last.seconds <= SCALE_GAP;
+  return last !== null && last.weight > 0 && shot[shot.length - 1]!.seconds - last.seconds <= SCALE_GAP;
 }
 
 /** A Shot's own steps run on its own puck, and how close the run comes to the Shot. */

@@ -14,6 +14,7 @@ import {
   profileOf,
   shotPuck,
   shotSamples,
+  shotFigures,
   shotStopAt,
   shotStopKnown,
   simulateProfile,
@@ -173,6 +174,14 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
     expect(exitFirst.steps[0]!.reason).toBe("exit");
     const timeFirst = run([flow("Both", 4, { seconds: 1, volume: 100, exit: { type: "pressure", condition: "over", value: 2 } }), after]);
     expect(timeFirst.steps[0]).toMatchObject({ end: 1, reason: "time" });
+  });
+
+  it("on one tick, by exit before time, and by the Shot's stop before the step's weight", () => {
+    const both = run([flow("Tick", 4, { seconds: 0.1, exit: { type: "flow", condition: "over", value: 0.5 } }), after]);
+    expect(both.steps[0]).toMatchObject({ end: 0.1, reason: "exit" });
+    const weighed = run([flow("Weighs", 4, { seconds: 60, weight: 20 }), after], { stopAt: 20 });
+    expect(weighed.steps[0]!.reason).toBe("stop");
+    expect(weighed.stop.reason).toBe("weight");
   });
 
   it("and the Shot ends at the stop-at weight, the step it was in ending with it", () => {
@@ -481,6 +490,8 @@ describe("a Shot's puck", () => {
     expect(samples[first + 1]!.values.weight).toBeLessThan(1);
     const withCup = samples.map((sample, n) => (n === first ? { ...sample, values: { ...sample.values, weight: 120 } } : sample));
     expect(shotPuck(withCup, 18)).toEqual(shotPuck(samples, 18));
+    expect(shotFigures(withCup).timeToFirstDrip).toBe(shotFigures(samples).timeToFirstDrip);
+    expect(shotFigures(withCup).timeToFirstDrip).toBeGreaterThan(5);
   });
 
   it("of one measured sample is its resistance there, not a mean with the fill's", () => {
@@ -506,5 +517,11 @@ describe("a Shot's puck", () => {
     expect(shotStopKnown(dropped, "appStop")).toBe(false);
     expect(shotStopKnown(dropped, "targetWeight")).toBe(false);
     expect(shotStopKnown(dropped, "machineEnded")).toBe(true);
+    // Stopped by hand with no scale, or before anything reached the cup.
+    const unweighed = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: null } }));
+    expect(shotStopKnown(unweighed, "appStop")).toBe(false);
+    expect(shotStopKnown(unweighed, "machineEnded")).toBe(true);
+    const dry = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: sample.values.weight === null ? null : 0 } }));
+    expect(shotStopKnown(dry, "appStop")).toBe(false);
   });
 });
