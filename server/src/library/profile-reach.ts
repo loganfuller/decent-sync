@@ -94,7 +94,10 @@ function listed(names: readonly string[]): string {
  * sharing status shows: a Profile's record created, or made visible, a
  * Recipe's record carrying its Profile (`profileSnapshot`, and the
  * Workflow DYE2 derives), and a Loaded Recipe's Profile written into the
- * Workflow. Read in the caller's snapshot.
+ * Workflow. Each is judged on the Library's Profile as authored, never on
+ * the copy a Recipe's Workflow holds moved to its brew temperature
+ * (`recipeWorkflow`), as a Recipe's checks are. Read in the caller's
+ * snapshot.
  */
 export async function markUnrunnable(tx: Prisma.TransactionClient, machineId: string, changes: PlannedChange[]): Promise<PlannedChange[]> {
   const carried = changes.map((change) => carriedProfile(change));
@@ -107,10 +110,23 @@ export async function markUnrunnable(tx: Prisma.TransactionClient, machineId: st
     ids.length === 0
       ? new Map<string, unknown>()
       : new Map((await tx.$queryRaw<{ id: string; profile: unknown }[]>`SELECT id, content -> 'profile' AS profile FROM profiles WHERE id = ANY(${ids}::text[])`).map((row) => [row.id, row.profile]));
+  // A Recipe's Workflow holds its Profile moved to its brew temperature: the Profile it names is judged instead.
+  const recipeIds = carried.flatMap((profile) => (profile !== null && "recipeId" in profile ? [profile.recipeId] : []));
+  const named =
+    recipeIds.length === 0
+      ? new Map<string, unknown>()
+      : new Map(
+          (
+            await tx.$queryRaw<{ id: string; profile: unknown }[]>`
+              SELECT r.id::text AS id, p.content -> 'profile' AS profile FROM recipes AS r
+              JOIN profiles AS p ON p.id = r.content ->> 'profileId'
+              WHERE r.id = ANY(${recipeIds}::uuid[])`
+          ).map((row) => [row.id, row.profile]),
+        );
   return changes.map((change, index) => {
     const found = carried[index];
     if (found === null || found === undefined || !("fields" in change)) return change;
-    const profile = profileOf("id" in found ? contents.get(found.id) : found.raw);
+    const profile = profileOf("id" in found ? contents.get(found.id) : "recipeId" in found ? (named.get(found.recipeId) ?? found.raw) : found.raw);
     if (!profile) return change;
     const values = unrunnable(profile, model);
     if (values.length === 0) return change;
@@ -118,8 +134,13 @@ export async function markUnrunnable(tx: Prisma.TransactionClient, machineId: st
   });
 }
 
-/** The profile a write carries to the tablet: as written, or by the Profile's id where it makes the tablet's record visible; null for none. */
-function carriedProfile(change: PlannedChange): { raw: unknown } | { id: string } | null {
+/**
+ * The profile a write carries to the tablet: as written; by the Profile's id
+ * where it makes the tablet's record visible; or, for a Recipe's record
+ * carrying it only in its Workflow, as the Profile the Recipe names, the
+ * Workflow's copy where it names none of the Library's. Null for none.
+ */
+function carriedProfile(change: PlannedChange): { raw: unknown } | { id: string } | { recipeId: string; raw: unknown } | null {
   if (!("fields" in change) || "remove" in change) return null;
   const { fields } = change;
   if (change.kind === "profile") {
@@ -128,7 +149,7 @@ function carriedProfile(change: PlannedChange): { raw: unknown } | { id: string 
   }
   if (change.kind === "recipe") {
     if (fields.profileSnapshot !== undefined && fields.profileSnapshot !== null) return { raw: fields.profileSnapshot };
-    return isObject(fields.workflow) && isObject(fields.workflow.profile) ? { raw: fields.workflow.profile } : null;
+    return isObject(fields.workflow) && isObject(fields.workflow.profile) ? { recipeId: change.globalId, raw: fields.workflow.profile } : null;
   }
   if (change.kind === LOADED_RECIPE_KIND) {
     const field = LOADED_RECIPE_PARTS.profile[0];

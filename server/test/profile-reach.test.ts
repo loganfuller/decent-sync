@@ -210,13 +210,19 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
 describe("The writes a Machine is due", () => {
   const fastRaw = fastProfile("Fast Bloom");
   const slowRaw = derivedProfile("Slow Bloom", 8.5);
+  /** A profile's steps moved to a brew temperature, as a Recipe's Workflow holds them (`recipeWorkflow`). */
+  const atBrew = (profile: Record_, temperature: number): Record_ => ({ ...profile, steps: (profile.steps as Record_[]).map((step) => ({ ...step, temperature })) });
   const at = { decidedAt: null, contentDecidedAt: null } as const;
+  /** The Profile each Recipe names. */
+  const recipes: Record<string, string> = { r1: "profile:fast", r2: "profile:slow" };
 
-  /** A transaction reading a Machine of the model, and the Library's Profiles by id. */
+  /** A transaction reading a Machine of the model, the Library's Profiles by id, and the Profile each Recipe names. */
   function reading(model: string | null, profiles: Record<string, unknown>): Prisma.TransactionClient {
     const queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join("?");
       if (sql.includes("FROM machines")) return [{ model }];
+      if (sql.includes("FROM recipes"))
+        return (values[0] as string[]).filter((id) => recipes[id]! in profiles).map((id) => ({ id, profile: profiles[recipes[id]!] }));
       if (sql.includes("FROM profiles")) return (values[0] as string[]).filter((id) => id in profiles).map((id) => ({ id, profile: profiles[id] }));
       throw new Error(`Unexpected query: ${sql}`);
     };
@@ -231,10 +237,11 @@ describe("The writes a Machine is due", () => {
     // A visible one's title edited, and one hidden: neither offers it.
     { kind: "profile", globalId: "profile:fast", localId: "profile:fast", fields: { title: "Faster" }, expected: { title: "Fast Bloom" }, ...at },
     { kind: "profile", globalId: "profile:fast", localId: "profile:fast", fields: { visibility: "hidden" }, expected: { visibility: "visible" }, ...at },
-    // A Recipe's record carrying it, as its snapshot or in its Workflow alone, and one edited without it.
+    // A Recipe's record carrying it, as its snapshot or in its Workflow alone, and the dose of one on a Profile a DE1 runs
+    // edited, its Workflow written whole with the Profile at its brew temperature, 106 °C, which is judged as the Library's.
     { kind: "recipe", globalId: "r1", localId: null, fields: { name: "Bloom", profileId: "profile:fast", profileSnapshot: fastRaw }, ...at },
-    { kind: "recipe", globalId: "r1", localId: "r1", fields: { workflow: { profile: fastRaw } }, expected: {}, ...at },
-    { kind: "recipe", globalId: "r1", localId: "r1", fields: { "dashboardVariables.dose": 18 }, expected: {}, ...at },
+    { kind: "recipe", globalId: "r1", localId: "r1", fields: { workflow: { profile: atBrew(fastRaw, 96) } }, expected: {}, ...at },
+    { kind: "recipe", globalId: "r2", localId: "r2", fields: { "dashboardVariables.dose": 18, workflow: { context: { targetDoseWeight: 18 }, profile: atBrew(slowRaw, 106) } }, expected: {}, ...at },
     // A Loaded Recipe's Profile written into the Workflow, and its dose alone.
     { kind: LOADED_RECIPE_KIND, globalId: "r1", localId: null, fields: { profile: fastRaw, "context.targetDoseWeight": 18 }, expected: {}, ...at },
     { kind: LOADED_RECIPE_KIND, globalId: "r1", localId: null, fields: { "context.targetDoseWeight": 18 }, expected: {}, ...at },
@@ -256,12 +263,13 @@ describe("The writes a Machine is due", () => {
       null,
       null,
     ];
-    expect(notWritten(await markUnrunnable(reading("DE1Pro", { "profile:fast": fastRaw }), "machine", changes))).toEqual(expected);
-    expect(notWritten(await markUnrunnable(reading(null, { "profile:fast": fastRaw }), "machine", changes))).toEqual(expected);
+    const profiles = { "profile:fast": fastRaw, "profile:slow": slowRaw };
+    expect(notWritten(await markUnrunnable(reading("DE1Pro", profiles), "machine", changes))).toEqual(expected);
+    expect(notWritten(await markUnrunnable(reading(null, profiles), "machine", changes))).toEqual(expected);
   });
 
   it("marks none on a Bengle, leaving each as planned", async () => {
-    const marked = await markUnrunnable(reading("Bengle", { "profile:fast": fastRaw }), "machine", changes);
+    const marked = await markUnrunnable(reading("Bengle", { "profile:fast": fastRaw, "profile:slow": slowRaw }), "machine", changes);
     expect(marked).toEqual(changes);
   });
 });

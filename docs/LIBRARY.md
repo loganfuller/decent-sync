@@ -177,7 +177,11 @@ Machines that can run it (`server/src/library/profile-reach.ts`):
   `recipe-edits.service.ts`), shown there already or not, since a Recipe
   shows its Profile at its Location, which may have gained such a Machine
   since; an edit that leaves the Recipe's Profile as it is is not. A
-  tablet's own Profiles join the Library as before (ADR-0018).
+  Profile can still come to be shown where a Machine can't run it: a
+  tablet's own Profiles join the Library at its Location as before
+  (ADR-0018), restoring an Archived Profile shows it again wherever it was
+  shown, and a Machine moved to a Location meets what is shown there. The
+  writes below keep it from such a Machine.
 - The server writes no Profile to a Machine whose model can't run it, nor a
   Recipe's record carrying it (its `profileSnapshot`, and the Workflow DYE2
   derives), nor a Loaded Recipe's Profile into its Workflow, as when such a
@@ -185,8 +189,12 @@ Machines that can run it (`server/src/library/profile-reach.ts`):
   `changesDue` plans each tablet's writes). Each such write is marked with
   why (`notWritten`), and the tablet's writer records it as refused rather
   than writing it, so its Machine's sharing status lists it (Sharing status,
-  below). A Profile's record the tablet holds visible already, or an edit of
-  a Recipe's record that leaves its Profile alone, is written as before.
+  below). A Recipe's record is judged on the Library's Profile it names, as
+  authored, not on its Workflow's copy moved to its brew temperature
+  (`recipeWorkflow`). A Profile's record the tablet holds visible already
+  is written as before, as is an edit of a Recipe's record that carries no
+  Profile, or one the Machine can run; one whose Workflow carries a Profile
+  it can't run is refused like the rest.
 
 Advice in a Profile's checks (`checkProfile`) follows the models the account
 has Machines of (`accountModels`): a value is held to the widest of their
@@ -194,6 +202,12 @@ ranges, as a Draft is, and a value one of them can't run, or a flow one of
 them can't keep up with (a DE1's pump about 8 ml/s, a 250 V/15 A Bengle's
 heater about 15), is advice naming that model. An account with DE1s only
 sees a DE1's ranges, as before.
+
+These hold in an account with DE1s only too: a Profile with a value outside
+a DE1's ranges, as a flow limit over 8 ml/s, which a de1app or Visualizer
+profile may hold, is refused at any Location with a Machine, and written to
+no DE1. Every Profile Decaid bundles is in a DE1's ranges (rounding noise
+of 1e-9 at a range's end aside, `RANGE_SLACK`).
 
 ## Storage
 
