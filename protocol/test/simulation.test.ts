@@ -531,6 +531,11 @@ describe("a Shot's puck", () => {
     expect(shotFitStop(shot.samples, "machineEnded", "DE1", profile(steps))).toEqual({ stopAt: null });
     const { fit } = fitToShot({ samples: shot.samples, profile: profile(steps), puck: standardPuck(), stopAt: null });
     expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(Math.max(1, 0.05 * fit.shot.duration));
+    // With its scale lost before the end, run out only where no step has a weight, which Decaid stops checking then.
+    const lostScale = shot.samples.map((sample) => (sample.seconds >= 12 ? { ...sample, values: { ...sample.values, weight: null } } : sample));
+    expect(shotFitStop(lostScale, "machineEnded", "DE1", profile(steps))).toEqual({ stopAt: null });
+    const weighs = [steps[0]!, pressure("Extract", 9, { seconds: 12, weight: 20 }), steps[2]!];
+    expect(shotFitStop(lostScale, "machineEnded", "DE1", profile(weighs))).toBeNull();
     // Stopped on the Machine 2 s before the end of its last step: at its last weight.
     const stopped = shot.samples.filter((sample) => sample.seconds <= shot.duration - 2);
     expect(shotFitStop(stopped, "machineEnded", "DE1", profile(steps))).toEqual({ stopAt: stopped[stopped.length - 1]!.values.weight });

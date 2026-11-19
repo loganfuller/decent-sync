@@ -2395,7 +2395,7 @@ fit.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
   profile, are run on that puck on its own Machine's model, ended as it
   ended (`shotFitStop`): with its steps run out where a DE1 ran its last
-  step for its time, within half a second; otherwise at the weight its scale
+  step for its time, within a second; otherwise at the weight its scale
   last read, 1 g or more, as reached, or with its last step, whichever comes
   first, however it stopped, as Decaid records a stop on the Machine's own
   button as it does a profile's end; with no scale, with its steps run out
@@ -2478,11 +2478,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
   where Decaid would not read the Shot's own profile or it has more than 20
-  steps, or where the run can't end as the Shot did (`shotFitStop`): with no
-  weight above 0 read within a second of its stop, as with no scale, a stop
-  before anything reached the cup or a scale that dropped out, unless a DE1
-  ran its last step out and, with its scale lost, no step has a weight, as
-  Decaid checks no step's weight once the scale is lost. The two lists of
+  steps, or where the run can't end as the Shot did (`shotFitStop`): a DE1
+  that ran its last step for its time runs its steps out, and otherwise the
+  fit stops at a weight of 1 g or more read within a second of the stop; so
+  none with no such weight, as with no scale, a stop before anything reached
+  the cup or a scale that dropped out, unless a DE1 ran its last step out,
+  and none where its scale dropped out and a step has a weight, as Decaid
+  checks no step's weight once the scale is lost. The two lists of
   steps leave out steps of no length; match them by `index`. 400 for a value out of range, or both `grind` and `shotId`; 404 for
   no such Profile or Shot; 409 for a Profile whose profile Decaid would not
   read or that has more than 20 steps, the most a machine takes, or a Shot

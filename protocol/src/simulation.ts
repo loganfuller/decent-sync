@@ -671,7 +671,8 @@ const SCALE_GAP = 1;
  *
  * - Where a DE1 ended it (`machineEnded`) having run its last step of any
  *   length for its time, within RAN_OUT, the run runs its steps out, as the
- *   weight may have all but stopped rising by then.
+ *   weight may have all but stopped rising by then; not where its scale
+ *   was lost and a step has a weight, as below.
  * - Otherwise, where its scale read a weight of at least FIRST_DRIP_GRAMS
  *   within SCALE_GAP of the stop, the run stops at that weight or with its
  *   last step, whichever comes first, however it stopped: Decaid stops a Shot on weight before the weight it
@@ -691,15 +692,22 @@ export function shotFitStop(samples: readonly Sample<ShotCurve>[], stopReason: u
   const last = lastRecordedWeight(shot);
   const lost = last !== null && shot[shot.length - 1]!.seconds - last.seconds > SCALE_GAP;
   const endedByDe1 = stopReason === "machineEnded" && model !== "Bengle";
-  if (endedByDe1 && ranLastStepOut(shot, profile, model, RAN_OUT, false)) return { stopAt: null };
+  // Whether a step's weight fired is unknown once the scale was lost.
+  const unknowable = lost && profile.steps.some((step) => step.weight !== null && step.weight > 0);
+  if (endedByDe1 && !unknowable && ranLastStepOut(shot, profile, model, RAN_OUT, false)) return { stopAt: null };
   if (last !== null && last.weight >= FIRST_DRIP_GRAMS && !lost) return { stopAt: last.weight };
-  const weighs = profile.steps.some((step) => step.weight !== null && step.weight > 0);
-  if (endedByDe1 && ranLastStepOut(shot, profile, model, SCALE_GAP, true) && !(lost && weighs)) return { stopAt: null };
+  if (endedByDe1 && !unknowable && ranLastStepOut(shot, profile, model, SCALE_GAP, true)) return { stopAt: null };
   return null;
 }
 
-/** How close to its time a Shot's last step must have run for it to have run out, s: about two of Decaid's samples. */
-const RAN_OUT = 0.5;
+/**
+ * How close to its time a Shot's last step must have run for it to have run
+ * out, s: about four of a DE1's samples, which Decaid records 0.2 to 0.25 s
+ * apart; a stop on the Machine that late differs from running out by less
+ * than the fit's margin. A last step that ended on its exit or water limit
+ * can't be told from a stop on the Machine, so is judged by its weight.
+ */
+const RAN_OUT = 1;
 
 /** Whether a Shot's samples end in its profile's last step of any length, as sent to the model, having run it for its time, within `within` s, or, where `limits`, with an exit or water limit that could have ended it. */
 function ranLastStepOut(shot: readonly Sample<ShotCurve>[], profile: Profile, model: MachineModel, within: number, limits: boolean): boolean {
