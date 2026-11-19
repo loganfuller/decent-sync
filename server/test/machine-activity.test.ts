@@ -427,9 +427,10 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
   });
 
   it("reads the day a Machine came to its first Location after noon UTC by that Location's clock, so a Workflow of its evening there, after midnight UTC, is that day's", async () => {
-    // The 10th at the Lab, from 07:00 on the 10th to 07:00 on the 11th in UTC, not UTC's 10th, which ended before it came.
+    // The 10th, from its start in UTC, which was sooner than at the Lab, to its end at the Lab, 07:00 on the 11th in
+    // UTC, not UTC's 10th, which ended before it came.
     const added = await read(newcomer, { from: "2026-02-10", to: "2026-02-10", kind: "workflowChanges" });
-    expect(await read(newcomer, { from: "2026-02-10T07:00:00Z", to: "2026-02-11T07:00:00Z", kind: "workflowChanges" })).toEqual(added);
+    expect(await read(newcomer, { from: "2026-02-10T00:00:00Z", to: "2026-02-11T07:00:00Z", kind: "workflowChanges" })).toEqual(added);
     // No Workflow was in effect as the day began, so the first in it is.
     expect(trail(added)).toEqual([["inEffect", [], "2026-02-11T02:00:00"]]);
     expect(added.workflowChanges!.entries[0]!.workflow).toMatchObject({ dose: 20 });

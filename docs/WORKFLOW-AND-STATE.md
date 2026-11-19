@@ -987,7 +987,10 @@ paged routes above are as they were.
   Location's clock, is that Location's from its start (`dayStays`), as for
   a Machine added in the evening west of UTC, after noon UTC
   ([#587](https://github.com/loganfuller/decent-sync/issues/587)), so the
-  On one day card's today holds what it did there that evening. An end
+  On one day card's today holds what it did there that evening. That day
+  begins when it began in UTC if that was sooner, as west of UTC, and the
+  day before it ends when it began there, as east of UTC, so a date holds
+  the moments `get_machine_use` counts under it. An end
   not given is open: since the first, or until now. A range that ends at
   or before its start is refused with 400, as is a time outside the years
   1 to 9999.
@@ -1043,7 +1046,9 @@ offset of the Location the Machine was at then.
   `to`. With no `to` the range runs until now; with no `from` it starts
   with the day it ends in, by hour, or 13 days before that, by day, so no
   bounds give the last 14 days. By day it is at most 31 days, and by hour
-  at most 25 hours, the longest a day is, as the clocks go back; a longer one
+  one date, or at most 25 hours, the longest a day is, as the clocks go
+  back, but the day it came to its first Location, which west of UTC
+  begins up to 12 hours sooner in UTC than there; a longer one
   is refused with 400, as is one whose `to` is at or before its start. On a
   day the Machine moved between time zones a date is still read by where it
   was at noon UTC, so a range of that one date leaves out the part of it
@@ -1057,7 +1062,8 @@ offset of the Location the Machine was at then.
   read at the Location the Machine was at then, by its Location History,
   the whole of the day it came to its first Location included, by that
   Location's clock, and UTC's before that day (`useSpans`, `dayStays`), as
-  a date given for the range is read. A day the clocks change in
+  a date given for the range is read: west of UTC that day's bucket also
+  holds the hours of it in UTC before it began there. A day the clocks change in
   is one bucket, 23 or 25 hours long, and an hour they repeat is one bucket
   two hours long. On a day the Machine moved between time zones each part
   goes by where it was, so the day it left may be short and the one it

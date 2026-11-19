@@ -103,10 +103,22 @@ export function startOfDay(day: string, timeZone: string | null | undefined, day
  * UTC before the day it came to its first (`dayStays`). The day's Location
  * is the one it was at at noon UTC that day, within the day nearly
  * everywhere, which differs only on a day it moved between time zones.
+ *
+ * So a date holds the moments its use is counted under (`useSpans`): a day
+ * before the one it came to its first Location on ends when that day began
+ * there, which east of UTC is before midnight UTC, and that day begins when
+ * the day began in UTC if that was sooner, as west of UTC, as its bucket
+ * does.
  */
 export function rangeBound(bound: string, stays: readonly Stay[], end: boolean): Date {
   if (!isDay(bound)) return new Date(bound);
-  return startOfDay(bound, timeZoneAt(dayStays(stays), Date.parse(`${bound}T12:00:00Z`)), end ? 1 : 0);
+  const days = dayStays(stays);
+  const noon = Date.parse(`${bound}T12:00:00Z`);
+  const came = days[0]?.from ?? Infinity;
+  const utc = startOfDay(bound, null, end ? 1 : 0).getTime();
+  if (noon < came) return new Date(Math.min(utc, came));
+  if (!end && utc < came) return new Date(utc);
+  return startOfDay(bound, timeZoneAt(days, noon), end ? 1 : 0);
 }
 
 /**

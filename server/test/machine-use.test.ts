@@ -313,13 +313,13 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     expect(moved.buckets.map((entry) => [entry.date, entry.hour, entry.shots])).toEqual([["2026-02-10", 12, 1], ["2026-02-11", 5, 0]]);
 
     // At no Location until it came to the Lab at 17:00 on 31 December 2024 there, 00:00 on 1 January in UTC. The
-    // 31st, the day it came, is the Lab's (#587), from 07:00 in UTC: 17 hours of UTC's 31st, before it came, and the 7
-    // left of the day at the Lab, all idle; 1 January is the Lab's.
+    // 31st, the day it came, began in UTC 7 hours before it began at the Lab (#587): those 7 hours, before it came,
+    // and the Lab's 31st are one day of 31 hours, all idle; 1 January is the Lab's.
     expect(await use(mover, { from: "2024-12-31", to: "2025-01-01" })).toEqual({
       by: "day",
-      from: "2024-12-31T07:00:00.000Z",
+      from: "2024-12-31T00:00:00.000Z",
       to: "2025-01-02T07:00:00.000Z",
-      buckets: [bucket("2024-12-31", { states: [time("idle", 86_400)] }), bucket("2025-01-01", { states: [time("idle", 86_400)] })],
+      buckets: [bucket("2024-12-31", { states: [time("idle", 111_600)] }), bucket("2025-01-01", { states: [time("idle", 86_400)] })],
     });
     // A day before the one it came is UTC's.
     const before = await use(mover, { from: "2024-12-30", to: "2024-12-30" });
