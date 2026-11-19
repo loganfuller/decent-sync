@@ -77,7 +77,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/locations/`: Locations and their time zones.
 - `src/machines/`: machine entries, tokens, identity, Pending Machines, Location History, tablets, crediting.
 - `src/sync/`: the plugin's WebSocket gateway at `/sync`, identity resolution and each connection's writes.
-- `src/library/`: the Library: taking in tablets' reports, edits, Conflicts, Recipes, joining, writes due, which Machines a Profile reaches by their model (`profile-reach.ts`), and Drafts (`drafts.*`).
+- `src/library/`: the Library: taking in tablets' reports, edits, Conflicts, Recipes, joining, writes due, which Machines a Profile reaches by their model (`profile-reach.ts`), Drafts (`drafts.*`), and publishing them and returning to earlier versions (`publishing.service.ts`).
 - `src/shots/`, `src/steam-records/`: capture, extraction, Shot Summaries, spec judgements, edits and reads.
 - `src/machine-events/`: Workflow and machine state events, Loaded Recipes, dial-in trail and Machine use.
 - `src/collections/`: collections, paired devices and Settings History.

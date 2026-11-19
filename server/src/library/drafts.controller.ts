@@ -5,16 +5,20 @@ import type { SignedIn } from "../accounts/sessions.service.js";
 import { managementEditor } from "./history.js";
 import { type DraftSummary, type DraftView, DraftsService, type SaveBetween, readDraftSave, readDraftStart } from "./drafts.service.js";
 import { type ProfileSimulation, readSimulationAsk } from "./profile-simulation.service.js";
+import { type PublishedView, PublishingService, readDraftPublish } from "./publishing.service.js";
 
 /**
  * Drafts (ADR-0032, ticket #579): profiles being written or changed here,
  * which the server alone holds and no tablet is written. Admins and Staff
- * read, start, save and discard any of them, as anyone who may change the
+ * read, start, save, publish and discard any of them, as anyone who may change the
  * Library may; a Viewer sees none, 403 (`DraftsService`).
  */
 @Controller("api/drafts")
 export class DraftsController {
-  constructor(private readonly drafts: DraftsService) {}
+  constructor(
+    private readonly drafts: DraftsService,
+    private readonly publishing: PublishingService,
+  ) {}
 
   /** Every Draft, the one saved last first. */
   @AllowStaff()
@@ -60,6 +64,21 @@ export class DraftsController {
   @HttpCode(204)
   async discard(@Param("id") id: string, @CurrentSession() session: SignedIn): Promise<void> {
     await this.drafts.discard(id, session.scope);
+  }
+
+  /**
+   * Publishes it (`PublishingService.publish`): `{ locations, recipes?, saves }`,
+   * the Locations to show the Profile at, the Recipes naming the Profile it
+   * started from to move to it, for a new version, and its count of saves as
+   * read. Answers what it did: the Profile, where it is shown, where the one
+   * it replaced was hidden or kept shown, the Recipes moved, and the newer
+   * versions it forks beside.
+   */
+  @AllowStaff()
+  @Post(":id/publish")
+  @HttpCode(200)
+  async publish(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ published: PublishedView }> {
+    return { published: await this.publishing.publish(id, readDraftPublish(body), managementEditor(session.account.id), session.scope) };
   }
 
   /** Simulates it, as a Library Profile's simulation route does, taking the same query. */

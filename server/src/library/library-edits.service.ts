@@ -442,10 +442,10 @@ async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string
 }
 
 /** Taken by an edit of a Profile's title, so two edits never both take the same title (`editProfile`). */
-const PROFILE_TITLE_LOCK = 4_000_011;
+export const PROFILE_TITLE_LOCK = 4_000_011;
 
 /** Whether two Profile titles are one to Streamline, which finds a profile by its title trimmed and lower-cased (`resolveProfileKeyByTitle` in streamline-js:src/modules/active-profile.js, v0.2.27). */
-function sameTitle(a: string, b: string): boolean {
+export function sameTitle(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 

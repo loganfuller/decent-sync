@@ -1746,6 +1746,13 @@ export class SimulatedTablet {
     return structuredClone((this.api["/grinders"] as Record<string, unknown>[] | undefined) ?? []);
   }
 
+  /**
+   * Set, Decaid stores each profile created from now on under another id
+   * than its own hash, and answers with it, as a Decaid release that
+   * computes a profile's id otherwise than the server's copy would (ADR-0032).
+   */
+  hashesProfilesOtherwise = false;
+
   /** The tablet's profiles, hidden and deleted ones included, as `GET /profiles?includeHidden=true` lists them: the most recently updated first. */
   profiles(): Record<string, unknown>[] {
     const profiles = this.api["/profiles"];
@@ -2276,7 +2283,13 @@ export class SimulatedTablet {
     };
     if (id === undefined) {
       if (method === "GET") return Array.isArray(this.api["/profiles"]) ? { ...listProfiles(profiles, query), etag: true } : undefined;
-      return method === "POST" ? keep(createProfile(profiles, json())) : undefined;
+      if (method !== "POST") return undefined;
+      const made = createProfile(profiles, json());
+      const record = made.answer.body as Record<string, unknown> | null;
+      if (!this.hashesProfilesOtherwise || made.answer.status !== 201 || !record || profiles.some((held) => held.id === record.id)) return keep(made);
+      // Stored and answered under another id, as by a Decaid whose hash differs from the server's copy.
+      const other = { ...record, id: `profile:${createHash("sha256").update(String(record.id)).digest("hex").slice(0, 20)}` };
+      return keep({ answer: { status: 201, body: other }, profiles: made.profiles.map((held) => (held.id === record.id ? other : held)) });
     }
     if (action === "visibility") return method === "PUT" ? keep(setProfileVisibility(profiles, id, json())) : undefined;
     if (action === "purge") return method === "DELETE" ? keep(purgeProfile(profiles, id)) : undefined;

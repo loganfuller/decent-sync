@@ -338,6 +338,9 @@ export const itemOutput = z.object({
       machineModel: z
         .enum(MACHINE_MODELS)
         .describe("The Machine model simulate_profile runs it as where none is asked for: Bengle where every Machine at the Locations showing it is one, otherwise DE1."),
+      refusedOn: z
+        .array(z.object({ machine: z.object({ id, name: z.string() }), error: z.string(), refusedAt: z.string() }))
+        .describe("The Machines whose tablets refused its write, the latest first, with why: as Decaid answering under another id, which means Decaid computes its id otherwise than Decent Sync, or a model that can't run it."),
     })
     .optional(),
   grinder: grinderSummary.extend({ content: content(RECORD_FIELDS) }).optional(),
@@ -712,6 +715,7 @@ function profileViewOf(profile: ProfileView): NonNullable<GetOutput["profile"]> 
     parent: profile.parent && { id: profile.parent.id, title: profile.parent.title },
     locations: decidedOf(profile),
     machineModel: profile.machineModel,
+    refusedOn: profile.refusedOn,
   };
 }
 

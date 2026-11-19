@@ -544,10 +544,11 @@ written it (Writing to tablets, below).
 An assistant makes the same changes through the MCP endpoint (ADR-0026):
 creating and editing Beans, Bean Batches, Grinders, Baskets and Tools,
 editing a Profile's title, author and notes (`edit_profile`, #576),
-listing, reading, starting, changing, simulating and discarding Drafts
-(`list_drafts`, `get_draft`, `create_draft`, `edit_draft`,
-`simulate_draft` and `discard_draft`, `server/src/mcp/drafts.tools.ts`,
-#579),
+listing, reading, starting, changing, simulating, publishing and
+discarding Drafts (`list_drafts`, `get_draft`, `create_draft`, `edit_draft`,
+`simulate_draft`, `publish_draft` and `discard_draft`,
+`server/src/mcp/drafts.tools.ts`, #579, #580), and returning a Profile to an
+earlier version (`return_to_profile_version`, #580),
 Archiving and restoring any item, showing and hiding Profiles, Baskets and
 Tools and adding and finishing batches at Locations, and using and
 dismissing Conflicts' values (`server/src/mcp/library-changes.tools.ts`,
@@ -707,8 +708,8 @@ Conflict names is kept, still refused, so history goes on naming it
   alone. A bundled Profile's are refused (409), as Decaid refuses to change
   them. Its steps change only on tablets so far: a Profile with other steps
   is another Profile, which joins the Library from the tablet that saved it.
-  A Draft changes them here (Drafts, below), but can't be published yet
-  (#580).
+  A Draft changes them here, published as a new Profile (Drafts and
+  Publishing, below, #580).
 - **Baskets and Tools** are shown or hidden at each Location as a Profile is
   (`showEquipment`), which is how a lab's Basket reaches a cafe: showing one
   there writes it to the cafe's tablets, and hiding it there removes it from
@@ -2555,7 +2556,15 @@ title and steps table it had:
   title, author and notes, and its history. Export gives its record's
   profile as Decaid's profile JSON, in a file named by its title.
 - **Edit** and **Duplicate** start a Draft of it (Drafts, below), but for a
-  Viewer; one of Decaid's bundled Profiles offers Duplicate alone.
+  Viewer; one of Decaid's bundled Profiles offers Duplicate alone. Each
+  version it was saved from offers **Return to it** (Publishing, below).
+- **Refused on tablets**: the Machines whose tablets refused its write,
+  each with why, the latest first (`ProfileView.refusedOn`, from
+  `tablet_refusals`): among them a Decaid answering under another id, which
+  computes the Profile's id otherwise than this server's copy (ADR-0032):
+  the tablet keeps the record its Decaid made, which its next report adds
+  to the Library as a separate Profile, named in the refusal; and a Machine
+  whose model can't run it (#588).
 
 An assistant reads the same (ADR-0026): `get_profile_versions`
 (`server/src/mcp/library.tools.ts`) gives the versions and the Recipes on a
@@ -2571,7 +2580,8 @@ It is not Library content: it is shown at no Location, makes no Conflict
 and keeps no history but who saved it last and when. Admins and Staff may
 read, change and discard any Draft, Staff anywhere, as no Location holds
 one; a Viewer sees none (403 "A Viewer sees no Drafts", the one thing a
-Viewer can't read that Staff can). Publishing one is #580.
+Viewer can't read that Staff can). Publishing one makes it a Profile
+(Publishing, below).
 
 - **Started** from a Library Profile, by Edit, its profile copied as it is,
   publishing as a new version of it, or by Duplicate, with " copy" after its
@@ -2629,6 +2639,80 @@ a starting shape, drawn as it runs on a medium puck, a duplicate or a file,
 and the Library's Profiles tab lists the Drafts above the Profiles, the one
 saved last first, each with what it will become and who saved it last.
 
+## Publishing
+
+Publishing a Draft (#580, `server/src/library/publishing.service.ts`) makes
+it a Library Profile under the id Decaid computes (`profileId`), and needs no
+tablet online. In one transaction it inserts the Profile, its content a
+record as Decaid creates one (`{ profile, parentId, isDefault: false,
+metadata: null }`), with no Location it was created at; records it joining
+the Library as the account's edit; shows it at the Locations chosen, at
+least one; and deletes the Draft. From there the Library writes it to those
+Locations' tablets as any Profile, parents first.
+
+- **As a new version**, its `parentId` is the Profile the Draft started
+  from, which it takes the place of at each Location chosen: the Recipes
+  chosen, each naming that Profile at one of those Locations, move to it,
+  each an edit of the Recipe by the account (`recipeEditValues`, as any
+  edit), which keeps its Reference Shot and reaches the Machines that have
+  it loaded; and the old version is hidden there, but where a Recipe not
+  moved, not Archived, still names it, which keeps it shown. A Location not
+  chosen is left as it is. Where the Library no longer has the Profile it
+  started from, deleted since, it is saved from none and replaces nothing.
+- **As a separate Profile**, its `parentId` is the Profile it started from
+  too, as Streamline sets a Duplicate's, so it is listed among that
+  Profile's versions as a tablet's Duplicate is; but it takes that
+  Profile's place nowhere: it moves no Recipes and hides nothing. As a
+  tablet's Duplicate does, it then counts as a newer version in the fork
+  warning of a Draft of that Profile begun before it, and its page offers
+  Return to it on that Profile.
+- **Refused** (409, with the checks) for what its checks stop
+  (`checkProfile`): among them steps a Library Profile has, naming it, and a
+  title a Profile shown at one of the Locations chosen has, compared as
+  Streamline compares titles, but those of the versions a new version
+  replaces: the Profile it started from, those that was saved from, and
+  the rest of the chain titled as one of these, so a fork keeps its title
+  and a separate Profile retitled, or a bundled Profile the chain was saved
+  from, does not; at a
+  Location where a Machine can't run it (`refuseUnrunnableAt`, #588); and
+  when the Draft was saved since the person read it, as they would publish
+  what they have not seen (`saves`, the count of saves read).
+- **A fork.** A Draft's read lists `newer`, the versions saved down the chain
+  from the Profile it started from that the Library gained after it began,
+  from a tablet or another Draft. Publishing it then saves it from the
+  version it started from all the same, forking the chain, and says so
+  (`forked`); the dialog, reading the Draft again as it opens, warns first,
+  with how each differs from the Draft.
+- **Returning to an earlier version** (`returnTo`) is the same change
+  between two Profiles the Library has: the earlier version, one of the
+  later one's versions and not Archived, shown at the Locations chosen, the
+  Recipes chosen moved to it, and the later one hidden there but where a
+  Recipe not moved names it. Nothing is created.
+- Staff publish to, return at and move Recipes at their own Locations only
+  (403); a Viewer neither.
+- Locks are taken in the order a tablet's report of new profiles takes
+  them: `PROFILE_JOINING_LOCK`, so no tablet adds the same Profile
+  meanwhile; each Location's, in order of id; `PROFILE_TITLE_LOCK`, as a
+  title edit takes it; the source Profile's row, `FOR KEY SHARE`; then the
+  Recipes' rows.
+
+The dialog (`web/src/components/publish-profile.tsx`), opened from a
+Draft's page and from Return to it on a version, lists what changed
+(`differences`) from the Profile it replaces, or, for a separate Profile,
+from the one it started from, the Locations, those that showed the Profile it replaces
+chosen to begin with, and, under each Location chosen, the Recipes there
+naming that Profile, each chosen to begin with, with the Machines that have
+it loaded now; and says for each whether the Profile replaced is hidden
+there or stays shown, naming the Recipes that keep it. The page then opened
+says what was done.
+
+A tablet whose Decaid answers a Profile's create under another id is
+recorded as refusing it, with that id
+(`Answered with a record under another id, ...`), which the Profile's page
+shows (Refused on tablets, above). The record its Decaid made stays on the
+tablet and joins the Library from its next report as a separate Profile, as
+the plugin's `writeProfile` says.
+
 ## REST API
 
 Every endpoint requires the account session; Staff read them as Admins do.
@@ -2674,7 +2758,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Library has it, or null; and `locations`, each Location that has decided
   whether it shows it, by name, `{ location, shown, since }`, kept while it
   is Archived; and `machineModel`, the model it is simulated as unless asked
-  (Simulating a Profile, above); or 404. A Location not listed does not show
+  (Simulating a Profile, above); and `refusedOn`, the Machines whose tablets
+  refused its write, each `{ machine: { id, name }, error, refusedAt }`, the
+  latest first; or 404. A Location not listed does not show
   it. The id goes in the path as it is or percent-encoded.
 - `GET /api/profiles/:id/versions` returns `{ versions }`, its Profile
   Versions: every Profile in the chain of `parentId` links through it, up to
@@ -2732,7 +2818,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   source as an item's history gives one. `GET /api/drafts/:id` returns `{
   draft }`, the same with its `profile`, the `profileId` Decaid would give
   it, the `models` the account has Machines of, its `machineModel` and its
-  `checks`. 403 for a Viewer, 404 for no such Draft.
+  `checks`, and `newer`, for a new version, the versions of the Profile it
+  started from the Library gained since it began, each `{ id, title,
+  savedAt }`, the latest first. 403 for a Viewer, 404 for no such Draft.
 - `POST /api/drafts` starts one and returns `{ draft, held }` with 201, from
   `{ profileId, as }`, `as` `version` (Edit) or `separate` (Duplicate); `{
   shape }`, a starting shape's key; or `{ file }`, a profile file's content.
@@ -2750,6 +2838,26 @@ Every endpoint requires the account session; Staff read them as Admins do.
   204. `GET /api/drafts/:id/simulation` simulates it, taking the query a
   Profile's simulation does, and returns `{ simulation }` with `draft: { id,
   title }` in place of `profile`; 409 for more than 20 steps or none.
+- `POST /api/drafts/:id/publish`, with `{ locations, recipes?, saves }`,
+  publishes it (Publishing, above) and returns `{ published }`: `{ profile:
+  { id, title }, replaced, shownAt, hiddenAt, keptAt, moved, forked }`,
+  `replaced` the Profile it took the place of or null, each place `{ id,
+  name }`, `keptAt` each `{ location, recipes }`, each Recipe `{ id, name,
+  location }`, and `forked` the newer versions it forks beside. 400 for no
+  Location, a Location or Recipe named twice, no such Recipe, a Recipe at
+  none of the Locations, or any Recipe for a separate Profile; 403 for a
+  Viewer or Staff elsewhere; 404 for no such Draft or Location; 409 for what
+  its checks stop, with `checks`, a Draft saved since `saves`, a Recipe not
+  naming the Profile replaced or Archived, or a Location where a Machine
+  can't run it.
+- `POST /api/profiles/:id/return`, with `{ from, locations, recipes? }`,
+  returns to the Profile, an earlier version of `from`, and returns `{
+  published }` as publishing does, `forked` empty. 400 for returning to
+  `from` itself, no Location, a Location or Recipe named twice, no such
+  Recipe, or a Recipe at none of the Locations; 403 for a Viewer or Staff
+  elsewhere; 404 for no such Profile or Location; 409 for one not among
+  `from`'s versions, one Archived, a Recipe not naming `from` or Archived,
+  or a Location where a Machine can't run it.
 - `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
   required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
   roaster, name } }` if the Library has a Bean of that roaster and name.
@@ -3079,6 +3187,7 @@ the same Profiles.
 `server/test/library-profile-text.test.ts`,
 `server/test/profile-simulation.test.ts`,
 `server/test/drafts.test.ts`,
+`server/test/publishing.test.ts`,
 `server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,
@@ -3103,7 +3212,7 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/`, `workflow-writes-v0.8.7/` and
 `workflow-writes-v0.9.0/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
-`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/conflicts.spec.ts`,
+`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/profile-publishing.spec.ts`, `e2e/conflicts.spec.ts`,
 `e2e/capture-only.spec.ts`,
 `e2e/sharing-status.spec.ts`, `e2e/equipment-management.spec.ts` and
 `e2e/recipe-management.spec.ts` the management interface.

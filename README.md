@@ -110,7 +110,9 @@ Each server has one owner: a household, or a business with all of its sites.
   and redo. The graph simulates again on every change, with the version it
   started from faint behind it, and checks list what would stop it
   publishing and what the machine accepts that may not be meant, such as a
-  target the run never reaches. Drafts can't be published yet.
+  target the run never reaches. Publish a Draft as a new version, in the old
+  one's place at the Locations you choose with the Recipes you choose, or as
+  a separate Profile, or return to an earlier version the same way.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.

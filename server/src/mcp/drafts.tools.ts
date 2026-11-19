@@ -4,6 +4,7 @@ import { MACHINE_MODELS, STARTING_SHAPES } from "@decent-sync/protocol";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { type DraftSummary, type DraftView, DraftsService, MAX_DRAFT_STEPS } from "../library/drafts.service.js";
+import { type PublishedView, PublishingService, readPublishAsk } from "../library/publishing.service.js";
 import { readProfileId } from "../library/profiles.service.js";
 import { type Budget, BudgetedTool } from "./budget.js";
 import { askedCurves } from "./curves.js";
@@ -16,14 +17,17 @@ import { callerOf } from "./token-verifier.js";
 // REST API has them (`DraftsService`): listed, read, started from a Library
 // Profile, a starting shape or a profile, saved, simulated and discarded,
 // by an Admin or Staff, as anyone who may change the Library may. A Viewer
-// sees none. Publishing one is ticket #580.
+// sees none. Publishing one, and returning a Profile to an earlier version
+// (#580), are here too, Staff choosing only their own Locations.
 
 const id = z.string();
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 
 /** What a Draft is, for the tools' descriptions. */
 const DRAFTS =
-  "A Draft is a profile being written or changed here, held by Decent Sync alone and on no tablet until it is published, which these tools don't do: the person publishes it from its page in the management interface. Admins and Staff may read, change and discard any Draft, the later save winning; a Viewer sees none. Its times are UTC.";
+  "A Draft is a profile being written or changed here, held by Decent Sync alone and on no tablet until publish_draft makes it a Profile. Admins and Staff may read, change, publish and discard any Draft, the later save winning, Staff publishing only to the Locations they work at; a Viewer sees none. Its times are UTC.";
+
+const newerShape = z.object({ id, title: z.string().nullable(), savedAt: z.string().describe("When the Library gained it.") });
 
 const checkShape = z.object({ code: z.string(), step: z.number().nullable(), path: z.string().optional(), message: z.string() });
 
@@ -52,6 +56,9 @@ const draftItem = draftSummary.extend({
     .describe(
       "Its checks, but those of a simulated run, which simulate_draft adds: blocking, what would stop it being published, as no title, no steps, a step with no name, a value out of range, more steps than a machine takes or steps a Library Profile has (sameSteps); and advice, what the machine accepts but may not be meant, each naming its step by index, or null for the whole profile.",
     ),
+  newer: z
+    .array(newerShape)
+    .describe("For a new version, the versions of startedFrom the Library gained since the Draft began, from a tablet or another Draft, the latest first: publishing it then forks the chain beside them, so tell the person and offer to compare first. Empty otherwise."),
 });
 
 /** A Draft's profile, its steps, title, author and notes among it, given as it is (ADR-0028): rounded or cut, it would be another profile, which edit_draft, given it back, would refuse. */
@@ -97,9 +104,47 @@ const editOutput = draftOutput.extend({
 const simulateDraftInput = simulateInput.omit({ profileId: true }).extend({ id: id.describe("The Draft to simulate.") });
 const simulateDraftOutput = simulateOutput.omit({ profile: true }).extend({ draft: z.object({ id, title: z.string() }) });
 
+const placeShape = z.object({ id, name: z.string() });
+const recipeRefShape = z.object({ id, name: z.string().nullable(), location: placeShape });
+
+const whereInput = {
+  locations: z.array(id).min(1).describe("The ids of the Locations to show it at, at least one; Staff only those they work at. For a new version, those showing the Profile it replaces are the usual choice."),
+  recipes: z
+    .array(id)
+    .optional()
+    .describe("The ids of the Recipes naming the Profile it replaces to move to it, each at one of the Locations; none where not given. get_profile_versions lists them with the Machines that have each loaded, which take the change: ask the person which to move."),
+};
+
+const publishInput = z.object({
+  id: id.describe("The Draft."),
+  saves: z.number().int().min(1).describe("The Draft's saves as last read: refused where someone saved it since, as the person would publish what they haven't seen."),
+  ...whereInput,
+});
+
+const returnInput = z.object({
+  profileId: id.describe("The version to return to: one of from's Profile Versions (get_profile_versions)."),
+  from: id.describe("The later version it takes the place of."),
+  ...whereInput,
+});
+
+const publishedOutput = z.object({
+  published: z.object({
+    profile: z.object({ id, title: z.string().nullable() }).describe("The Profile now shown at the Locations: the one published, or the version returned to."),
+    replaced: z.object({ id, title: z.string().nullable() }).nullable().describe("The Profile it took the place of; null for a separate Profile."),
+    shownAt: z.array(placeShape),
+    hiddenAt: z.array(placeShape).describe("Where the Profile it replaced was hidden."),
+    keptAt: z.array(z.object({ location: placeShape, recipes: z.array(recipeRefShape) })).describe("Locations chosen that still show the Profile it replaced, as Recipes there not moved name it."),
+    moved: z.array(recipeRefShape).describe("The Recipes moved to it, each an edit in its history, reaching the Machines that have it loaded."),
+    forked: z.array(newerShape).describe("Newer versions of the Profile the Draft started from, beside which it now forks the chain."),
+  }),
+});
+
 @Injectable()
 export class DraftsTools {
-  constructor(private readonly drafts: DraftsService) {}
+  constructor(
+    private readonly drafts: DraftsService,
+    private readonly publishing: PublishingService,
+  ) {}
 
   @BudgetedTool({
     name: "list_drafts",
@@ -187,6 +232,32 @@ export class DraftsTools {
   }
 
   @BudgetedTool({
+    name: "publish_draft",
+    title: "Publish a Draft",
+    description: `Publishes a Draft, making it a Profile under the id Decaid computes, as its page in the management interface does: shown at the Locations given, where the Library writes it to the tablets as any Profile, whether or not they are online now, and the Draft discarded. As a new version (publishesAs version), the Recipes given move to it, and the Profile it started from is hidden at each Location given but where a Recipe not moved still names it; as a separate Profile, it moves no Recipes and the one it started from is untouched. Refused for what get_draft's blocking checks name, for a title a Profile shown at one of the Locations has (but the versions it replaces), and at a Location with a Machine that can't run it. Tell the person what it changes at each Location, the Recipes and the Machines that have them loaded, and ask before calling it. ${DRAFTS}`,
+    inputSchema: publishInput,
+    outputSchema: publishedOutput,
+    annotations: { ...CHANGES, idempotentHint: false },
+    scopes: [READ, CHANGE],
+  })
+  async publishDraft({ id: draftId, saves, locations, recipes = [] }: z.infer<typeof publishInput>, context: McpContext): Promise<{ published: PublishedView }> {
+    return { published: await this.publishing.publish(draftId, { ...readWhere(locations, recipes), saves }, editorOf(context), callerOf(context).scope) };
+  }
+
+  @BudgetedTool({
+    name: "return_to_profile_version",
+    title: "Return to an earlier Profile Version",
+    description: `Returns a Profile to an earlier version of it, as its page in the management interface does, creating nothing: the version returned to is shown at the Locations given, the Recipes given move to it from the later one (from), and the later one is hidden at each Location given but where a Recipe not moved still names it. Refused for a Profile not among from's versions, one Archived, and at a Location with a Machine that can't run it. Staff choose only the Locations they work at. Ask the person before calling it.`,
+    inputSchema: returnInput,
+    outputSchema: publishedOutput,
+    annotations: { ...CHANGES, idempotentHint: false },
+    scopes: [READ, CHANGE],
+  })
+  async returnToVersion({ profileId, from, locations, recipes = [] }: z.infer<typeof returnInput>, context: McpContext): Promise<{ published: PublishedView }> {
+    return { published: await this.publishing.returnTo(readProfileId(profileId), readProfileId(from), readWhere(locations, recipes), editorOf(context), callerOf(context).scope) };
+  }
+
+  @BudgetedTool({
     name: "discard_draft",
     title: "Discard a Draft",
     description: `Discards a Draft, which leaves nothing of it behind: ask the person first. ${DRAFTS}`,
@@ -199,6 +270,11 @@ export class DraftsTools {
     await this.drafts.discard(draftId, callerOf(context).scope);
     return { discarded: true };
   }
+}
+
+/** Where to publish or return, as the REST API reads it (`readPublishAsk`). */
+function readWhere(locations: string[], recipes: string[]): { locations: string[]; recipes: string[] } {
+  return readPublishAsk({ locations, recipes });
 }
 
 function missingAs(): never {

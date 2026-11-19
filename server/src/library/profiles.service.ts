@@ -53,6 +53,14 @@ export interface ProfileView extends ProfileSummary {
    * Machine, or where a DE1 is among them (#578, #588).
    */
   machineModel: MachineModel;
+  /**
+   * The Machines whose tablets refused its write, the latest refusal first,
+   * each with why: among them one Decaid answered under another id, as a
+   * Decaid that computes a Profile's id otherwise than this server does
+   * (ADR-0032), and one whose model can't run it (#588). Kept until the
+   * tablet takes it or it is no longer due there (sharing-status.ts).
+   */
+  refusedOn: { machine: { id: string; name: string }; error: string; refusedAt: string }[];
 }
 
 /**
@@ -105,9 +113,19 @@ export class ProfilesService {
     const content = object(profile.content);
     const parentId = typeof content.parentId === "string" ? content.parentId : null;
     const parent = parentId === null ? null : await this.prisma.profile.findUnique({ where: { id: parentId }, select: { id: true, content: true } });
-    const [decided, machineModel] = await Promise.all([
+    const [decided, machineModel, refused] = await Promise.all([
       this.prisma.profileLocation.findMany({ where: { profileId: id }, include: { location: true } }),
       this.machineModel(profile.archived ? [] : profile.locations.map((here) => here.locationId)),
+      // The refusal of each Machine's tablet, as its sharing status picks it (sharing-status.ts): a tablet it no longer has never writes again to clear its own.
+      this.prisma.$queryRaw<{ machineId: string; machineName: string; error: string; refusedAt: Date }[]>`
+        SELECT m.id::text AS "machineId", m.name AS "machineName", r.error, r.refused_at AS "refusedAt"
+        FROM machines m
+        JOIN tablet_refusals r ON r.tablet_id = COALESCE(
+          CASE WHEN m.identification <> 'MISMATCH' THEN m.connected_tablet_id END,
+          (SELECT tablet_id FROM machine_tablets WHERE machine_id = m.id ORDER BY last_hello DESC NULLS LAST LIMIT 1)
+        )
+        WHERE r.kind = 'profile' AND r.item_id = ${id} AND r.change = 'write'
+        ORDER BY r.refused_at DESC, m.name`,
     ]);
     return {
       ...summary(profile),
@@ -118,6 +136,7 @@ export class ProfilesService {
         .map((here) => ({ location: viewLocation(here.location), shown: here.shown, since: here.decidedAt.toISOString() }))
         .sort((a, b) => a.location.name.localeCompare(b.location.name)),
       machineModel,
+      refusedOn: refused.map((row) => ({ machine: { id: row.machineId, name: row.machineName }, error: row.error, refusedAt: row.refusedAt.toISOString() })),
     };
   }
 

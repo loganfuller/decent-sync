@@ -26,6 +26,7 @@ Rules a server change follows across modules. The code each line names shows the
 - Take Machine rows before a Pending Machine's, several in id order, as a hello does; the reverse order deadlocks with a reconnecting tablet.
 - A delivery takes its credit's locks before recording its delivery id (`creditFirstDelivery`); recording it first deadlocked with a binding hello (`server/test/binding-deadlocks.test.ts`).
 - Taking in a tablet's Library reports follows the lock order in `LIBRARY.md`, Taking in a tablet's beans.
+- Publishing a Draft takes its Draft's row, then `PROFILE_JOINING_LOCK`, then each Location's lock in id order, then `PROFILE_TITLE_LOCK`, then its source Profile's row `FOR KEY SHARE`, then the Recipes' rows, the order a tablet's report of new profiles takes them (`server/src/library/publishing.service.ts`). Returning to an earlier version takes each Location's lock in id order, then the version returned to `FOR SHARE`, then the Recipes' rows.
 - A clean-up of expired rows runs in statements of its own, in bounded batches that skip locked rows, never inside a transaction holding other locks, as the server starts and hourly (`DeliveryIdCleanup` in `server/src/machines/delivery-id-cleanup.ts`).
 
 ## Several instances
