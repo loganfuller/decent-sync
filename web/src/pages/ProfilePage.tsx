@@ -11,7 +11,7 @@ import {
 } from "@decent-sync/protocol";
 import { Copy, Download, Pencil } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { ItemConflictsCard, ItemHistoryCard, SourceText, itemPath } from "@/components/conflicts";
 import { ItemShotsCard } from "@/components/item-shots";
@@ -23,6 +23,7 @@ import { formatTime } from "@/components/machines";
 import { type GraphEditing, ProfileGraph } from "@/components/profile-graph";
 import { DoseFields, type GraphShot, GrindControl, ModelChoice, type PuckAsk, RunFigures, loadGraphShot, startingAsk, unsimulatable } from "@/components/profile-simulation";
 import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
+import { PublishDialog } from "@/components/publish-profile";
 import { OrNone } from "@/components/records";
 import { Segmented, SegmentedItem } from "@/components/segmented";
 import { ShotPicker } from "@/components/shot-picker";
@@ -33,7 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ApiError, api, type Profile, type ProfileVersion, type RecipeOnProfile } from "@/lib/api";
+import { ApiError, api, type Profile, type ProfileVersion, type Published, type RecipeOnProfile } from "@/lib/api";
 import { measure, profileFacts, seconds, stepAction, stepMovesOn, stepName, stepSimulated } from "@/lib/profile-words";
 import { earlierVersions, versionNames } from "@/lib/profile-versions";
 import { shotsText } from "@/lib/shot-summary";
@@ -88,6 +89,8 @@ export function definitionOf(profile: Profile): ProfileDefinition | null {
 
 function ProfileDetails({ id }: { id: string }) {
   const mayChange = useMayChange();
+  // What publishing a Draft, or returning to this version, did, where the page was opened from one.
+  const published = (useLocation().state as { published?: Published } | null)?.published;
   const [editing, setEditing] = useState(false);
   // Using a Conflict's value, or a change here, changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
@@ -184,6 +187,26 @@ function ProfileDetails({ id }: { id: string }) {
         </div>
       </div>
 
+      {published?.profile.id === profile.id && <PublishedNotice published={published} />}
+
+      {profile.refusedOn && profile.refusedOn.length > 0 && (
+        <Alert variant="destructive" role="region" aria-label="Refused on tablets">
+          <AlertDescription className="grid gap-1">
+            <p className="font-semibold">Refused on {profile.refusedOn.length === 1 ? "a tablet" : `${profile.refusedOn.length} tablets`}</p>
+            <ul className="grid gap-1">
+              {profile.refusedOn.map((refused) => (
+                <li key={refused.machine.id}>
+                  <Link to={`/machines/${encodeURIComponent(refused.machine.id)}`} className="underline underline-offset-4">
+                    {refused.machine.name}
+                  </Link>
+                  , {formatTime(refused.refusedAt)}: {refused.error}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <ItemConflictsCard kind="profile" id={id} onResolved={changed} />
 
       {sideError && (
@@ -204,7 +227,7 @@ function ProfileDetails({ id }: { id: string }) {
       <StepsCard definition={definition} run={run} />
 
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-2">
-        {versions !== null && <VersionsCard profile={profile} versions={versions} names={names} />}
+        {versions !== null && <VersionsCard profile={profile} versions={versions} names={names} earlier={new Set(earlier.map((version) => version.id))} mayChange={mayChange} />}
         <div className="grid min-w-0 gap-6">
           <ProfileLocationsCard profile={profile} onChanged={changed} />
           {recipes !== null && <RecipesCard recipes={recipes} />}
@@ -717,8 +740,42 @@ function StepsCard({ definition, run }: { definition: ProfileDefinition | null; 
   );
 }
 
+/** What publishing, or returning to a version, did: where it is shown, where the one it replaced was hidden or kept shown, the Recipes moved, and any fork. */
+function PublishedNotice({ published }: { published: Published }) {
+  const names = (places: { name: string }[]) => places.map((place) => place.name).join(", ");
+  const replaced = published.replaced ? profileTitle(published.replaced) : null;
+  return (
+    <Alert role="status">
+      <AlertDescription className="grid gap-1">
+        <p>Shown at {names(published.shownAt)}. Tablets there get it as they get any Profile.</p>
+        {replaced && published.hiddenAt.length > 0 && <p>{`${replaced} is hidden at ${names(published.hiddenAt)}.`}</p>}
+        {replaced &&
+          published.keptAt.map((kept) => (
+            <p key={kept.location.id}>{`${replaced} stays shown at ${kept.location.name}, as ${kept.recipes.map((recipe) => recipe.name ?? "a Recipe").join(", ")} still ${kept.recipes.length === 1 ? "names" : "name"} it.`}</p>
+          ))}
+        {published.moved.length > 0 && <p>{`Moved to it: ${published.moved.map((recipe) => `${recipe.name ?? "a Recipe"} at ${recipe.location.name}`).join(", ")}.`}</p>}
+        {published.forked.length > 0 && <p>{`It forks the chain beside ${published.forked.map((version) => profileTitle(version)).join(", ")}, saved since its Draft began.`}</p>}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 /** Its Profile Versions, the latest saved first, each with who saved it, and a comparison with any of the others. */
-function VersionsCard({ profile, versions, names }: { profile: Profile; versions: ProfileVersion[] | undefined; names: Map<string, string> }) {
+function VersionsCard({
+  profile,
+  versions,
+  names,
+  earlier,
+  mayChange,
+}: {
+  profile: Profile;
+  versions: ProfileVersion[] | undefined;
+  names: Map<string, string>;
+  /** The versions it was saved from, down the chain, which it can return to. */
+  earlier: Set<string>;
+  mayChange: boolean;
+}) {
+  const navigate = useNavigate();
   return (
     <Card role="region" aria-label="Versions" className="min-w-0">
       <CardHeader>
@@ -773,11 +830,21 @@ function VersionsCard({ profile, versions, names }: { profile: Profile; versions
                     </span>
                   </div>
                   {!here && (
-                    <Button variant="outline" size="sm" asChild>
-                      <Link to={`${profilePath(profile.id)}/compare/${encodeURIComponent(version.id)}`} aria-label={`Compare with ${name}`}>
-                        Compare
-                      </Link>
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={`${profilePath(profile.id)}/compare/${encodeURIComponent(version.id)}`} aria-label={`Compare with ${name}`}>
+                          Compare
+                        </Link>
+                      </Button>
+                      {mayChange && earlier.has(version.id) && !version.archived && !profile.bundled && (
+                        <PublishDialog
+                          target={{ kind: "return", to: { id: version.id, name }, from: profile }}
+                          label="Return to it"
+                          ariaLabel={`Return to ${name}`}
+                          onPublished={(published) => void navigate(profilePath(published.profile.id), { state: { published } })}
+                        />
+                      )}
+                    </div>
                   )}
                 </li>
               );

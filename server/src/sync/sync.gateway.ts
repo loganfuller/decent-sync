@@ -938,7 +938,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       const recorded = await description.recordWritten(this.prisma, tablet, { globalId, written, record, updatedAt, seen, contentSeen, linked: answer.linked === true });
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
-        await recordRefused(this.prisma, tablet.tabletId, awaited, null, `Answered with a record that is not this ${name}'s`);
+        // A Profile's id is Decaid's hash of it, so a record under another id says Decaid hashes it otherwise than the server (ADR-0032), which its page reports.
+        const answeredId = typeof record.id === "string" ? record.id : null;
+        const why =
+          kind === "profile" && answeredId !== null
+            ? `Answered with a record under another id, ${answeredId}: Decaid computes this Profile's id otherwise than Decent Sync`
+            : `Answered with a record that is not this ${name}'s`;
+        await recordRefused(this.prisma, tablet.tabletId, awaited, null, why);
       }
       if (recorded === "deleted") this.logger.log(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId}, deleted since: its record there is to be deleted`);
       if (recorded !== "recorded") return false;

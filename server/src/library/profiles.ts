@@ -52,7 +52,7 @@ import {
 // record as the tablet last had it, under the locks beans.ts takes.
 
 // Every report with profiles new to the tablet's map takes this advisory lock before it reads the Library's.
-const PROFILE_JOINING_LOCK = 4_000_008;
+export const PROFILE_JOINING_LOCK = 4_000_008;
 
 /**
  * Takes a tablet's report of its profiles into the Library, as `takeInBeans`

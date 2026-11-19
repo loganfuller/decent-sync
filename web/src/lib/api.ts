@@ -1123,6 +1123,11 @@ export interface Profile extends ProfileSummary {
    * it is one, otherwise a DE1. Absent from a server of the release before (ADR-0025).
    */
   machineModel?: MachineModel;
+  /**
+   * The Machines whose tablets refused its write, the latest first, with why: among them Decaid answering under another
+   * id, as a Decaid that computes its id otherwise than Decent Sync. Absent from a server of the release before.
+   */
+  refusedOn?: { machine: { id: string; name: string }; error: string; refusedAt: string }[];
 }
 
 /** A Draft as the Library lists it (#579): a profile being written or changed here, on no tablet until it is published. */
@@ -1155,6 +1160,24 @@ export interface Draft extends DraftSummary {
   machineModel: MachineModel;
   /** Its checks but those of a simulated run, which the page makes itself. */
   checks: ProfileChecks;
+  /** For a new version, the versions of the Profile it started from the Library gained since it began, the latest first: publishing it forks the chain beside them. */
+  newer: { id: string; title: string | null; savedAt: string }[];
+}
+
+/** What publishing a Draft, or returning to an earlier version, did (#580). */
+export interface Published {
+  /** The Profile now shown at the Locations chosen. */
+  profile: { id: string; title: string | null };
+  /** The Profile it took the place of; null for a separate Profile. */
+  replaced: { id: string; title: string | null } | null;
+  shownAt: { id: string; name: string }[];
+  /** Where the Profile it replaced was hidden. */
+  hiddenAt: { id: string; name: string }[];
+  /** Locations chosen that still show the Profile it replaced, as Recipes there not moved name it. */
+  keptAt: { location: { id: string; name: string }; recipes: { id: string; name: string | null }[] }[];
+  moved: { id: string; name: string | null; location: { id: string; name: string } }[];
+  /** Newer versions of the Profile the Draft started from, beside which it now forks the chain. */
+  forked: { id: string; title: string | null; savedAt: string }[];
 }
 
 /** A Draft started, with what of a file was held to the ranges. */

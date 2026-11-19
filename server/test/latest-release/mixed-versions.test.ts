@@ -697,6 +697,34 @@ describe("the latest release beside the change", () => {
       }
     });
 
+    // Publishing a Draft (#580) is the change's alone, but what it makes is a Library Profile as any other: the latest
+    // release's plugin takes it, saved from the one before, through either release's server.
+    it("writes a Profile published from a Draft, and the new version of it, to tablets on the latest release's plugin through both instances", async () => {
+      const location = await apis.change.createLocation("Published, on both", "America/Chicago");
+      const onRelease = await connected("Published, on the latest release", "latest release", "latest release", { location });
+      const onChange = await connected("Published, on the change", "latest release", "change", { location });
+      type DraftRead = { id: string; saves: number; profile: { steps: Record<string, unknown>[] } & Record<string, unknown> };
+      const publish = async (start: Record<string, unknown>, change: (profile: DraftRead["profile"]) => Record<string, unknown>) => {
+        const { draft } = await apis.change.send<{ draft: DraftRead }>("POST", "/drafts", start, 201);
+        const { draft: saved } = await apis.change.send<{ draft: DraftRead }>("PUT", `/drafts/${draft.id}`, { profile: change(draft.profile), saves: draft.saves });
+        return (await apis.change.send<{ published: { profile: { id: string }; hiddenAt: { id: string }[] } }>("POST", `/drafts/${saved.id}/publish`, { saves: saved.saves, locations: [location.id] }, 200)).published;
+      };
+      const first = (await publish({ shape: "classic" }, (profile) => ({ ...profile, title: "Published on both" }))).profile.id;
+      for (const tablet of [onRelease.tablet, onChange.tablet]) {
+        await expect.poll(() => tablet.profiles().find((record) => record.id === first)).toMatchObject({ visibility: "visible", profile: { title: "Published on both" } });
+      }
+      // A new version, its last step's pressure lowered, saved from the first, which it takes the place of.
+      const second = await publish({ profileId: first, as: "version" }, (profile) => ({
+        ...profile,
+        steps: profile.steps.map((step, index) => (index === profile.steps.length - 1 ? { ...step, pressure: Number(step.pressure ?? 6) - 0.5 } : step)),
+      }));
+      expect(second.hiddenAt.map((place) => place.id)).toEqual([location.id]);
+      for (const tablet of [onRelease.tablet, onChange.tablet]) {
+        await expect.poll(() => tablet.profiles().find((record) => record.id === second.profile.id)).toMatchObject({ visibility: "visible", parentId: first });
+        await expect.poll(() => tablet.profiles().find((record) => record.id === first)?.visibility).toBe("hidden");
+      }
+    });
+
     // A range typed into a grinder under 1.10.0, whose server kept the record as sent and took none of it in (#551):
     // the change's server takes it in from the tablet's next report, where the Grinder never had one, rather than
     // writing the Grinder's none over it. The tablet keeps the latest release's plugin, as in the minutes after a deploy.

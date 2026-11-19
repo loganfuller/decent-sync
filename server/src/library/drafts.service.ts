@@ -24,7 +24,7 @@ import type { Editor } from "./history.js";
 import { type SourceView, viewSource } from "./history.service.js";
 import { type ProfileSimulation, ProfileSimulationService, type SimulationAsk } from "./profile-simulation.service.js";
 import { accountModels } from "./profile-reach.js";
-import { ProfilesService } from "./profiles.service.js";
+import { MAX_PROFILE_VERSIONS, ProfilesService } from "./profiles.service.js";
 
 // Drafts (ADR-0032, ticket #579): profiles being written or changed in the
 // management interface, which the server alone holds and no tablet is ever
@@ -33,7 +33,8 @@ import { ProfilesService } from "./profiles.service.js";
 // change the Library may read, change and discard any of them. A Viewer
 // sees none. A save names the count it started from: it is taken either way,
 // the later save winning, and the answer says whether another came between.
-// Publishing one is ticket #580.
+// Publishing one, and returning to an earlier version, are in
+// publishing.service.ts (#580).
 
 /** What publishing a Draft makes: a new Profile Version of the Profile it started from, or a separate Profile. */
 export type DraftPublishesAs = "version" | "separate";
@@ -74,6 +75,21 @@ export interface DraftView extends DraftSummary {
   machineModel: MachineModel;
   /** Its checks (`checkProfile`), against the widest ranges of those models and the Library's Profiles, but those of a simulated run, which a simulation gives. */
   checks: ProfileChecks;
+  /**
+   * For a new version, the versions of the Profile it started from that the
+   * Library gained since it began, the latest first, from a tablet or
+   * another Draft: publishing it forks the chain beside them. None for a
+   * separate Profile.
+   */
+  newer: NewerVersion[];
+}
+
+/** A Profile Version of the one a Draft started from that the Library gained since the Draft began: publishing the Draft forks the chain. */
+export interface NewerVersion {
+  id: string;
+  title: string | null;
+  /** When the Library gained it. */
+  savedAt: string;
 }
 
 /** A save made between the one asked about and the count it started from: how many, and the latest of them. */
@@ -272,6 +288,7 @@ export class DraftsService {
       models,
       machineModel: from?.machineModel ?? (models.length === 1 && models[0] === "Bengle" ? "Bengle" : "DE1"),
       checks: checkProfile(profile, await this.checkContext(profile, models)),
+      newer: row.publishesAs === DraftPublishing.VERSION && row.startedFromId !== null ? await newerVersions(this.prisma, row.startedFromId, row.createdAt) : [],
     };
   }
 
@@ -365,4 +382,23 @@ export function readDraftSave(body: unknown): DraftSave {
   if (fields.profile === undefined && fields.publishesAs === undefined) problems.push("Send profile, publishesAs or both to save");
   if (problems.length > 0) throw new BadRequestException(problems);
   return { profile: fields.profile, publishesAs: fields.publishesAs as DraftPublishesAs | undefined, saves: fields.saves as number };
+}
+
+/**
+ * The Profile Versions saved, down the chain, from the Profile, that the
+ * Library gained after `since`, as from a tablet or another Draft: the
+ * latest first. A bundled Profile is never one.
+ */
+export async function newerVersions(db: Prisma.TransactionClient, profileId: string, since: Date): Promise<NewerVersion[]> {
+  const rows = await db.$queryRaw<{ id: string; title: string | null; savedAt: Date }[]>`
+    WITH RECURSIVE down AS (
+      SELECT id FROM profiles WHERE content ->> 'parentId' = ${profileId} AND NOT bundled AND id <> ${profileId}
+      UNION
+      SELECT p.id FROM profiles p JOIN down ON p.content ->> 'parentId' = down.id WHERE NOT p.bundled
+    )
+    SELECT p.id, p.content -> 'profile' ->> 'title' AS title, p.created_at AS "savedAt"
+    FROM (SELECT id FROM down LIMIT ${MAX_PROFILE_VERSIONS}) AS d JOIN profiles p ON p.id = d.id
+    WHERE p.created_at > ${since}::timestamptz
+    ORDER BY p.created_at DESC, p.id`;
+  return rows.map((row) => ({ id: row.id, title: row.title?.trim() || null, savedAt: row.savedAt.toISOString() }));
 }

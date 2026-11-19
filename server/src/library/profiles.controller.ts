@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -10,6 +10,7 @@ import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type ProfileSimulation, ProfileSimulationService, readSimulationAsk } from "./profile-simulation.service.js";
+import { type PublishedView, PublishingService, readReturnAsk } from "./publishing.service.js";
 import { type RecipeOnProfileView, RecipesService } from "./recipes.service.js";
 import { type ProfileSummary, type ProfileVersionView, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
 
@@ -30,6 +31,7 @@ export class ProfilesController {
     private readonly prisma: PrismaService,
     private readonly simulation: ProfileSimulationService,
     private readonly recipes: RecipesService,
+    private readonly publishing: PublishingService,
   ) {}
 
   @AllowStaff()
@@ -88,6 +90,20 @@ export class ProfilesController {
     const profileId = readProfileId(id);
     await this.edits.editProfile(profileId, readContentEdit("profile", body), managementEditor(session.account.id));
     return { profile: await this.profiles.get(profileId) };
+  }
+
+  /**
+   * Returns to it, an earlier version of the Profile `from`
+   * (`PublishingService.returnTo`): `{ from, locations, recipes? }`, shown
+   * at the Locations, the Recipes naming `from` moved to it, and `from`
+   * hidden there but where a Recipe not moved names it. Creates nothing.
+   */
+  @AllowStaff()
+  @Post(":id/return")
+  @HttpCode(200)
+  async returnTo(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ published: PublishedView }> {
+    const ask = readReturnAsk(body);
+    return { published: await this.publishing.returnTo(readProfileId(id), ask.from, ask, managementEditor(session.account.id), session.scope) };
   }
 
   /** Shows it at the Location or hides it there: `{ shown }`. */

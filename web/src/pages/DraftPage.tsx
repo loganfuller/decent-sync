@@ -9,6 +9,7 @@ import { RelativeTime } from "@/components/relative-time";
 import { type HandleField } from "@/components/profile-graph";
 import { ChecksCard, EditableStepsCard, Inspector } from "@/components/profile-editor";
 import { profilePath } from "@/components/profiles";
+import { PublishDialog } from "@/components/publish-profile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -300,6 +301,16 @@ function DraftEditor({ id }: { id: string }) {
           <Button variant="outline" size="icon" aria-label="Redo" disabled={!canRedo(history)} onClick={() => step("redo")}>
             <Redo2 aria-hidden />
           </Button>
+          <PublishDialog
+            target={{ kind: "draft", draft, profile, saves: () => saves.current }}
+            label="Publish"
+            disabled={saving !== "saved" || checks.blocking.length > 0}
+            onPublished={(published) => {
+              pending.current = null;
+              clearTimeout(timer.current);
+              void navigate(profilePath(published.profile.id), { state: { published } });
+            }}
+          />
           <DiscardDraftButton
             draft={draft}
             label="Discard the Draft"
