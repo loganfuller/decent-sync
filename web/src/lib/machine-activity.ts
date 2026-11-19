@@ -35,12 +35,15 @@ export function dateIn(timeZone: string | undefined, at = Date.now()): string {
 
 /**
  * The time zone of the Location the Machine was at, at a moment, by its
- * Location History, oldest first, and UTC before its first: the zone the
- * server reads its days in, so a time is shown in the day it is listed under.
+ * Location History, oldest first, its first's from the start of the day it
+ * came there, by that Location's clock, and UTC before that day: the zone
+ * the server reads its days in (`dayStays`), so a time is shown in the day it
+ * is listed under.
  */
 export function timeZoneAt(history: readonly Pick<LocationHistoryEntry, "effectiveFrom" | "location">[], at: string): string {
   const moment = Date.parse(at);
-  let found = "UTC";
+  const first = history[0];
+  let found = first && moment < Date.parse(first.effectiveFrom) && dateIn(first.location.timeZone, moment) === dateIn(first.location.timeZone, Date.parse(first.effectiveFrom)) ? first.location.timeZone : "UTC";
   for (const entry of history) {
     if (Date.parse(entry.effectiveFrom) > moment) break;
     found = entry.location.timeZone;
