@@ -663,17 +663,23 @@ export function shotStopAt(samples: readonly Sample<ShotCurve>[], stopReason: un
 const SCALE_GAP = 1;
 
 /**
- * Whether a run of a Shot's own steps can be stopped as it stopped
- * (`shotStopAt`): where its machine ended it, or at a weight above 0 its
- * scale read within SCALE_GAP of its stop. Not where it stopped otherwise
- * with no scale, before anything reached the cup, or after its scale dropped
- * out, as the run has no weight to stop at then.
+ * Whether a run of a Shot's own steps, its Workflow's `profile`, on the
+ * model of its Machine, can end as the Shot did (`shotStopAt`): stopped at a
+ * weight above 0 its scale read within SCALE_GAP of the stop, or with its
+ * last step where a DE1 ended it. Not where it stopped otherwise with no
+ * scale or before anything reached the cup, and not where its scale dropped
+ * out more than SCALE_GAP before the stop, as then neither the weight it
+ * stopped at nor whether a step's weight fired is known: Decaid checks no
+ * step's weight once the scale is lost. A DE1's Shot that ran its steps out
+ * is still known with its scale lost if no step has a weight.
  */
-export function shotStopKnown(samples: readonly Sample<ShotCurve>[], stopReason: unknown): boolean {
-  if (stopReason === "machineEnded") return true;
+export function shotStopKnown(samples: readonly Sample<ShotCurve>[], stopReason: unknown, model: MachineModel = "DE1", profile: Profile | null = null): boolean {
   const shot = samples.filter((sample) => sample.shade === null);
   const last = lastRecordedWeight(shot);
-  return last !== null && last.weight > 0 && shot[shot.length - 1]!.seconds - last.seconds <= SCALE_GAP;
+  const lost = last !== null && shot[shot.length - 1]!.seconds - last.seconds > SCALE_GAP;
+  if (stopReason === "machineEnded" && model !== "Bengle") return !lost || !(profile?.steps.some((step) => step.weight !== null && step.weight > 0) ?? true);
+  if (stopReason === "machineEnded") return !lost;
+  return last !== null && last.weight > 0 && !lost;
 }
 
 /** A Shot's own steps run on its own puck, and how close the run comes to the Shot. */

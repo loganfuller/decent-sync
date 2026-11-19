@@ -81,7 +81,7 @@ const simulateOutput = z.object({
   fit: z
     .object({ shot: figures.describe("The Shot's own, as recorded."), simulated: figures.describe("Its own steps', run on its puck, stopped as it stopped.") })
     .nullable()
-    .describe("On a Shot's puck: how close the simulation comes to that Shot. Null on the standard puck, where the Shot's own profile can't be read or has more steps than a machine takes, and where it stopped other than by its Machine with no recent weight to stop a run at, as with no scale or after its scale dropped out."),
+    .describe("On a Shot's puck: how close the simulation comes to that Shot. Null on the standard puck, where the Shot's own profile can't be read or has more steps than a machine takes, and where a run can't end as the Shot did, as where it was stopped by hand with no scale or its scale dropped out before it ended."),
   curves: z
     .object({
       thinnedTo: thinnedToSchema,

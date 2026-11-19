@@ -537,7 +537,15 @@ describe("a Shot's puck", () => {
     const dropped = samples.map((sample) => (sample.shade === null && sample.seconds >= 12 ? { ...sample, values: { ...sample.values, weight: null } } : sample));
     expect(shotStopKnown(dropped, "appStop")).toBe(false);
     expect(shotStopKnown(dropped, "targetWeight")).toBe(false);
-    expect(shotStopKnown(dropped, "machineEnded")).toBe(true);
+    // Run out by a DE1, its lost scale matters only where a step has a weight, which Decaid stops checking then.
+    const shotProfile = profileOf(record.workflow.profile)!;
+    const weighs = { ...shotProfile, steps: shotProfile.steps.map((step, n) => (n === shotProfile.steps.length - 1 ? { ...step, weight: 30 } : step)) };
+    expect(shotStopKnown(dropped, "machineEnded", "DE1", shotProfile)).toBe(true);
+    expect(shotStopKnown(dropped, "machineEnded", "DE1", weighs)).toBe(false);
+    expect(shotStopKnown(dropped, "machineEnded", "DE1")).toBe(false);
+    // A Bengle may have ended it at its yield, at a weight then unknown.
+    expect(shotStopKnown(dropped, "machineEnded", "Bengle", shotProfile)).toBe(false);
+    expect(shotStopKnown(samples, "machineEnded", "Bengle", shotProfile)).toBe(true);
     // Stopped by hand with no scale, or before anything reached the cup.
     const unweighed = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: null } }));
     expect(shotStopKnown(unweighed, "appStop")).toBe(false);
