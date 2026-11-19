@@ -33,6 +33,12 @@ const LANES: { key: Lane; title: string; unit: string }[] = [
   { key: "temperature", title: "Temperature", unit: "°C" },
 ];
 
+/** The highest a pressure or flow lane reaches, bar or ml/s, past any a Machine runs at, so a Profile's outlandish value can't stretch it away. */
+const LANE_CEILING = 20;
+/** The range of temperatures, °C, the temperature lane may span. */
+const TEMPERATURE_FLOOR = 0;
+const TEMPERATURE_CEILING = 110;
+
 const TOP = 44;
 const LEFT = 36;
 const RIGHT = 8;
@@ -66,6 +72,11 @@ function sampleAt<C extends string>(samples: readonly Sample<C>[], at: number): 
     else high = middle - 1;
   }
   return samples[low];
+}
+
+/** The sample at `at`, s, of samples running until `until`, s; undefined before they start and after they end. */
+function sampleWithin<C extends string>(samples: readonly Sample<C>[], at: number, until: number): Sample<C> | undefined {
+  return at > until + 0.05 ? undefined : sampleAt(samples, at);
 }
 
 /** A round top for an axis holding `value`, at least `least`, on a step of `step`. */
@@ -128,6 +139,7 @@ export function ProfileGraph({
   const [ref, width] = useWidth();
   const [pointer, setPointer] = useState<number | null>(null);
   const clipId = useId();
+  const describedBy = useId();
 
   const comparedSamples = (compared?.samples ?? []).filter((sample) => sample.seconds >= 0 && sample.shade === null);
   const comparedEnd = comparedSamples.at(-1)?.seconds ?? 0;
@@ -160,9 +172,9 @@ export function ProfileGraph({
       ...profile.steps.map((step) => (step.exit?.type === lane ? step.exit.value : 0)),
       ...profile.steps.map((step) => (step.limiter && step.limiter.value > 0 && (step.pump === "pressure" ? "flow" : "pressure") === lane ? step.limiter.value : 0)),
     ];
-    return roundUp(Math.max(0, ...values), 4, 2);
+    return roundUp(Math.min(LANE_CEILING, Math.max(0, ...values)), 4, 2);
   };
-  const tempValues = [...temperatures, ...comparedTemperatures];
+  const tempValues = [...temperatures, ...comparedTemperatures].map((value) => Math.min(TEMPERATURE_CEILING, Math.max(TEMPERATURE_FLOOR, value)));
   const tempLow = tempValues.length > 0 ? Math.floor((Math.min(...tempValues) - 2) / 5) * 5 : 80;
   const tempHigh = tempValues.length > 0 ? Math.max(tempLow + 10, Math.ceil((Math.max(...tempValues) + 2) / 5) * 5) : 100;
   const ranges: Record<Lane, [number, number]> = { pressure: [0, laneMax("pressure")], flow: [0, laneMax("flow")], temperature: [tempLow, tempHigh] };
@@ -202,8 +214,11 @@ export function ProfileGraph({
   }
   const cupY = lanesBottom + 18;
 
-  const pointed = pointer === null ? undefined : sampleAt(run.samples, pointer);
-  const pointedCompared = pointer === null ? undefined : sampleAt(comparedSamples, pointer);
+  // Each record's values only while it runs: none for the run after it stopped, nor for the Shot after it did.
+  const runEnd = Math.max(run.duration, run.samples.at(-1)?.seconds ?? 0);
+  const pointed = pointer === null ? undefined : sampleWithin(run.samples, pointer, runEnd);
+  const pointedCompared = pointer === null ? undefined : sampleWithin(comparedSamples, pointer, comparedEnd);
+  const readout = pointer === null ? null : readoutRows(profile, runLabel, pointed, compared ? { label: compared.label, sample: pointedCompared } : undefined);
   const onPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     const at = ((event.clientX - box.left - LEFT) / (plotRight - LEFT)) * end;
@@ -261,6 +276,7 @@ export function ProfileGraph({
         <svg
           role="img"
           aria-label={label}
+          aria-describedby={describedBy}
           tabIndex={0}
           width={width}
           height={height}
@@ -463,7 +479,7 @@ export function ProfileGraph({
             </text>
           ))}
 
-          {pointer !== null && pointed && (
+          {pointer !== null && readout && (pointed || pointedCompared) && (
             <Readout
               at={pointer}
               x={x(pointer)}
@@ -471,13 +487,21 @@ export function ProfileGraph({
               bottom={lanesBottom}
               plotRight={plotRight}
               y={y}
-              profile={profile}
+              step={pointed?.step?.name}
+              rows={readout}
               sample={pointed}
-              compared={compared && pointedCompared ? { label: compared.label, sample: pointedCompared } : undefined}
+              compared={pointedCompared}
             />
           )}
         </svg>
       )}
+      {/* The values at the moment moved to, for screen readers, as the readout draws them. */}
+      <p id={describedBy} className="sr-only">
+        Move along it with the arrow keys to read the values at a moment.
+      </p>
+      <p className="sr-only" aria-live="polite">
+        {pointer !== null && readout && (pointed || pointedCompared) ? `${seconds(pointer)}: ${readout.map(([term, value]) => `${term} ${value}`).join(", ")}` : ""}
+      </p>
     </div>
   );
 }
@@ -501,7 +525,26 @@ function signed(value: number): string {
   return `${value < 0 ? "−" : "+"}${measure(Math.abs(value))}`;
 }
 
-/** The values at the moment pointed at: the run's, against its plan, and the compared record's. */
+/** The values at the moment pointed at: the run's, against its plan, and the compared record's; "Stopped" for one that has. */
+function readoutRows(profile: Profile, runLabel: string, sample: Sample<ShotCurve> | undefined, compared: { label: string; sample: Sample<ShotCurve> | undefined } | undefined): [string, string][] {
+  const rows: [string, string][] = [];
+  if (sample) {
+    const step = sample.step ? profile.steps[sample.step.frame] : undefined;
+    const of = (lane: "pressure" | "flow") => (step?.pump === lane ? ` of ${measure(sample.targets[lane] ?? 0)}` : "");
+    rows.push(
+      ["Pressure", `${measure(sample.values.pressure ?? 0)} bar${of("pressure")}`],
+      ["Flow", `${measure(sample.values.flow ?? 0)} ml/s${of("flow")}`],
+      ["In the cup", `${measure(sample.values.weight ?? 0)} g`],
+    );
+  } else rows.push([runLabel, "Stopped"]);
+  if (compared) {
+    const values = compared.sample?.values;
+    rows.push([compared.label, !values ? "Stopped" : [values.pressure, values.flow].every((value) => value !== null) ? `${measure(values.pressure!)} bar, ${measure(values.flow!)} ml/s` : "-"]);
+  }
+  return rows;
+}
+
+/** The readout drawn at the moment pointed at: a line, each record's points on it, and the values in a box. */
 function Readout({
   at,
   x,
@@ -509,7 +552,8 @@ function Readout({
   bottom,
   plotRight,
   y,
-  profile,
+  step,
+  rows,
   sample,
   compared,
 }: {
@@ -519,39 +563,31 @@ function Readout({
   bottom: number;
   plotRight: number;
   y: (lane: Lane, value: number) => number;
-  profile: Profile;
-  sample: Sample<ShotCurve>;
-  compared?: { label: string; sample: Sample<ShotCurve> };
+  /** The name of the step running then. */
+  step: string | undefined;
+  rows: [string, string][];
+  sample: Sample<ShotCurve> | undefined;
+  compared: Sample<ShotCurve> | undefined;
 }) {
-  const step = sample.step ? profile.steps[sample.step.frame] : undefined;
-  const of = (lane: "pressure" | "flow") => (step?.pump === lane ? ` of ${measure(sample.targets[lane] ?? 0)}` : "");
-  const rows: [string, string][] = [
-    ["Pressure", `${measure(sample.values.pressure ?? 0)} bar${of("pressure")}`],
-    ["Flow", `${measure(sample.values.flow ?? 0)} ml/s${of("flow")}`],
-    ["In the cup", `${measure(sample.values.weight ?? 0)} g`],
-  ];
-  if (compared) {
-    const values = compared.sample.values;
-    rows.push([compared.label, [values.pressure, values.flow].every((value) => value !== null) ? `${measure(values.pressure!)} bar, ${measure(values.flow!)} ml/s` : "-"]);
-  }
-  const boxWidth = compared ? 250 : 190;
+  const boxWidth = rows.some(([term]) => term.length > 12) ? 250 : 190;
   const boxHeight = 30 + rows.length * 18;
   const left = x + 10 + boxWidth > plotRight ? x - 10 - boxWidth : x + 10;
   return (
     <g pointerEvents="none" data-readout>
       <line x1={x} x2={x} y1={top} y2={bottom} className="stroke-foreground/50" />
-      {(["pressure", "flow"] as const).map((lane) =>
-        sample.values[lane] === null ? null : <circle key={lane} cx={x} cy={y(lane, sample.values[lane]!)} r={4} className={`${BLUE_FILL} stroke-background`} strokeWidth={2} />,
-      )}
+      {sample &&
+        (["pressure", "flow"] as const).map((lane) =>
+          sample.values[lane] === null ? null : <circle key={lane} cx={x} cy={y(lane, sample.values[lane]!)} r={4} className={`${BLUE_FILL} stroke-background`} strokeWidth={2} />,
+        )}
       {compared &&
         (["pressure", "flow"] as const).map((lane) =>
-          compared.sample.values[lane] === null ? null : (
-            <circle key={`c-${lane}`} cx={x} cy={y(lane, compared.sample.values[lane]!)} r={4} className={`${ORANGE_FILL} stroke-background`} strokeWidth={2} />
+          compared.values[lane] === null || compared.values[lane] === undefined ? null : (
+            <circle key={`c-${lane}`} cx={x} cy={y(lane, compared.values[lane]!)} r={4} className={`${ORANGE_FILL} stroke-background`} strokeWidth={2} />
           ),
         )}
       <rect x={left} y={top + 34} width={boxWidth} height={boxHeight} rx={8} className="fill-background stroke-border" />
       <text x={left + 12} y={top + 54} className="fill-foreground font-semibold">
-        {`${seconds(at)}${sample.step ? ` · ${sample.step.name}` : ""}`}
+        {`${seconds(at)}${step ? ` · ${step}` : ""}`}
       </text>
       {rows.map(([term, value], index) => (
         <g key={term}>

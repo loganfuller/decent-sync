@@ -24,6 +24,8 @@ const tabletApi = { "/beans": [], "/bean-batches": [], "/grinders": [], ...NO_DY
 /** Classic Italian espresso, which Decaid bundles, by the id Decaid gives it. */
 const CLASSIC = "profile:39e939592679fb194706";
 const SHOT = "simulated-classic-578";
+/** The same Shot as recorded with no pressure, so its puck can't be worked out. */
+const FLAT = "flat-classic-578";
 
 /** A soak Profile: a fast fill that moves on over 4 bar, a step of no length, then 6 bar with the flow held back, with `changes` to its third step. */
 function soak(title: string, percolation: Fields = {}): Fields {
@@ -194,6 +196,46 @@ test("a Profile simulated on a Shot's puck says how close the simulation comes, 
   const fit = puck.getByRole("table", { name: "The simulation against the Shot" });
   await expect(rows(fit).first()).toHaveText(/^Duration\d+\.\d s\d+\.\d s$/);
   await expect(graph.getByLabel("Simulated figures")).toContainText("than the Shot");
+
+  // A Shot whose puck can't be worked out leaves another to be chosen.
+  const flat = await tabletAt(page, server, "Flat lab group", lab, "57812", { ...tabletApi, "/profiles": [classic] });
+  const unpressed = (recorded.measurements as Fields[]).map((measurement) => ({ ...measurement, machine: { ...(measurement.machine as Fields), pressure: 0 } }));
+  flat.pullShot({ ...recorded, id: FLAT, measurements: unpressed, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57812" } } });
+  await expect.poll(async () => (await page.request.get(`/api/shots/${FLAT}`)).status()).toBe(200);
+  const onThisProfile = (title: string) => page.getByRole("dialog", { name: title }).getByRole("region", { name: "On this Profile" });
+  await puck.getByRole("button", { name: "Choose another Shot" }).click();
+  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Flat lab group$/ }).click();
+  await expect(graph.getByText("That Shot recorded no pressure and flow to work its puck out from.")).toBeVisible();
+  await graph.getByRole("button", { name: "Choose another Shot" }).click();
+  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
+  await expect(fit).toBeVisible();
+
+  // Each puck keeps its own dose: one typed on the standard puck isn't the Shot's, and is there again on return.
+  await graph.getByRole("radio", { name: "A standard puck" }).click();
+  await graph.getByLabel("Dose").fill("19");
+  await expect(graph.getByText(/^19 g in, /)).toBeVisible();
+  await graph.getByRole("radio", { name: "A Shot's puck" }).click();
+  await expect(graph.getByLabel("Dose")).not.toHaveValue("19");
+  await graph.getByRole("radio", { name: "A standard puck" }).click();
+  await expect(graph.getByLabel("Dose")).toHaveValue("19");
+
+  // At the end of whichever ran longer, the other reads as stopped, not as its last values.
+  const overlaid = graph.getByRole("img", { name: /^Simulated run of Classic Italian espresso on a standard puck\./ });
+  await overlaid.focus();
+  await page.keyboard.press("End");
+  await expect(overlaid.locator("[data-readout]")).toContainText("Stopped");
+  await expect(graph.locator("[aria-live='polite']")).toContainText("Stopped");
+});
+
+test("a Profile asking for an outlandish pressure still draws", async ({ page }) => {
+  const lab = await createLocation(page, "Outlandish lab");
+  const tablet = await tabletAt(page, server, "Outlandish lab group", lab, "57831", { ...tabletApi, "/profiles": [] });
+  const saved = await tablet.addProfile(soak("Outlandish Soak", { pressure: 1e20, temperature: 1e20 }));
+  await waitForProfile(page, String(saved.id));
+  await page.goto(profilePage(String(saved.id)));
+  const svg = page.getByRole("region", { name: "How it runs" }).getByRole("img", { name: /^Simulated run of Outlandish Soak/ });
+  await expect(svg).toBeVisible();
+  await expect(svg.locator("[data-lane='pressure'] > g")).toHaveCount(6);
 });
 
 test("a Profile's page fits a phone", async ({ page }) => {

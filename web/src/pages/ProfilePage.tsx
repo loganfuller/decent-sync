@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { ItemConflictsCard, ItemHistoryCard, SourceText, itemPath } from "@/components/conflicts";
+import { ItemShotsCard } from "@/components/item-shots";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ArchiveButton, ContentForm, DeleteButton, PROFILE_FIELDS } from "@/components/library-forms";
@@ -72,8 +73,9 @@ function ProfileDetails({ id }: { id: string }) {
   const [changes, setChanges] = useState(0);
   const changed = () => setChanges((count) => count + 1);
   const { profile, error } = useProfile(id, changes);
-  const [versions, setVersions] = useState<ProfileVersion[]>();
-  const [recipes, setRecipes] = useState<RecipeOnProfile[]>();
+  // Undefined until read, null where the server, of the release before, has no such route.
+  const [versions, setVersions] = useState<ProfileVersion[] | null>();
+  const [recipes, setRecipes] = useState<RecipeOnProfile[] | null>();
   const [sideError, setSideError] = useState<string>();
   // The run the graph draws, which the steps table says what each step did in.
   const [run, setRun] = useState<SimulatedRun>();
@@ -82,9 +84,13 @@ function ProfileDetails({ id }: { id: string }) {
   useEffect(() => {
     let current = true;
     // A server of the release before has neither route, as during a deploy (ADR-0025): the page goes without them.
-    const failed = (caught: unknown) => current && !(caught instanceof ApiError && caught.status === 404) && setSideError(caught instanceof Error ? caught.message : "Could not be loaded");
-    api<{ versions: ProfileVersion[] }>("GET", `${path}/versions`).then(({ versions }) => current && setVersions(versions), failed);
-    api<{ recipes: RecipeOnProfile[] }>("GET", `${path}/recipes`).then(({ recipes }) => current && setRecipes(recipes), failed);
+    const failed = (absent: () => void) => (caught: unknown) => {
+      if (!current) return;
+      if (caught instanceof ApiError && caught.status === 404) absent();
+      else setSideError(caught instanceof Error ? caught.message : "Could not be loaded");
+    };
+    api<{ versions: ProfileVersion[] }>("GET", `${path}/versions`).then(({ versions }) => current && setVersions(versions), failed(() => setVersions(null)));
+    api<{ recipes: RecipeOnProfile[] }>("GET", `${path}/recipes`).then(({ recipes }) => current && setRecipes(recipes), failed(() => setRecipes(null)));
     return () => {
       current = false;
     };
@@ -170,10 +176,10 @@ function ProfileDetails({ id }: { id: string }) {
       <StepsCard definition={definition} run={run} />
 
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-2">
-        <VersionsCard profile={profile} versions={versions} names={names} />
+        {versions !== null && <VersionsCard profile={profile} versions={versions} names={names} />}
         <div className="grid min-w-0 gap-6">
           <ProfileLocationsCard profile={profile} onChanged={changed} />
-          <RecipesCard recipes={recipes} />
+          {recipes !== null && <RecipesCard recipes={recipes} />}
         </div>
       </div>
 
@@ -229,7 +235,8 @@ function ProfileDetails({ id }: { id: string }) {
         </CardContent>
       </Card>
 
-      <ShotsCard profile={profile} versions={versions} earlier={earlier} />
+      {/* Without the versions, as from a server of the release before, the count any Library item's page gives. */}
+      {versions === null ? <ItemShotsCard kind="profile" id={profile.id} /> : <ShotsCard profile={profile} versions={versions} earlier={earlier} />}
 
       <Card>
         <CardHeader>
@@ -289,13 +296,18 @@ function HowItRuns({
   recipes: RecipeOnProfile[];
   onRun(run: SimulatedRun | undefined): void;
 }) {
-  const [ask, setAsk] = useState<PuckAsk>(() => startingAsk(definition, profile.machineModel));
   const [puck, setPuck] = useState<"standard" | "shot">("standard");
+  // Each puck keeps its own: the standard puck's as started or changed, a Shot's as that Shot ran.
+  const [asks, setAsks] = useState<Record<"standard" | "shot", PuckAsk>>(() => {
+    const starting = startingAsk(definition, profile.machineModel);
+    return { standard: starting, shot: starting };
+  });
+  const ask = asks[puck];
   const [puckShot, setPuckShot] = useState<GraphShot>();
   const [overlay, setOverlay] = useState<GraphShot>();
   const [picking, setPicking] = useState<"puck" | "overlay">();
   const [shotError, setShotError] = useState<string>();
-  const change = (next: Partial<PuckAsk>) => setAsk((now) => ({ ...now, ...next }));
+  const change = (next: Partial<PuckAsk>) => setAsks((now) => ({ ...now, [puck]: { ...now[puck], ...next } }));
   const cannot = unsimulatable(definition);
 
   const result = useMemo(() => {
@@ -317,7 +329,15 @@ function HowItRuns({
         setPuck("shot");
         // As the Shot ran: its dose, the weight it stopped at, and its Machine's model.
         const lastWeight = loaded.simulation.samples.reduce<number | null>((last, sample) => sample.values.weight ?? last, null);
-        change({ dose: loaded.simulation.dose ?? ask.dose, stopAt: lastWeight !== null && lastWeight > 0 ? Math.round(lastWeight * 10) / 10 : ask.stopAt, model: loaded.simulation.model });
+        setAsks((now) => ({
+          ...now,
+          shot: {
+            ...now.standard,
+            dose: loaded.simulation.dose ?? now.standard.dose,
+            stopAt: lastWeight !== null && lastWeight > 0 ? Math.round(lastWeight * 10) / 10 : now.standard.stopAt,
+            model: loaded.simulation.model,
+          },
+        }));
       },
       (caught: unknown) => setShotError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
     );
@@ -399,7 +419,14 @@ function HowItRuns({
               </Alert>
             )}
 
-            {result === null && <p className="text-sm text-muted-foreground">That Shot recorded no pressure and flow to work its puck out from. Choose another.</p>}
+            {result === null && (
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-muted-foreground">That Shot recorded no pressure and flow to work its puck out from.</p>
+                <Button variant="outline" size="sm" onClick={() => setPicking("puck")}>
+                  Choose another Shot
+                </Button>
+              </div>
+            )}
 
             {run && definition && (
               <div className={`grid min-w-0 gap-4 ${puck === "shot" && puckShot ? "xl:grid-cols-[minmax(0,1fr)_24rem]" : ""}`}>

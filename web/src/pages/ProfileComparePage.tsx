@@ -225,7 +225,7 @@ function Compared({ one, two }: { one: Side; two: Side }) {
               run={runOne}
               runLabel={`${one.name}, simulated`}
               label={graphWords(one.name, one.definition, runOne, false)}
-              compared={runTwo ? { label: `${two.name}, simulated`, samples: runTwo.samples, stop: { seconds: runTwo.stop.seconds, label: `${two.name} stops` } } : null}
+              compared={runTwo ? { label: `${two.name}, simulated`, samples: withPlannedTemperature(runTwo.samples), stop: { seconds: runTwo.stop.seconds, label: `${two.name} stops` } } : null}
             />
           ) : (
             <p className="text-sm text-muted-foreground">{unsimulatable(one.definition)}</p>
@@ -235,6 +235,15 @@ function Compared({ one, two }: { one: Side; two: Side }) {
       </Card>
     </>
   );
+}
+
+/**
+ * A run's samples with its planned temperature as the temperature drawn, as
+ * temperature is not simulated, so a version whose change is its temperature
+ * shows it in the temperature lane.
+ */
+function withPlannedTemperature(samples: SimulatedRun["samples"]): SimulatedRun["samples"] {
+  return samples.map((sample) => ({ ...sample, values: { ...sample.values, temperature: sample.targets.temperature } }));
 }
 
 /** Where two profiles differ, in the Profile page's words: each step's action and when it moves on, then what each states once. */
