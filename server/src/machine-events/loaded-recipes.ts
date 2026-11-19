@@ -283,7 +283,7 @@ async function followMachine(
     // So does one holding the Recipe's Bean's coffee, as once a write of it landed whose answer was lost.
     const batch = target?.batch;
     const holdsBatch = typeof batch === "string" && (samePart("batch", now.batch, batch) || samePart("batch", known.held.batch, batch));
-    if (target !== null && (holdsBatch || (await coffeeHeld(tx, recipe.content, workflow)) === "recipe")) base[BEAN_TAKEN] = recipeBean(recipe.content);
+    if (target !== null && (holdsBatch || (await holdsRecipeCoffee(tx, recipe.content, workflow)))) base[BEAN_TAKEN] = recipeBean(recipe.content);
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
@@ -300,25 +300,42 @@ async function followMachine(
   await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
 }
 
+/** The Workflow's coffee name and roaster, none as null. */
+function coffeeOf(workflow: unknown): [string | null, string | null] {
+  const context = isObject(workflow) && isObject(workflow.context) ? workflow.context : {};
+  return [workflowText(context.coffeeName), workflowText(context.coffeeRoaster)];
+}
+
+function workflowText(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
 /**
- * Whose coffee the Workflow holds, by its coffee name and roaster, against
- * the Bean the Recipe with this content names (#572): "recipe" where they
- * are that Bean's, as a write of it carries them (`loadedRecipeDue`), or
- * none where it names none; "other" where they are another Bean's of the
- * Library, or none while the Recipe names one, as after a load from an
- * out-of-date copy of its record; "typed" where they are no Bean's, as a
- * coffee typed on the Machine, which stays its own, as when DYE2 saves a
- * recipe from a Workflow holding one, which the Recipe takes no Bean from.
+ * Whether the Workflow's coffee name and roaster are those of the Bean the
+ * Recipe with this content names, as a write of it carries them
+ * (`loadedRecipeDue`), or none where it names none (#572).
  */
-async function coffeeHeld(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<"recipe" | "other" | "typed"> {
+async function holdsRecipeCoffee(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<boolean> {
   const beanId = recipeBean(content);
   const [bean] = beanId === null ? [] : await tx.$queryRaw<{ name: unknown; roaster: unknown }[]>`
     SELECT content -> 'name' AS name, content -> 'roaster' AS roaster FROM beans WHERE id::text = ${beanId}`;
-  const context = isObject(workflow) && isObject(workflow.context) ? workflow.context : {};
-  const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  const [name, roaster] = [text(context.coffeeName), text(context.coffeeRoaster)];
-  if (name === text(bean?.name) && roaster === text(bean?.roaster)) return "recipe";
-  if (name === null && roaster === null) return "other";
+  const [name, roaster] = coffeeOf(workflow);
+  return name === workflowText(bean?.name) && roaster === workflowText(bean?.roaster);
+}
+
+/**
+ * Whose coffee a Workflow that loads the Recipe with this content holds
+ * (#572): "recipe" where it is that Recipe's Bean's (`holdsRecipeCoffee`);
+ * "typed" where the Recipe names no Bean and the coffee is no Bean's of the
+ * Library, as one typed on the Machine, which stays its own, as when DYE2
+ * saves a recipe from a Workflow holding one, which the Recipe takes no Bean
+ * from; and "other" otherwise, as after a load from an out-of-date copy of
+ * its record, whatever the copy's coffee, a Bean renamed since included.
+ */
+async function coffeeHeld(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<"recipe" | "other" | "typed"> {
+  if (await holdsRecipeCoffee(tx, content, workflow)) return "recipe";
+  const [name, roaster] = coffeeOf(workflow);
+  if (recipeBean(content) !== null || (name === null && roaster === null)) return "other";
   const [another] = await tx.$queryRaw<{ found: boolean }[]>`
     SELECT EXISTS (
       SELECT 1 FROM beans WHERE NULLIF(content ->> 'name', '') IS NOT DISTINCT FROM ${name}::text AND NULLIF(content ->> 'roaster', '') IS NOT DISTINCT FROM ${roaster}::text
@@ -676,7 +693,7 @@ export async function recordLoadedRecipeWritten(
     if (set.has("batch")) {
       const content = isObject(row.content) ? row.content : {};
       const beanCarried = contentSeen !== null && (beanDecided === undefined || new Date(beanDecided).getTime() <= contentSeen.getTime());
-      base[BEAN_TAKEN] = beanCarried || (await coffeeHeld(tx, content, record)) === "recipe" ? recipeBean(content) : OTHER_BEAN;
+      base[BEAN_TAKEN] = beanCarried || (await holdsRecipeCoffee(tx, content, record)) ? recipeBean(content) : OTHER_BEAN;
     }
     await saveNamed(tx, tablet.tabletId, { ...known, held, base });
     return "recorded";

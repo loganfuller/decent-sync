@@ -758,12 +758,12 @@ parts to the Recipe's content both ways.
   named forgotten, is taken as having taken the Recipe's parts as they
   stand, so nothing is written for them until they change. `base` takes
   the Recipe's Bean as it stands (`BEAN_TAKEN`, #572) where the Workflow
-  holds its coffee name and roaster, or none for no Bean, or a coffee of no
-  Bean of the Library, as one typed, which stays the Machine's own, as when
-  DYE2 saves a recipe from a Workflow holding one (`coffeeHeld`); and
-  another (`OTHER_BEAN`) where it holds another Bean's, or none while the
-  Recipe names one, as after a load from an out-of-date copy of the record,
-  so the Recipe's Bean is written into it; the Workflow named again
+  holds its coffee name and roaster, or none for no Bean, or, where the
+  Recipe names no Bean, a coffee of no Bean of the Library, as one typed,
+  which stays the Machine's own, as when DYE2 saves a recipe from a
+  Workflow holding one (`coffeeHeld`); and another (`OTHER_BEAN`)
+  otherwise, as after a load from an out-of-date copy of the record, a Bean
+  renamed since included, so the Recipe's Bean is written into it; the Workflow named again
   with the record of what it named forgotten takes it as it stands.
 - **Steam on and off.** Steam on and off stays each Machine's own
   (ADR-0022, Steam on and off). The server reads each delivered Workflow's

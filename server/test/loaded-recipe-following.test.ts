@@ -1353,8 +1353,10 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => [record(c, ETHIOPIA)?.beanName, coffee(c)], { timeout: 15_000 }).toEqual(["Stale bean Kenya", [null, "Stale bean Kenya", roaster]]);
     await load(c, machines.c, BRAZIL, two);
     await quiet();
-    // C's record is written nothing while it is offline: it applies the copy it holds, naming Kenya.
+    // C's record is written nothing while it is offline: it applies the copy it holds, naming Kenya, which is renamed in
+    // the Library meanwhile, so the copy's coffee is no Bean's now, but still not the Recipe's.
     c.loseNetwork();
+    await api.send("PATCH", `/beans/${kenya}`, { content: { name: "Stale bean Kenya renamed" } });
     await useBean(one, peru);
     expect((await selectRecipeInDye2(c, ETHIOPIA)).applied?.workflow?.status).toBe(200);
     expect(coffee(c)).toEqual([null, "Stale bean Kenya", roaster]);
