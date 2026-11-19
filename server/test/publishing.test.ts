@@ -286,7 +286,8 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect((await refusal(api, "POST", `/drafts/${draft.id}/publish`, { saves: draft.saves, locations: [roastery.id], recipes: [recipes.espresso] }, 400)).message).toMatch(/moves no Recipes/);
     const published = await publish(draft, { locations: [roastery.id] }, otherApi);
     expect(published).toMatchObject({ replaced: null, shownAt: [{ id: roastery.id }], hiddenAt: [], keptAt: [], moved: [] });
-    expect((await profile(published.profile.id)).content.parentId).toBeNull();
+    // Saved from the one it came from, as Streamline saves a Duplicate.
+    expect((await profile(published.profile.id)).content.parentId).toBe(third);
     expect(await shownAt(published.profile.id)).toEqual(["Publish roastery"]);
     expect({ shown: await shownAt(third), recipes: [(await recipe(recipes.espresso)).content.profileId, (await recipe(recipes.ristretto)).content.profileId] }).toEqual(before);
     // The roastery's tablet, on the other instance, holds it; the cafe's doesn't.
@@ -314,6 +315,12 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     const asClassic = await save(await start({ profileId: String(fromClassic.id), as: "version" }), soak(classic.title, 6.1));
     expect((await refusal(api, "POST", `/drafts/${asClassic.id}/publish`, { saves: asClassic.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["titleInUse"]);
     await api.send("PUT", path(CLASSIC, `/locations/${cafe.id}`), { shown: false }, 200);
+
+    // Refused once the Profile is inserted, it leaves none, and the Draft as it was.
+    const misplaced = await save(await start({ profileId: third, as: "version" }), soak("Publish soak", 6.3));
+    expect((await refusal(api, "POST", `/drafts/${misplaced.id}/publish`, { saves: misplaced.saves, locations: [roastery.id], recipes: [recipes.espresso] }, 400)).message).toMatch(/at none of the Locations chosen/);
+    expect((await api.call("GET", path(profileId(soak("Publish soak", 6.3))))).status).toBe(404);
+    expect((await api.get<{ draft: Draft }>(`/drafts/${misplaced.id}`)).draft.saves).toBe(misplaced.saves);
 
     const untitled = await save(await start({ shape: "classic" }), soak("", 5.5));
     expect((await refusal(api, "POST", `/drafts/${untitled.id}/publish`, { saves: untitled.saves, locations: [roastery.id] }, 409)).checks?.map((check) => check.code)).toContain("noTitle");
@@ -359,8 +366,8 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect((await refusal(staff, "POST", path(third, "/return"), { from: profileId(soak("Publish soak", 6.8)), locations: [cafe.id] }, 403)).message).toMatch(/only at the Locations/);
 
     const forViewer = await start({ profileId: CLASSIC, as: "separate" });
-    expect((await refusal(viewer, "POST", `/drafts/${forViewer.id}/publish`, { saves: forViewer.saves, locations: [roastery.id] }, 403)).message).toBeDefined();
-    expect((await refusal(viewer, "POST", path(third, "/return"), { from: profileId(soak("Publish soak", 6.8)), locations: [cafe.id] }, 403)).message).toBeDefined();
+    expect((await refusal(viewer, "POST", `/drafts/${forViewer.id}/publish`, { saves: forViewer.saves, locations: [roastery.id] }, 403)).message).toBe("A Viewer can't change anything");
+    expect((await refusal(viewer, "POST", path(third, "/return"), { from: profileId(soak("Publish soak", 6.8)), locations: [cafe.id] }, 403)).message).toBe("A Viewer can't change anything");
   });
 
   it("reports on the Profile's page a tablet answering under another id", async () => {

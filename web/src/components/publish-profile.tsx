@@ -76,7 +76,8 @@ export function PublishDialog({
   const [to, setTo] = useState<ProfileDefinition | null>();
   // For a separate Profile, which replaces none, the one it started from, to say what changed.
   const [startedFrom, setStartedFrom] = useState<Profile | null>(null);
-  const [newer, setNewer] = useState<{ id: string; title: string | null; savedAt: string; profile: ProfileDefinition | null }[]>([]);
+  // Undefined until the Draft is read again, for a Draft: Publish waits for it, so as not to publish past a fork it would warn of.
+  const [newer, setNewer] = useState<{ id: string; title: string | null; savedAt: string; profile: ProfileDefinition | null }[]>();
   const [chosenLocations, setChosenLocations] = useState<Set<string>>();
   const [chosenRecipes, setChosenRecipes] = useState<Set<string>>(new Set());
   const [publishing, setPublishing] = useState(false);
@@ -108,15 +109,30 @@ export function PublishDialog({
     }
     // Only to compare: a source since Archived or gone leaves nothing to compare, and publishing is not held up for it.
     if (comparedTo) api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(comparedTo)}`).then(({ profile }) => current && setStartedFrom(profile), () => undefined);
-    if (returnTo) api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(returnTo)}`).then(({ profile }) => current && setTo(definitionOf(profile)), failed);
+    if (returnTo)
+      api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(returnTo)}`).then(
+        ({ profile }) => current && setTo(definitionOf(profile)),
+        (caught: unknown) => current && setLoadError(failure(caught, "The version returned to could not be loaded")),
+      );
     // The newer versions as the Draft is read now, not as the page read it: one may have been saved on a tablet since.
+    // A newer version that can't be read, as one deleted meanwhile, is warned of all the same, without the comparison.
     if (draftId) {
       api<{ draft: Draft }>("GET", `/drafts/${encodeURIComponent(draftId)}`)
         .then(({ draft }) =>
-          Promise.all(draft.newer.map((version) => api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(version.id)}`).then(({ profile }) => ({ ...version, profile: definitionOf(profile) })))),
+          Promise.all(
+            draft.newer.map((version) =>
+              api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(version.id)}`).then(
+                ({ profile }) => ({ ...version, profile: definitionOf(profile) }),
+                () => ({ ...version, profile: null }),
+              ),
+            ),
+          ),
         )
-        .then((read) => current && setNewer(read), failed);
-    }
+        .then(
+          (read) => current && setNewer(read),
+          (caught: unknown) => current && setLoadError(failure(caught, "The Draft could not be read again")),
+        );
+    } else setNewer([]);
     return () => {
       current = false;
     };
@@ -128,7 +144,7 @@ export function PublishDialog({
     setRecipes(undefined);
     setTo(undefined);
     setStartedFrom(null);
-    setNewer([]);
+    setNewer(undefined);
     setChosenLocations(undefined);
     setChosenRecipes(new Set());
     setError(undefined);
@@ -196,7 +212,7 @@ export function PublishDialog({
     ) : (
       <>As a separate Profile, shown at the Locations you choose. Tablets there get it as they get any Profile, whether or not they are online now.</>
     );
-  const loading = replaced === undefined || (target.kind === "return" && to === undefined) || locations === undefined;
+  const loading = replaced === undefined || (target.kind === "return" && to === undefined) || newer === undefined || locations === undefined;
 
   return (
     <Dialog
@@ -220,7 +236,7 @@ export function PublishDialog({
           {(error ?? loadError ?? locationsError) && <FormError error={error ?? loadError ?? locationsError} />}
           {loading && !loadError && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-          {newer.length > 0 && (
+          {newer && newer.length > 0 && (
             <Alert role="status">
               <AlertDescription className="grid gap-2">
                 {newer.map((version) => {

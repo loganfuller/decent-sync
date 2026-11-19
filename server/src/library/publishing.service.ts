@@ -19,7 +19,8 @@ import { recipeEditValues } from "./recipe-edits.service.js";
 // Publishing a Draft, and returning to an earlier Profile Version (ADR-0032,
 // ticket #580). Publishing makes the Draft a Library Profile under the id
 // Decaid computes (`profileId`), saved from the Profile it started from
-// (Decaid's `parentId`) where it publishes as a new version of it, shows it
+// (Decaid's `parentId`), as a new version of it or a separate Profile, as
+// Streamline saves a Duplicate, shows it
 // at the Locations chosen and discards the Draft, in one transaction, and
 // needs no tablet online: the Library then writes it to those Locations'
 // tablets as any Profile, parents first. A new version takes the old one's
@@ -145,18 +146,19 @@ export class PublishingService {
       });
       if (checks.blocking.length > 0) throw refusal(checks.blocking);
 
-      // Saved from the Profile it started from, while the Library has it: one deleted since leaves nothing to save it from or replace.
-      const [source] =
-        !version || row.startedFromId === null
+      // Saved from the Profile it started from, as Streamline saves a Duplicate, while the Library has it: one deleted since leaves nothing to save it from or replace.
+      const [startedFrom] =
+        row.startedFromId === null
           ? []
           : await tx.$queryRaw<{ id: string; title: string | null; bundled: boolean }[]>`
           SELECT id, content -> 'profile' ->> 'title' AS title, bundled FROM profiles WHERE id = ${row.startedFromId} FOR KEY SHARE`;
+      // Only a new version takes its place.
+      const source = version ? startedFrom : undefined;
       if (source?.bundled) throw new ConflictException(`"${source.title ?? source.id}" is one of Decaid's bundled Profiles, which a Draft can only publish as a separate Profile from`);
-      const sourceId = source?.id ?? null;
-      const forked = sourceId === null ? [] : await newerVersions(tx, sourceId, row.createdAt);
+      const forked = source ? await newerVersions(tx, source.id, row.createdAt) : [];
 
       // A record as Decaid creates one, but for its id, times and visibility, which are each tablet's (`profileContent`).
-      const content = { profile, parentId: sourceId, isDefault: false, metadata: null };
+      const content = { profile, parentId: startedFrom?.id ?? null, isDefault: false, metadata: null };
       const added = await tx.$executeRaw`
         INSERT INTO profiles (id, content, bundled, created_location_id) VALUES (${id}, ${JSON.stringify(content)}::jsonb, false, NULL)
         ON CONFLICT (id) DO NOTHING`;
@@ -197,7 +199,8 @@ export class PublishingService {
     }
     return this.prisma.$transaction(async (tx) => {
       const places = await lockLocations(tx, ask.locations);
-      const [row] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM profiles WHERE id = ${to} FOR KEY SHARE`;
+      // FOR SHARE, so no Archive of it commits before it is shown, leaving neither version shown; an Archive takes that row alone.
+      const [row] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM profiles WHERE id = ${to} FOR SHARE`;
       if (!row) throw new NotFoundException("No such Profile");
       if (row.archived) throw new ConflictException(`"${earlier.title ?? to}" is Archived: restore it before returning to it`);
       const done = await replaceAt(tx, { from, to, places, recipes: ask.recipes }, accountSource(editor), await editTime(tx));

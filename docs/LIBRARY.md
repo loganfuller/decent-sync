@@ -2659,9 +2659,10 @@ Locations' tablets as any Profile, parents first.
   moved, not Archived, still names it, which keeps it shown. A Location not
   chosen is left as it is. Where the Library no longer has the Profile it
   started from, deleted since, it is saved from none and replaces nothing.
-- **As a separate Profile**, its `parentId` is none, so it starts a chain of
-  its own (a Duplicate of one Profile is not its version), and it moves no
-  Recipes and hides nothing.
+- **As a separate Profile**, its `parentId` is the Profile it started from
+  too, as Streamline sets a Duplicate's, so it is listed among that
+  Profile's versions as a tablet's Duplicate is; but it takes that
+  Profile's place nowhere: it moves no Recipes and hides nothing.
 - **Refused** (409, with the checks) for what its checks stop
   (`checkProfile`): among them steps a Library Profile has, naming it, and a
   title a Profile shown at one of the Locations chosen has, compared as
@@ -2837,7 +2838,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `replaced` the Profile it took the place of or null, each place `{ id,
   name }`, `keptAt` each `{ location, recipes }`, each Recipe `{ id, name,
   location }`, and `forked` the newer versions it forks beside. 400 for no
-  Location, a Recipe at none of them or for a separate Profile; 403 for a
+  Location, a Location or Recipe named twice, no such Recipe, a Recipe at
+  none of the Locations, or any Recipe for a separate Profile; 403 for a
   Viewer or Staff elsewhere; 404 for no such Draft or Location; 409 for what
   its checks stop, with `checks`, a Draft saved since `saves`, a Recipe not
   naming the Profile replaced or Archived, or a Location where a Machine
@@ -2845,9 +2847,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `POST /api/profiles/:id/return`, with `{ from, locations, recipes? }`,
   returns to the Profile, an earlier version of `from`, and returns `{
   published }` as publishing does, `forked` empty. 400 for returning to
-  `from` itself; 403 for a Viewer or Staff elsewhere; 404 for no such
-  Profile or Location; 409 for one not among `from`'s versions, one
-  Archived, or a Location where a Machine can't run it.
+  `from` itself, no Location, a Location or Recipe named twice, no such
+  Recipe, or a Recipe at none of the Locations; 403 for a Viewer or Staff
+  elsewhere; 404 for no such Profile or Location; 409 for one not among
+  `from`'s versions, one Archived, a Recipe not naming `from` or Archived,
+  or a Location where a Machine can't run it.
 - `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
   required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
   roaster, name } }` if the Library has a Bean of that roaster and name.
