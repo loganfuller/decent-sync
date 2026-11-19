@@ -343,11 +343,16 @@ function isOneOf<T extends string>(values: readonly T[], value: unknown): value 
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
 
+/** Text without the whitespace around it, as Dart's `trim` and so its number parsers take it off: JavaScript's, and U+0085 too. */
+function dartTrim(text: string): string {
+  return text.replace(/^[\s\u0085]+|[\s\u0085]+$/g, "");
+}
+
 const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
 /** A decimal number written as text, read as Dart's `double.parse` reads it, or undefined. */
 function decimal(text: string): number | undefined {
-  const trimmed = text.trim();
+  const trimmed = dartTrim(text);
   if (!DECIMAL.test(trimmed)) return undefined;
   const number = Number(trimmed);
   return Number.isFinite(number) ? number : undefined;
@@ -370,7 +375,8 @@ function readOptionalDouble(value: unknown): number | null | undefined {
   if (typeof value !== "string") return undefined;
   const number = decimal(value);
   if (number !== undefined) return number;
-  return /^\s*[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)\s*$/.test(value) || DECIMAL.test(value.trim()) ? undefined : null;
+  const trimmed = dartTrim(value);
+  return /^[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)$/.test(trimmed) || DECIMAL.test(trimmed) ? undefined : null;
 }
 
 /**
@@ -380,7 +386,7 @@ function readOptionalDouble(value: unknown): number | null | undefined {
  * `int` would read as another.
  */
 function readInt(value: unknown): number | undefined {
-  const int = typeof value === "number" ? (Number.isFinite(value) ? Math.trunc(value) + 0 : undefined) : typeof value === "string" && /^\s*[+-]?\d+\s*$/.test(value) ? Number.parseInt(value, 10) + 0 : undefined;
+  const int = typeof value === "number" ? (Number.isFinite(value) ? Math.trunc(value) + 0 : undefined) : typeof value === "string" && /^[+-]?\d+$/.test(dartTrim(value)) ? Number.parseInt(dartTrim(value), 10) + 0 : undefined;
   return int !== undefined && Number.isSafeInteger(int) ? int : undefined;
 }
 
@@ -439,7 +445,7 @@ export const PROFILE_LIMITS = {
 /** The most steps a profile may have, as Streamline's editor allows. */
 export const MAX_PROFILE_STEPS = 20;
 
-/** About the most flow the machine's pump gives, ml/s. */
+/** About the most flow a DE1's pump gives, ml/s; a Bengle's gives more. */
 export const PUMP_MAX_FLOW = 8;
 
 /** A profile's field, named by its path in Decaid's JSON (`steps.2.limiter.value`), and the step it is of, by index, or null for the profile's own. */
@@ -619,7 +625,7 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
     if (step.seconds < 0.05 && step.exit !== null)
       advice.push({ code: "exitOnNoLength", step: index, path: `steps.${index}.exit`, message: `${label} has no length, so the machine leaves it at once and its exit never applies.` });
     if (step.pump === "flow" && step.flow > PUMP_MAX_FLOW)
-      advice.push({ code: "pumpTooSlow", step: index, path: `steps.${index}.flow`, message: `${label} asks for ${step.flow} ml/s, and the pump gives about ${PUMP_MAX_FLOW} ml/s at most.` });
+      advice.push({ code: "pumpTooSlow", step: index, path: `steps.${index}.flow`, message: `${label} asks for ${step.flow} ml/s, and a DE1's pump gives about ${PUMP_MAX_FLOW} ml/s at most.` });
   });
   return { blocking, advice };
 }

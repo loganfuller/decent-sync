@@ -192,6 +192,13 @@ describe("A Profile's title, author and notes edited in the management interface
     expect((await history(bundledId)).length).toBe(versions);
     expect((await edit("profile:00000000000000000000", { title: "None" })).status).toBe(404);
     expect(textOn(labTablet, id)).toEqual({ title: "Refused Bloom", author: "", notes: "" });
+
+    // Retitled on the tablet as a bundled Profile is, which the Library takes in as it is: the title sent again as it is,
+    // with other fields, as an assistant may send it, is no reason to refuse them.
+    await labTablet.editProfile(id, { ...heldOn(labTablet, id)!, title: bundledTitle });
+    await expect.poll(async () => (await viewProfile(id)).title, { timeout: 15_000 }).toBe(bundledTitle);
+    expect((await edit(id, { title: bundledTitle, notes: "Kept" })).status).toBe(200);
+    expect((await viewProfile(id)).profile).toMatchObject({ title: bundledTitle, notes: "Kept" });
   });
 
   it("leaves a tablet's record as it is, refused, where the profile sent would hash to another id, which Decaid would replace it with", async () => {

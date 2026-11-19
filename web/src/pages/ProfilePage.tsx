@@ -1,4 +1,4 @@
-import { type ProfileStep, type StepExit, profileOf, stepTarget } from "@decent-sync/protocol";
+import { type ProfileStep, type StepExit, profileOf, profileTextOf, stepTarget } from "@decent-sync/protocol";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
@@ -77,6 +77,8 @@ function ProfileDetails({ id }: { id: string }) {
   // Read from its record where the server, of the release before, gives no profile, as during an upgrade (ADR-0025).
   const definition = profile.profile === undefined ? profileOf(profile.content.profile) : profile.profile;
   const steps = definition?.steps ?? [];
+  // Its title, author and notes, read whatever its steps hold, as the server reads them.
+  const profileText = profileTextOf(profile.content.profile);
   return (
     <section className="grid gap-6">
       {back}
@@ -116,7 +118,7 @@ function ProfileDetails({ id }: { id: string }) {
             <ContentForm
               label="Edit the title, author and notes"
               fields={PROFILE_FIELDS}
-              content={{ title: definition?.title ?? profile.title, author: definition?.author ?? profile.author, notes: definition?.notes }}
+              content={profileText}
               path={path}
               onCancel={() => setEditing(false)}
               onSaved={() => {
@@ -128,13 +130,13 @@ function ProfileDetails({ id }: { id: string }) {
             <>
               <Fields label="Title, author and notes">
                 <Field term="Title">
-                  <OrNone>{text(definition?.title ?? profile.title)}</OrNone>
+                  <OrNone>{text(profileText.title)}</OrNone>
                 </Field>
                 <Field term="Author">
-                  <OrNone>{text(definition?.author ?? profile.author)}</OrNone>
+                  <OrNone>{text(profileText.author)}</OrNone>
                 </Field>
                 <Field term="Notes">
-                  <OrNone>{text(definition?.notes)}</OrNone>
+                  <OrNone>{text(profileText.notes)}</OrNone>
                 </Field>
               </Fields>
               {mayChange && !profile.bundled && (

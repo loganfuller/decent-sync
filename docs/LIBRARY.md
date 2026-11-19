@@ -634,8 +634,11 @@ Conflict names is kept, still refused, so history goes on naming it
   Profile's, Archived ones too, whose records tablets keep hidden (409),
   under an advisory lock taken after the Profile's row lock: Streamline
   finds a tablet's record of the Workflow's profile, and of the one it
-  loads at wake, by title, so would take one for the other, and an author or
-  notes cleared is kept empty, as Decaid holds none (`decaidText` in
+  loads at wake, by title, so would take one for the other. That is
+  checked only for an edit made here: a tablet's rename is taken in as it
+  is, and so is a Conflict's title used; and a title kept as it is, sent
+  with other fields, is not refused for one that is another's already. An
+  author or notes cleared is kept empty, as Decaid holds none (`decaidText` in
   `item-input.ts`), so a tablet's record never differs from it for that
   alone. A bundled Profile's are refused (409), as Decaid refuses to change
   them. Its steps change only on tablets so far: a Profile with other steps

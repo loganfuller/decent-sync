@@ -896,9 +896,12 @@ var __decentSync = (() => {
   function isOneOf(values, value) {
     return typeof value === "string" && values.includes(value);
   }
+  function dartTrim(text) {
+    return text.replace(/^[\s\u0085]+|[\s\u0085]+$/g, "");
+  }
   var DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
   function decimal(text) {
-    const trimmed = text.trim();
+    const trimmed = dartTrim(text);
     if (!DECIMAL.test(trimmed)) return void 0;
     const number = Number(trimmed);
     return Number.isFinite(number) ? number : void 0;
@@ -913,10 +916,11 @@ var __decentSync = (() => {
     if (typeof value !== "string") return void 0;
     const number = decimal(value);
     if (number !== void 0) return number;
-    return /^\s*[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)\s*$/.test(value) || DECIMAL.test(value.trim()) ? void 0 : null;
+    const trimmed = dartTrim(value);
+    return /^[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)$/.test(trimmed) || DECIMAL.test(trimmed) ? void 0 : null;
   }
   function readInt(value) {
-    const int = typeof value === "number" ? Number.isFinite(value) ? Math.trunc(value) + 0 : void 0 : typeof value === "string" && /^\s*[+-]?\d+\s*$/.test(value) ? Number.parseInt(value, 10) + 0 : void 0;
+    const int = typeof value === "number" ? Number.isFinite(value) ? Math.trunc(value) + 0 : void 0 : typeof value === "string" && /^[+-]?\d+$/.test(dartTrim(value)) ? Number.parseInt(dartTrim(value), 10) + 0 : void 0;
     return int !== void 0 && Number.isSafeInteger(int) ? int : void 0;
   }
   function readOptionalString(value) {

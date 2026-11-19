@@ -322,10 +322,11 @@ export class LibraryEditsService {
    * title.
    */
   async editProfile(id: string, values: Record<string, unknown>, editor: Editor): Promise<void> {
-    await this.editShared({ kind: "profile", id }, values, editor, null, async (_content, row, tx) => {
+    await this.editShared({ kind: "profile", id }, values, editor, null, async (content, row, tx) => {
       if (row.bundled) throw new ConflictException(BUNDLED_PROFILE_TEXT);
       const title = values.title;
-      if (typeof title === "string") {
+      // A title kept as it is, as an assistant may send with other fields, takes nothing from another Profile.
+      if (typeof title === "string" && !(typeof content.title === "string" && sameTitle(content.title, title))) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_TITLE_LOCK}::bigint)`;
         const others = await tx.$queryRaw<{ title: string | null }[]>`SELECT content -> 'profile' ->> 'title' AS title FROM profiles WHERE id <> ${id}`;
         const other = others.find((profile) => profile.title !== null && sameTitle(profile.title, title));
@@ -436,7 +437,6 @@ async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string
   return { content, bundled: row.bundled };
 }
 
-/** Why a bundled Profile's title, author and notes are not edited. */
 /** Taken by an edit of a Profile's title, so two edits never both take the same title (`editProfile`). */
 const PROFILE_TITLE_LOCK = 4_000_011;
 
@@ -445,6 +445,7 @@ function sameTitle(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+/** Why a bundled Profile's title, author and notes are not edited. */
 export const BUNDLED_PROFILE_TEXT = "Decaid's bundled Profiles keep the title, author and notes Decaid gives them";
 
 export function staffElsewhere(what: string): ForbiddenException {

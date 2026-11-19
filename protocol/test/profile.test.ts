@@ -142,6 +142,8 @@ describe("reading a profile", () => {
   it("refuses a number written as text that JavaScript can't read as Decaid does", () => {
     const step = plain().steps[0]!;
     for (const text of ["0x10", "NaN", "Infinity", "1e400"]) expect(readProfile({ steps: [{ ...step, seconds: text }] }).problem, text).toBe("Step 1: seconds must be a number");
+    // Dart takes U+0085 off around a number, as JavaScript's trim does not.
+    expect(readProfile({ steps: [{ ...step, seconds: "\u00852\u0085", weight: "\u00853" }], target_volume_count_start: "\u00854" }).profile).toMatchObject({ steps: [{ seconds: 2, weight: 3 }], target_volume_count_start: 4 });
     expect(readProfile({ steps: [{ ...step, weight: "0x10" }] }).problem).toBe("Step 1: weight must be a number");
   });
 });
@@ -272,7 +274,7 @@ describe("the checks", () => {
     expect(checks.blocking).toEqual([]);
     expect(checks.advice).toEqual([
       { code: "exitOnNoLength", step: 0, path: "steps.0.exit", message: 'Step 1, "fill" has no length, so the machine leaves it at once and its exit never applies.' },
-      { code: "pumpTooSlow", step: 0, path: "steps.0.flow", message: 'Step 1, "fill" asks for 10 ml/s, and the pump gives about 8 ml/s at most.' },
+      { code: "pumpTooSlow", step: 0, path: "steps.0.flow", message: "Step 1, \"fill\" asks for 10 ml/s, and a DE1's pump gives about 8 ml/s at most." },
       { code: "weightNeedsScale", step: 1, path: "steps.1.weight", message: 'Step 2, "pour" ends at a weight in the cup, which needs a scale connected.' },
     ]);
     expect(checkProfile({ ...profile, steps: [{ ...profile.steps[1]!, weight: 0 }] }).advice).toEqual([]);
