@@ -119,7 +119,19 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },
     { path: "/library/profiles", loaded: (page) => rows(page.getByRole("table", { name: "Profiles" })).first() },
-    { path: `/library/profiles/${encodeURIComponent(ids.profile)}`, loaded: uptownRow, staffHave: "switch Shown at Uptown" },
+    {
+      path: `/library/profiles/${encodeURIComponent(ids.profile)}`,
+      loaded: uptownRow,
+      staffHave: "switch Shown at Uptown",
+      // How it is simulated, the Shot laid over it, the moment read on its graph, and its export, which a Viewer chooses as anyone does (#578).
+      filters: [
+        /^button Export$/,
+        /^radio (A standard puck|A Shot's puck|DE1|Bengle)$/,
+        /^textbox (Dose|Stop at)$/,
+        /^slider (Puck, finer to coarser|A moment on the graph)$/,
+        /^button (Lay a Shot over it|Use a Recipe's)$/,
+      ],
+    },
     { path: "/library/baskets", loaded: (page) => rows(page.getByRole("table", { name: "Baskets" })).first(), staffHave: "button New Basket", filters: EQUIPMENT_FILTERS },
     { path: `/library/baskets/${ids.basket}`, loaded: uptownRow, staffHave: "switch Shown at Uptown" },
     { path: `/library/tools/${tool.tool.id}`, loaded: uptownRow, staffHave: "switch Shown at Uptown" },

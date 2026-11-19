@@ -1,4 +1,4 @@
-import type { Profile as ProfileDefinition } from "@decent-sync/protocol";
+import type { MachineModel, Profile as ProfileDefinition } from "@decent-sync/protocol";
 import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
@@ -1116,6 +1116,34 @@ export interface Profile extends ProfileSummary {
    * decided. A Location not listed does not show it.
    */
   locations: { location: Location; shown: boolean; since: string }[];
+  /**
+   * The Machine model it is simulated as unless another is chosen: a Bengle where every Machine at the Locations showing
+   * it is one, otherwise a DE1. Absent from a server of the release before (ADR-0025).
+   */
+  machineModel?: MachineModel;
+}
+
+/** One of a Profile's Profile Versions: a Profile in the chain of Decaid's `parentId` links through it. */
+export interface ProfileVersion {
+  id: string;
+  title: string | null;
+  bundled: boolean;
+  archived: boolean;
+  /** The Profile it was saved from, where that is in the chain; null for the first. */
+  parentId: string | null;
+  /** When it was saved: by the record its first tablet sent, else when it joined the Library. */
+  savedAt: string;
+  /** Who saved it: the Machine whose tablet saved it, or the account that published it; null where unknown. */
+  savedBy: EditSource | null;
+  shownAt: ProfileAtLocation[];
+  /** How many Shots are on it. */
+  shots: number;
+}
+
+/** A Recipe naming a Profile, with the Machines that have it loaded now. */
+export interface RecipeOnProfile {
+  recipe: Recipe;
+  loadedOn: { id: string; name: string }[];
 }
 
 /** A Basket or Tool in the Library, as the Baskets and Tools lists show it: DYE2's baskets and its equipment. */

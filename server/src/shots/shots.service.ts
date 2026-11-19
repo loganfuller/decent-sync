@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type MachineModel, type Profile, type Sample, type ShotCurve, type ShotDelivery, type ShotIndex, isRecordId, machineModelOf, profileOf, shotSamples } from "@decent-sync/protocol";
+import { type ShotDelivery, type ShotIndex, type SimulationShot, isRecordId, profileOf, shotSamples, simulationShotOf } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { viewLocation } from "../locations/locations.service.js";
@@ -324,22 +324,12 @@ export class ShotsService {
    * and the model of the Machine it recorded, a DE1 for any DE1 model and
    * where it recorded none (`machineModelOf`).
    */
-  async forSimulation(id: string): Promise<{ samples: Sample<ShotCurve>[]; profile: Profile | null; dose: number | null; stopReason: string | null; model: MachineModel }> {
+  async forSimulation(id: string): Promise<SimulationShot> {
     if (!isRecordId(id)) throw shotNotFound();
     const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, select: { record: true } });
     if (!found) throw shotNotFound();
     const measurements = await this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } });
-    const record = object(found.record);
-    const workflow = object(record.workflow);
-    const profile = profileOf(workflow.profile);
-    const above = (value: number | null) => (value !== null && value > 0 ? value : null);
-    return {
-      samples: shotSamples(measurements?.data ?? null, profile),
-      profile,
-      dose: above(number(object(record.annotations).actualDoseWeight)) ?? above(number(object(workflow.context).targetDoseWeight)),
-      stopReason: string(record.stopReason),
-      model: machineModelOf(object(workflow.machine).model),
-    };
+    return simulationShotOf(found.record, measurements?.data ?? null);
   }
 
   /** Credited by the hardware it recorded, otherwise, as inferred, to whoever reported it. */

@@ -21,6 +21,7 @@ import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
 import { OverviewPage } from "@/pages/OverviewPage";
+import { ProfileComparePage } from "@/pages/ProfileComparePage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
 import { RecipePage } from "@/pages/RecipePage";
@@ -71,6 +72,7 @@ export function App() {
             <Route path="/library/grinders/:id" element={<GrinderPage />} />
             <Route path="/library/profiles" element={<ProfilesPage />} />
             <Route path="/library/profiles/:id" element={<ProfilePage />} />
+            <Route path="/library/profiles/:id/compare/:other" element={<ProfileComparePage />} />
             <Route path="/library/baskets" element={<BasketsPage />} />
             <Route path="/library/baskets/:id" element={<BasketPage />} />
             <Route path="/library/tools" element={<ToolsPage />} />

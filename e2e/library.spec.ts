@@ -164,28 +164,27 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   await expect(row("Londonium").getByRole("cell").nth(4)).toHaveText("Bundled with Decaid");
 
   await row("Lab Bloom Turbo").getByRole("link").click();
-  await expect(page.getByRole("heading", { name: "Lab Bloom Turbo", level: 1 })).toBeVisible();
-  await expectTip(page.getByRole("main"), "Profile", "As the tablet that created it recorded it, with the edits made since.");
-  await expectTip(page.getByRole("main"), "Steps", "What the machine follows, which decides the Profile's id: new steps make a new Profile.");
+  await expect(page.getByRole("heading", { name: /^Lab Bloom Turbo/, level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Steps", /^What the Machine follows, which decides the Profile's id: new steps make a new Profile\./);
   await expectTip(page.getByRole("main"), "Locations", /^Where it is shown\. Showing it at a Location writes it to that Location's tablets/);
   await expect(page.getByText(String(turbo.id), { exact: true })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Created at")).toHaveText("Profile lab");
-  await expect(field(library, "Saved from")).toHaveText("Lab Bloom");
+  await expect(field(library, "Target volume")).toHaveText("-");
   await expect(field(page.getByLabel("Title, author and notes", { exact: true }), "Author")).toHaveText("Decent Sync fixtures");
-  const profile = page.getByLabel("Profile", { exact: true });
-  await expect(field(profile, "Target weight")).toHaveText("36 g");
-  await expect(field(profile, "Target volume")).toHaveText("-");
+  // The Profile it was saved from is its first version, this one its second (#578).
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Version 2");
+  await expect(page.getByLabel("The Profile")).toContainText("Stops at36 g, unless a Recipe sets a yield");
   await expect(rows(page.getByRole("table", { name: "Steps" }))).toHaveText([
-    ["Bloom", "Flow 4 ml/s", "92 °C", "10 s", "pressure over 3"].join(""),
-    ["Pour", "Pressure 9.5 bar", "92 °C", "30 s", "-"].join(""),
+    /^1BloomPumps 4 ml\/s at onceOver 3 bar, 100 ml pumped, or after 10 s/,
+    /^2PourRamps to 9\.5 bar over the step, flow limited to 3\.5 ml\/s100 ml pumped, or after 30 s/,
   ]);
 
   // The Profile it was saved from, hidden at the lab, is shown nowhere.
-  await field(library, "Saved from").getByRole("link").click();
-  await expect(page.getByRole("heading", { name: "Lab Bloom", level: 1 })).toBeVisible();
+  await page.getByRole("main").getByRole("link", { name: "Lab Bloom", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: /^Lab Bloom/, level: 1 })).toContainText("Version 1");
   await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).not.toBeChecked();
   await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
 });

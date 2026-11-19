@@ -2418,6 +2418,68 @@ answers within the size budget (ADR-0028): the headline figures, each
 step's end and why, never cut, the checks and the fit, and the run's curves
 thinned as a Shot's are.
 
+Asked for no model, the route and the tool simulate a Profile as the model
+it is shown for (`ProfileView.machineModel`): a Bengle where every Machine
+at the Locations showing it is one, by each Machine's latest Location
+History entry, and there is at least one; otherwise, shown nowhere, at no
+Location with a Machine, or with a DE1 among them, a DE1 (#578, #588).
+
+A Shot's puck is read the same way on both sides: `simulationShotOf` takes
+the Shot's full record and measurements, as the server stores them and as
+`GET /api/shots/:id` and `/measurements` give them, and `simulateOnShot`
+runs a profile on its puck and fits the Shot's own steps to it.
+
+## The Profile page
+
+A Profile's page in the management interface (#578) opens on its graph, a
+simulation run in the browser with the shared module, and replaces the
+title and steps table it had:
+
+- **How it runs.** On the standard puck by default, 18 g in, stopping at its
+  stop-at weight, as the model it is shown for; the dose, the stop-at weight,
+  a finer to coarser control, the Machine model and a Recipe's dose and
+  yield, of the Recipes naming it, on request. Or on a Shot's puck, chosen
+  from the Shots on it and its earlier versions first, then any Shot, with
+  the Shot's dose, the weight it stopped at and its Machine's model; the
+  Shot is drawn over the run, and a table gives how close its fit comes.
+  On the standard puck any Shot can be laid over the run. The headline
+  figures are the run's time, time to first drip, peak pressure and flow at
+  the stop, and on a Shot's puck how far each is from the Shot's.
+- **The graph** (`web/src/components/profile-graph.tsx`) puts pressure, flow
+  and temperature each in a lane on one time axis, drawn in the Shot page's
+  colours: blue for the run, orange for a Shot or version compared with
+  it, dashed grey for the plan. Each step that took time is a band named at
+  the top, with how long it ran and why it ended; a step's exit is a dotted
+  threshold in the lane it watches, and its limiter a band in the lane it
+  caps, from its value up over its range. The stop is a line, with the plan
+  the run never reached faint beyond it; a bar marks preinfusion, and a row
+  under the lanes the first drip and each 10 g in the cup. Temperature is
+  the plan's. Pointing at a moment, or the arrow keys with the graph
+  focused, reads the run's values there, against the plan, and the compared
+  record's.
+- **Steps** in plain words (`web/src/lib/profile-words.ts`): what the Machine
+  does, a later step's temperature against the first's, when it moves on,
+  and what the simulation on the standard puck did with it; then its brew
+  temperature, stop-at weight, where preinfusion ends and its water tank,
+  each with what a Recipe replaces.
+- **Versions**: its Profile Versions, the latest saved first, each with
+  when and by whom it was saved, the Profile it was saved from, where it is
+  shown and its Shots. A version is named "Version n" in the order the
+  chain's versions were saved, but one of Decaid's bundled Profiles, by its
+  title; a chain of one Profile names it by nothing. Any other version opens
+  a comparison (`/library/profiles/:id/compare/:other`): the rows where their
+  steps' words differ, and both simulated on the same standard puck, in one
+  graph.
+- Beside them: the Locations showing it, the Recipes on it with the Machines
+  that have each loaded, the Shots on it and on its earlier versions, its
+  title, author and notes, and its history. Export gives its record's
+  profile as Decaid's profile JSON, in a file named by its title.
+
+An assistant reads the same (ADR-0026): `get_profile_versions`
+(`server/src/mcp/library.tools.ts`) gives the versions and the Recipes on a
+Profile as the two routes below do, `get_library_item` a version's steps and
+its profile, what Export gives, and `simulate_profile` its simulation.
+
 ## REST API
 
 Every endpoint requires the account session; Staff read them as Admins do.
@@ -2462,8 +2524,30 @@ Every endpoint requires the account session; Staff read them as Admins do.
   profile and a step, or null where Decaid would not read it; `parent`, `{ id, title }` of the Profile it was saved from if the
   Library has it, or null; and `locations`, each Location that has decided
   whether it shows it, by name, `{ location, shown, since }`, kept while it
-  is Archived; or 404. A Location not listed does not show it. The id goes in
-  the path as it is or percent-encoded.
+  is Archived; and `machineModel`, the model it is simulated as unless asked
+  (Simulating a Profile, above); or 404. A Location not listed does not show
+  it. The id goes in the path as it is or percent-encoded.
+- `GET /api/profiles/:id/versions` returns `{ versions }`, its Profile
+  Versions: every Profile in the chain of `parentId` links through it, up to
+  the first, whose link names no Profile in the Library or one of Decaid's
+  bundled Profiles, and down through each saved from one in the chain, so
+  both branches of a fork, at most 200, the latest saved first. A bundled
+  Profile the first was saved from is listed, but not walked down through,
+  so Profiles saved from it apart, as at two Locations, are not each other's
+  versions; a bundled Profile's own versions are itself alone. Each is
+  `{ id, title, bundled, archived, parentId, savedAt, savedBy, shownAt,
+  shots }`: `parentId` the Profile it was saved from where that is listed,
+  else null;
+  `savedAt` its history's first version's time, the record its first tablet
+  sent, else when it joined the Library; `savedBy` that version's source, as
+  a history's (a Machine, or an account named to Admins only), or null;
+  `shots`, how many Shots the Shots list's `profileId` filter counts. 404
+  for no such Profile.
+- `GET /api/profiles/:id/recipes` returns `{ recipes }`, the Recipes not
+  Archived whose content names it, each `{ recipe, loadedOn }`: the Recipe
+  as `GET /api/recipes/:id` gives it, and the Machines whose Loaded Recipe it
+  is now, `{ id, name }`; by Location name, slot and name. 404 for no such
+  Profile.
 - `GET /api/profiles/:id/simulation` returns `{ simulation }`, the Profile
   simulated (Simulating a Profile, above): `{ profile, model, puck, dose,
   stopAt, run, checks, fit }`. It runs on the standard puck at `grind`, from
@@ -2471,7 +2555,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `dose` in grams, above 0 and up to 50, else the Shot's, as weighed or else
   as set, or 18; stopping at `stopAt` grams, 0 to run until the last step
   ends, else the Profile's stop-at weight; on a Machine of `model`, `DE1` or
-  `Bengle`, a DE1 where left out. `puck` is `{ kind: "standard", grind }` or
+  `Bengle`, else the model it is simulated as (`machineModel`). `puck` is `{ kind: "standard", grind }` or
   `{ kind: "shot", shotId, model }`, the model of the Machine the Shot
   recorded, which its fit runs on; `run` is `simulateProfile`'s, every
   sample; `checks` are the Profile's (`checkProfile`); `fit` is

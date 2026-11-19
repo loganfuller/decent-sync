@@ -9,10 +9,8 @@ import {
   type ShotFit,
   type SimulatedRun,
   checkProfile,
-  fitToShot,
   isRecordId,
-  shotPuck,
-  shotFitStop,
+  simulateOnShot,
   simulateProfile,
   standardPuck,
 } from "@decent-sync/protocol";
@@ -35,7 +33,8 @@ export interface SimulationAsk {
   dose: number | null;
   /** The weight it stops at, g, 0 to run until its last step ends; null for the Profile's stop-at weight. */
   stopAt: number | null;
-  model: MachineModel;
+  /** The Machine model to simulate as; null for the one the Profile is simulated as where it is shown (`ProfileView.machineModel`). */
+  model: MachineModel | null;
 }
 
 /** The most coffee a dose may be, g: more than any basket holds. */
@@ -91,17 +90,16 @@ export class ProfileSimulationService {
     const stopAt = ask.stopAt ?? (profile.target_weight !== null && profile.target_weight > 0 ? profile.target_weight : null);
     const checks = checkProfile(profile);
     const of = { id: item.id, title: item.title };
+    const model = ask.model ?? item.machineModel;
     if (ask.shotId === null) {
-      const run = simulateProfile({ profile, puck: standardPuck(ask.grind), dose: ask.dose ?? STANDARD_DOSE, stopAt, model: ask.model });
-      return { profile: of, model: ask.model, puck: { kind: "standard", grind: ask.grind }, dose: run.dose, stopAt: run.stopAt, run, checks, fit: null };
+      const run = simulateProfile({ profile, puck: standardPuck(ask.grind), dose: ask.dose ?? STANDARD_DOSE, stopAt, model });
+      return { profile: of, model, puck: { kind: "standard", grind: ask.grind }, dose: run.dose, stopAt: run.stopAt, run, checks, fit: null };
     }
     const shot = await this.shots.forSimulation(ask.shotId);
-    const puck = shotPuck(shot.samples, shot.dose);
-    if (!puck) throw new ConflictException(`Shot ${ask.shotId} recorded no pressure and flow to work its puck out from`);
-    const run = simulateProfile({ profile, puck, dose: ask.dose ?? puck.dose, stopAt, model: ask.model });
-    const stop = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shotFitStop(shot.samples, shot.stopReason, shot.model, shot.profile) : null;
-    const fit = shot.profile && stop ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: stop.stopAt, model: shot.model }).fit : null;
-    return { profile: of, model: ask.model, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks, fit };
+    const simulated = simulateOnShot({ profile, shot, dose: ask.dose, stopAt, model });
+    if (!simulated) throw new ConflictException(`Shot ${ask.shotId} recorded no pressure and flow to work its puck out from`);
+    const { run, fit } = simulated;
+    return { profile: of, model, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks, fit };
   }
 }
 
@@ -109,7 +107,8 @@ export class ProfileSimulationService {
  * What a simulation is asked for, from the REST route's query: `shotId`, or
  * `grind` from -1 to 1, 0 where left out; `dose` above 0 and up to
  * MAX_DOSE g; `stopAt` from 0 to 500 g, 0 to run until the last step ends;
- * `model`, DE1 or Bengle, a DE1 where left out. 400 for anything else.
+ * `model`, DE1 or Bengle, null where left out, for the model the Profile is
+ * simulated as where it is shown. 400 for anything else.
  */
 export function readSimulationAsk(query: Record<string, unknown>): SimulationAsk {
   const problems: string[] = [];
@@ -129,8 +128,8 @@ export function readSimulationAsk(query: Record<string, unknown>): SimulationAsk
   if (shotId !== null && grind !== null) problems.push("Choose a Shot's puck or the standard puck's grind, not both");
   const dose = numberOf("dose", (value) => value > 0 && value <= MAX_DOSE, `a number of grams above 0 and up to ${MAX_DOSE}`);
   const stopAt = numberOf("stopAt", (value) => value >= PROFILE_LIMITS.targetWeight.min && value <= PROFILE_LIMITS.targetWeight.max, `a number of grams from 0, to run until the last step ends, to ${PROFILE_LIMITS.targetWeight.max}`);
-  const model = query.model === undefined || query.model === "" ? "DE1" : query.model;
-  if (!(MACHINE_MODELS as readonly unknown[]).includes(model)) problems.push(`model must be one of ${MACHINE_MODELS.join(", ")}`);
+  const model = query.model === undefined || query.model === "" ? null : query.model;
+  if (model !== null && !(MACHINE_MODELS as readonly unknown[]).includes(model)) problems.push(`model must be one of ${MACHINE_MODELS.join(", ")}`);
   if (problems.length > 0) throw new BadRequestException(problems.join("; "));
-  return { shotId: shotId as string | null, grind: grind ?? 0, dose, stopAt, model: model as MachineModel };
+  return { shotId: shotId as string | null, grind: grind ?? 0, dose, stopAt, model: model as MachineModel | null };
 }

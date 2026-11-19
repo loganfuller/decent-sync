@@ -1,5 +1,6 @@
 import { CartesianGrid, type LabelProps, Line, LineChart, ReferenceArea, ReferenceLine, Text, XAxis, YAxis } from "recharts";
 import { type ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { PREVIOUS_RECORD, THIS_RECORD } from "@/components/record-colors";
 import { numberText } from "@/components/records";
 import {
   type CurveInfo,
@@ -15,21 +16,6 @@ import {
   stepAt,
   stepChanges,
 } from "@/lib/curves";
-
-// Colors from the data visualization palette's first two categorical slots,
-// checked for color vision deficiencies against light and dark surfaces: this
-// record and its target are blue, the record compared with it orange. The
-// target is also dashed, so it never relies on color alone.
-const THIS_RECORD = { light: "#2a78d6", dark: "#3987e5" };
-const PREVIOUS_RECORD = { light: "#eb6834", dark: "#d95926" };
-
-/**
- * The line a record's curves are drawn with, as a mark beside its name where the two records are named apart from the
- * charts, such as a comparison's table: in the colors above.
- */
-export function CurveMark({ of }: { of: "current" | "previous" }) {
-  return <span aria-hidden className={`h-0.5 w-3.5 shrink-0 rounded-full ${of === "current" ? "bg-[#2a78d6] dark:bg-[#3987e5]" : "bg-[#eb6834] dark:bg-[#d95926]"}`} />;
-}
 
 /** Legends and tooltips name the series in this order, whichever are drawn. */
 const ORDER: Record<string, number> = { current: 0, target: 1, previous: 2 };

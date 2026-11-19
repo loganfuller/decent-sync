@@ -75,6 +75,8 @@ const STAFF = [
   "GET /api/profiles/:id/history",
   "GET /api/profiles/:id/conflicts",
   "GET /api/profiles/:id/simulation",
+  "GET /api/profiles/:id/versions",
+  "GET /api/profiles/:id/recipes",
   "GET /api/baskets",
   "POST /api/baskets",
   "GET /api/baskets/:id",

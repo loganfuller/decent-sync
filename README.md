@@ -91,6 +91,17 @@ Each server has one owner: a household, or a business with all of its sites.
   grouped by Recipe, through the REST API or an assistant, gives its numbers
   beside the Recipe's. A Shot's duration, and a group's median, more than
   10% from its own is out of spec (below).
+- **A Profile you can read.** A Profile's page draws how it runs: a
+  simulation on a standard puck, finer or coarser, or on a Shot's, as a DE1
+  or a Bengle, with pressure, flow and temperature each in a lane, the plan
+  dashed behind the run, each step a band saying how long it ran and why it
+  ended, its exits and limits drawn where they act, and the first drip and
+  each 10 g marked. Lay any Shot over it, or simulate on a Shot's puck to see
+  how close the simulation comes to that Shot. Its steps are listed in plain
+  words, with what a Recipe replaces. Its versions, each Profile saved from
+  the one before, are listed with who saved each, and any two compared, each
+  simulated on the same puck. It lists the Recipes on it, with the Machines
+  that have each loaded, and exports as Decaid's profile JSON.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
@@ -101,6 +112,11 @@ Each server has one owner: a household, or a business with all of its sites.
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/location-dark.png">
   <img src="docs/images/location-light.png" alt="A Location's page: its block of the Overview, with a status card for each of its two Machines and today's Shots of each Recipe on each of them; and its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, grinder setting and Reference Shot">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/profile-dark.png">
+  <img src="docs/images/profile-light.png" alt="A Profile's page: how it runs, simulated on a standard puck with its dose, stop-at weight, Machine model and a finer to coarser control; its time, first drip, peak pressure and flow at the stop; a graph of pressure, flow and temperature lanes with each step a named band, the plan dashed, exits and a flow limit drawn, the stop and the weight in the cup marked; then its steps in plain words, with when each moves on and what the simulation did">
 </picture>
 
 <picture>
@@ -438,7 +454,8 @@ day or by week, each Location's own, to read a trend, Steam
 Records, and the Library
 with each item's history and Conflicts, and simulate a Profile on a standard
 puck, finer or coarser, or on a Shot's, for a DE1 or a Bengle, saying how
-close its simulation of that Shot's own steps comes to the Shot. It can create
+close its simulation of that Shot's own steps comes to the Shot, and read a
+Profile's versions and the Recipes on it. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, edit a
 Profile's title, author and notes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe

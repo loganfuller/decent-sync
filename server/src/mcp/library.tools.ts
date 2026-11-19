@@ -5,6 +5,7 @@ import {
   EXIT_CONDITIONS,
   EXIT_TYPES,
   type LibraryKind,
+  MACHINE_MODELS,
   MAX_SHOT_RATING,
   STEP_SENSORS,
   STEP_TRANSITIONS,
@@ -16,8 +17,8 @@ import { type BeanSummary, type BeanView, BeansService, readBeanId } from "../li
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "../library/equipment.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
 import { type ConflictView, HistoryService, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
-import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
-import { type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
+import { type ProfileSummary, type ProfileVersionView, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
+import { type RecipeOnProfileView, type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
 import { locationNotFound, readLocationId } from "../locations/input.js";
 import { type LocationView, LocationsService, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -334,6 +335,9 @@ export const itemOutput = z.object({
       profile: profileShape.nullable().describe("Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it."),
       parent: z.object({ id, title: z.string().nullable() }).nullable().describe("The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it."),
       locations: decidedAt,
+      machineModel: z
+        .enum(MACHINE_MODELS)
+        .describe("The Machine model simulate_profile runs it as where none is asked for: Bengle where every Machine at the Locations showing it is one, otherwise DE1."),
     })
     .optional(),
   grinder: grinderSummary.extend({ content: content(RECORD_FIELDS) }).optional(),
@@ -348,6 +352,34 @@ const getOutput = itemOutput.extend({
 });
 
 const conflictsOutput = z.object({ ...pageOutput, conflicts: z.array(conflict) });
+
+const profileVersionsInput = z.object({ profileId: id.describe("The Library Profile whose versions to read, as find_library_items gives it.") });
+
+const profileVersionsOutput = z.object({
+  versions: z
+    .array(
+      z.object({
+        id,
+        title: z.string().nullable(),
+        bundled: z.boolean().describe("One of Decaid's own Profiles, which every tablet has."),
+        archived: z.boolean(),
+        parentId: id.nullable().describe("The version it was saved from; null for the first."),
+        savedAt: time("When it was saved: by the record its first tablet sent, else when it joined the Library."),
+        savedBy: source.nullable().describe("Who saved it: the Machine whose tablet saved it, or the account that published it; null where unknown."),
+        shownAt,
+        shots: z.number().describe("How many Shots are on it, as the Shots list's profileId filter counts them."),
+      }),
+    )
+    .describe("Every Profile in the chain of parentId links through the one asked about, up to the first and down through each saved from one in the chain, so both branches of a fork; the latest saved first."),
+  recipes: z
+    .array(
+      z.object({
+        recipe: z.object({ id, name: z.string().nullable(), location: location.nullable(), slot: z.number().nullable() }),
+        loadedOn: z.array(z.object({ id, name: z.string() })).describe("The Machines whose Loaded Recipe it is now."),
+      }),
+    )
+    .describe("The Recipes, not Archived, that name the Profile asked about, by Location, slot and name, each with the Machines that have it loaded now."),
+});
 
 type FindInput = z.infer<typeof findInput>;
 type FindOutput = z.infer<typeof findOutput>;
@@ -473,6 +505,23 @@ export class LibraryTools {
       history: paged(versions, (entry) => versionOf(entry, itemLocation)),
       conflicts: paged(conflicts, (entry) => conflictOf(entry, itemLocation)),
     };
+  }
+
+  @BudgetedTool({
+    name: "get_profile_versions",
+    title: "Get a Profile's versions",
+    description: `Reads a Profile's Profile Versions, as its page in the management interface lists them: each Profile in the chain of Decaid's parentId links through it, as a tablet saves a Profile whose steps changed as a new one saved from the old, with when and by whom each was saved, where each is shown and how many Shots are on each; and the Recipes that name the Profile asked about, with the Machines that have each loaded now. get_library_item reads each version's steps, and simulate_profile runs each on the same puck to compare them. Times are in UTC.`,
+    inputSchema: profileVersionsInput,
+    outputSchema: profileVersionsOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: { rest: "get_library_item reads one version whole." },
+  })
+  async getProfileVersions({ profileId }: z.infer<typeof profileVersionsInput>, context: McpContext): Promise<z.infer<typeof profileVersionsOutput>> {
+    const id = readProfileId(profileId);
+    const versions = await this.profiles.versions(id, callerOf(context).scope);
+    const recipes = await this.recipes.namingProfile(id);
+    return { versions: versions.map(profileVersionOf), recipes: recipes.map(recipeOnProfileOf) };
   }
 
   @BudgetedTool({
@@ -656,7 +705,14 @@ function profileOf(profile: ProfileSummary | ProfileView): z.infer<typeof profil
 }
 
 function profileViewOf(profile: ProfileView): NonNullable<GetOutput["profile"]> {
-  return { ...profileOf(profile), content: profile.content, profile: profile.profile, parent: profile.parent && { id: profile.parent.id, title: profile.parent.title }, locations: decidedOf(profile) };
+  return {
+    ...profileOf(profile),
+    content: profile.content,
+    profile: profile.profile,
+    parent: profile.parent && { id: profile.parent.id, title: profile.parent.title },
+    locations: decidedOf(profile),
+    machineModel: profile.machineModel,
+  };
 }
 
 function grinderOf(grinder: GrinderSummary | GrinderView): z.infer<typeof grinderSummary> {
@@ -725,6 +781,24 @@ function recipeOf(found: RecipeView): z.infer<typeof recipe> {
       profileDiffers: shot.profileDiffers,
     },
   };
+}
+
+function profileVersionOf(version: ProfileVersionView): z.infer<typeof profileVersionsOutput>["versions"][number] {
+  return {
+    id: version.id,
+    title: version.title,
+    bundled: version.bundled,
+    archived: version.archived,
+    parentId: version.parentId,
+    savedAt: timeAt(version.savedAt, null),
+    savedBy: version.savedBy && sourceOf(version.savedBy),
+    shownAt: shownOf(version),
+    shots: version.shots,
+  };
+}
+
+function recipeOnProfileOf({ recipe, loadedOn }: RecipeOnProfileView): z.infer<typeof profileVersionsOutput>["recipes"][number] {
+  return { recipe: { id: recipe.id, name: recipe.name, location: maybeLocation(recipe.location), slot: recipe.slot }, loadedOn };
 }
 
 function sourceOf({ machine, tabletId, account, connectedApp }: SourceView): z.infer<typeof source> {

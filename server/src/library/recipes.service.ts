@@ -53,6 +53,13 @@ export interface RecipeView {
   referenceShot: ReferenceShotView | null;
 }
 
+/** A Recipe naming a Profile, as a Profile's page lists it: with the Machines that have it loaded now. */
+export interface RecipeOnProfileView {
+  recipe: RecipeView;
+  /** The Machines whose Loaded Recipe it is now (ADR-0022), by name. */
+  loadedOn: { id: string; name: string }[];
+}
+
 /** A Recipe's Reference Shot: what the Recipe page shows of it, and whether its Profile is another than the Recipe's. */
 export interface ReferenceShotView {
   id: string;
@@ -162,6 +169,45 @@ export class RecipesService {
       this.referenceShots([row]),
     ]);
     return view(row, location ? viewLocation(location) : null, uses, shots);
+  }
+
+  /**
+   * The Recipes, not Archived, whose content names the Profile, each with the
+   * Machines that have it loaded now (ADR-0022), by name: by their Location's
+   * name, then in slot order, then by name, ignoring case.
+   */
+  async namingProfile(profileId: string): Promise<RecipeOnProfileView[]> {
+    const rows = await this.prisma.$queryRaw<RecipeRow[]>`
+      SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt", reference_shot_id AS "referenceShotId"
+      FROM recipes WHERE content ->> 'profileId' = ${profileId} AND NOT archived`;
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.id);
+    const locationIds = [...new Set(rows.flatMap((row) => (row.locationId === null ? [] : [row.locationId])))];
+    const [locations, uses, shots, loaded] = await Promise.all([
+      this.prisma.location.findMany({ where: { id: { in: locationIds } } }),
+      this.uses(rows),
+      this.referenceShots(rows),
+      this.prisma.$queryRaw<{ recipeId: string; id: string; name: string }[]>`
+        SELECT l.recipe_id::text AS "recipeId", m.id::text AS id, m.name
+        FROM loaded_recipes l JOIN machines m ON m.id = l.machine_id
+        WHERE l.recipe_id = ANY(${ids}::uuid[]) AND l.unloaded_at IS NULL`,
+    ]);
+    const places = new Map(locations.map((location) => [location.id, viewLocation(location)]));
+    return rows
+      .map((row) => ({
+        recipe: view(row, row.locationId === null ? null : (places.get(row.locationId) ?? null), uses, shots),
+        loadedOn: loaded
+          .filter((machine) => machine.recipeId === row.id)
+          .map(({ id, name }) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+      }))
+      .sort(
+        (a, b) =>
+          compareText(a.recipe.location?.name ?? null, b.recipe.location?.name ?? null) ||
+          compareSlots(a.recipe.slot, b.recipe.slot) ||
+          compareText(a.recipe.name, b.recipe.name) ||
+          a.recipe.id.localeCompare(b.recipe.id),
+      );
   }
 
   /** These Recipes' Reference Shots, by the Shot's id: those the Shots list lists. */

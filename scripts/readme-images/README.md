@@ -1,6 +1,6 @@
 # README images
 
-Regenerates the images in `docs/images/` that `README.md` shows, each in light and dark: the Live View GIF, and stills of the Overview, a Location's page, a Shot's page, the Library's Bean Batches and a Machine's Live View on a phone.
+Regenerates the images in `docs/images/` that `README.md` shows, each in light and dark: the Live View GIF, and stills of the Overview, a Location's page, a Shot's page, a Profile's page, the Library's Bean Batches and a Machine's Live View on a phone.
 
 ## Running it
 
@@ -26,7 +26,7 @@ The spec reads these from the environment:
 
 | Variable | Effect |
 |---|---|
-| `STILLS=overview,location` | Captures only the stills named, of `overview`, `location`, `bean-batches`, `shots` and `shot`. Unset, every one. |
+| `STILLS=overview,location` | Captures only the stills named, of `overview`, `location`, `bean-batches`, `shots`, `shot` and `profile`. Unset, every one. |
 | `SKIP_STILLS=1` | Captures no stills: only the Live View GIF and the phone. |
 | `SKIP_LIVE=1` | Captures only the stills. With `STILLS`, a run takes under 20 seconds. |
 | `SCREENSHOT_ZONE`, `SCREENSHOT_ZONE_HOURS` | The time zone of the Locations, the browser and the tablets, and its hours ahead of UTC. Default `America/Toronto` and `-5`. |
@@ -65,11 +65,12 @@ The spec reads these from the environment:
 - A Basket's name is unique in the Library: the spec creates one at Downtown and shows it at the other Locations.
 - A Shot's Recipe is the one it names only where its Machine had it loaded as it was pulled, so the spec backdates each bar's Loaded Recipes in PostgreSQL. Without that every Shot falls under "No Recipe loaded" and no Reference Shot is offered.
 - Each tablet reports an idle Machine State, or the Overview says "State not reported".
-- `page.screenshot({ clip })` is cut at the viewport's edge, so the `location` capture uses a 1600 px tall viewport, the `shot` capture 2600 px and the Live View 1400 px.
+- `page.screenshot({ clip })` is cut at the viewport's edge, so the `location` capture uses a 1600 px tall viewport, the `shot` capture 2600 px, the `profile` capture 2000 px and the Live View 1400 px.
 - The `overview` still runs to the bottom of Downtown's block.
 - The `location` still runs to the bottom of the page's Recipes card.
 - The captures wait, after every reload, for each Overview block's table and its two status cards.
 - The `shot` still is Shot bl-1's "How it went" card and Curves card together: a clip from the top of one to the bottom of the other.
+- The `profile` still is the page of Gentle and sweet, House Espresso's Profile: its "How it runs" card and Steps card together, as the page opens, on the standard puck.
 - It compares bl-1 with its Recipe's Reference Shot, bl-4, whose "Reference Shot" radio is chosen already.
 - bl-1 is rated 8 and bl-4 10 (Decaid's 0 to 10), so its Rating row reads in stars.
 
