@@ -52,8 +52,11 @@ describe("a Machine's activity as its page shows it", () => {
     { effectiveFrom: "2026-02-10T20:00:00.000Z", location: { id: "harbor", name: "Harbor", timeZone: "Asia/Tokyo" } },
   ];
 
-  it("reads a time in the zone of the Location the Machine was at then, by its Location History, and UTC's before its first", () => {
-    expect(timeZoneAt(history, "2024-12-31T23:59:59Z")).toBe("UTC");
+  it("reads a time in the zone of the Location the Machine was at then, by its Location History, its first's from the start of the day it came there, and UTC's before that day", () => {
+    // It came to the Lab at 17:00 on 31 December there (#587): that day there began at 07:00 in UTC.
+    expect(timeZoneAt(history, "2024-12-31T06:59:59Z")).toBe("UTC");
+    expect(timeZoneAt(history, "2024-12-31T07:00:00Z")).toBe("America/Denver");
+    expect(timeZoneAt(history, "2024-12-31T23:59:59Z")).toBe("America/Denver");
     expect(timeZoneAt(history, "2025-01-01T00:00:00Z")).toBe("America/Denver");
     expect(timeZoneAt(history, "2026-02-10T19:59:59Z")).toBe("America/Denver");
     expect(timeZoneAt(history, "2026-02-10T20:00:00Z")).toBe("Asia/Tokyo");
