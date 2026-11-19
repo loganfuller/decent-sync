@@ -2762,7 +2762,8 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   nothing, and one holding the steps it was last written doesn't either,
   as a report made before a save's write landed holds those; one holding
   steps it was written earlier, as the Profile the Draft started from,
-  does. Once ended, the server writes the Machine nothing of
+  does, and so does one naming a recipe, whatever its steps, as DYE2 names
+  the one a barista applies and the Draft's write clears it. Once ended, the server writes the Machine nothing of
   the Draft until a person follows again, which replaces what it has
   loaded. The row stays, so the Draft's page says when it ended, why, and
   what the Machine's Workflow holds now.

@@ -323,6 +323,19 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("ended");
     expect((await trying(draft)).following).toMatchObject({ ended: { why: "workflow" }, has: "Classic Italian espresso" });
 
+    // A recipe applied on the Draft's steps but for their temperatures, as DYE2 names one, is the barista's: following ends.
+    await followed(draft);
+    const held = workflowProfile(tablet);
+    const context = tablet.workflow().context as Fields;
+    const extras = (context.extras ?? {}) as Fields;
+    const recipeWorkflow = {
+      profile: { ...held, title: "House", steps: held.steps.map((step) => ({ ...step, temperature: step.temperature - 2 })) },
+      context: { ...context, extras: { ...extras, dye: { ...((extras.dye ?? {}) as Fields), recipeId: "trial-house" } } },
+    };
+    expect((await tablet.callApi("PUT", "/workflow", recipeWorkflow)).status).toBe(200);
+    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("ended");
+    expect((await trying(draft)).following).toMatchObject({ ended: { why: "workflow" }, has: "House" });
+
     // A person turns it off: the Machine keeps the Draft's steps, and a save sends nothing.
     await followed(draft);
     const stopped = (await api.send<{ trying: Trying }>("DELETE", `/drafts/${draft.id}/following`, undefined, 200)).trying;

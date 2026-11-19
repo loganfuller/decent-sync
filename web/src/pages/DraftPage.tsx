@@ -75,6 +75,14 @@ function DraftEditor({ id }: { id: string }) {
   const [changed, setChanged] = useState<DraftTrying>();
   useEffect(() => setChanged(undefined), [polled]);
   const trying = changed ?? polled;
+  // A poll asked before the change may answer after it: asking again drops that answer.
+  const followingChanged = useCallback(
+    (next: DraftTrying) => {
+      setChanged(next);
+      void reloadTrying();
+    },
+    [reloadTrying],
+  );
   // The Trial Shot the graph is moved to: the latest on the Draft's steps, as it arrives, or the one chosen from the list.
   const latestTrial = trying?.trialShots.find((trial) => trial.steps === "current")?.shot.id;
   const [usedTrial, setUsedTrial] = useState<{ shotId: string; asked: number }>();
@@ -375,7 +383,7 @@ function DraftEditor({ id }: { id: string }) {
         </Alert>
       )}
 
-      {trying && <FollowingCard draftPath={path} title={profile.title} trying={trying} unsaved={saving !== "saved"} onChanged={setChanged} />}
+      {trying && <FollowingCard draftPath={path} title={profile.title} trying={trying} unsaved={saving !== "saved"} onChanged={followingChanged} />}
 
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid min-w-0 gap-6">

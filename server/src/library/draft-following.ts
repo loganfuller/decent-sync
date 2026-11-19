@@ -1,4 +1,4 @@
-import { DRAFT_KIND, FOLLOWED_DRAFTS_WIRE_REVISION, MAX_PROFILE_STEPS, followedDraftTitle, peerHasWireRevision, readProfile } from "@decent-sync/protocol";
+import { DRAFT_KIND, FOLLOWED_DRAFTS_WIRE_REVISION, MAX_PROFILE_STEPS, dye2RecipeIdOf, followedDraftTitle, peerHasWireRevision, readProfile } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -79,7 +79,8 @@ export async function endFollowings(tx: Prisma.TransactionClient, ended: Prisma.
 /**
  * The write of the Draft the Machine follows that its tablet is due at the
  * Location, or null: the Draft's profile, under the title a tablet shows it
- * by, while the Location tries Drafts and the profile the Machine was last
+ * by, while the Location tries Drafts, the Machine is at the Location entry
+ * following began at, and the profile the Machine was last
  * written since following began is another, or none. Nothing is due to a
  * plugin from before FOLLOWED_DRAFTS_WIRE_REVISION, nor for a Draft of no
  * steps or of more than a machine takes, which waits until it is saved with
@@ -94,6 +95,8 @@ export async function followedDraftDue(tx: Prisma.TransactionClient, tablet: Pla
     JOIN drafts d ON d.id = f.draft_id
     JOIN machines m ON m.id = f.machine_id
     JOIN locations l ON l.id = ${locationId}::uuid AND l.tries_drafts
+    -- Only at the Location entry it began at: once the Machine moved, the ending of it may still be under way.
+    JOIN LATERAL (SELECT id FROM location_assignments WHERE machine_id = f.machine_id ORDER BY effective_from DESC LIMIT 1) AS latest ON latest.id = f.location_assignment_id
     LEFT JOIN draft_trials t ON t.id = f.trial_id
     WHERE f.machine_id = ${tablet.machineId}::uuid AND f.ended_at IS NULL`;
   if (!row || !canFollow(tablet.wireRevision ?? row.wireRevision)) return null;
@@ -170,7 +173,10 @@ export async function recordFollowedDraftWritten(
  * Streamline's wake profile: neither the Draft's as saved now nor the one
  * the Machine was last written, as a report made before a save's write
  * landed still holds the steps written before it. An earlier profile of the
- * Draft's loaded again, as a Profile it started from, ends it too. Until the
+ * Draft's loaded again, as a Profile it started from, ends it too, and so
+ * does a Workflow naming a recipe, whatever its steps, as DYE2 names the
+ * one a barista applies, which the Draft's write clears: a Recipe on the
+ * Draft's steps but for their temperatures is the barista's. Until the
  * Machine was written the Draft since following began, its Workflow holds
  * whatever it held, and nothing ends. The plugin sends its reports in the
  * order it made them, a write's answer ahead of the change it caused, so
@@ -186,8 +192,7 @@ export async function followedWorkflowReported(tx: Prisma.TransactionClient, mac
       UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'workflow'
       FROM drafts d, draft_trials t
       WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND d.id = f.draft_id AND t.id = f.trial_id
-        AND NOT ${sameStepsSql(reported, Prisma.sql`d.profile`)}
-        AND NOT ${sameStepsSql(reported, Prisma.sql`t.profile`)}
+        AND (${dye2RecipeIdOf(workflow) !== null} OR (NOT ${sameStepsSql(reported, Prisma.sql`d.profile`)} AND NOT ${sameStepsSql(reported, Prisma.sql`t.profile`)}))
       RETURNING f.draft_id::text AS draft_id`,
   );
 }
@@ -214,6 +219,17 @@ export async function endStrandedFollowings(tx: Prisma.TransactionClient, machin
         )
       RETURNING f.draft_id::text AS draft_id`,
   );
+}
+
+/**
+ * Before the Draft's row is deleted, as it is discarded or published, with
+ * the Draft's row held: its following's row, then the profiles it was
+ * written with, the order ending a following takes them in, as the delete's
+ * cascade would take them the other way round.
+ */
+export async function lockFollowingForDelete(tx: Prisma.TransactionClient, draftId: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM draft_followings WHERE draft_id = ${draftId}::uuid FOR UPDATE`;
+  await tx.$queryRaw`SELECT 1 FROM draft_trials WHERE draft_id = ${draftId}::uuid ORDER BY id FOR UPDATE`;
 }
 
 /** Tells every instance's writers that the Draft changed, where a Machine follows it, so its tablet is written it again. In the save's transaction. */

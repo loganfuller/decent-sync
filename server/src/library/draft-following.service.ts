@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { DRAFT_KIND, type Profile, followedDraftTitle, readProfile } from "@decent-sync/protocol";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -93,6 +93,8 @@ export const FOLLOWING_ENDS_LOADED_RECIPE = "Following ends the Machine's Loaded
 
 @Injectable()
 export class DraftFollowingService {
+  private readonly logger = new Logger("DraftFollowing");
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly shots: ShotsService,
@@ -101,7 +103,9 @@ export class DraftFollowingService {
     // A Machine that moved, left its Location or became capture-only follows no Draft from then on; after listening
     // anew, when a move may have been missed, every following is looked at.
     notifications.subscribe("machine_locations", (machineId) => {
-      void this.prisma.$transaction((tx) => endStrandedFollowings(tx, machineId ?? undefined)).catch(() => {});
+      void this.prisma
+        .$transaction((tx) => endStrandedFollowings(tx, machineId ?? undefined))
+        .catch((error: unknown) => this.logger.warn(`Could not end the followings of a Machine that moved, which its next move or Location change ends: ${String(error)}`));
     });
   }
 
@@ -194,7 +198,14 @@ export class DraftFollowingService {
         if (!found) throw new NotFoundException("No such Machine");
         if (found.locationId === null || !found.sharing) throw new ConflictException(`${found.name} is a Capture-only Machine, which follows no Draft`);
         if (!includesLocation(scope, found.locationId)) throw new ForbiddenException(`Only an Admin or Staff working at ${found.locationName} can have its Machines follow a Draft`);
-        if (!found.triesDrafts) throw new ConflictException(`Drafts are not tried at ${found.locationName}: an Admin turns that on for a Location`);
+        // Read again now the Machine is held, its Location held against its setting being turned off meanwhile, whose ending of followings would miss this one.
+        const [now] = await tx.$queryRaw<{ assignmentId: string; triesDrafts: boolean }[]>`
+          SELECT latest.id::text AS "assignmentId", l.tries_drafts AS "triesDrafts"
+          FROM (SELECT id, location_id FROM location_assignments WHERE machine_id = ${machineId}::uuid ORDER BY effective_from DESC LIMIT 1) AS latest
+          JOIN locations l ON l.id = latest.location_id
+          FOR SHARE OF l`;
+        if (now?.assignmentId !== found.assignmentId) throw new ConflictException(`${found.name} moved meanwhile: try again`);
+        if (!found.triesDrafts || !now.triesDrafts) throw new ConflictException(`Drafts are not tried at ${found.locationName}: an Admin turns that on for a Location`);
         if (!canFollow(found.wireRevision)) {
           throw new ConflictException(
             found.wireRevision === null
