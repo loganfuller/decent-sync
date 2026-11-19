@@ -222,6 +222,16 @@ export async function endStrandedFollowings(tx: Prisma.TransactionClient, machin
 }
 
 /**
+ * A Location entry removed as recorded by mistake, the Machine never having
+ * left, with the one after it: a following begun at that one goes on at the
+ * entry it stayed at (`kept`). In the removal's transaction, the Machine
+ * held.
+ */
+export async function followingEntryMerged(tx: Prisma.TransactionClient, removed: string, kept: string): Promise<void> {
+  await tx.$executeRaw`UPDATE draft_followings SET location_assignment_id = ${kept}::uuid WHERE location_assignment_id = ${removed}::uuid`;
+}
+
+/**
  * Before the Draft's row is deleted, as it is discarded or published, with
  * the Draft's row held: its following's row, then the profiles it was
  * written with, the order ending a following takes them in, as the delete's
@@ -261,6 +271,8 @@ export function trialShotsSql(draftId: string, limit: number): Prisma.Sql {
     ) AS tried
     JOIN shots s ON s.machine_id = tried.machine_id AND s.pulled_at >= tried.since AND (tried.until IS NULL OR s.pulled_at <= tried.until)
       AND s.has_full_record
+      -- One naming a recipe was pulled on the barista's Recipe, which the Draft's write clears, whatever its steps.
+      AND NULLIF(s.record #>> '{workflow,context,extras,dye,recipeId}', '') IS NULL
       AND ${stepsKeySql(Prisma.sql`s.record -> 'workflow' -> 'profile' -> 'steps'`)} IN (
         SELECT ${stepsKeySql(Prisma.sql`profile -> 'steps'`)} FROM draft_trials WHERE draft_id = ${draftId}::uuid
       )

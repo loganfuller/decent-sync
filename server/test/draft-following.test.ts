@@ -513,6 +513,22 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await api.send("DELETE", `/drafts/${next.id}`, undefined, 204);
   });
 
+  it("goes on writing the Draft once a move recorded by mistake is removed, the Machine never having left", async () => {
+    await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: true });
+    await api.send("POST", `/machines/${secondMachine.machine.id}/location-history`, { locationId: cafe.id }, 201);
+    await api.send("POST", `/machines/${secondMachine.machine.id}/location-history`, { locationId: lab.id }, 201);
+    await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: false });
+    let draft = await start(shaped("Never left", 15));
+    await followed(draft, secondMachine);
+    const history = (await api.get<{ machine: { locationHistory: { id: string; location: { id: string } }[] } }>(`/machines/${secondMachine.machine.id}`)).machine.locationHistory;
+    const mistaken = history.find((entry) => entry.location.id === cafe.id)!;
+    expect((await api.call("DELETE", `/machines/${secondMachine.machine.id}/location-history/${mistaken.id}`)).status).toBe(200);
+    draft = await save(draft, shaped("Never left", 16));
+    await expect.poll(() => workflowProfile(second).steps[0]?.seconds, { timeout: 15_000 }).toBe(blooming.steps[0]!.seconds + 16);
+    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("current");
+    await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
+  });
+
   it("is started and stopped by an assistant, within its Scope and the budget", async () => {
     const draft = await start(shaped("Assisted trial", 9));
     const { result: began } = await assistant.callWithinBudget<{ trying: Fields & { following: Fields; machines: Fields[] } }>("follow_draft", { id: draft.id, machineId: labMachine.machine.id });

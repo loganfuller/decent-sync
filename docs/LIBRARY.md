@@ -2755,7 +2755,8 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   when a person stops it, or has the Draft follow another Machine; when its
   Location stops trying Drafts or the Machine moves to any other Location
   (its latest Location entry is another than when following began, a
-  correction of that entry's time aside), leaves or becomes capture-only
+  correction of that entry's time, or the removal of a move recorded by
+  mistake, aside), leaves or becomes capture-only
   (`endStrandedFollowings`); and, its row
   gone with the Draft's, when the Draft is published or discarded. A
   Workflow reported before the Machine was first written the Draft ends
@@ -2780,7 +2781,8 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   `shotPulledWithSql`), without each step's temperature and without the
   target weight, so it still matches after the brew temperature or the
   yield was changed on the tablet, and pulled before following on that
-  Machine ended (`draft_trials.followed_until`, by PostgreSQL's clock). It
+  Machine ended (`draft_trials.followed_until`, by PostgreSQL's clock), and
+  whose Workflow names no recipe, as one does on a barista's Recipe. It
   is tied to the latest such profile written before it was pulled, and is
   on the current steps where that profile is the Draft's as saved now, as
   the Machine is written it, title aside, else on earlier ones. Nothing is

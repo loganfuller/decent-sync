@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
+import { followingEntryMerged } from "../library/draft-following.js";
 import { forgetReports } from "../library/joining.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
@@ -116,6 +117,8 @@ export class LocationHistoryService {
       const { entry, before, after, afterThat, current } = await lockedEntry(tx, machineId, entryId);
       const neverLeft = before && after && before.locationId === after.locationId;
       await tx.locationAssignment.deleteMany({ where: { id: { in: neverLeft ? [entryId, after.id] : [entryId] } } });
+      // A Draft followed since the entry after it goes on at the one it stayed at.
+      if (neverLeft) await followingEntryMerged(tx, after.id, before.id);
       // Records from its time to the next entry that remains change Location.
       const next = neverLeft ? afterThat : after;
       await creditLocations(tx, machineId, { from: entry.effectiveFrom, until: next?.effectiveFrom ?? null });
