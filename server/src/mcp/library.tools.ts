@@ -218,7 +218,7 @@ const recipe = z.object({
     ),
 });
 
-const source = z
+export const source = z
   .object({
     machine: z.object({ id, name: z.string() }).nullable().describe("The Machine whose tablet made it, if one did and it still exists."),
     tabletId: z.string().nullable().describe("The id of the tablet that made it, if one did; with no Machine, a tablet whose Machine has since been removed."),

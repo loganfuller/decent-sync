@@ -973,6 +973,68 @@ var __decentSync = (() => {
   // ../protocol/src/settings-history.ts
   var BRIEF_CHANGE_MS = 2 * 6e4;
 
+  // ../protocol/src/starting-shapes.ts
+  var TEMPERATURE = 93;
+  function flow(name, target, seconds, more = {}) {
+    return { name, pump: "flow", transition: "fast", exit: null, volume: 0, seconds, weight: null, temperature: TEMPERATURE, sensor: "coffee", flow: target, limiter: null, ...more };
+  }
+  function pressure(name, target, seconds, more = {}) {
+    return { name, pump: "pressure", transition: "fast", exit: null, volume: 0, seconds, weight: null, temperature: TEMPERATURE, sensor: "coffee", pressure: target, limiter: null, ...more };
+  }
+  function shape(title, steps, stopAt, preinfusion) {
+    return {
+      version: "2",
+      title,
+      notes: "",
+      author: "",
+      beverage_type: "espresso",
+      steps,
+      target_volume: 0,
+      target_weight: stopAt,
+      target_volume_count_start: preinfusion,
+      tank_temperature: 0
+    };
+  }
+  var fill = (over) => flow("Fill", 4, 20, { exit: { type: "pressure", condition: "over", value: over } });
+  var STARTING_SHAPES = [
+    {
+      key: "classic",
+      title: "Classic 9 bar",
+      description: "A short preinfusion, then a flat 9 bar. For a traditional espresso from a darker roast.",
+      profile: shape("Classic 9 bar", [fill(4), pressure("Pour", 9, 60)], 36, 1)
+    },
+    {
+      key: "lever",
+      title: "Declining lever",
+      description: "Rises to a peak, then eases off as a spring lever does. A softer, sweeter finish.",
+      profile: shape("Declining lever", [fill(3), pressure("Peak", 9, 4), pressure("Decline", 6, 9, { transition: "smooth" }), pressure("Finish", 6, 30)], 36, 1)
+    },
+    {
+      key: "steady-flow",
+      title: "Steady flow",
+      description: "Holds the flow and lets pressure follow the puck. Forgiving when the grind is a little off.",
+      profile: shape("Steady flow", [fill(3), flow("Pour", 2, 60, { limiter: { value: 9, range: 0.6 } })], 36, 1)
+    },
+    {
+      key: "blooming",
+      title: "Blooming",
+      description: "Wets the puck, pauses, then extracts. For light roasts that need time to open up.",
+      profile: shape("Blooming", [fill(3), flow("Bloom", 0, 15), pressure("Extract", 8, 60, { limiter: { value: 3, range: 0.6 } })], 36, 2)
+    },
+    {
+      key: "long",
+      title: "Long and gentle",
+      description: "Low pressure and a longer run. For a bigger, lighter cup.",
+      profile: shape("Long and gentle", [fill(2), pressure("Pour", 6, 60)], 54, 1)
+    },
+    {
+      key: "blank",
+      title: "Blank",
+      description: "Three plain steps, to shape yourself.",
+      profile: shape("New Profile", [flow("Step 1", 4, 10), pressure("Step 2", 6, 10), pressure("Step 3", 6, 30)], 36, 1)
+    }
+  ];
+
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
   var WIRE_REVISION = 3;

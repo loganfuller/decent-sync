@@ -25,6 +25,7 @@ import { RecipeChangesTools } from "./recipe-changes.tools.js";
 import { RecordChangesTools } from "./record-changes.tools.js";
 import { RecordsTools } from "./records.tools.js";
 import { SimulationTools } from "./simulation.tools.js";
+import { DraftsTools } from "./drafts.tools.js";
 import { AccessTokenVerifier } from "./token-verifier.js";
 
 /**
@@ -86,6 +87,7 @@ export class McpEndpointModule implements NestModule {
         RecordsTools,
         RecordChangesTools,
         SimulationTools,
+        DraftsTools,
       ],
       exports: [McpListenStreams],
     };
