@@ -2,6 +2,7 @@ import { type BrowserContextOptions, expect, type Locator, type Page, test } fro
 import { derivedShot, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../server/test/support/steam-fixtures.js";
+import { farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { openAccountMenu, openMachineTab } from "./support/locators.js";
 import { admin, createLocation, signInAsAdmin } from "./support/seed.js";
@@ -13,7 +14,9 @@ import { tabletAt } from "./support/tablets.js";
 // button stays in the top bar beside it. On a wider screen the top bar is the
 // one row it was, with Connected Apps and Sign out in the account menu. A
 // simulated tablet running the built plugin backfills a Shot and a Steam
-// Record, so each list has a table to fit; its serial is made up.
+// Record, so each list has a table to fit; its serial is made up. Its
+// Location's today, which the Machine page's On one day card lists, doesn't
+// turn while this runs (`farFromMidnight`, #587).
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const PHONE: BrowserContextOptions = { viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true };
 test.use(PHONE);
@@ -48,7 +51,7 @@ let uptownId: string;
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("on a phone, every page fits the screen for an Admin, who reaches the navigation and Sign out in a menu", async ({ page }) => {
-  const uptown = await createLocation(page, "Uptown");
+  const uptown = await createLocation(page, "Uptown", farFromMidnight().zone);
   uptownId = uptown.id;
   const { machine, ...workflow } = shotFixture().workflow as Record<string, Record<string, unknown>>;
   const shot = derivedShot("phone-shot", { workflow: { ...workflow, machine: { ...machine, model: "DE1Pro", serialNumber: "17001" } } });

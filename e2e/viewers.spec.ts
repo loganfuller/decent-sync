@@ -1,4 +1,5 @@
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
+import { farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { machineRow, openCard, openMachineTab, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -11,7 +12,9 @@ import { expectTip } from "./support/tooltips.js";
 // the menu say "Viewer", with what that means in a tooltip; and the pages a
 // Viewer opens show every state with no control that changes anything, where
 // Staff see theirs. A simulated tablet running the built plugin brings its
-// Library and settings; its serial is made up.
+// Library and settings; its serial is made up. Its Location's today, which
+// the Machine page's On one day card lists, doesn't turn while this runs
+// (`farFromMidnight`, #587).
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const val = { name: "Val Viewer", email: "val@example.com", password: "viewer password 1" };
@@ -20,7 +23,7 @@ const VIEWER_TIP = "You can see everything Staff see, and change nothing. An Adm
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("an Admin invites a Viewer, choosing no Locations, who is told what a Viewer is and is listed as one", async ({ page, browser }) => {
-  await createLocation(page, "Uptown");
+  await createLocation(page, "Uptown", farFromMidnight().zone);
   await page.goto("/accounts");
   await expectTip(page.getByRole("main"), "Invite someone", /Viewers can see everything Staff see, and change nothing\.$/);
   const form = page.getByRole("form", { name: "Invite someone" });
