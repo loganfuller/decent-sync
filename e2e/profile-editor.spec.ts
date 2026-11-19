@@ -272,8 +272,14 @@ test("the Library lists Drafts above its Profiles, each with what it will become
 test("a step's maximum time dragged to nothing keeps its handles, and the axes follow the run once it is let go", async ({ page }) => {
   const { draft } = (await (await page.request.post("/api/drafts", { data: { shape: "lever" } })).json()) as { draft: SavedDraft & { id: string } };
   await page.goto(`/library/drafts/${draft.id}`);
-  await stepsCard(page).getByRole("button", { name: "Select step 2, Peak" }).click();
   const graph = page.getByRole("region", { name: "How it runs" });
+  // Its stop-at weight changed, the shape as it started still stops at its own 36 g, so the figures say how far the Draft runs past it.
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Stop at weight").fill("45");
+  await expect(graph.getByText(/^[\d.]+ s longer than Declining lever as it started$/)).toBeVisible();
+  await inspector(page).getByLabel("Stop at weight").fill("36");
+  await expect(graph.getByText("The same as Declining lever as it started").first()).toBeVisible();
+  await stepsCard(page).getByRole("button", { name: "Select step 2, Peak" }).click();
   const bracket = graph.getByRole("slider", { name: "Peak's maximum time, s" });
   await expect(bracket).toHaveAttribute("aria-valuenow", "4");
   const box = (await bracket.boundingBox())!;

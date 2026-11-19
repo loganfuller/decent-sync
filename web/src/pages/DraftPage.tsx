@@ -18,6 +18,9 @@ import { setStep, withTarget } from "@/lib/profile-edits";
 import { versionNames } from "@/lib/profile-versions";
 import { HowItRuns, definitionOf } from "@/pages/ProfilePage";
 
+/** What the server answers for a Draft it has none of (`DraftsService`). */
+const DRAFT_NOT_FOUND = "No such Draft";
+
 /** How long after the last change a Draft is saved, ms, so a drag or a word typed saves once. */
 const SAVE_AFTER_MS = 500;
 
@@ -52,7 +55,8 @@ function DraftEditor({ id }: { id: string }) {
   const [saving, setSaving] = useState<"saved" | "saving" | "failed">("saved");
   const [library, setLibrary] = useState<{ id: string; title: string }[]>([]);
   const [baseline, setBaseline] = useState<{ label: string; profile: ProfileDefinition } | null>(null);
-  const [held, setHeld] = useState(arrival?.held ?? []);
+  // What of a file was held to the ranges, in words, named by the steps as the Draft was first read, before any was moved.
+  const [held, setHeld] = useState<string[]>([]);
   // Saving: one save at a time, of the latest change, naming the count of saves it started from.
   const saves = useRef(0);
   const pending = useRef<ProfileDefinition | null>(null);
@@ -67,6 +71,7 @@ function DraftEditor({ id }: { id: string }) {
         setDraft(draft);
         setHistory(startHistory(draft.profile));
         saves.current = draft.saves;
+        setHeld((arrival?.held ?? []).map((value) => `${fieldLabel(draft.profile, value)} from ${value.from} to ${value.to}`));
       },
       (caught: unknown) => {
         if (!current) return;
@@ -134,7 +139,8 @@ function DraftEditor({ id }: { id: string }) {
       if (pending.current) again = SAVE_AFTER_MS;
     } catch (caught) {
       const newer = pending.current !== null;
-      if (caught instanceof ApiError && caught.status === 404) {
+      // Gone, as the server says; a 404 of a server without Drafts, as one of the release before during a deploy, is tried again.
+      if (caught instanceof ApiError && caught.status === 404 && caught.message === DRAFT_NOT_FOUND) {
         // Discarded, or published, meanwhile: there is nothing left to save into.
         pending.current = null;
         if (!left.current) setDraft(null);
@@ -145,7 +151,7 @@ function DraftEditor({ id }: { id: string }) {
           setError(caught instanceof Error ? caught.message : "The Draft could not be saved");
         }
         // A refusal waits for the next change, unless one was made meanwhile.
-        if (!(caught instanceof ApiError) || caught.status >= 500) again = Math.min(SAVE_AFTER_MS * 2 ** ++failures.current, 30_000);
+        if (!(caught instanceof ApiError) || caught.status >= 500 || caught.status === 404) again = Math.min(SAVE_AFTER_MS * 2 ** ++failures.current, 30_000);
         else if (newer) again = SAVE_AFTER_MS;
       }
     } finally {
@@ -164,9 +170,15 @@ function DraftEditor({ id }: { id: string }) {
       const profile = pending.current;
       pending.current = null;
       clearTimeout(timer.current);
-      void api("PUT", path, { profile, saves: saves.current }, { keepalive: true }).catch(() => {
-        pending.current ??= profile;
-      });
+      // Sent beside a save in flight, if one is, as the page can't wait for it; the count it answers is kept for a page brought back from the browser's cache.
+      void api<SavedDraft>("PUT", path, { profile, saves: saves.current }, { keepalive: true }).then(
+        (saved) => {
+          saves.current = Math.max(saves.current, saved.draft.saves);
+        },
+        () => {
+          pending.current ??= profile;
+        },
+      );
     };
     window.addEventListener("pagehide", onHide);
     return () => {
@@ -321,7 +333,7 @@ function DraftEditor({ id }: { id: string }) {
         <Alert>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
             <span>
-              {`Held to what the machine accepts, from the file: ${held.map((value) => `${fieldLabel(draft.profile, value)} from ${value.from} to ${value.to}`).join("; ")}.`}
+              {`Held to what the machine accepts, from the file: ${held.join("; ")}.`}
             </span>
             <Button variant="outline" size="sm" onClick={() => setHeld([])}>
               Dismiss

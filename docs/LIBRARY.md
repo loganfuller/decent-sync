@@ -2485,10 +2485,14 @@ Library Profile through `ProfileSimulationService`
 those of the run: advice of each step whose pressure or flow never comes
 within half a unit, or 10% of a target above 5, of its target while it runs
 out its time or until the Shot stops (`targetNotReached`, #579), as when its
-limit holds it back or a ramp is cut short. A step that ended at its exit,
-its water or its weight did what it was asked, and gets none. On the
-standard puck it is advice for most of Decaid's bundled Profiles (47 of 73
-on a medium grind), whose fills and declines are meant to stop short. Anyone
+limit holds it back, a decline is cut short or the puck can't build it. A
+step that ended at its exit, its water or its weight did what it was asked,
+and gets none; nor does one that ran 3 s or less, which is over before the
+pump catches up and is usually carried on by the next, as a lever's forced
+rise is, or one asking for a flow the pump can't give, which `pumpTooSlow`
+says already. On the standard puck it is advice for 29 of Decaid's 73
+bundled Profiles on a medium grind, most of them declines the Shot stops
+before they end, and pour-over pulses the puck holds back. Anyone
 who reads Profiles may, a Viewer too. The tool
 answers within the size budget (ADR-0028): the headline figures, each
 step's end and why, never cut, the checks and the fit, and the run's curves
@@ -2599,8 +2603,9 @@ Viewer can't read that Staff can). Publishing one is #580.
 Its page (`/library/drafts/:id`, `web/src/pages/DraftPage.tsx`) is the
 Profile page with a Draft loaded. The graph simulates again in the browser
 on every change, with the version it started from, or its starting shape,
-simulated on the same puck and drawn faint behind it, and the headline
-figures said against that one's. The selected step has handles on the graph
+simulated on the same puck and drawn faint behind it, stopping at its own
+stop-at weight unless one was chosen for both, and the headline figures
+said against that one's. The selected step has handles on the graph
 (`web/src/components/profile-graph.tsx`): its target in its pump's lane,
 at the band's middle, or at its maximum time for a ramp; its exit in the
 lane it watches; and its maximum time, a bracket of its own from its start,

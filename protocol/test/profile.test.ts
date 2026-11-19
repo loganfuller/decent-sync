@@ -373,6 +373,19 @@ describe("the checks of a simulated run", () => {
     expect(stopped.steps.map((step) => step.reason)).toEqual(["exit", "weight"]);
     expect(checkProfile(weighed, { run: stopped }).advice.map((check) => check.code)).toEqual(["weightNeedsScale"]);
   });
+
+  it("leave a step alone that ran under 3 s, and one asking for a flow the pump can't give, which is advised of already", () => {
+    const [fill, pour] = steps();
+    // A 2 s rise to 9 bar, held back by a limit, and carried on by the pour.
+    const rise = { ...pour, name: "rise", transition: "fast", seconds: 2, limiter: { value: 0.8, range: 0.2 } } as ProfileStep;
+    const short = { ...plain(), steps: [fill, rise, { ...pour, transition: "fast", limiter: null } as ProfileStep] };
+    const ranShort = run(short);
+    expect(ranShort.steps[1]).toMatchObject({ reason: "time" });
+    expect(checkProfile(short, { run: ranShort }).advice).toEqual([]);
+    // 11 ml/s, past what a DE1's pump gives, for 30 s.
+    const flush = { ...plain(), steps: [{ name: "flush", pump: "flow", transition: "fast", exit: null, volume: 0, seconds: 30, weight: null, temperature: 92, sensor: "coffee", flow: 11, limiter: null } as ProfileStep] };
+    expect(checkProfile(flush, { run: run(flush) }).advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
+  });
 });
 
 describe("a profile file to import", () => {

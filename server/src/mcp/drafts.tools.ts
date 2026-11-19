@@ -54,8 +54,8 @@ const draftItem = draftSummary.extend({
     ),
 });
 
-/** A Draft's profile, its steps among it, given as it is (ADR-0028): rounded or cut, it would be another profile. */
-const DRAFT_WHOLE = ["/draft/profile/version", "/draft/profile/beverage_type", "/draft/profile/steps", "/draft/profile/tank_temperature", "/draft/profile/target_weight", "/draft/profile/target_volume", "/draft/profile/target_volume_count_start"];
+/** A Draft's profile, its steps, title, author and notes among it, given as it is (ADR-0028): rounded or cut, it would be another profile, which edit_draft, given it back, would refuse. */
+const DRAFT_WHOLE = ["/draft/profile/title", "/draft/profile/author", "/draft/profile/notes", "/draft/profile/version", "/draft/profile/beverage_type", "/draft/profile/steps", "/draft/profile/tank_temperature", "/draft/profile/target_weight", "/draft/profile/target_volume", "/draft/profile/target_volume_count_start"];
 const draftBudget: Budget = { whole: DRAFT_WHOLE };
 
 const listOutput = z.object({ drafts: z.array(draftSummary).describe("Every Draft, the one saved last first.") });

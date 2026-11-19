@@ -264,7 +264,8 @@ describe("Drafts", () => {
     expect(simulation).toMatchObject({ draft: { id: draft.id, title: draft.title }, model: "DE1", puck: { kind: "standard", grind: 0 }, dose: 18, stopAt: 36, fit: null });
     expect(simulation.run).toEqual(run);
     expect(simulation.checks).toEqual(checkProfile(draft.profile, { models: ["DE1"], libraryProfiles: [{ id: CLASSIC, title: "Classic Italian espresso" }], run }));
-    expect(simulation.checks.advice.map((check) => check.code)).toContain("targetNotReached");
+    // Its 3 s forced rise to 9 bar, which the pour carries on, is too short to be judged as not reaching it.
+    expect(simulation.checks.advice.map((check) => check.code)).not.toContain("targetNotReached");
     expect((await api.get<{ simulation: { model: string; stopAt: number | null } }>(`/drafts/${draft.id}/simulation?model=Bengle&stopAt=0`)).simulation).toMatchObject({ model: "Bengle", stopAt: null });
     // A file of more steps than a machine takes is kept, and can't be simulated.
     const long = { ...classic, title: "Long", steps: Array.from({ length: 21 }, (_, index) => ({ ...classic.steps[index % classic.steps.length]!, name: `Step ${index + 1}` })) };

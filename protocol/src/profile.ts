@@ -737,7 +737,7 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
     const ranges = by.map(({ model, range }) => `a ${model} takes ${range.min} to ${range.max}`).join(", and ");
     advice.push({ code: "modelCantRun", step: value.step, path: value.path, message: `${fieldLabel(profile, value)} is ${value.from}, which ${names} can't run: ${ranges}.` });
   }
-  if (context.run) advice.push(...targetsNotReached(profile, context.run));
+  if (context.run) advice.push(...targetsNotReached(profile, context.run, new Set(advice.flatMap((check) => (check.code === "pumpTooSlow" && check.step !== null ? [check.step] : [])))));
   return { blocking, advice };
 }
 
@@ -746,19 +746,24 @@ function nearEnough(target: number): number {
   return Math.max(0.5, Math.abs(target) * 0.1);
 }
 
+/** How long a step must run past to be judged by `targetsNotReached`: one of this or less, such as a lever's 3 s forced rise, is over before the pump catches up, and the next step usually carries on toward the same. */
+const JUDGED_AFTER_SECONDS = 3;
+
 /**
  * Each step of the run whose pump's pressure or flow never came near its
  * target (`nearEnough`) while it ran out its time or ran until the Shot
  * stopped: what the machine accepts, but likely not what was meant, as a
- * limit holds it back or a ramp is cut short. A step that ended at its exit,
- * its water or its weight did what it was asked, and one of no length, or
- * one the run never came to, has nothing to judge.
+ * limit holds it back, a decline is cut short, or the puck can't build it.
+ * A step that ended at its exit, its water or its weight did what it was
+ * asked; one that ran `JUDGED_AFTER_SECONDS` or less, one the run never came
+ * to, and one asking for a flow the pump can't give, which `pumpTooSlow`
+ * says already, are not judged.
  */
-function targetsNotReached(profile: Profile, run: SimulatedRun): ProfileCheck[] {
+function targetsNotReached(profile: Profile, run: SimulatedRun, tooFast: ReadonlySet<number>): ProfileCheck[] {
   const found: ProfileCheck[] = [];
   for (const ran of run.steps) {
     const step = profile.steps[ran.index];
-    if (!step || ran.start === null || ran.end === null || ran.end <= ran.start) continue;
+    if (!step || ran.start === null || ran.end === null || ran.end - ran.start <= JUDGED_AFTER_SECONDS + 1e-6 || tooFast.has(ran.index)) continue;
     if (ran.reason !== "time" && ran.reason !== "stop") continue;
     const target = stepTarget(step);
     const during = run.samples.filter((sample) => sample.step?.frame === ran.index && sample.seconds > ran.start! && sample.seconds <= ran.end! + 1e-9);

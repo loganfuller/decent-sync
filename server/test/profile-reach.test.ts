@@ -135,8 +135,8 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
     const found = await checks(fast);
     expect(found.blocking).toEqual([{ code: "outOfRange", step: 0, path: "steps.0.flow", message: 'Step 1, "Bloom": its flow is 17.93, outside 0 to 15.' }]);
     expect(found.advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
-    // A DE1's pump never gives the 17.93 ml/s asked for.
-    expect(found.run.map((check) => check.step)).toContain(0);
+    // A DE1's pump never gives the 17.93 ml/s asked for, which pumpTooSlow says already, so the run's advice doesn't name that step again.
+    expect(found.run.map((check) => check.step)).not.toContain(0);
   });
 
   it("holds it to a Bengle's ranges once the account has one, advising that a DE1 can't run it", async () => {
