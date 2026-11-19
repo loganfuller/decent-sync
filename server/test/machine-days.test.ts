@@ -70,11 +70,29 @@ describe("the days of a Machine", () => {
     expect(useRange({ by: "hour", to: "2026-11-18" }, CHICAGO, ms("2026-11-20T00:00:00Z"))).toEqual(whole);
     // An hour of it before the Machine came, after midnight UTC, is the 18th's, so its range starts then.
     expect(useRange({ by: "hour", to: "2026-11-18T03:00:00Z" }, CHICAGO, ms("2026-11-20T00:00:00Z"))).toEqual({ from: ms("2026-11-18T00:00:00Z"), to: ms("2026-11-18T03:00:00Z") });
-    // Other ranges by hour are still at most 25 hours.
-    expect(() => useRange({ by: "hour", from: "2026-11-18", to: "2026-11-19T02:00:00Z" }, CHICAGO, ms("2026-11-20T00:00:00Z"))).toThrow("at most 25 hours");
+    // Only its 6 hours before it began in Chicago go uncounted: 25 hours more is the most by hour.
+    const now = ms("2026-11-20T00:00:00Z");
+    expect(useRange({ by: "hour", from: "2026-11-18", to: "2026-11-19T07:00:00Z" }, CHICAGO, now).to).toBe(ms("2026-11-19T07:00:00Z"));
+    expect(() => useRange({ by: "hour", from: "2026-11-18", to: "2026-11-19T07:00:01Z" }, CHICAGO, now)).toThrow("at most 25 hours");
     // By day, 31 dates are read with it among them.
     const month = useRange({ by: "day", from: "2026-11-18", to: "2026-12-18" }, CHICAGO, ms("2026-12-20T00:00:00Z"));
     expect(useSpans(month, CHICAGO, "day").buckets).toHaveLength(31);
+  });
+
+  it("keeps the limits of a range away from the day a Machine came to its first Location, a move's day included", () => {
+    // Long in Kiritimati, it moved to Honolulu at 18:00 UTC on 3 January: with no start, the day the range ends in
+    // is read from the 3rd's start in Kiritimati, 47 hours by hour.
+    const moved: Stay[] = [
+      { from: ms("2025-01-01T00:00:00Z"), timeZone: "Pacific/Kiritimati" },
+      { from: ms("2026-01-03T18:00:00Z"), timeZone: "Pacific/Honolulu" },
+    ];
+    expect(() => useRange({ by: "hour", to: "2026-01-04T09:00:00Z" }, moved, ms("2026-02-10T00:00:00Z"))).toThrow("at most 25 hours");
+    // 1 January to 1 February, 32 dates, across a move from Denver to Tokyo.
+    const tokyo: Stay[] = [
+      { from: ms("2025-01-01T00:00:00Z"), timeZone: "America/Denver" },
+      { from: ms("2026-01-15T00:00:00Z"), timeZone: "Asia/Tokyo" },
+    ];
+    expect(() => useRange({ by: "day", from: "2026-01-01", to: "2026-02-01" }, tokyo, ms("2026-02-10T00:00:00Z"))).toThrow("at most 31 days");
   });
 
   it("still reads the day a Machine moved after noon UTC by the Location it left", () => {

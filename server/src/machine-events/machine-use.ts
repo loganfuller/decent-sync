@@ -1,7 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { nameDecaidState } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
-import { type Stay, dayStays, rangeBound, readRangeBound, timeZoneAt } from "../machines/machine-days.js";
+import { type Stay, dayStays, firstDayLead, rangeBound, readRangeBound, timeZoneAt } from "../machines/machine-days.js";
 import { queryValue } from "../record-filters.js";
 
 // A Machine's use (#475; #465, Machine Activity): for each day of a range, or
@@ -32,13 +32,12 @@ const DAY = 24 * HOUR;
 
 /**
  * The longest range of each kind, in milliseconds: by day, `MAX_USE_DAYS`
- * days, the hour a day gains as the clocks go back, and the 12 hours the
- * day a Machine came to its first Location may begin in UTC before it began
- * there (`rangeBound`); by hour, 25 hours, the longest a day is, as the
- * clocks go back, though one date, or the day a range ends in, may be that
- * longer day.
+ * days and the hour a day gains as the clocks go back; by hour, 25 hours,
+ * the longest a day is, as the clocks go back. The hours of the day a
+ * Machine came to its first Location before it began there, which that
+ * day is longer by (`firstDayLead`), aren't counted.
  */
-const LONGEST: Record<UseBy, number> = { day: MAX_USE_DAYS * DAY + 13 * HOUR, hour: 25 * HOUR };
+const LONGEST: Record<UseBy, number> = { day: MAX_USE_DAYS * DAY + HOUR, hour: 25 * HOUR };
 
 /**
  * What a use is asked for: its range, each bound a date, for a day at the
@@ -126,8 +125,9 @@ export function useRange({ from, to, by }: UseRequest, stays: readonly Stay[], n
   const lastDay = zoned(end - 1, timeZoneAt(dayStays(stays), end - 1)).toPlainDate();
   const start = moment(from ?? lastDay.subtract({ days: by === "day" ? DEFAULT_USE_DAYS - 1 : 0 }).toString(), false);
   if (to !== undefined && end <= start) throw new BadRequestException("Choose an end after the start");
-  const oneDay = by === "hour" && (from === undefined || from === to);
-  if (end - start > LONGEST[by] && !oneDay) {
+  const lead = firstDayLead(stays);
+  const leading = lead ? Math.max(0, Math.min(end, lead.to) - Math.max(start, lead.from)) : 0;
+  if (end - start - leading > LONGEST[by]) {
     throw new BadRequestException(by === "day" ? `Choose a range of at most ${MAX_USE_DAYS} days` : "Choose a range of at most 25 hours to read by hour");
   }
   return { from: start, to: end };

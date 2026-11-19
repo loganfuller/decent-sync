@@ -33,13 +33,29 @@ export function staysOf(history: readonly { effectiveFrom: string; location: { t
 export function dayStays(stays: readonly Stay[]): Stay[] {
   const [first, ...rest] = stays;
   if (!first) return [];
-  let came: string;
+  return [{ from: startOfDay(cameOn(first), first.timeZone).getTime(), timeZone: first.timeZone }, ...rest];
+}
+
+/**
+ * The hours of the day a Machine came to its first Location that began in
+ * UTC before that day began there, as west of UTC, in milliseconds: they are
+ * that date's too (`rangeBound`), so that day is longer by them, and none
+ * east of UTC or before a first Location.
+ */
+export function firstDayLead(stays: readonly Stay[]): { from: number; to: number } | null {
+  const first = stays[0];
+  if (!first) return null;
+  const lead = { from: startOfDay(cameOn(first), null).getTime(), to: dayStays(stays)[0]!.from };
+  return lead.from < lead.to ? lead : null;
+}
+
+/** The date a stay began on, by its Location's clock, or in UTC for a zone this runtime doesn't know. */
+function cameOn(stay: Stay): string {
   try {
-    came = Temporal.Instant.fromEpochMilliseconds(first.from).toZonedDateTimeISO(first.timeZone).toPlainDate().toString();
+    return Temporal.Instant.fromEpochMilliseconds(stay.from).toZonedDateTimeISO(stay.timeZone).toPlainDate().toString();
   } catch {
-    came = new Date(first.from).toISOString().slice(0, 10);
+    return new Date(stay.from).toISOString().slice(0, 10);
   }
-  return [{ from: startOfDay(came, first.timeZone).getTime(), timeZone: first.timeZone }, ...rest];
 }
 
 /** The time zone of the Location the Machine was at, at a moment, by its stays, oldest first; null before its first. */

@@ -1046,9 +1046,9 @@ offset of the Location the Machine was at then.
   `to`. With no `to` the range runs until now; with no `from` it starts
   with the day it ends in, by hour, or 13 days before that, by day, so no
   bounds give the last 14 days. By day it is at most 31 days, and by hour
-  one date, or at most 25 hours, the longest a day is, as the clocks go
-  back, but the day it came to its first Location, which west of UTC
-  begins up to 12 hours sooner in UTC than there; a longer one
+  at most 25 hours, the longest a day is, as the clocks go back, not
+  counting the hours the day it came to its first Location began in UTC
+  before it began there (`firstDayLead`); a longer one
   is refused with 400, as is one whose `to` is at or before its start. On a
   day the Machine moved between time zones a date is still read by where it
   was at noon UTC, so a range of that one date leaves out the part of it
@@ -1063,7 +1063,8 @@ offset of the Location the Machine was at then.
   the whole of the day it came to its first Location included, by that
   Location's clock, and UTC's before that day (`useSpans`, `dayStays`), as
   a date given for the range is read: west of UTC that day's bucket also
-  holds the hours of it in UTC before it began there. A day the clocks change in
+  holds the hours of it in UTC before it began there, and by hour each of
+  those is in the bucket of the same hour there. A day the clocks change in
   is one bucket, 23 or 25 hours long, and an hour they repeat is one bucket
   two hours long. On a day the Machine moved between time zones each part
   goes by where it was, so the day it left may be short and the one it
