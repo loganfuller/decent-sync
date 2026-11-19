@@ -202,7 +202,9 @@ export class AdminApi {
   async createLocation(name: string, timeZone: string): Promise<LocationView> {
     const response = await this.call("POST", "/locations", { name, timeZone });
     expect(response.status).toBe(201);
-    return ((await response.json()) as { location: LocationView }).location;
+    // As every other view names a Location: without its settings, which only the Locations routes give (`triesDrafts`, #581).
+    const { id, name: created, timeZone: zone } = ((await response.json()) as { location: LocationView }).location;
+    return { id, name: created, timeZone: zone };
   }
 
   /** Creates an invite, for Staff at the Locations given. */

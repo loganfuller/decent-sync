@@ -312,11 +312,12 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     expect(await restMachine()).toMatchObject({ sharing: true, captureOnly: [] });
 
     const { location } = await assistant.call<{ location: LocationView }>("create_location", { name: "Lab 413", timeZone: " europe/london " });
-    expect(location).toEqual({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Lab 413", timeZone: "Europe/London" });
+    // With its setting for trying Drafts, off until an Admin turns it on (#581).
+    expect(location).toEqual({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Lab 413", timeZone: "Europe/London", triesDrafts: false });
     const restLocations = async () => (await api.get<{ locations: LocationView[] }>("/locations")).locations;
     expect(await restLocations()).toContainEqual(location);
     const { location: edited } = await assistant.call<{ location: LocationView }>("edit_location", { locationId: location.id.toUpperCase(), name: "Lab", timeZone: "America/Denver" });
-    expect(edited).toEqual({ id: location.id, name: "Lab", timeZone: "America/Denver" });
+    expect(edited).toEqual({ id: location.id, name: "Lab", timeZone: "America/Denver", triesDrafts: false });
     expect((await assistant.call<{ location: LocationView }>("edit_location", { locationId: location.id, name: "Lab" })).location).toEqual(edited);
     expect(await restLocations()).toContainEqual(edited);
 
