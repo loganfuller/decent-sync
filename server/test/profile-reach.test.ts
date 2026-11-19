@@ -105,7 +105,11 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
   });
 
   const profilePath = (id: string) => `/profiles/${encodeURIComponent(id)}`;
-  const checks = async (id: string) => (await api.get<{ simulation: { checks: { blocking: Check[]; advice: Check[] } } }>(`${profilePath(id)}/simulation`)).simulation.checks;
+  /** A Profile's checks by the models the account has, from its simulation: its advice but that of the run, a step whose target the run never reaches (#579), which `run` gives. */
+  const checks = async (id: string) => {
+    const { blocking, advice } = (await api.get<{ simulation: { checks: { blocking: Check[]; advice: Check[] } } }>(`${profilePath(id)}/simulation`)).simulation.checks;
+    return { blocking, advice: advice.filter((check) => check.code !== "targetNotReached"), run: advice.filter((check) => check.code === "targetNotReached") };
+  };
 
   /** The REST API's refusal of a request, which must be refused with the status, as its message. */
   async function restRefusal(method: string, path: string, body: unknown, status: number): Promise<string> {
@@ -131,6 +135,8 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
     const found = await checks(fast);
     expect(found.blocking).toEqual([{ code: "outOfRange", step: 0, path: "steps.0.flow", message: 'Step 1, "Bloom": its flow is 17.93, outside 0 to 15.' }]);
     expect(found.advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
+    // A DE1's pump never gives the 17.93 ml/s asked for.
+    expect(found.run.map((check) => check.step)).toContain(0);
   });
 
   it("holds it to a Bengle's ranges once the account has one, advising that a DE1 can't run it", async () => {
