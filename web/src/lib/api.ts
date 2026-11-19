@@ -1106,8 +1106,8 @@ export interface ProfileSummary {
 /** A Profile with its content: Decaid's record fields, as the tablet that created it sent them. */
 export interface Profile extends ProfileSummary {
   content: Record<string, unknown>;
-  /** Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it. */
-  profile: ProfileDefinition | null;
+  /** Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it, and absent from a server of the release before. */
+  profile?: ProfileDefinition | null;
   /** The Profile it was saved from, if the Library has it. */
   parent: { id: string; title: string | null } | null;
   /**

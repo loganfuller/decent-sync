@@ -1,4 +1,4 @@
-import { type ProfileStep, type StepExit, stepTarget } from "@decent-sync/protocol";
+import { type ProfileStep, type StepExit, profileOf, stepTarget } from "@decent-sync/protocol";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
@@ -74,7 +74,8 @@ function ProfileDetails({ id }: { id: string }) {
     );
   }
 
-  const definition = profile.profile;
+  // Read from its record where the server, of the release before, gives no profile, as during an upgrade (ADR-0025).
+  const definition = profile.profile === undefined ? profileOf(profile.content.profile) : profile.profile;
   const steps = definition?.steps ?? [];
   return (
     <section className="grid gap-6">

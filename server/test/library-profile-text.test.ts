@@ -174,7 +174,12 @@ describe("A Profile's title, author and notes edited in the management interface
     await expect.poll(async () => (await api.call("GET", profilePath(bundledId))).status).toBe(200);
     // Another Profile's title, whatever its case and spaces, as Streamline finds a tablet's record by title; its own, recased, is fine.
     const bundledTitle = String((bundled.profile as Record_).title);
-    expect(await refusal({ title: ` ${bundledTitle.toUpperCase()} ` }, 409)).toBe(`A Profile in the Library is titled "${bundledTitle}" already`);
+    expect(await refusal({ title: `\t${bundledTitle.toUpperCase()} ` }, 409)).toBe(`A Profile in the Library is titled "${bundledTitle}" already`);
+    // An Archived Profile's too, which tablets keep hidden.
+    const archivedId = String((await labTablet.addProfile(derivedProfile("Retired Bloom", 5.75))).id);
+    await expect.poll(async () => (await api.call("GET", profilePath(archivedId))).status).toBe(200);
+    await api.send("PUT", `${profilePath(archivedId)}/archived`, { archived: true });
+    expect(await refusal({ title: "retired bloom" }, 409)).toBe('A Profile in the Library is titled "Retired Bloom" already');
     expect((await edit(id, { title: "REFUSED BLOOM" })).status).toBe(200);
     await expect.poll(() => textOn(labTablet, id)?.title, { timeout: 15_000 }).toBe("REFUSED BLOOM");
     expect((await edit(id, { title: "Refused Bloom" })).status).toBe(200);

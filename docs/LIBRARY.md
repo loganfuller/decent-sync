@@ -631,8 +631,10 @@ Conflict names is kept, still refused, so history goes on naming it
   its dose, yield, grind and temperature changes to no Profile, or to
   another holding the old title. Its title is
   never cleared, as Decaid refuses a profile with none, nor made another
-  unarchived Profile's (409), as Streamline would then save a barista's
-  changes on one to the other, and an author or
+  Profile's, Archived ones too, whose records tablets keep hidden (409),
+  under an advisory lock taken after the Profile's row lock: Streamline
+  finds a tablet's record of the Workflow's profile, and of the one it
+  loads at wake, by title, so would take one for the other, and an author or
   notes cleared is kept empty, as Decaid holds none (`decaidText` in
   `item-input.ts`), so a tablet's record never differs from it for that
   alone. A bundled Profile's are refused (409), as Decaid refuses to change
@@ -2397,9 +2399,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   or notes sent null or empty is cleared, kept empty. 400 for another field
   or a value that isn't text, 404 for no such Profile, and 409 for one of
   Decaid's bundled Profiles, whose Decaid refuses to change, or for a title
-  another unarchived Profile has, whatever its case and the spaces around
-  it, as Streamline finds a tablet's record of the Workflow's profile by
-  its title.
+  another Profile has, Archived or not, whatever its case and the spaces
+  around it, as Streamline finds a tablet's record of a profile by its
+  title.
 - `PUT /api/profiles/:id/locations/:locationId`, with `{ shown }`, shows the
   Profile at the Location or hides it there; `PUT /api/profiles/:id/archived`,
   with `{ archived }`, Archives or restores it. Each returns `{ profile }`;

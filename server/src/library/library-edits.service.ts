@@ -313,23 +313,24 @@ export class LibraryEditsService {
    * is edited: merged per field (ADR-0020), and written to every tablet that
    * holds it as a tablet's edit of them is. 409 for one of Decaid's bundled
    * Profiles, whose title, author and notes Decaid refuses to change, and
-   * for a title another Profile the Library has unarchived has already,
-   * whatever its case and the spaces around it: Streamline finds the
-   * tablet's record of the Workflow's profile by its title, so would save a
-   * barista's changes on either to the other.
+   * for a title another Profile the Library has, Archived ones too, as
+   * tablets keep their records hidden, compared as Streamline compares
+   * titles (`sameTitle`): Streamline finds the tablet's record of the
+   * Workflow's profile, and of the profile it loads at wake, by its title,
+   * so would take either for the other. Judged under PROFILE_TITLE_LOCK,
+   * taken after the Profile's row lock, so two edits never both take a
+   * title.
    */
   async editProfile(id: string, values: Record<string, unknown>, editor: Editor): Promise<void> {
-    if (typeof values.title === "string") {
-      const [other] = await this.prisma.$queryRaw<{ title: string }[]>`
-        SELECT content -> 'profile' ->> 'title' AS title FROM profiles
-        WHERE id <> ${id} AND NOT archived AND lower(btrim(content -> 'profile' ->> 'title')) = lower(btrim(${values.title}))
-          -- A bundled Profile's edit is refused as such, below.
-          AND NOT EXISTS (SELECT 1 FROM profiles AS edited WHERE edited.id = ${id} AND edited.bundled)
-        LIMIT 1`;
-      if (other) throw new ConflictException(`A Profile in the Library is titled "${other.title}" already`);
-    }
-    await this.editShared({ kind: "profile", id }, values, editor, null, (content, row) => {
+    await this.editShared({ kind: "profile", id }, values, editor, null, async (_content, row, tx) => {
       if (row.bundled) throw new ConflictException(BUNDLED_PROFILE_TEXT);
+      const title = values.title;
+      if (typeof title === "string") {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_TITLE_LOCK}::bigint)`;
+        const others = await tx.$queryRaw<{ title: string | null }[]>`SELECT content -> 'profile' ->> 'title' AS title FROM profiles WHERE id <> ${id}`;
+        const other = others.find((profile) => profile.title !== null && sameTitle(profile.title, title));
+        if (other) throw new ConflictException(`A Profile in the Library is titled "${other.title}" already`);
+      }
       return values;
     });
   }
@@ -365,7 +366,7 @@ export class LibraryEditsService {
     values: Record<string, unknown>,
     editor: Editor,
     scope: Scope | null,
-    over?: (content: Record<string, unknown>, row: ItemRow) => Record<string, unknown>,
+    over?: (content: Record<string, unknown>, row: ItemRow, tx: Prisma.TransactionClient) => Record<string, unknown> | Promise<Record<string, unknown>>,
   ): Promise<void> {
     const description = KINDS[item.kind];
     await this.prisma.$transaction(async (tx) => {
@@ -379,7 +380,7 @@ export class LibraryEditsService {
       }
       await lockItems(tx, item.kind, [item.id]);
       const row = await found(tx, item.kind, item.id);
-      const edit = over ? over(description.values(row.content), row) : values;
+      const edit = over ? await over(description.values(row.content), row, tx) : values;
       const edited = await editContent(tx, item, { values: edit, at: await editTime(tx), seenAt: "everything" }, accountSource(editor));
       if (edited.writesDue) await notify(tx, "library_changes", item.id);
     }, INTAKE_TRANSACTION);
@@ -436,6 +437,14 @@ async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string
 }
 
 /** Why a bundled Profile's title, author and notes are not edited. */
+/** Taken by an edit of a Profile's title, so two edits never both take the same title (`editProfile`). */
+const PROFILE_TITLE_LOCK = 4_000_011;
+
+/** Whether two Profile titles are one to Streamline, which finds a profile by its title trimmed and lower-cased (`resolveProfileKeyByTitle` in streamline-js:src/modules/active-profile.js, v0.2.27). */
+function sameTitle(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export const BUNDLED_PROFILE_TEXT = "Decaid's bundled Profiles keep the title, author and notes Decaid gives them";
 
 export function staffElsewhere(what: string): ForbiddenException {

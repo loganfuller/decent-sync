@@ -401,7 +401,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "edit_profile",
     title: "Edit a Profile's title, author and notes",
-    description: `Edits a Profile's title, author and notes, given only the fields to change: every tablet that holds it is written the change. They are outside the id Decaid gives a Profile from what the machine executes, so it stays the same Profile, and its steps are not changed. Its title can't be cleared, nor made one another unarchived Profile has, whatever its case, as Streamline finds a tablet's record of a profile by its title; an author or notes given null or empty is cleared. Decaid's bundled Profiles keep the title, author and notes Decaid gives them, so an edit of one is refused. ${STAFF_SHARED} ${TIMES}`,
+    description: `Edits a Profile's title, author and notes, given only the fields to change: every tablet that holds it is written the change. They are outside the id Decaid gives a Profile from what the machine executes, so it stays the same Profile, and its steps are not changed. Its title can't be cleared, nor made one another Profile has, Archived or not, whatever its case, as Streamline finds a tablet's record of a profile by its title; an author or notes given null or empty is cleared. Decaid's bundled Profiles keep the title, author and notes Decaid gives them, so an edit of one is refused. ${STAFF_SHARED} ${TIMES}`,
     inputSchema: profileEditInput,
     outputSchema: z.object({ profile: itemOutput.shape.profile.unwrap() }),
     annotations: { ...CHANGES, idempotentHint: true },
