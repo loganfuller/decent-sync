@@ -2349,7 +2349,8 @@ fit.
   the cup. Temperature is not simulated: a sample's temperature target is
   its step's, and it has no temperature of its own.
 - **Steps.** A step ends at its maximum time, its exit, the water it may pump
-  or its weight in the cup, whichever comes first; a step under 0.05 s, which
+  or its weight in the cup, judged a second ahead at its rate as Decaid
+  judges it, whichever comes first; a step under 0.05 s, which
   Decaid sends as none, is passed through at once, whatever its exit. A
   step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
   tenth of a second below 12.75 s and to a whole second from there, up to
@@ -2388,10 +2389,11 @@ fit.
   scales a puck's resistance in proportion and the water its coffee soaks
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
-  profile, are run on that puck on its own Machine's model, stopped as it
-  stopped, at its last weight unless a DE1 ended it, where it runs its steps
-  out, and a Bengle's at that weight or with its last step, as a Bengle stops
-  at the Workflow's yield itself (`shotStopAt`); a Shot with no scale runs
+  profile, are run on that puck on its own Machine's model, ended as it
+  ended (`shotFitStop`): with its steps run out where a DE1 ended it in its
+  last step, and otherwise at its scale's last weight or with its last
+  step, whichever comes first, as Decaid stops on weight, a Bengle at the
+  Workflow's yield itself, or a person stopped it; a Shot with no scale runs
   with no step's weight, as Decaid checks none without one; and
   the answer gives the Shot's duration, time to first drip, peak pressure
   and each step's end beside the run's (`fitToShot`), to say how far to
@@ -2469,11 +2471,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
   where Decaid would not read the Shot's own profile or it has more than 20
-  steps, or where the run can't end as the Shot did (`shotStopKnown`): it
-  stopped other than by its Machine with no scale or before anything
-  reached the cup, or its scale dropped out more than a second before the
-  stop, unless a DE1 ran its steps out and none has a weight, as Decaid
-  checks no step's weight once the scale is lost. 400 for a value out of range, or both `grind` and `shotId`; 404 for
+  steps, or where the run can't end as the Shot did (`shotFitStop`): it
+  stopped, other than by a DE1 in its last step, with no scale or before
+  anything reached the cup, or its scale dropped out more than a second
+  before the stop, unless a DE1 ran its steps out and none has a weight, as
+  Decaid checks no step's weight once the scale is lost. 400 for a value out of range, or both `grind` and `shotId`; 404 for
   no such Profile or Shot; 409 for a Profile whose profile Decaid would not
   read or that has more than 20 steps, the most a machine takes, or a Shot
   whose samples show nothing of its puck's resistance: no pressure and flow
@@ -2813,7 +2815,7 @@ the same Profiles.
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
-`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`
+`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
 `server/test/join-plan.test.ts` and `protocol/test/simulation.test.ts`
 the pure modules;
 `server/test/simulated-bean-writes.test.ts`,

@@ -90,6 +90,14 @@ export function sentStep(step: ProfileStep, model: MachineModel = "DE1"): Profil
   } as ProfileStep;
 }
 
+/**
+ * How far ahead a step's weight is judged, s: Decaid ends a step on its
+ * weight once the weight plus its rate times this reaches it
+ * (`projectedWeight` in decaid:lib/src/controllers/shot_sequencer.dart,
+ * v0.9.2, its `weightFlowMultiplier` 1 by default).
+ */
+const WEIGHT_LOOKAHEAD = 1;
+
 /** The least resistance a puck has, where water fills the space above it and meets none. */
 const LEAST_RESISTANCE = 0.001;
 
@@ -513,7 +521,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
       steps[index]!.reason = "stop";
       stop = { seconds: round(time), reason: "weight" };
     } else {
-      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight });
+      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: weight + weightFlow * WEIGHT_LOOKAHEAD });
       if (reason) {
         steps[index]!.end = round(time);
         steps[index]!.reason = reason;
@@ -644,42 +652,46 @@ export function runFigures(run: SimulatedRun): RunFigures {
   };
 }
 
-/**
- * The weight a run of a Shot's own steps, on the model of its Machine, stops
- * at: the scale's last weight before the Shot stopped (`lastRecordedWeight`),
- * as Decaid stops a Shot before the weight it is set to, by what is still to
- * land, or wherever a person stopped it; none where it recorded no weight,
- * and none where a DE1 ended it, having run its last step (Decaid's
- * `machineEnded`). A Bengle ends a Shot itself at the Workflow's yield as
- * well (Decaid's `EndOfShotWeight`), so its run stops at that last weight or
- * with its last step, whichever comes first, as the Shot did.
- */
-export function shotStopAt(samples: readonly Sample<ShotCurve>[], stopReason: unknown, model: MachineModel = "DE1"): number | null {
-  if (stopReason === "machineEnded" && model !== "Bengle") return null;
-  return lastRecordedWeight(samples)?.weight ?? null;
-}
-
 /** How long before a Shot's last sample its scale's last weight may be and still be the weight it stopped at, s. */
 const SCALE_GAP = 1;
 
 /**
- * Whether a run of a Shot's own steps, its Workflow's `profile`, on the
- * model of its Machine, can end as the Shot did (`shotStopAt`): stopped at a
- * weight above 0 its scale read within SCALE_GAP of the stop, or with its
- * last step where a DE1 ended it. Not where it stopped otherwise with no
- * scale or before anything reached the cup, and not where its scale dropped
- * out more than SCALE_GAP before the stop, as then neither the weight it
- * stopped at nor whether a step's weight fired is known: Decaid checks no
- * step's weight once the scale is lost. A DE1's Shot that ran its steps out
- * is still known with its scale lost if no step has a weight.
+ * How a run of a Shot's own steps, its Workflow's `profile`, on the model of
+ * its Machine, ends as the Shot did: `{ stopAt }`, the weight it stops at, or
+ * null to run its steps out; or null where it can't.
+ *
+ * - Where a DE1 ended it (Decaid's `machineEnded`) in its last step of any
+ *   length, it ran its steps out, and so does the run.
+ * - Otherwise it stopped at the scale's last weight before the stop
+ *   (`lastRecordedWeight`), as Decaid stops a Shot before the weight it is set
+ *   to, by what is still to land, a Bengle ends one itself at the Workflow's
+ *   yield (`EndOfShotWeight`), or a person stopped it, in the app or on the
+ *   Machine; so does the run, or with its last step, whichever comes first.
+ * - Not where that weight is 0 or none, as with no scale or a stop before
+ *   anything reached the cup, nor where the scale dropped out more than
+ *   SCALE_GAP before the stop, as neither the weight it stopped at nor
+ *   whether a step's weight fired is then known: Decaid checks no step's
+ *   weight once its scale is lost. A DE1's run out with its scale lost is
+ *   still known if no step has a weight.
  */
-export function shotStopKnown(samples: readonly Sample<ShotCurve>[], stopReason: unknown, model: MachineModel = "DE1", profile: Profile | null = null): boolean {
+export function shotFitStop(samples: readonly Sample<ShotCurve>[], stopReason: unknown, model: MachineModel, profile: Profile): { stopAt: number | null } | null {
   const shot = samples.filter((sample) => sample.shade === null);
   const last = lastRecordedWeight(shot);
   const lost = last !== null && shot[shot.length - 1]!.seconds - last.seconds > SCALE_GAP;
-  if (stopReason === "machineEnded" && model !== "Bengle") return !lost || !(profile?.steps.some((step) => step.weight !== null && step.weight > 0) ?? true);
-  if (stopReason === "machineEnded") return !lost;
-  return last !== null && last.weight > 0 && !lost;
+  if (stopReason === "machineEnded" && model !== "Bengle" && endedInLastStep(shot, profile, model)) {
+    const weighs = profile.steps.some((step) => step.weight !== null && step.weight > 0);
+    return lost && weighs ? null : { stopAt: null };
+  }
+  return last !== null && last.weight > 0 && !lost ? { stopAt: last.weight } : null;
+}
+
+/** Whether a Shot's samples end in its profile's last step of any length, as sent to the model, or name no step to tell by. */
+function endedInLastStep(shot: readonly Sample<ShotCurve>[], profile: Profile, model: MachineModel): boolean {
+  const spans = stepSpans(shot);
+  if (spans.length === 0) return true;
+  let lastStep = profile.steps.length - 1;
+  while (lastStep >= 0 && !(sentStep(profile.steps[lastStep]!, model).seconds > 0)) lastStep--;
+  return spans[spans.length - 1]!.frame === lastStep;
 }
 
 /** A Shot's own steps run on its own puck, and how close the run comes to the Shot. */
@@ -690,7 +702,7 @@ export interface FittedShot {
 
 /**
  * Runs a Shot's own steps, its Workflow's profile, on its own puck
- * (`shotPuck`), stopped as it stopped (`shotStopAt`), and gives the Shot's
+ * (`shotPuck`), ended as it ended (`shotFitStop`), and gives the Shot's
  * figures and the run's side by side. A Shot whose scale read nothing ran
  * with no step's weight, as Decaid checks none without a scale, and so does
  * its run.
