@@ -35,10 +35,12 @@ export function onRefusal(listener: () => Promise<void>): () => void {
  * Sends a request to the REST API. Its refusals with 401 or 403 go to the
  * `onRefusal` listeners first, unless `reportRefusal` is false for a request
  * whose refusal answers it alone, such as signing in with a wrong password.
+ * `keepalive` lets the request outlive the page, as a save sent as it closes.
  */
-export async function api<T>(method: string, path: string, body?: unknown, { reportRefusal = true } = {}): Promise<T> {
+export async function api<T>(method: string, path: string, body?: unknown, { reportRefusal = true, keepalive = false } = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
+    keepalive,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

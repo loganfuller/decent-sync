@@ -105,9 +105,17 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
   // The whole Profile.
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
   await inspector(page).getByLabel("Title").fill("Lab Soak, hotter");
-  await inspector(page).getByLabel("Brew temperature").fill("92");
+  const brew = inspector(page).getByLabel("Brew temperature");
+  await brew.fill("92");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Lab Soak, hotter Draft");
   expect((await saved(page)).profile).toMatchObject({ title: "Lab Soak, hotter", steps: [{ temperature: 92 }, { temperature: 92 }, { temperature: 88 }] });
+  // Typed a key at a time, the values on the way, 1 and 10, hold no step to the range: each moves from where it was.
+  await brew.fill("");
+  await brew.pressSequentially("100");
+  await brew.blur();
+  expect((await saved(page)).profile).toMatchObject({ steps: [{ temperature: 100 }, { temperature: 100 }, { temperature: 96 }] });
+  await brew.fill("92");
+  expect((await saved(page)).profile).toMatchObject({ steps: [{ temperature: 92 }, { temperature: 92 }, { temperature: 88 }] });
 });
 
 test("the selected step's handles move with the keyboard and by dragging, its maximum time a bracket past its band where it exits early", async ({ page }) => {
@@ -259,6 +267,52 @@ test("the Library lists Drafts above its Profiles, each with what it will become
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
   await expect(page).toHaveURL(/\/library\/profiles$/);
   await expect(drafts.getByRole("listitem")).toHaveCount(2);
+});
+
+test("a step's maximum time dragged to nothing keeps its handles, and the axes follow the run once it is let go", async ({ page }) => {
+  const { draft } = (await (await page.request.post("/api/drafts", { data: { shape: "lever" } })).json()) as { draft: SavedDraft & { id: string } };
+  await page.goto(`/library/drafts/${draft.id}`);
+  await stepsCard(page).getByRole("button", { name: "Select step 2, Peak" }).click();
+  const graph = page.getByRole("region", { name: "How it runs" });
+  const bracket = graph.getByRole("slider", { name: "Peak's maximum time, s" });
+  await expect(bracket).toHaveAttribute("aria-valuenow", "4");
+  const box = (await bracket.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 200, box.y + box.height / 2, { steps: 8 });
+  await expect(bracket).toHaveAttribute("aria-valuenow", "0");
+  await page.mouse.up();
+  expect((await saved(page)).profile.steps[1]).toMatchObject({ seconds: 0 });
+  // Still there to bring it back.
+  await expect(graph.getByRole("slider", { name: "Peak's target, bar" })).toBeVisible();
+  await bracket.focus();
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(bracket).toHaveAttribute("aria-valuenow", "5");
+  // The axes held still for the drag are let go: a longer run widens them.
+  const svg = graph.locator("svg[data-graph-end]").first();
+  const before = Number(await svg.getAttribute("data-graph-end"));
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Stop at weight").fill("150");
+  await expect.poll(async () => Number(await svg.getAttribute("data-graph-end"))).toBeGreaterThan(before);
+  await page.getByRole("button", { name: /^Discard the Draft/ }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
+  await expect(page).toHaveURL(/\/library\/profiles$/);
+});
+
+test("a Draft discarded elsewhere while open stops being saved, and says it is gone", async ({ page }) => {
+  const { draft } = (await (await page.request.post("/api/drafts", { data: { shape: "classic" } })).json()) as { draft: SavedDraft & { id: string } };
+  await page.goto(`/library/drafts/${draft.id}`);
+  await expect(inspector(page)).toBeVisible();
+  expect((await page.request.delete(`/api/drafts/${draft.id}`)).status()).toBe(204);
+  const puts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().includes(`/api/drafts/${draft.id}`)) puts.push(request.url());
+  });
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Author").fill("Gone meanwhile");
+  await expect(page.getByRole("alert")).toHaveText("There is no such Draft. It may have been published or discarded.");
+  await page.waitForTimeout(2_000);
+  expect(puts).toHaveLength(1);
 });
 
 test("at phone width, a Draft's page fits the screen", async ({ browser }) => {

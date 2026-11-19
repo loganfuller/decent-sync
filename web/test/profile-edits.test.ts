@@ -100,6 +100,9 @@ describe("a step's pump and exit", () => {
     expect(withMovesOn(exits, "pressure-under", PROFILE_LIMITS).exit).toEqual({ type: "pressure", condition: "under", value: 3 });
     expect(withMovesOn(exits, "flow-over", PROFILE_LIMITS).exit).toEqual({ type: "flow", condition: "over", value: 2 });
     expect(withMovesOn(exits, "time", PROFILE_LIMITS).exit).toBeNull();
+    // A typed value is kept as typed, not rounded to a tenth as a drag is.
+    const typed = step("Fill", { exit: { type: "pressure", condition: "over", value: 4.25 } });
+    expect(withMovesOn(typed, "pressure-under", PROFILE_LIMITS).exit).toEqual({ type: "pressure", condition: "under", value: 4.25 });
     expect(movesOn(step("Pour"))).toBe("time");
   });
 });

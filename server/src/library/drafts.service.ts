@@ -191,7 +191,8 @@ export class DraftsService {
   /**
    * Saves the Draft, by the editor: its profile, held to the widest ranges
    * of the account's models and refused, 400, outside them, and what it will
-   * publish as, a new version only where it was started from a Profile. The
+   * publish as, a new version only where it was started from a Profile
+   * other than one of Decaid's bundled ones, 409 for one of those. The
    * save is taken whatever count it names, the later save winning, and says
    * whether others came between: how many, and the latest of them. 404 for
    * no such Draft; 403 for a Viewer.
@@ -212,7 +213,14 @@ export class DraftsService {
       // Locked, so saves through every instance are counted one after another.
       const [before] = await tx.$queryRaw<{ saves: number; started_from_id: string | null }[]>`SELECT saves, started_from_id FROM drafts WHERE id = ${draftId}::uuid FOR UPDATE`;
       if (!before) throw draftNotFound();
-      if (save.publishesAs === "version" && before.started_from_id === null) throw new BadRequestException("Only a Draft started from a Profile can publish as a new version of it");
+      if (save.publishesAs === "version") {
+        if (before.started_from_id === null) throw new BadRequestException("Only a Draft started from a Profile can publish as a new version of it");
+        const from = await tx.profile.findUnique({ where: { id: before.started_from_id }, select: { content: true, bundled: true } });
+        if (from?.bundled) {
+          const title = readProfile((from.content as { profile?: unknown }).profile).profile?.title.trim() || before.started_from_id;
+          throw new ConflictException(`"${title}" is one of Decaid's bundled Profiles, which a Draft can only publish as a separate Profile from`);
+        }
+      }
       const earlier = before.saves > save.saves ? await tx.draft.findUnique({ where: { id: draftId }, include: withSaver }) : null;
       await tx.$executeRaw`
         UPDATE drafts SET

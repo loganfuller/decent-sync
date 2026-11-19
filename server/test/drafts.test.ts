@@ -146,13 +146,17 @@ describe("Drafts", () => {
     expect(await read(draft.id, otherApi)).toEqual(draft);
   });
 
-  it("starts from any Profile, by Duplicate, a bundled one too, as a separate Profile titled as a copy; Edit of a bundled one is refused", async () => {
+  it("starts from any Profile, by Duplicate, a bundled one too, as a separate Profile titled as a copy; Edit of a bundled one is refused, and so is switching its duplicate to a new version", async () => {
     const { draft } = await start({ profileId: CLASSIC, as: "separate" });
     expect(draft).toMatchObject({ title: "Classic Italian espresso copy", startedFrom: { id: CLASSIC, title: "Classic Italian espresso", bundled: true }, publishesAs: "separate" });
     expect(draft.profile).toEqual({ ...classic, title: "Classic Italian espresso copy" });
     expect(await refusal(api, "POST", "/drafts", { profileId: CLASSIC, as: "version" }, 409)).toBe(
       '"Classic Italian espresso" is one of Decaid\'s bundled Profiles, which only Duplicate starts a Draft from, as a separate Profile',
     );
+    expect(await refusal(api, "PUT", `/drafts/${draft.id}`, { publishesAs: "version", saves: draft.saves }, 409)).toBe(
+      '"Classic Italian espresso" is one of Decaid\'s bundled Profiles, which a Draft can only publish as a separate Profile from',
+    );
+    expect((await read(draft.id)).publishesAs).toBe("separate");
     expect(await refusal(api, "POST", "/drafts", { profileId: "profile:00000000000000000000", as: "separate" }, 404)).toBe("No such Profile");
     expect(await refusal(api, "POST", "/drafts", { profileId: LAB }, 400)).toBe('as must be "version", to Edit the Profile, or "separate", to Duplicate it');
   });

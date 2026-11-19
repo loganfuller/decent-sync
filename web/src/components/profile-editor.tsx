@@ -12,7 +12,7 @@ import {
   stepLabel,
 } from "@decent-sync/protocol";
 import { ChevronDown, ChevronUp, CircleCheck, CircleX, Plus, TriangleAlert } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { Segmented, SegmentedItem } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,24 @@ import { measure, stepAction, stepMovesOn, stepName, stepSimulated } from "@/lib
 /** A change to the Draft's profile, and what it changed, or null for a change that undoes alone. */
 export type ProfileChange = (next: Profile, key: string | null) => void;
 
+/**
+ * The brew temperature's field: as it is typed, every step moves from where
+ * it was as the typing began, so a value passed on the way, such as 1 on the
+ * way to 100, holds none of them to the range.
+ */
+function useBrewTemperature(profile: Profile, limits: ProfileLimits, onChange: ProfileChange): { onChange(value: number | null): void; onBlur(): void } {
+  const from = useRef<Profile | null>(null);
+  return {
+    onChange: (value) => {
+      const base = (from.current ??= profile);
+      onChange(withBrewTemperature(base, value ?? brewTemperature(base) ?? 0, limits.temperature), "brew");
+    },
+    onBlur: () => {
+      from.current = null;
+    },
+  };
+}
+
 /** A number as a field shows it: as authored, to hundredths. */
 function shown(value: number | null): string {
   return value === null ? "" : String(Math.round(value * 100) / 100);
@@ -83,6 +101,7 @@ export function NumberField({
   off,
   hint,
   onChange,
+  onBlur,
 }: {
   label: string;
   value: number | null;
@@ -92,6 +111,8 @@ export function NumberField({
   off?: boolean;
   hint?: ReactNode;
   onChange(value: number | null): void;
+  /** Called as the field is left. */
+  onBlur?(): void;
 }) {
   const id = useId();
   const [text, setText] = useState(shown(value));
@@ -122,6 +143,7 @@ export function NumberField({
             setFocused(false);
             setSeen(value);
             setText(shown(value));
+            onBlur?.();
           }}
           onChange={(event) => {
             setText(event.target.value);
@@ -268,6 +290,10 @@ function StepFields({
   const set = (next: ProfileStep, field: string | null) => onChange(setStep(profile, index, next), field === null ? null : `${at}.${field}`);
   const capped = OTHER[step.pump];
   const brew = brewTemperature(profile) ?? step.temperature;
+  const brewField = useBrewTemperature(profile, limits, onChange);
+  // The limit's easing range, kept while its limit is emptied to be typed again.
+  const easing = useRef(step.limiter?.range ?? 0.6);
+  if (step.limiter) easing.current = step.limiter.range;
   return (
     <div className="grid gap-4" aria-label={`${stepLabel(profile, index)}'s fields`} role="group">
       <TextField label="Name" value={step.name} onChange={(name) => set({ ...step, name }, "name")} />
@@ -301,7 +327,7 @@ function StepFields({
           off
           value={step.limiter && step.limiter.value > 0 ? step.limiter.value : null}
           range={limitRange(step, limits)}
-          onChange={(value) => set({ ...step, limiter: value === null || value === 0 ? null : { value, range: step.limiter?.range ?? 0.6 } }, "limiter.value")}
+          onChange={(value) => set({ ...step, limiter: value === null || value === 0 ? null : { value, range: step.limiter?.range ?? easing.current } }, "limiter.value")}
         />
         {step.limiter && step.limiter.value > 0 && (
           <NumberField
@@ -328,7 +354,15 @@ function StepFields({
       </div>
       <div className="grid grid-cols-2 gap-3">
         {index === 0 ? (
-          <NumberField label="Temperature" unit="°C" value={step.temperature} range={limits.temperature} hint="The brew temperature, which a Recipe's replaces" onChange={(value) => set({ ...step, temperature: value ?? 0 }, "temperature")} />
+          <NumberField
+            label="Temperature"
+            unit="°C"
+            value={step.temperature}
+            range={limits.temperature}
+            hint="The brew temperature, moving the later steps with it; a Recipe's replaces it"
+            onChange={brewField.onChange}
+            onBlur={brewField.onBlur}
+          />
         ) : (
           <NumberField
             label="Temperature"
@@ -389,6 +423,7 @@ function StepFields({
 /** The whole profile's fields: its title, author and notes, brew temperature, where it stops, where preinfusion ends, its tank temperature and its drink. */
 function ProfileFields({ profile, limits, onChange }: { profile: Profile; limits: ProfileLimits; onChange: ProfileChange }) {
   const brew = brewTemperature(profile);
+  const brewField = useBrewTemperature(profile, limits, onChange);
   const end = preinfusionEnd(profile);
   return (
     <div className="grid gap-4" role="group" aria-label="The whole Profile's fields">
@@ -402,7 +437,8 @@ function ProfileFields({ profile, limits, onChange }: { profile: Profile; limits
           value={brew}
           range={limits.temperature}
           hint="The first step's, moving the others with it; a Recipe's brew temperature replaces it"
-          onChange={(value) => onChange(withBrewTemperature(profile, value ?? brew, limits.temperature), "brew")}
+          onChange={brewField.onChange}
+          onBlur={brewField.onBlur}
         />
       )}
       <div className="grid grid-cols-2 gap-3">

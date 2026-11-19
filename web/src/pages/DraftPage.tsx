@@ -109,30 +109,72 @@ function DraftEditor({ id }: { id: string }) {
     };
   }, [startedFromId, shapeKey]);
 
+  // Set once the page is left, after which a change still unsaved gets one more try and no retries.
+  const left = useRef(false);
+  // Lost connections and server errors in a row, which are tried again ever more slowly.
+  const failures = useRef(0);
   const flush = useCallback(async () => {
     clearTimeout(timer.current);
     if (inFlight.current || !pending.current) return;
     const profile = pending.current;
     pending.current = null;
     inFlight.current = true;
+    // When to try again, ms: soon for a change made meanwhile, later for a save that may yet succeed, never for one refused.
+    let again: number | null = null;
     try {
-      const saved = await api<SavedDraft>("PUT", path, { profile, saves: saves.current });
+      const saved = await api<SavedDraft>("PUT", path, { profile, saves: saves.current }, { keepalive: left.current });
+      failures.current = 0;
       saves.current = saved.draft.saves;
-      setDraft(saved.draft);
-      if (saved.between) setBetween(saved.between);
-      setSaving(pending.current ? "saving" : "saved");
-      setError(undefined);
+      if (!left.current) {
+        setDraft(saved.draft);
+        if (saved.between) setBetween(saved.between);
+        setSaving(pending.current ? "saving" : "saved");
+        setError(undefined);
+      }
+      if (pending.current) again = SAVE_AFTER_MS;
     } catch (caught) {
-      pending.current ??= profile;
-      setSaving("failed");
-      setError(caught instanceof Error ? caught.message : "The Draft could not be saved");
+      const newer = pending.current !== null;
+      if (caught instanceof ApiError && caught.status === 404) {
+        // Discarded, or published, meanwhile: there is nothing left to save into.
+        pending.current = null;
+        if (!left.current) setDraft(null);
+      } else {
+        pending.current ??= profile;
+        if (!left.current) {
+          setSaving("failed");
+          setError(caught instanceof Error ? caught.message : "The Draft could not be saved");
+        }
+        // A refusal waits for the next change, unless one was made meanwhile.
+        if (!(caught instanceof ApiError) || caught.status >= 500) again = Math.min(SAVE_AFTER_MS * 2 ** ++failures.current, 30_000);
+        else if (newer) again = SAVE_AFTER_MS;
+      }
     } finally {
       inFlight.current = false;
     }
-    if (pending.current) timer.current = setTimeout(() => void flush(), SAVE_AFTER_MS);
+    if (left.current) {
+      // The one more try a change made during the last save gets, which is not tried again.
+      if (pending.current && again === SAVE_AFTER_MS) void flush();
+    } else if (again !== null) timer.current = setTimeout(() => void flush(), again);
   }, [path]);
-  // A change not yet saved is saved as the page is left.
-  useEffect(() => () => void flush(), [flush]);
+  // A change not yet saved is saved as the page is left, and as the tab is closed, by a request that outlives it.
+  useEffect(() => {
+    left.current = false;
+    const onHide = () => {
+      if (!pending.current) return;
+      const profile = pending.current;
+      pending.current = null;
+      clearTimeout(timer.current);
+      void api("PUT", path, { profile, saves: saves.current }, { keepalive: true }).catch(() => {
+        pending.current ??= profile;
+      });
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      left.current = true;
+      void flush();
+    };
+  }, [flush, path]);
   const save = (profile: ProfileDefinition) => {
     pending.current = profile;
     setSaving("saving");

@@ -65,7 +65,7 @@ export function withMovesOn(step: ProfileStep, choice: MovesOn, limits: ProfileL
   if (choice === "time") return { ...step, exit: null };
   const [type, condition] = choice.split("-") as [ExitType, ExitCondition];
   const value = step.exit?.type === type ? step.exit.value : type === "pressure" ? 4 : 2;
-  return { ...step, exit: { type, condition, value: held(value, exitRange(type, limits)) } };
+  return { ...step, exit: { type, condition, value: clamped(value, exitRange(type, limits)) } };
 }
 
 /** The step that ends preinfusion, by index, or null where none is preinfusion: the last of the first `target_volume_count_start` steps there are. */

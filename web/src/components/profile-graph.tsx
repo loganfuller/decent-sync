@@ -799,6 +799,15 @@ function Handle({
   tagLeft?: boolean;
 }) {
   const dragging = useRef(false);
+  // A handle taken away mid-drag, as when its step's band changes, lets the axes go, as its pointerup never comes.
+  const hold = useRef(onHold);
+  hold.current = onHold;
+  useEffect(
+    () => () => {
+      if (dragging.current) hold.current(false);
+    },
+    [],
+  );
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.parentElement!.getBoundingClientRect();
     onValue(valueAt(event.clientX - box.left, event.clientY - box.top));
@@ -857,6 +866,11 @@ function Handle({
         dragging.current = false;
         onHold(false);
       }}
+      onLostPointerCapture={() => {
+        if (!dragging.current) return;
+        dragging.current = false;
+        onHold(false);
+      }}
     >
       {point ? (
         <span className="absolute inset-0.5 rounded-full border-2 border-(--this-record) bg-background shadow-sm group-focus-visible:ring-2 group-focus-visible:ring-ring dark:border-(--this-record-dark)" />
@@ -875,11 +889,11 @@ function Handle({
   );
 }
 
-/** The selected step's handles: its target, its exit where it has one, and its maximum time; none for a step the run never spent time in. */
+/** The selected step's handles: its target, its exit where it has one, and its maximum time; none for a step the run never came to. A step of no length keeps them, at its start, so its maximum time can be brought back. */
 function EditHandles({ layout, profile, run, editing, onHold }: { layout: GraphLayout; profile: Profile; run: SimulatedRun; editing: GraphEditing; onHold(holding: boolean): void }) {
   const ran = run.steps[editing.step];
   const step = profile.steps[editing.step];
-  if (!ran || !step || ran.start === null || ran.end === null || ran.end <= ran.start) return null;
+  if (!ran || !step || ran.start === null || ran.end === null || ran.end < ran.start) return null;
   const start = ran.start;
   const along = (fraction: number) => layout.x(start) + (layout.x(ran.end!) - layout.x(start)) * fraction;
   const name = stepName(step, editing.step);

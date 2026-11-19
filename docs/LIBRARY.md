@@ -2587,7 +2587,7 @@ Viewer can't read that Staff can). Publishing one is #580.
   way, under the row's lock, the later save winning, and answers how many
   saves came between and the latest of them, which the page shows. What it
   publishes as can be changed too, a new version only for one started from
-  a Profile.
+  a Profile, and not one of Decaid's bundled ones (409).
 - **Checked** as any profile is (`checkProfile`), against the widest ranges
   of the account's models and the Library's Profiles, so one whose steps a
   Library Profile has, as a Draft of Edit unchanged, is refused publishing;
@@ -2609,13 +2609,17 @@ the axes still while it is, or moved as a slider with the arrow keys, ten
 times as far with Shift. The inspector beside it
 (`web/src/components/profile-editor.tsx`) edits the step and the whole
 profile, a later step's temperature against the first's and the brew
-temperature moving all of them, each number held to the ranges as it is
+temperature, the first step's, moving all of them from where they were as
+it began to be typed, each number held to the ranges as it is
 typed and kept as typed, not at a model's resolution. Steps are added,
 duplicated, deleted and moved up or down, where preinfusion ends staying on
 the step it ends after (`web/src/lib/profile-edits.ts`). Every change can be
 undone and redone through the session, changes of one field within a
 second being one (`web/src/lib/edit-history.ts`). It is saved half a second
-after the last change. New Profile (`/library/profiles/new`) starts one from
+after the last change, and as the page is left or the tab closed. A save
+refused waits for the next change; one lost to the connection or a server
+error is tried again, ever more slowly; and a Draft discarded or published
+meanwhile is said to be gone. New Profile (`/library/profiles/new`) starts one from
 a starting shape, drawn as it runs on a medium puck, a duplicate or a file,
 and the Library's Profiles tab lists the Drafts above the Profiles, the one
 saved last first, each with what it will become and who saved it last.
@@ -2736,7 +2740,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   savedAt }`, the saves made since the count `saves` names and the latest of
   them. 400 for a profile Decaid would not read, one of more than 100 steps,
   a value outside the widest ranges of the account's models, or `version`
-  for one started from no Profile. `DELETE /api/drafts/:id` discards it,
+  for one started from no Profile; 409 for `version` for one started from a
+  bundled Profile. `DELETE /api/drafts/:id` discards it,
   204. `GET /api/drafts/:id/simulation` simulates it, taking the query a
   Profile's simulation does, and returns `{ simulation }` with `draft: { id,
   title }` in place of `profile`; 409 for more than 20 steps or none.
