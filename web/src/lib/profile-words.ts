@@ -119,3 +119,36 @@ export function profileFacts(profile: Profile): { term: string; text: string }[]
     { term: "Water tank", text: profile.tank_temperature > 0 ? `Preheated to ${measure(profile.tank_temperature)} °C` : "Not preheated" },
   ];
 }
+
+/** Where two profiles differ, in the Profile page's words: each step's action and when it moves on, then what each states once. */
+export function differences(a: Profile, b: Profile): [string, string, string][] {
+  const rows: [string, string, string][] = [];
+  const count = Math.max(a.steps.length, b.steps.length);
+  for (let index = 0; index < count; index++) {
+    const stepA = a.steps[index];
+    const stepB = b.steps[index];
+    const name = stepName(stepA ?? stepB!, index);
+    if (!stepA || !stepB) {
+      rows.push([`Step ${index + 1}`, stepA ? `${name}: ${stepAction(a, index)}` : "None", stepB ? `${name}: ${stepAction(b, index)}` : "None"]);
+      continue;
+    }
+    if (stepName(stepA, index) !== stepName(stepB, index)) rows.push([`Step ${index + 1} is named`, stepName(stepA, index), stepName(stepB, index)]);
+    const actionA = stepAction(a, index);
+    const actionB = stepAction(b, index);
+    if (actionA !== actionB) rows.push([`${name} does`, actionA, actionB]);
+    // The limit's easing, which the step's words leave out but the Machine follows.
+    const easing = (step: ProfileStep) => (step.limiter && step.limiter.value > 0 ? `Over ${measure(step.limiter.range)} ${UNITS[step.pump === "pressure" ? "flow" : "pressure"]}` : null);
+    const easingA = easing(stepA);
+    const easingB = easing(stepB);
+    if (easingA && easingB && easingA !== easingB) rows.push([`${name} eases its limit`, easingA, easingB]);
+    const onA = stepMovesOn(stepA);
+    const onB = stepMovesOn(stepB);
+    if (onA !== onB) rows.push([`${name} moves on`, onA, onB]);
+  }
+  const factsB = profileFacts(b);
+  profileFacts(a).forEach((fact, index) => {
+    if (fact.text !== factsB[index]!.text) rows.push([fact.term, fact.text, factsB[index]!.text]);
+  });
+  if (a.beverage_type !== b.beverage_type) rows.push(["Kind of drink", a.beverage_type, b.beverage_type]);
+  return rows;
+}

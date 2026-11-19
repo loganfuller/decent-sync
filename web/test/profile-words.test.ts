@@ -1,7 +1,7 @@
 import { type Profile, simulateProfile, standardPuck } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import type { ProfileVersion } from "../src/lib/api";
-import { profileFacts, relativeTemperature, stepAction, stepMovesOn, stepSimulated } from "../src/lib/profile-words";
+import { differences, profileFacts, relativeTemperature, stepAction, stepMovesOn, stepSimulated } from "../src/lib/profile-words";
 import { earlierVersions, versionNames } from "../src/lib/profile-versions";
 
 // A Profile's steps in the Profile page's words (#578), and its versions' names.
@@ -76,5 +76,13 @@ describe("a Profile's versions", () => {
   it("follows a version back to the first, not into another branch", () => {
     expect(earlierVersions(chain, "c").map((each) => each.id)).toEqual(["a", "root"]);
     expect(earlierVersions(chain, "root")).toEqual([]);
+  });
+});
+
+describe("differences", () => {
+  it("names a limit's easing that changed, which the step's words leave out", () => {
+    const eased: Profile = { ...soak, steps: soak.steps.map((step, index) => (index === 2 ? { ...step, limiter: { value: 2.5, range: 0 } } : step)) };
+    expect(differences(soak, eased)).toEqual([["Pour eases its limit", "Over 1 ml/s", "Over 0 ml/s"]]);
+    expect(differences(soak, soak)).toEqual([]);
   });
 });

@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type Profile, type ProfileVersion } from "@/lib/api";
-import { measure, profileFacts, seconds, stepAction, stepMovesOn, stepName } from "@/lib/profile-words";
+import { differences, measure, seconds, stepName } from "@/lib/profile-words";
 import { versionNames } from "@/lib/profile-versions";
 import { definitionOf, graphWords, useProfile } from "@/pages/ProfilePage";
 
@@ -244,34 +244,6 @@ function Compared({ one, two }: { one: Side; two: Side }) {
  */
 function withPlannedTemperature(samples: SimulatedRun["samples"]): SimulatedRun["samples"] {
   return samples.map((sample) => ({ ...sample, values: { ...sample.values, temperature: sample.targets.temperature } }));
-}
-
-/** Where two profiles differ, in the Profile page's words: each step's action and when it moves on, then what each states once. */
-export function differences(a: ProfileDefinition, b: ProfileDefinition): [string, string, string][] {
-  const rows: [string, string, string][] = [];
-  const count = Math.max(a.steps.length, b.steps.length);
-  for (let index = 0; index < count; index++) {
-    const stepA = a.steps[index];
-    const stepB = b.steps[index];
-    const name = stepName(stepA ?? stepB!, index);
-    if (!stepA || !stepB) {
-      rows.push([`Step ${index + 1}`, stepA ? `${name}: ${stepAction(a, index)}` : "None", stepB ? `${name}: ${stepAction(b, index)}` : "None"]);
-      continue;
-    }
-    if (stepName(stepA, index) !== stepName(stepB, index)) rows.push([`Step ${index + 1} is named`, stepName(stepA, index), stepName(stepB, index)]);
-    const actionA = stepAction(a, index);
-    const actionB = stepAction(b, index);
-    if (actionA !== actionB) rows.push([`${name} does`, actionA, actionB]);
-    const onA = stepMovesOn(stepA);
-    const onB = stepMovesOn(stepB);
-    if (onA !== onB) rows.push([`${name} moves on`, onA, onB]);
-  }
-  const factsB = profileFacts(b);
-  profileFacts(a).forEach((fact, index) => {
-    if (fact.text !== factsB[index]!.text) rows.push([fact.term, fact.text, factsB[index]!.text]);
-  });
-  if (a.beverage_type !== b.beverage_type) rows.push(["Kind of drink", a.beverage_type, b.beverage_type]);
-  return rows;
 }
 
 /** Two runs' figures side by side: time, first drip, peak pressure, and how long each step lasted. */

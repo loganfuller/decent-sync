@@ -1,6 +1,6 @@
 import { type Profile as ProfileDefinition, type ShotFit, type SimulatedRun, profileOf, profileTextOf, simulateOnShot, simulateProfile, standardPuck } from "@decent-sync/protocol";
 import { Download } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { ItemConflictsCard, ItemHistoryCard, SourceText, itemPath } from "@/components/conflicts";
@@ -320,10 +320,14 @@ function HowItRuns({
   }, [cannot, definition, puck, puckShot, ask]);
   useEffect(() => onRun(result?.run), [result, onRun]);
 
+  // Each Shot asked for, so one that answers after a later choice is dropped.
+  const latest = useRef(0);
   const choose = (id: string, as: "puck" | "overlay") => {
     setShotError(undefined);
+    const asked = ++latest.current;
     loadGraphShot(id).then(
       (loaded) => {
+        if (asked !== latest.current) return;
         if (as === "overlay") return setOverlay(loaded);
         setPuckShot(loaded);
         setPuck("shot");
@@ -339,7 +343,7 @@ function HowItRuns({
           },
         }));
       },
-      (caught: unknown) => setShotError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
+      (caught: unknown) => asked === latest.current && setShotError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
     );
   };
 

@@ -536,10 +536,16 @@ function readoutRows(profile: Profile, runLabel: string, sample: Sample<ShotCurv
       ["Flow", `${measure(sample.values.flow ?? 0)} ml/s${of("flow")}`],
       ["In the cup", `${measure(sample.values.weight ?? 0)} g`],
     );
+    // Temperature is not simulated: the plan's.
+    if (sample.targets.temperature !== null && sample.targets.temperature !== undefined) rows.push(["Temperature", `${measure(sample.targets.temperature)} °C planned`]);
   } else rows.push([runLabel, "Stopped"]);
   if (compared) {
     const values = compared.sample?.values;
-    rows.push([compared.label, !values ? "Stopped" : [values.pressure, values.flow].every((value) => value !== null) ? `${measure(values.pressure!)} bar, ${measure(values.flow!)} ml/s` : "-"]);
+    const temperature = values?.temperature === null || values?.temperature === undefined ? "" : `, ${measure(values.temperature)} °C`;
+    rows.push([
+      compared.label,
+      !values ? "Stopped" : [values.pressure, values.flow].every((value) => value !== null) ? `${measure(values.pressure!)} bar, ${measure(values.flow!)} ml/s${temperature}` : "-",
+    ]);
   }
   return rows;
 }
@@ -569,9 +575,10 @@ function Readout({
   sample: Sample<ShotCurve> | undefined;
   compared: Sample<ShotCurve> | undefined;
 }) {
-  const boxWidth = rows.some(([term]) => term.length > 12) ? 250 : 190;
+  // Within the plot, as on a phone, where the box fits neither side of the line: then across it.
+  const boxWidth = Math.min(rows.some(([term]) => term.length > 12) ? 280 : 200, plotRight - 2);
   const boxHeight = 30 + rows.length * 18;
-  const left = x + 10 + boxWidth > plotRight ? x - 10 - boxWidth : x + 10;
+  const left = Math.max(2, Math.min(plotRight - boxWidth, x + 10 + boxWidth > plotRight ? x - 10 - boxWidth : x + 10));
   return (
     <g pointerEvents="none" data-readout>
       <line x1={x} x2={x} y1={top} y2={bottom} className="stroke-foreground/50" />

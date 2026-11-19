@@ -245,7 +245,16 @@ test("a Profile's page fits a phone", async ({ page }) => {
   await waitForProfile(page, String(saved.id));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(profilePage(String(saved.id)));
-  await expect(page.getByRole("region", { name: "How it runs" }).getByRole("img", { name: /^Simulated run of Phone Soak/ })).toBeVisible();
+  const svg = page.getByRole("region", { name: "How it runs" }).getByRole("img", { name: /^Simulated run of Phone Soak/ });
+  await expect(svg).toBeVisible();
+  // Pointing at its middle, where the readout fits neither side of the line, keeps the readout inside the graph.
+  const graphBox = (await svg.boundingBox())!;
+  await svg.hover({ position: { x: graphBox.width / 2, y: 120 } });
+  const readout = svg.locator("[data-readout] rect");
+  await expect(readout).toBeVisible();
+  const [left, boxWidth] = [Number(await readout.getAttribute("x")), Number(await readout.getAttribute("width"))];
+  expect(left).toBeGreaterThanOrEqual(0);
+  expect(left + boxWidth).toBeLessThanOrEqual(graphBox.width);
   await expect(page.getByRole("table", { name: "Steps" })).toBeVisible();
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
   expect({ scrollWidth, clientWidth }).toEqual({ scrollWidth: 390, clientWidth: 390 });
