@@ -24,6 +24,7 @@ CREATE TABLE "draft_trials" (
     "profile" JSONB NOT NULL,
     "written_at" TIMESTAMPTZ(3) NOT NULL DEFAULT statement_timestamp(),
     "tablet_written_at" TIMESTAMPTZ(3) NOT NULL,
+    "followed_until" TIMESTAMPTZ(3),
 
     CONSTRAINT "draft_trials_pkey" PRIMARY KEY ("id")
 );

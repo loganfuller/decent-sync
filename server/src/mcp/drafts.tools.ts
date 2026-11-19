@@ -79,7 +79,7 @@ const followingShape = z
     ended: z
       .object({ at: z.string(), why: z.enum(["workflow", "stopped", "location"]) })
       .nullable()
-      .describe("For one that ended: when, and why. workflow: the Machine's Workflow came to hold another profile, whoever changed it, a barista, a Recipe or Streamline's wake profile; stopped: someone stopped it; location: its Location stopped trying Drafts, or the Machine left it."),
+      .describe("For one that ended: when, and why. workflow: the Machine's Workflow came to hold another profile, whoever changed it, a barista, a Recipe or Streamline's wake profile; stopped: someone stopped it, or had another Machine follow the Draft; location: its Location stopped trying Drafts, or the Machine left it or became Capture-only."),
     has: z.string().nullable().describe("The title of the profile the Machine's Workflow holds now."),
     titleOnTablet: z.string().describe("The title the Draft is on the tablet under."),
   })

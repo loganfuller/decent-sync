@@ -105,7 +105,7 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
 
   // Turned off, the Machine keeps the steps and the page offers to follow again.
   await onMachine(page).getByRole("switch", { name: "Follow on" }).click();
-  await expect(onMachine(page)).toContainText("It was turned off here.");
+  await expect(onMachine(page)).toContainText("It was turned off, or the Draft followed on another Machine.");
   expect(title(tablet)).toBe("Lab classic (Draft)");
 
   // The page fits a phone's width with the card and the list on it.

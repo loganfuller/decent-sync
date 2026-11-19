@@ -40,8 +40,8 @@ function cannotFollow(machine: FollowableMachine): string | undefined {
 
 const ENDED: Record<NonNullable<DraftFollowing["ended"]>["why"], string> = {
   workflow: "",
-  stopped: " It was turned off here.",
-  location: " Drafts are no longer tried where it is.",
+  stopped: " It was turned off, or the Draft followed on another Machine.",
+  location: " It left its Location, or Drafts are no longer tried there.",
 };
 
 /**
@@ -143,7 +143,8 @@ export function FollowingCard({ draftPath, title, trying, unsaved, onChanged }: 
             {following?.state === "ended" ? (
               <>
                 {!cannot && <span>Following again replaces what it has loaded</span>}
-                <Button size="sm" disabled={busy || cannot !== undefined} onClick={() => void send("PUT")}>
+                {/* Another Machine chosen first says what following ends there, as the switch does. */}
+                <Button size="sm" disabled={busy || cannot !== undefined} onClick={() => (machineId === following.machine.id ? void send("PUT") : setAsking(true))}>
                   Follow again
                 </Button>
               </>

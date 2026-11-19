@@ -6,7 +6,7 @@ import { readMachineId } from "../machines/input.js";
 import { Notifications, notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { ShotsService } from "../shots/shots.service.js";
-import { type FollowingEnded, canFollow, endStrandedFollowings, followedProfile, sameJson, sendable, trialShotsSql } from "./draft-following.js";
+import { type FollowingEnded, canFollow, endFollowingsSql, endStrandedFollowings, followedProfile, sameJson, sendable, trialShotsSql } from "./draft-following.js";
 import { VIEWER_SEES_NO_DRAFTS, readDraftId } from "./drafts.service.js";
 import { writeKey } from "./holdings.js";
 
@@ -48,8 +48,8 @@ export interface FollowingView {
   /**
    * For one that ended: when, and why. `workflow`: the Machine's Workflow
    * came to hold another profile, whatever changed it; `stopped`: someone
-   * turned it off; `location`: its Location stopped trying Drafts, or the
-   * Machine left it.
+   * turned it off, or had another Machine follow the Draft; `location`: its
+   * Location stopped trying Drafts, or the Machine left it.
    */
   ended: { at: string; why: FollowingEnded } | null;
   /** The title of the profile the Machine's Workflow holds now, as its tablet last reported it; null where it reported none. */
@@ -113,12 +113,16 @@ export class DraftFollowingService {
       async (tx) => {
         const draft = await tx.draft.findUnique({ where: { id: draftId }, select: { id: true, profile: true } });
         if (!draft) throw draftNotFound();
-        const [following, machines, trials] = await Promise.all([
+        const [following, machines, trials, profiles] = await Promise.all([
           this.following(tx, draft),
           this.machines(tx, draftId),
-          tx.$queryRaw<{ id: string; trialId: string; current: boolean }[]>(trialShotsSql(draftId, MAX_TRIAL_SHOTS)),
+          tx.$queryRaw<{ id: string; trialId: string }[]>(trialShotsSql(draftId, MAX_TRIAL_SHOTS)),
+          tx.$queryRaw<{ id: string; profile: unknown }[]>`SELECT id::text AS id, profile FROM draft_trials WHERE draft_id = ${draftId}::uuid`,
         ]);
-        return { following, machines, trials };
+        // A trial ran the current steps where the Draft as saved now, as a following Machine is written it, is the profile it was written, whatever its title.
+        const now = followedProfile(draft.profile);
+        const current = new Set(profiles.filter((trial) => now !== null && sameJson({ ...(trial.profile as object), title: "" }, { ...now, title: "" })).map((trial) => trial.id));
+        return { following, machines, trials: trials.map((trial) => ({ ...trial, current: current.has(trial.trialId) })) };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     ).then(async ({ following, machines, trials }) => {
@@ -195,6 +199,12 @@ export class DraftFollowingService {
           SELECT d.profile ->> 'title' AS title FROM draft_followings f JOIN drafts d ON d.id = f.draft_id
           WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND f.draft_id <> ${draftId}::uuid`;
         if (other) throw new ConflictException(`${found.name} is following another Draft, "${other.title?.trim() || "untitled"}": a Machine follows one Draft at a time, so stop that first`);
+        // A following going on elsewhere ends there, and Shots pulled there from now are none of the Draft's.
+        await tx.$executeRaw(
+          endFollowingsSql(Prisma.sql`
+            UPDATE draft_followings SET ended_at = statement_timestamp(), ended_why = 'stopped'
+            WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL AND machine_id <> ${machineId}::uuid RETURNING draft_id`),
+        );
         await tx.$executeRaw`
           INSERT INTO draft_followings (draft_id, machine_id) VALUES (${draftId}::uuid, ${machineId}::uuid)
           ON CONFLICT (draft_id) DO UPDATE SET machine_id = EXCLUDED.machine_id, started_at = statement_timestamp(), trial_id = NULL, ended_at = NULL, ended_why = NULL`;
@@ -211,8 +221,12 @@ export class DraftFollowingService {
     await this.prisma.$transaction(async (tx) => {
       const drafts = await tx.$queryRaw<unknown[]>`SELECT 1 FROM drafts WHERE id = ${draftId}::uuid FOR UPDATE`;
       if (drafts.length === 0) throw draftNotFound();
-      const ended = await tx.$executeRaw`UPDATE draft_followings SET ended_at = statement_timestamp(), ended_why = 'stopped' WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL`;
-      if (ended === 0) throw new ConflictException("No Machine is following the Draft");
+      const going = await tx.$queryRaw<unknown[]>`SELECT 1 FROM draft_followings WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL`;
+      if (going.length === 0) throw new ConflictException("No Machine is following the Draft");
+      await tx.$executeRaw(
+        endFollowingsSql(Prisma.sql`
+          UPDATE draft_followings SET ended_at = statement_timestamp(), ended_why = 'stopped' WHERE draft_id = ${draftId}::uuid AND ended_at IS NULL RETURNING draft_id`),
+      );
     });
     return this.trying(draftId, scope);
   }

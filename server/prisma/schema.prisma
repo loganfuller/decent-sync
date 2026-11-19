@@ -1524,6 +1524,10 @@ model DraftTrial {
   /// Shot pulled on it is timed by too: a Shot pulled from then on with
   /// these steps is a Trial Shot.
   tabletWrittenAt DateTime @map("tablet_written_at") @db.Timestamptz(3)
+  /// When following on the Machine ended after it was written, by
+  /// PostgreSQL's clock; null while it goes on. A Shot pulled after then is
+  /// none of the Draft's.
+  followedUntil   DateTime? @map("followed_until") @db.Timestamptz(3)
 
   followings DraftFollowing[]
 

@@ -2732,7 +2732,9 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   for a Machine, by a partial unique index). While it does, the Machine's
   tablet is due a `write` of the kind `draft` whenever the profile it was
   last written since following began differs from the Draft's
-  (`followedDraftDue`), in place of its Loaded Recipe's fields, through the
+  (`followedDraftDue`), in place of its Loaded Recipe's fields (those are
+  still written until the Draft first is, where it can't be: refused, or
+  not runnable on the model), through the
   same writer as every write (Writing to tablets, above): planned again on
   each `library_changes` notification, which starting to follow and each
   save of the Draft's profile send, one at a time, held while a Shot runs,
@@ -2750,13 +2752,15 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   the Draft's steps, compared as a Shot's are with a Profile's (below),
   whatever changed it, a barista, a Recipe or Streamline's wake profile
   (`followedWorkflowReported`, in the transaction storing the Workflow);
-  when a person stops it; when its Location stops trying Drafts or the
-  Machine moves, leaves or becomes capture-only (`endStrandedFollowings`);
-  and, its row gone with the Draft's, when the Draft is published or
-  discarded. A Workflow reported before the Machine was first written the
-  Draft ends nothing, and one holding steps the Draft was written there
-  with earlier doesn't either, as a report made before a save's write
-  landed holds those. Once ended, the server writes the Machine nothing of
+  when a person stops it, or has the Draft follow another Machine; when its
+  Location stops trying Drafts or the Machine moves to any other Location,
+  leaves or becomes capture-only (`endStrandedFollowings`); and, its row
+  gone with the Draft's, when the Draft is published or discarded. A
+  Workflow reported before the Machine was first written the Draft ends
+  nothing, and one holding the steps it was last written doesn't either,
+  as a report made before a save's write landed holds those; one holding
+  steps it was written earlier, as the Profile the Draft started from,
+  does. Once ended, the server writes the Machine nothing of
   the Draft until a person follows again, which replaces what it has
   loaded. The row stays, so the Draft's page says when it ended, why, and
   what the Machine's Workflow holds now.
@@ -2772,11 +2776,14 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   Library compares a Shot's with a Profile's (`sameStepsSql`, as
   `shotPulledWithSql`), without each step's temperature and without the
   target weight, so it still matches after the brew temperature or the
-  yield was changed on the tablet. It is tied to the latest such profile
-  written before it was pulled, and is on the current steps where those are
-  the Draft's as saved now, else on earlier ones. Nothing is stored for the
-  tie: it is read from `draft_trials` and the Shots (`trialShotsSql`),
-  through the Shots' index on their steps, so the ties go with the Draft,
+  yield was changed on the tablet, and pulled before following on that
+  Machine ended (`draft_trials.followed_until`, by PostgreSQL's clock). It
+  is tied to the latest such profile written before it was pulled, and is
+  on the current steps where that profile is the Draft's as saved now, as
+  the Machine is written it, title aside, else on earlier ones. Nothing is
+  stored for the tie: it is read from `draft_trials` and the Shots
+  (`trialShotsSql`), through the Shots' index on their Machine and time or
+  the one on their steps, so the ties go with the Draft,
   and a Shot on the published steps is then the new Profile's by the
   Library's ordinary rule.
 - **The Draft's page** (`web/src/components/draft-trying.tsx`) asks how it

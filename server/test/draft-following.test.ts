@@ -313,6 +313,75 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
   });
 
+  it("stops following once steps the Draft was written with earlier are loaded, and counts no Shot pulled after following ended", async () => {
+    let draft = await start(shaped("Earlier steps", 10));
+    await followed(draft);
+    tablet.pullShot(shotOf(tablet, "trial-earlier-1", LAB_SERIAL));
+    draft = await save(draft, shaped("Earlier steps", 11));
+    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("current");
+    await expect.poll(async () => (await trying(draft)).trialShots.map((trial) => [trial.shot.id, trial.steps]), { timeout: 15_000 }).toEqual([["trial-earlier-1", "earlier"]]);
+
+    // A change of a step's temperature alone makes the steps a Shot ran earlier ones, though it still matches them.
+    tablet.pullShot(shotOf(tablet, "trial-earlier-2", LAB_SERIAL));
+    await expect.poll(async () => (await trying(draft)).trialShots.map((trial) => trial.steps), { timeout: 15_000 }).toEqual(["current", "earlier"]);
+    const warmer = shaped("Earlier steps", 11);
+    draft = await save(draft, { ...warmer, steps: warmer.steps.map((step, index) => (index === 0 ? { ...step, temperature: step.temperature + 1 } : step)) });
+    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("current");
+    expect((await trying(draft)).trialShots.map((trial) => [trial.shot.id, trial.steps])).toEqual([
+      ["trial-earlier-2", "earlier"],
+      ["trial-earlier-1", "earlier"],
+    ]);
+
+    // A barista loads the profile the Draft started from, the steps it was first written with: following ends, and a save sends nothing.
+    expect((await tablet.callApi("PUT", "/workflow", { profile: shaped("Started from", 10) })).status).toBe(200);
+    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("ended");
+    expect((await trying(draft)).following).toMatchObject({ ended: { why: "workflow" }, has: "Started from" });
+    const sent = draftWrites(tablet).length;
+    draft = await save(draft, shaped("Earlier steps", 12));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(draftWrites(tablet)).toHaveLength(sent);
+    expect(workflowProfile(tablet).title).toBe("Started from");
+    // A Shot pulled on those steps now is none of the Draft's.
+    tablet.pullShot(shotOf(tablet, "trial-earlier-after", LAB_SERIAL));
+    await expect.poll(async () => (await api.call("GET", "/shots/trial-earlier-after")).status, { timeout: 15_000 }).toBe(200);
+    expect((await trying(draft)).trialShots.map((trial) => trial.shot.id)).toEqual(["trial-earlier-2", "trial-earlier-1"]);
+
+    // Followed again, Shots on the steps it is written count from then on.
+    await followed(draft);
+    tablet.pullShot(shotOf(tablet, "trial-earlier-again", LAB_SERIAL));
+    await expect.poll(async () => (await trying(draft)).trialShots.map((trial) => [trial.shot.id, trial.steps]), { timeout: 15_000 }).toEqual([
+      ["trial-earlier-again", "current"],
+      ["trial-earlier-2", "earlier"],
+      ["trial-earlier-1", "earlier"],
+    ]);
+
+    // Saved with no steps, it waits, saying why, and nothing is sent.
+    const written = draftWrites(tablet).length;
+    draft = await save(draft, { ...shaped("Earlier steps", 12), steps: [] });
+    await expect.poll(async () => (await trying(draft)).following, { timeout: 15_000 }).toMatchObject({
+      state: "waiting",
+      waitingFor: "The Draft needs steps, and no more than a machine takes, before the Machine is written it",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(draftWrites(tablet)).toHaveLength(written);
+    await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
+  });
+
+  it("stops following as the Machine moves, even to another Location that tries Drafts", async () => {
+    const moving = await api.createMachine("Trial lab moving", lab.id);
+    const raw = await RawConnection.welcomed(server.url, helloWith(moving.token, { machine: { model: "DE1Pro", serial: "58105" }, tabletId: randomUUID() }));
+    const draft = await start(shaped("Moving trial", 13));
+    await follow(draft, moving);
+    expect(await state(draft)).toBe("waiting");
+    await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: true });
+    await api.send("POST", `/machines/${moving.machine.id}/location-history`, { locationId: cafe.id }, 201);
+    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("ended");
+    expect((await trying(draft)).following).toMatchObject({ ended: { why: "location" }, machine: { id: moving.machine.id } });
+    await api.send("PATCH", `/locations/${cafe.id}`, { triesDrafts: false });
+    await raw.close();
+    await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
+  });
+
   it("has a Machine follow one Draft at a time, and ends following where its Location stops trying Drafts", async () => {
     const one = await start(shaped("One at a time", 0));
     const two = await start(shaped("The other", 1));

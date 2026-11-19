@@ -13,11 +13,12 @@ import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type Pla
 // the Draft's (`followedDraftDue`), so each save reaches it through its
 // writer as a Library write does, held while a Shot runs. The Draft keeps
 // each profile a following Machine was written (`draft_trials`), so a Shot
-// pulled on that Machine with its steps from then on is a Trial Shot, tied
-// to the steps it ran (`trialShotsSql`). Following ends when the Machine's
-// Workflow comes to hold another profile than those, whatever changed it
-// (`followedWorkflowReported`), when a person stops it, when its Location
-// stops trying Drafts or the Machine leaves it (`endStrandedFollowings`),
+// pulled on that Machine with its steps from then on, until following on it
+// ends, is a Trial Shot, tied to the steps it ran (`trialShotsSql`).
+// Following ends when the Machine's Workflow comes to hold another profile
+// than the Draft's, whatever changed it (`followedWorkflowReported`), when a
+// person stops it, when its Location stops trying Drafts or the Machine
+// leaves it (`endStrandedFollowings`),
 // and, the row gone with the Draft, when the Draft is published or
 // discarded. The server writes the Draft to it again only once a person
 // follows again. Everything is in PostgreSQL, so every instance reads the
@@ -51,10 +52,25 @@ export function canFollow(wireRevision: number | null): boolean {
   return wireRevision !== null && peerHasWireRevision(wireRevision, FOLLOWED_DRAFTS_WIRE_REVISION);
 }
 
-/** Whether the Machine follows a Draft now, whose profile replaces its Loaded Recipe's in its Workflow. */
-export async function followsDraft(tx: Prisma.TransactionClient, machineId: string): Promise<boolean> {
-  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM draft_followings WHERE machine_id = ${machineId}::uuid AND ended_at IS NULL`;
-  return rows.length > 0;
+/** Whether the Machine follows a Draft now, and whether it was written the Draft since following began (`written`), which ended its Loaded Recipe; null for none. */
+export async function draftFollowed(tx: Prisma.TransactionClient, machineId: string): Promise<{ written: boolean } | null> {
+  const [row] = await tx.$queryRaw<{ written: boolean }[]>`SELECT trial_id IS NOT NULL AS written FROM draft_followings WHERE machine_id = ${machineId}::uuid AND ended_at IS NULL`;
+  return row ?? null;
+}
+
+/**
+ * Ends followings: `ended` is an UPDATE of `draft_followings` that ends some
+ * and returns their `draft_id`s. Each profile those Drafts were written with
+ * is no longer followed from now (`draft_trials.followed_until`), so a Shot
+ * pulled afterwards is none of their Trial Shots: a Draft has one following,
+ * so every profile of its still followed is that following's. One statement,
+ * after the common table expressions in `before`, each followed by a comma.
+ */
+export function endFollowingsSql(ended: Prisma.Sql, before: Prisma.Sql = Prisma.empty): Prisma.Sql {
+  return Prisma.sql`
+    WITH ${before} ended AS (${ended})
+    UPDATE draft_trials SET followed_until = statement_timestamp()
+    WHERE draft_id IN (SELECT draft_id FROM ended) AND followed_until IS NULL`;
 }
 
 /**
@@ -104,7 +120,8 @@ export function sameJson(a: unknown, b: unknown): boolean {
  * the profile the write carried (`record.draft`) is what the Machine has
  * now, kept as a profile the Draft was tried with, timed by the tablet's
  * clock as the plugin had Decaid's answer (`tabletWrittenAt`, else now), one
- * equal to the latest kept for the Machine kept once. Nothing is recorded
+ * equal to the latest kept for the Machine while it is still followed kept
+ * once. Nothing is recorded
  * once the Machine no longer follows the Draft, as when it was stopped or
  * published meanwhile, though the Workflow holds the profile all the same.
  * The Draft's row is held for key share first, then the Machine's lock, then
@@ -128,7 +145,7 @@ export async function recordFollowedDraftWritten(
     if (following.length === 0) return "recorded";
     const profile = JSON.stringify(written);
     const [latest] = await tx.$queryRaw<{ id: string; same: boolean }[]>`
-      SELECT id::text AS id, profile = ${profile}::jsonb AS same FROM draft_trials
+      SELECT id::text AS id, profile = ${profile}::jsonb AND followed_until IS NULL AS same FROM draft_trials
       WHERE draft_id = ${draftId}::uuid AND machine_id = ${tablet.machineId}::uuid ORDER BY written_at DESC, id DESC LIMIT 1`;
     let trialId = latest?.same ? latest.id : null;
     if (trialId === null) {
@@ -147,42 +164,54 @@ export async function recordFollowedDraftWritten(
  * A Workflow its Machine's tablet reported, as it is stored: a following of
  * the Machine's ends where the Workflow's profile is no longer the Draft's
  * steps (`sameStepsSql`), whatever changed it, a barista, a Recipe or
- * Streamline's wake profile: neither the Draft's as saved now nor any it was
- * written to the Machine with, as a report made before a save's write
- * landed still holds the steps written before it. Until the Machine was
- * written the Draft since following began, its Workflow holds whatever it
- * held, and nothing ends. The plugin sends its reports in the order it made
- * them, a write's answer ahead of the change it caused, so one from before
- * the write is taken in before the write is recorded.
+ * Streamline's wake profile: neither the Draft's as saved now nor the one
+ * the Machine was last written, as a report made before a save's write
+ * landed still holds the steps written before it. An earlier profile of the
+ * Draft's loaded again, as a Profile it started from, ends it too. Until the
+ * Machine was written the Draft since following began, its Workflow holds
+ * whatever it held, and nothing ends. The plugin sends its reports in the
+ * order it made them, a write's answer ahead of the change it caused, so
+ * one from before the write is taken in before the write is recorded.
  */
 export async function followedWorkflowReported(tx: Prisma.TransactionClient, machineId: string, workflow: Record<string, unknown>): Promise<void> {
-  const reported = Prisma.sql`(${JSON.stringify(workflow)}::jsonb -> 'profile')`;
-  await tx.$executeRaw`
-    UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'workflow'
-    FROM drafts d
-    WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND f.trial_id IS NOT NULL AND d.id = f.draft_id
-      AND NOT ${sameStepsSql(reported, Prisma.sql`d.profile`)}
-      AND NOT EXISTS (
-        SELECT 1 FROM draft_trials t
-        WHERE t.draft_id = f.draft_id AND t.machine_id = f.machine_id AND ${sameStepsSql(reported, Prisma.sql`t.profile`)}
-      )`;
+  // The reported profile bound once, as the comparisons name it many times.
+  const reported = Prisma.sql`(SELECT profile FROM reported)`;
+  await tx.$executeRaw(
+    endFollowingsSql(
+      Prisma.sql`
+        UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'workflow'
+        FROM drafts d, draft_trials t
+        WHERE f.machine_id = ${machineId}::uuid AND f.ended_at IS NULL AND d.id = f.draft_id AND t.id = f.trial_id
+          AND NOT ${sameStepsSql(reported, Prisma.sql`d.profile`)}
+          AND NOT ${sameStepsSql(reported, Prisma.sql`t.profile`)}
+        RETURNING f.draft_id`,
+      Prisma.sql`reported AS (SELECT ${JSON.stringify(workflow)}::jsonb -> 'profile' AS profile),`,
+    ),
+  );
 }
 
 /**
  * Ends each following whose Machine no longer takes part at a Location that
  * tries Drafts, as its Location's setting was turned off, or the Machine
- * moved, left, or became capture-only: all of them, or the Machine's.
+ * left, or became capture-only, and each whose Machine moved since it began,
+ * to whichever Location: all of them, or the Machine's.
  */
 export async function endStrandedFollowings(db: Prisma.TransactionClient, machineId?: string): Promise<void> {
-  await db.$executeRaw`
-    UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'location'
-    WHERE f.ended_at IS NULL AND (${machineId ?? null}::uuid IS NULL OR f.machine_id = ${machineId ?? null}::uuid)
-      AND NOT EXISTS (
-        SELECT 1 FROM machines m
-        JOIN LATERAL (SELECT location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS latest ON true
-        JOIN locations l ON l.id = latest.location_id AND l.tries_drafts
-        WHERE m.id = f.machine_id AND m.sharing
-      )`;
+  await db.$executeRaw(
+    endFollowingsSql(Prisma.sql`
+      UPDATE draft_followings f SET ended_at = statement_timestamp(), ended_why = 'location'
+      WHERE f.ended_at IS NULL AND (${machineId ?? null}::uuid IS NULL OR f.machine_id = ${machineId ?? null}::uuid)
+        AND NOT EXISTS (
+          SELECT 1 FROM machines m
+          JOIN LATERAL (SELECT location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS latest ON true
+          JOIN LATERAL (
+            SELECT location_id FROM location_assignments WHERE machine_id = m.id AND effective_from <= f.started_at ORDER BY effective_from DESC LIMIT 1
+          ) AS began ON began.location_id = latest.location_id
+          JOIN locations l ON l.id = latest.location_id AND l.tries_drafts
+          WHERE m.id = f.machine_id AND m.sharing
+        )
+      RETURNING f.draft_id`),
+  );
 }
 
 /** Tells every instance's writers that the Draft changed, where a Machine follows it, so its tablet is written it again. In the save's transaction. */
@@ -197,25 +226,31 @@ export async function followedDraftSaved(tx: Prisma.TransactionClient, draftId: 
  * each listed Shot credited to a Machine the Draft was written to, pulled,
  * by the tablet's clock, from when it was written a profile whose steps the
  * Shot's Workflow's profile holds (`sameStepsSql`), so it still matches
- * after the brew temperature or the yield was changed on the tablet; tied to
- * the latest such profile written before it was pulled, and `current` where
- * those are the Draft's steps as saved now. Found through the Shots' index
- * on their steps.
+ * after the brew temperature or the yield was changed on the tablet, until
+ * following on that Machine ended (by PostgreSQL's clock); tied to the
+ * latest such profile written before it was pulled. Read through the
+ * Shots' index on their Machine and time, from the first profile the
+ * Machine was written, or the one on their steps.
  */
 export function trialShotsSql(draftId: string, limit: number): Prisma.Sql {
   const shot = Prisma.sql`(s.record -> 'workflow' -> 'profile')`;
   return Prisma.sql`
-    SELECT s.id, tied.id::text AS "trialId", ${sameStepsSql(Prisma.sql`tied.profile`, Prisma.sql`d.profile`)} AS current
-    FROM drafts d
-    JOIN shots s ON s.machine_id IN (SELECT machine_id FROM draft_trials WHERE draft_id = d.id) AND s.has_full_record
+    SELECT s.id, tied.id::text AS "trialId"
+    FROM (
+      SELECT machine_id, min(tablet_written_at) AS since,
+        CASE WHEN bool_and(followed_until IS NOT NULL) THEN max(followed_until) END AS until
+      FROM draft_trials WHERE draft_id = ${draftId}::uuid GROUP BY machine_id
+    ) AS tried
+    JOIN shots s ON s.machine_id = tried.machine_id AND s.pulled_at >= tried.since AND (tried.until IS NULL OR s.pulled_at <= tried.until)
+      AND s.has_full_record
       AND ${stepsKeySql(Prisma.sql`s.record -> 'workflow' -> 'profile' -> 'steps'`)} IN (
-        SELECT ${stepsKeySql(Prisma.sql`profile -> 'steps'`)} FROM draft_trials WHERE draft_id = d.id
+        SELECT ${stepsKeySql(Prisma.sql`profile -> 'steps'`)} FROM draft_trials WHERE draft_id = ${draftId}::uuid
       )
     JOIN LATERAL (
-      SELECT t.id, t.profile FROM draft_trials t
-      WHERE t.draft_id = d.id AND t.machine_id = s.machine_id AND t.tablet_written_at <= s.pulled_at AND ${sameStepsSql(shot, Prisma.sql`t.profile`)}
+      SELECT t.id FROM draft_trials t
+      WHERE t.draft_id = ${draftId}::uuid AND t.machine_id = s.machine_id AND t.tablet_written_at <= s.pulled_at
+        AND (t.followed_until IS NULL OR s.pulled_at <= t.followed_until) AND ${sameStepsSql(shot, Prisma.sql`t.profile`)}
       ORDER BY t.tablet_written_at DESC, t.id DESC LIMIT 1
     ) AS tied ON true
-    WHERE d.id = ${draftId}::uuid
     ORDER BY s.pulled_at DESC, s.id LIMIT ${limit}`;
 }
