@@ -17,6 +17,7 @@ import {
   shotStopAt,
   simulateProfile,
   standardPuck,
+  stepSeconds,
   stepSpans,
   timeToFirstDrip,
 } from "../src/index.js";
@@ -89,11 +90,18 @@ describe("a run", () => {
     expect(extract).toMatchObject({ index: 1, name: "Extract", start: fill!.end, end: result.duration, reason: "stop" });
     expect(result.stop).toEqual({ seconds: result.duration, reason: "weight" });
     expect(result.weight).toBeGreaterThanOrEqual(36);
-    // The samples name the steps as a Shot's do, so a Shot's helpers read a run.
-    expect(stepSpans(result.samples).map(({ frame, from }) => [frame, from])).toEqual([
-      [0, 0],
-      [1, expect.closeTo(fill!.end! + SIMULATION_TICK, 6)],
+    // The samples name the steps as a Shot's do, each from the moment it begins, so a Shot's helpers read a run.
+    expect(stepSpans(result.samples).map(({ frame, from, until }) => [frame, from, until])).toEqual(result.steps.map((step) => [step.index, step.start, step.end]));
+  });
+
+  it("names a step of one tick in its samples, as its own span", () => {
+    const short = run([flow("A", 4, { seconds: 0.1 }), flow("B", 2, { seconds: 0.1 }), flow("C", 3, { seconds: 1 })]);
+    expect(short.steps.map((step) => [step.start, step.end])).toEqual([
+      [0, 0.1],
+      [0.1, 0.2],
+      [0.2, 1.2],
     ]);
+    expect(stepSpans(short.samples).map(({ frame, from, until }) => [frame, from, until])).toEqual(short.steps.map((step) => [step.index, step.start, step.end]));
   });
 
   it("holds the time to first drip and the peaks", () => {
@@ -211,6 +219,29 @@ describe("a step of no length", () => {
   it("a step of 0.05 s or more runs a tick", () => {
     const result = run([flow("Fill", 4, { seconds: 6 }), flow("Tick", 1.5, { seconds: 0.05 }), pressure("Extract", 6, { seconds: 10 })]);
     expect(result.steps[1]!.end! - result.steps[1]!.start!).toBeCloseTo(SIMULATION_TICK, 6);
+  });
+});
+
+describe("a step's time", () => {
+  it("is what Decaid sends the machine: tenths of a second below 12.75 s, whole seconds from there", () => {
+    const cases: Array<[number, number]> = [
+      [0, 0],
+      [0.04, 0],
+      [0.05, 0.1],
+      [0.11, 0.1],
+      [0.15, 0.2],
+      [12.7, 12.7],
+      [12.74, 12.7],
+      [12.75, 13],
+      [20.4, 20],
+      [20.5, 21],
+      [126.6, 127],
+      [500, 127],
+    ];
+    for (const [seconds, runs] of cases) expect([seconds, stepSeconds(flow("Step", 2, { seconds }))]).toEqual([seconds, runs]);
+    const result = run([flow("Fill", 2, { seconds: 20.4 }), flow("Rest", 0, { seconds: 1 })]);
+    expect(result.steps[0]).toMatchObject({ end: 20, reason: "time" });
+    expect(run([flow("Tick", 2, { seconds: 0.11 })]).steps[0]).toMatchObject({ end: 0.1, reason: "time" });
   });
 });
 

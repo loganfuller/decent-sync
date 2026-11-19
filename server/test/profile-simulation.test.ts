@@ -38,6 +38,9 @@ interface Simulation {
 const CLASSIC = "profile:39e939592679fb194706";
 const SHOT = "simulated-classic";
 const FLOWLESS = "simulated-classic-flowless";
+/** Classic Italian espresso's steps repeated to 21, one more than a machine takes, under a made-up id; and a Shot recorded on that profile. */
+const LONG = "profile:0000000000000005770a";
+const LONG_SHOT = "simulated-classic-long-profile";
 
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
@@ -67,17 +70,23 @@ describe("A Library Profile simulated on a puck", () => {
     const machine = await api.createMachine("Simulation lab 1", lab.id);
     // Decaid v0.9.2's record of Classic Italian espresso, as it bundles it.
     const bundled = (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: Fields[] }).bundled;
-    tablet = syncingTablet(machine, server, { api: { ...emptyLibrary("57701"), "/profiles": bundled.filter((record) => record.id === CLASSIC) } });
+    const classic = bundled.find((record) => record.id === CLASSIC)!;
+    const classicProfile = classic.profile as Fields & { steps: Fields[] };
+    const longProfile = { ...classicProfile, title: "Too long", steps: Array.from({ length: 21 }, (_, n) => ({ ...classicProfile.steps[n % classicProfile.steps.length], name: `Step ${n + 1}` })) };
+    tablet = syncingTablet(machine, server, { api: { ...emptyLibrary("57701"), "/profiles": [classic, { ...classic, id: LONG, profile: longProfile, isDefault: false }] } });
     await api.waitForOnline(machine);
     await answers(api, `/profiles/${encodeURIComponent(CLASSIC)}`);
+    await answers(api, `/profiles/${encodeURIComponent(LONG)}`);
     const recorded = JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json", import.meta.url), "utf8")) as Fields;
     const workflow = recorded.workflow as Fields;
     tablet.pullShot({ ...recorded, id: SHOT, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
     // The same Shot with no flow recorded, from which no puck can be worked out.
     const flowless = (recorded.measurements as Array<{ machine: Fields }>).map(({ machine: { flow: _, ...machine }, ...rest }) => ({ ...rest, machine }));
     tablet.pullShot({ ...recorded, id: FLOWLESS, measurements: flowless, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
+    tablet.pullShot({ ...recorded, id: LONG_SHOT, workflow: { ...workflow, profile: longProfile, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
     await answers(api, `/shots/${SHOT}`);
     await answers(api, `/shots/${FLOWLESS}`);
+    await answers(api, `/shots/${LONG_SHOT}`);
   });
   afterAll(async () => {
     await assistant?.close();
@@ -152,6 +161,13 @@ describe("A Library Profile simulated on a puck", () => {
     expect(await refused({}, "profile:00000000000000000000")).toEqual({ status: 404, message: "No such Profile" });
     expect(await refused({ shotId: "no-such-shot" })).toEqual({ status: 404, message: "Shot not found" });
     expect(await refused({ shotId: FLOWLESS })).toEqual({ status: 409, message: `Shot ${FLOWLESS} recorded no pressure and flow to work its puck out from` });
+    expect(await refused({}, LONG)).toEqual({ status: 409, message: `Profile ${LONG} has 21 steps, more than the 20 a machine takes, so it can't be simulated` });
+  });
+
+  it("runs on the puck of a Shot whose own profile has more steps than a machine takes, with no fit", async () => {
+    const simulation = await simulate({ shotId: LONG_SHOT });
+    expect(simulation).toMatchObject({ puck: { kind: "shot", shotId: LONG_SHOT }, fit: null });
+    expect(simulation.run.steps.map((step) => step.index)).toEqual([0, 1, 2, 3]);
   });
 
   it("is read by Staff away from the Profile's Locations, and by a Viewer", async () => {

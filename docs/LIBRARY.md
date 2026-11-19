@@ -2350,8 +2350,12 @@ fit.
   its step's, and it has no temperature of its own.
 - **Steps.** A step ends at its maximum time, its exit, the water it may pump
   or its weight in the cup, whichever comes first; a step under 0.05 s, which
-  Decaid sends as none, is passed through at once, whatever its exit, and
-  one over 127 s runs 127 s, as the machine's wire format holds no more. The
+  Decaid sends as none, is passed through at once, whatever its exit. A
+  step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
+  tenth of a second below 12.75 s and to a whole second from there, up to
+  127 s, as the machine's wire format holds no more. Each sample names the
+  step the run is in from that moment, so `stepSpans` reads the run's steps
+  as it reads a Shot's. The
   Shot stops when the cup reaches the stop-at weight, or when its last step
   ends. A step that gets to its target over the whole step ramps from what
   the run measured as it began, not from the step before's target, as

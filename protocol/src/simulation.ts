@@ -43,16 +43,19 @@ export const GROUP_COMPLIANCE = 0.5;
  */
 const PRESSURE_RESPONSE = 2;
 
-/** A step shorter than this runs as none: Decaid sends a step's time in tenths of a second, rounded (`convert_float_to_F8_1_7`). */
-const NO_LENGTH = 0.05;
-
 /**
- * A step's time as the machine runs it: at most 127 s (PROFILE_LIMITS), as
- * the machine's wire format holds no more, so a run is bounded by its steps
- * however long a stored profile says one is.
+ * A step's time as the machine runs it, as Decaid sends it in one byte
+ * (`convert_float_to_F8_1_7` in
+ * decaid:lib/src/models/device/impl/de1/unified_de1/unified_de1.profile.dart,
+ * v0.9.2): rounded to a tenth of a second below 12.75 s, so under 0.05 s is
+ * none, and to a whole second from there, up to 127 s (PROFILE_LIMITS), so a
+ * run is bounded by its steps however long a stored profile says one is.
  */
-function stepSeconds(step: ProfileStep): number {
-  return Math.min(PROFILE_LIMITS.seconds.max, step.seconds);
+export function stepSeconds(step: ProfileStep): number {
+  const seconds = step.seconds;
+  if (!(seconds > 0)) return 0;
+  if (seconds >= 12.75) return Math.min(PROFILE_LIMITS.seconds.max, Math.trunc(0.5 + seconds));
+  return Math.trunc(0.5 + seconds * 10) / 10;
 }
 
 /** The least resistance a puck has, where water fills the space above it and meets none. */
@@ -138,18 +141,22 @@ export function standardPuck(grind = 0): Puck {
   return { resistance, holds, yieldPerMl: 1, dose: STANDARD_DOSE };
 }
 
-/** A puck's resistance at a volume of water pumped. */
+/** A puck's resistance at a volume of water pumped, found by halving, as a Shot's puck has a point for each of its samples. */
 function resistanceAt(points: Puck["resistance"], volume: number): number {
   if (points.length === 0) return LEAST_RESISTANCE;
   if (volume <= points[0]![0]) return points[0]![1];
-  for (let n = 1; n < points.length; n++) {
-    const [v1, r1] = points[n]!;
-    if (volume <= v1) {
-      const [v0, r0] = points[n - 1]!;
-      return v1 === v0 ? r1 : r0 + ((r1 - r0) * (volume - v0)) / (v1 - v0);
-    }
+  if (volume > points[points.length - 1]![0]) return points[points.length - 1]![1];
+  // The first point at or beyond the volume.
+  let low = 1;
+  let high = points.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (points[middle]![0] < volume) low = middle + 1;
+    else high = middle;
   }
-  return points[points.length - 1]![1];
+  const [v0, r0] = points[low - 1]!;
+  const [v1, r1] = points[low]!;
+  return v1 === v0 ? r1 : r0 + ((r1 - r0) * (volume - v0)) / (v1 - v0);
 }
 
 /** The least pressure and flow through the puck at which a Shot's sample shows its resistance. */
@@ -364,12 +371,14 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
   let peakPressure = 0;
   let peakFlow = 0;
 
-  const sample = (step: ProfileStep | undefined, target: number | null) => {
+  /** A sample now, of the step at `at`, the one running from now, or the last where the run has stopped; null for none. */
+  const sample = (at: number | null, target: number | null) => {
+    const step = at === null ? undefined : profile.steps[at];
     samples.push({
       seconds: round(time),
       shade: null,
-      step: step ? { frame: index, name: step.name.trim() || `Step ${index + 1}` } : null,
-      substate: index < profile.target_volume_count_start ? "preinfusion" : "pouring",
+      step: step ? { frame: at!, name: step.name.trim() || `Step ${at! + 1}` } : null,
+      substate: at !== null && at < profile.target_volume_count_start ? "preinfusion" : "pouring",
       values: { pressure, flow, weight, weightFlow, temperature: null },
       targets: {
         pressure: step?.pump === "pressure" && target !== null && target > 0 ? target : null,
@@ -389,7 +398,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
       stepStart = time;
       stepPumped = pumped;
       from = step.pump === "pressure" ? pressure : flow;
-      if (stepSeconds(step) >= NO_LENGTH) return true;
+      if (stepSeconds(step) > 0) return true;
       steps[index]!.end = round(time);
       steps[index]!.reason = "time";
       index++;
@@ -398,10 +407,11 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
   };
 
   // The first sample is of the step the run begins with, past any of no length, or of none.
-  const begun = begin();
-  const first = begun ? profile.steps[index] : undefined;
-  sample(first, first ? initialTarget(first, 0) : null);
-  if (!begun) stop = { seconds: 0, reason: "lastStep" };
+  if (begin()) sample(index, initialTarget(profile.steps[index]!, from));
+  else {
+    sample(null, null);
+    stop = { seconds: 0, reason: "lastStep" };
+  }
 
   while (!stop) {
     const step = profile.steps[index]!;
@@ -434,22 +444,26 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
     weight = Math.max(0, through - puck.holds) * puck.yieldPerMl;
     weightFlow = (weight - before) / SIMULATION_TICK;
     time += SIMULATION_TICK;
-    sample(step, target);
     peakPressure = Math.max(peakPressure, pressure);
     peakFlow = Math.max(peakFlow, flow);
 
+    // Whether the step or the Shot ends now; the sample is then of the step that begins, as a Shot's sample is of the frame the machine is on.
+    const ran = index;
     if (stopWeight !== null && weight >= stopWeight) {
       steps[index]!.end = round(time);
       steps[index]!.reason = "stop";
       stop = { seconds: round(time), reason: "weight" };
-      break;
+    } else {
+      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight });
+      if (reason) {
+        steps[index]!.end = round(time);
+        steps[index]!.reason = reason;
+        index++;
+        if (!begin()) stop = { seconds: round(time), reason: "lastStep" };
+      }
     }
-    const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight });
-    if (!reason) continue;
-    steps[index]!.end = round(time);
-    steps[index]!.reason = reason;
-    index++;
-    if (!begin()) stop = { seconds: round(time), reason: "lastStep" };
+    if (stop || index === ran) sample(ran, target);
+    else sample(index, initialTarget(profile.steps[index]!, from));
   }
 
   const firstDrip = samples.find((s) => (s.values.weight ?? 0) >= FIRST_DRIP_GRAMS);
@@ -470,7 +484,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
   };
 }
 
-/** The first sample's target, before any step has acted: the step's own, or 0 where it ramps from nothing. */
+/** A step's target as it begins, before it has acted: its own, or what was measured where it ramps from that. */
 function initialTarget(step: ProfileStep, measured: number): number {
   return step.transition === "smooth" ? measured : stepTarget(step);
 }
