@@ -833,6 +833,34 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         await assistant.callWithinBudget("get_library_item", { kind: "bean", id: made.beans![0]!, history: true, conflicts: true, limit: 50 });
       });
 
+      it("simulates the longest-running bundled Profile run out, and a Profile on a Shot's puck, with every curve, its steps whole", async () => {
+        // Gagné's Adaptive Shot, which Decaid bundles, has 20 steps, as many as a profile may, and runs over a minute run out.
+        const bundled = (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: { profile: Fields }[] }).bundled;
+        await tablet.addProfile(bundled.find((record) => record.profile.title === "Gagné/Adaptive Shot 92C v1.0")!.profile);
+        const titled = async (title: string) => (await api.get<{ profiles: { id: string; title: string }[] }>("/profiles")).profiles.find((profile) => profile.title === title);
+        await expect.poll(() => titled("Gagné/Adaptive Shot 92C v1.0")).toBeTruthy();
+        const gagne = (await titled("Gagné/Adaptive Shot 92C v1.0"))!;
+        const long = await assistant.callWithinBudget<{ steps: unknown[]; duration: number; curves: Record<string, { values: unknown[] }> }>("simulate_profile", {
+          profileId: gagne.id,
+          stopAt: 0,
+          grind: -1,
+          curves: true,
+        });
+        expect(long.result).not.toHaveProperty("cut");
+        expect(long.result.steps).toHaveLength(20);
+        expect(long.result.duration).toBeGreaterThan(60);
+        for (const curve of ["pressure", "flow", "weight", "weightFlow"]) expect(long.result.curves[curve]!.values.length).toBeLessThanOrEqual(100);
+        const machine = await machineAt("Simulated", lab);
+        const raw = await connectionOf(machine, "43107");
+        const blooming = JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/simulated-shots-v0.9.2/blooming.json", import.meta.url), "utf8")) as Fields;
+        await deliverShots(raw, [shotAt("simulated-blooming", 0, "43107", {}, blooming)]);
+        await expect.poll(async () => (await api.call("GET", "/shots/simulated-blooming")).status).toBe(200);
+        const adaptive = (await titled("Adaptive v3"))!;
+        const onShot = await assistant.callWithinBudget<{ fit: { shot: { steps: unknown[] } } | null }>("simulate_profile", { profileId: adaptive.id, shotId: "simulated-blooming", curves: true });
+        expect(onShot.result).not.toHaveProperty("cut");
+        expect(onShot.result.fit!.shot.steps.length).toBeGreaterThan(3);
+      });
+
       it("lists 55 open Conflicts a page at a time", async () => {
         // A Bean's notes edited offline on a tablet, each losing to the management interface's: as list_conflicts finds
         // them, copied in PostgreSQL, one for each Bean.

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type ShotDelivery, type ShotIndex, isRecordId, profileOf, shotSamples } from "@decent-sync/protocol";
+import { type MachineModel, type Profile, type Sample, type ShotCurve, type ShotDelivery, type ShotIndex, isRecordId, machineModelOf, profileOf, shotSamples } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { viewLocation } from "../locations/locations.service.js";
@@ -7,7 +7,7 @@ import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
+import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, number, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
@@ -314,6 +314,32 @@ export class ShotsService {
     // The same visibility applies to all three endpoints.
     if (!(await this.prisma.shot.count({ where: { id, ...visible } }))) throw shotNotFound();
     return (await this.prisma.shotMeasurements.findUnique({ where: { shotId: id } }))?.data ?? null;
+  }
+
+  /**
+   * What the simulation of a profile on a Shot's puck reads of a Shot (#577):
+   * its samples (`shotSamples`), its own profile, its Workflow's, null where
+   * Decaid would not read it, the coffee it used, as weighed or else as set,
+   * null where it recorded neither, what stopped it, as Decaid recorded it,
+   * and the model of the Machine it recorded, a DE1 for any DE1 model and
+   * where it recorded none (`machineModelOf`).
+   */
+  async forSimulation(id: string): Promise<{ samples: Sample<ShotCurve>[]; profile: Profile | null; dose: number | null; stopReason: string | null; model: MachineModel }> {
+    if (!isRecordId(id)) throw shotNotFound();
+    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, select: { record: true } });
+    if (!found) throw shotNotFound();
+    const measurements = await this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } });
+    const record = object(found.record);
+    const workflow = object(record.workflow);
+    const profile = profileOf(workflow.profile);
+    const above = (value: number | null) => (value !== null && value > 0 ? value : null);
+    return {
+      samples: shotSamples(measurements?.data ?? null, profile),
+      profile,
+      dose: above(number(object(record.annotations).actualDoseWeight)) ?? above(number(object(workflow.context).targetDoseWeight)),
+      stopReason: string(record.stopReason),
+      model: machineModelOf(object(workflow.machine).model),
+    };
   }
 
   /** Credited by the hardware it recorded, otherwise, as inferred, to whoever reported it. */

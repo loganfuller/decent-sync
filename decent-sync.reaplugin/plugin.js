@@ -507,6 +507,12 @@ var __decentSync = (() => {
     return { digits: whole + fraction, exponent: Number(exponent) - fraction.length };
   }
 
+  // ../protocol/src/machine-models.ts
+  var MODEL_FIGURES = {
+    DE1: { maxFlow: 8, pressureStepMaxFlow: 6, maxPressure: 12, pumpResponse: 0.2 },
+    Bengle: { maxFlow: 15, pressureStepMaxFlow: 11, maxPressure: 12, pumpResponse: 0.2 }
+  };
+
   // ../protocol/src/steam-phases.ts
   var STEAM_PHASE_NAMES = {
     preparing: "Preparing",
@@ -932,6 +938,7 @@ var __decentSync = (() => {
     const name = typeof value === "string" ? value.toLowerCase() : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
     return isOneOf(BEVERAGE_TYPES, name) ? name : "espresso";
   }
+  var PUMP_MAX_FLOW = MODEL_FIGURES.DE1.maxFlow;
   var PROFILE_TEXT_FIELDS = ["title", "author", "notes"];
   function profileTextOf(value) {
     const profile = isObject(value) ? value : {};

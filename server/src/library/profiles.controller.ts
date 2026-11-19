@@ -9,6 +9,7 @@ import { type ConflictView, HistoryService, type VersionView, readHistoryField }
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
+import { type ProfileSimulation, ProfileSimulationService, readSimulationAsk } from "./profile-simulation.service.js";
 import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
 
 /**
@@ -16,7 +17,8 @@ import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId }
  * edit their title, author and notes, and Archive and restore them, as
  * Admins do, but show and hide them only at their own Locations; only an
  * Admin hard-deletes one. Their steps change only on tablets so far: Decaid
- * computes a Profile's id from what the machine executes (ADR-0032).
+ * computes a Profile's id from what the machine executes (ADR-0032). Each
+ * can be simulated on a puck (#577), which Viewers may too.
  */
 @Controller("api/profiles")
 export class ProfilesController {
@@ -25,6 +27,7 @@ export class ProfilesController {
     private readonly history: HistoryService,
     private readonly edits: LibraryEditsService,
     private readonly prisma: PrismaService,
+    private readonly simulation: ProfileSimulationService,
   ) {}
 
   @AllowStaff()
@@ -37,6 +40,18 @@ export class ProfilesController {
   @Get(":id")
   async get(@Param("id") id: string): Promise<{ profile: ProfileView }> {
     return { profile: await this.profiles.get(readProfileId(id)) };
+  }
+
+  /**
+   * Simulates it on a puck (`ProfileSimulationService.simulate`): the
+   * standard puck at `grind`, from -1 to 1, or the puck of the Shot
+   * `shotId`, with `dose` in grams, stopping at `stopAt` grams, 0 to run its
+   * steps out, on a Machine of `model`, DE1 or Bengle.
+   */
+  @AllowStaff()
+  @Get(":id/simulation")
+  async simulate(@Param("id") id: string, @Query() query: Record<string, unknown>): Promise<{ simulation: ProfileSimulation }> {
+    return { simulation: await this.simulation.simulate(readProfileId(id), readSimulationAsk(query)) };
   }
 
   /**

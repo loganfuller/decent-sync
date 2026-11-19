@@ -151,6 +151,7 @@ describe("connecting an assistant", () => {
         "list_settings_edits",
         "list_settings_history",
         "list_shot_values",
+        "simulate_profile",
         "summarise_shots",
       ];
       const changing = [

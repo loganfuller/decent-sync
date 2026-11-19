@@ -14,11 +14,13 @@ import type { Profile } from "./profile.js";
 import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.js";
 
 export * from "./chunking.js";
+export * from "./machine-models.js";
 export * from "./machine-states.js";
 export * from "./profile.js";
 export * from "./record-samples.js";
 export * from "./settings-fields.js";
 export * from "./settings-history.js";
+export * from "./simulation.js";
 export * from "./steam-phases.js";
 
 /**
