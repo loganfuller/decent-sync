@@ -20,8 +20,10 @@ import type { CurrentEntry } from "../library/join-plan.js";
 import { currentEntry } from "../library/joining.js";
 import { isObject } from "../library/listed.js";
 import {
+  BEAN_TAKEN,
   type BaseParts,
   type ItemKind,
+  OTHER_BEAN,
   PARTS,
   RECIPE_FIELDS,
   type WorkflowParts,
@@ -33,6 +35,7 @@ import {
   partsWrite,
   readBase,
   readParts,
+  recipeBean,
   recipeParts,
   recordProfile,
   samePart,
@@ -274,6 +277,13 @@ async function followMachine(
     const target = await targetParts(tx, tablet.tabletId, recipe.id);
     if (target !== null) Object.assign(base, heldAlready(target, known.held), heldAlready(target, now));
     for (const part of lost) delete base[part];
+    // A Workflow holding the Recipe's batch, or holding it before this change, holds that batch's Bean's coffee, as one
+    // picked on the Machine and taken into the Recipe, or held already as the Recipe took it: the Recipe's Bean is the one
+    // it took, so a later change of it, as its removal, is written over a coffee typed there once the batch is cleared (#572).
+    // So does one holding the Recipe's Bean's coffee, as once a write of it landed whose answer was lost.
+    const batch = target?.batch;
+    const holdsBatch = typeof batch === "string" && (samePart("batch", now.batch, batch) || samePart("batch", known.held.batch, batch));
+    if (target !== null && (holdsBatch || (await holdsRecipeCoffee(tx, recipe.content, workflow)))) base[BEAN_TAKEN] = recipeBean(recipe.content);
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
@@ -281,8 +291,56 @@ async function followMachine(
   // named: the Recipe takes nothing from the Workflow, and each part the Workflow holds otherwise is written, or cleared.
   const target = await targetParts(tx, tablet.tabletId, recipe.id);
   // Named again with its Machine still having it loaded, as after an upgrade forgot it: taken as it stood.
-  const base = continued && target !== null && known === null ? { ...target } as BaseParts : target === null ? {} : heldAlready(target, now);
+  const tookAll = continued && target !== null && known === null;
+  const base: BaseParts = tookAll ? { ...target } : target === null ? {} : heldAlready(target, now);
+  // Its Bean is taken as it stands where the Workflow holds its coffee and roaster, as a load from the record brings them, or
+  // a coffee of no Bean, as one typed, which stays the Machine's own; one holding another Bean's, or none while the Recipe
+  // names one, as after a load from an out-of-date copy of the record, took another, which is written over (#572).
+  if (target !== null) base[BEAN_TAKEN] = tookAll || (await coffeeHeld(tx, recipe.content, workflow)) !== "other" ? recipeBean(recipe.content) : OTHER_BEAN;
   await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
+}
+
+/** The Workflow's coffee name and roaster, none as null. */
+function coffeeOf(workflow: unknown): [string | null, string | null] {
+  const context = isObject(workflow) && isObject(workflow.context) ? workflow.context : {};
+  return [workflowText(context.coffeeName), workflowText(context.coffeeRoaster)];
+}
+
+function workflowText(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * Whether the Workflow's coffee name and roaster are those of the Bean the
+ * Recipe with this content names, as a write of it carries them
+ * (`loadedRecipeDue`), or none where it names none (#572).
+ */
+async function holdsRecipeCoffee(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<boolean> {
+  const beanId = recipeBean(content);
+  const [bean] = beanId === null ? [] : await tx.$queryRaw<{ name: unknown; roaster: unknown }[]>`
+    SELECT content -> 'name' AS name, content -> 'roaster' AS roaster FROM beans WHERE id::text = ${beanId}`;
+  const [name, roaster] = coffeeOf(workflow);
+  return name === workflowText(bean?.name) && roaster === workflowText(bean?.roaster);
+}
+
+/**
+ * Whose coffee a Workflow that loads the Recipe with this content holds
+ * (#572): "recipe" where it is that Recipe's Bean's (`holdsRecipeCoffee`);
+ * "typed" where the Recipe names no Bean and the coffee is no Bean's of the
+ * Library, as one typed on the Machine, which stays its own, as when DYE2
+ * saves a recipe from a Workflow holding one, which the Recipe takes no Bean
+ * from; and "other" otherwise, as after a load from an out-of-date copy of
+ * its record, whatever the copy's coffee, a Bean renamed since included.
+ */
+async function coffeeHeld(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<"recipe" | "other" | "typed"> {
+  if (await holdsRecipeCoffee(tx, content, workflow)) return "recipe";
+  const [name, roaster] = coffeeOf(workflow);
+  if (recipeBean(content) !== null || (name === null && roaster === null)) return "other";
+  const [another] = await tx.$queryRaw<{ found: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM beans WHERE NULLIF(content ->> 'name', '') IS NOT DISTINCT FROM ${name}::text AND NULLIF(content ->> 'roaster', '') IS NOT DISTINCT FROM ${roaster}::text
+    ) AS found`;
+  return another?.found ? "other" : "typed";
 }
 
 /**
@@ -449,7 +507,7 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
     -- The batch's Bean, or the Recipe's where it names no batch, whose name and roaster a cleared batch leaves, as DYE2's apply does.
     LEFT JOIN beans AS bean ON bean.id::text = COALESCE(batch.bean_id::text, lower(${String(content.beanId ?? "")}))`;
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  const due = partsWrite(dueParts(target, known.held, known.base), known.held, {
+  const due = partsWrite(dueParts(target, known.held, known.base, recipeBean(content)), known.held, {
     profile: isObject(names?.profile) ? names.profile : null,
     grinderModel: text(names?.grinderModel),
     basketName: text(names?.basketName),
@@ -587,6 +645,10 @@ export async function recordLoadedRecipeWritten(
   return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
+    // The Location's lock before what the tablet's Workflow named is read, as an edit of the Recipe changing its Bean
+    // writes the Bean taken into it under that lock alone (`keepBeanTaken`), which re-saving it as read before would lose.
+    const locationId = await sharingLocation(tx, tablet.machineId);
+    if (locationId !== null) await lockLocation(tx, locationId);
     const known = await namedRecipe(tx, tablet.tabletId);
     if (known === null || known.recipeId !== recipeId.toLowerCase()) return "recorded";
     // Unloaded, or the Workflow names another recipe or none by now, which the Workflow the plugin sends after it brings:
@@ -595,8 +657,6 @@ export async function recordLoadedRecipeWritten(
       await forgetNamed(tx, tablet.tabletId);
       return "recorded";
     }
-    const locationId = await sharingLocation(tx, tablet.machineId);
-    if (locationId !== null) await lockLocation(tx, locationId);
     const [row] = await tx.$queryRaw<{ id: string; content: unknown; fieldEdits: unknown }[]>`
       SELECT recipes.id::text AS id, recipes.content, recipes.field_edits AS "fieldEdits"
       FROM recipes JOIN loaded_recipes AS loaded ON loaded.recipe_id = recipes.id AND loaded.machine_id = ${tablet.machineId}::uuid AND loaded.unloaded_at IS NULL
@@ -624,6 +684,16 @@ export async function recordLoadedRecipeWritten(
       // not one Decaid refused for want of a machine, which stays due.
       if (!carried || value === undefined) continue;
       if (samePart(part, now[part], value) || !samePart(part, now[part], known.held[part]) || (STEAM_OFF_KEPT.has(part) && steamOff(record))) base[part] = value;
+    }
+    // A batch written carried the name and roaster of the Recipe's Bean as of the latest edit the write carried (#572): the
+    // Recipe's Bean now where that was its latest edit of it, or where the Workflow returned holds its coffee, and otherwise
+    // another, which may be the one it named before that edit, as when its Bean was set back meanwhile, so the Recipe's is
+    // due again.
+    const beanDecided = fieldEdits.beanId?.decidedAt;
+    if (set.has("batch")) {
+      const content = isObject(row.content) ? row.content : {};
+      const beanCarried = contentSeen !== null && (beanDecided === undefined || new Date(beanDecided).getTime() <= contentSeen.getTime());
+      base[BEAN_TAKEN] = beanCarried || (await holdsRecipeCoffee(tx, content, record)) ? recipeBean(content) : OTHER_BEAN;
     }
     await saveNamed(tx, tablet.tabletId, { ...known, held, base });
     return "recorded";

@@ -1,6 +1,8 @@
 import { RECIPE_SETTING_NAMES, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  BEAN_TAKEN,
+  OTHER_BEAN,
   PARTS,
   type WorkflowParts,
   dueParts,
@@ -10,6 +12,7 @@ import {
   partsWrite,
   readBase,
   readParts,
+  recipeBean,
   recipeParts,
   RECORDED_PARTS,
   samePart,
@@ -29,6 +32,7 @@ const BATCH = "11111111-1111-4111-8111-111111111111";
 const NEXT_BAG = "22222222-2222-4222-8222-222222222222";
 const OTHER_BEANS_BATCH = "33333333-3333-4333-8333-333333333333";
 const BEAN = "44444444-4444-4444-8444-444444444444";
+const ANOTHER_BEAN = "55555555-5555-4555-8555-555555555555";
 const BASKET = "66666666-6666-4666-8666-666666666666";
 const GRINDER = "77777777-7777-4777-8777-777777777777";
 const OTHER_GRINDER = "88888888-8888-4888-8888-888888888888";
@@ -269,6 +273,47 @@ describe("The parts of its Loaded Recipe a Workflow is due", () => {
     expect(dueParts(recipeParts(edited, local), HELD, taken).basket).toBeUndefined();
   });
 
+  it("are, where the Recipe names a Bean and no batch, its batch part cleared once the Recipe's Bean is another than the Workflow took, over a coffee typed on the Machine, and only then (#572)", () => {
+    const { beanBatchId: _, ...beanOnly } = CONTENT;
+    // A Workflow holding no batch, its coffee typed or the Bean's: the parts hold no coffee name.
+    const held = { ...HELD, batch: null };
+    const target = recipeParts(beanOnly, local);
+    const base = { ...heldAlready(target, held), [BEAN_TAKEN]: BEAN };
+    expect(Object.values(dueParts(target, held, base, recipeBean(beanOnly))).every((part) => part === undefined)).toBe(true);
+    // The Recipe's Bean changed to another, from anywhere: due, cleared, so the write brings the Bean's name and roaster.
+    const otherBean = { ...beanOnly, beanId: ANOTHER_BEAN };
+    expect(dueParts(target, held, base, recipeBean(otherBean))).toMatchObject({ batch: null, beanDue: true });
+    // Removed: due the same, the write clearing the name and roaster.
+    const { beanId: __, ...noBean } = beanOnly;
+    expect(dueParts(recipeParts(noBean, local), held, base, recipeBean(noBean))).toMatchObject({ batch: null, beanDue: true });
+    // Another taken, whichever, as from an out-of-date copy: the Recipe's is due.
+    expect(dueParts(target, held, { ...base, [BEAN_TAKEN]: OTHER_BEAN }, recipeBean(beanOnly))).toMatchObject({ batch: null, beanDue: true });
+    expect(readBase(JSON.parse(JSON.stringify({ [BEAN_TAKEN]: OTHER_BEAN })))).toEqual({ [BEAN_TAKEN]: OTHER_BEAN });
+    // Once the Workflow took it, nothing is due again, the Bean compared by its id in any case.
+    expect(dueParts(target, held, { ...base, [BEAN_TAKEN]: ANOTHER_BEAN }, recipeBean(otherBean))).toMatchObject({ batch: undefined });
+    expect(dueParts(target, held, { ...base, [BEAN_TAKEN]: ANOTHER_BEAN }, recipeBean({ beanId: ANOTHER_BEAN.toUpperCase() })).beanDue).toBeUndefined();
+    // A base keeping no Bean, as a release before #572 saved, took the Recipe's as it is now: nothing is due.
+    const { [BEAN_TAKEN]: ___, ...legacy } = base;
+    expect(readBase(JSON.parse(JSON.stringify(legacy)))).not.toHaveProperty(BEAN_TAKEN);
+    expect(dueParts(target, held, readBase(JSON.parse(JSON.stringify(legacy))), recipeBean(otherBean)).batch).toBeUndefined();
+    // The Bean taken is kept through a save, none included.
+    expect(readBase(JSON.parse(JSON.stringify({ ...base, [BEAN_TAKEN]: null })))).toMatchObject({ [BEAN_TAKEN]: null });
+    expect(readBase({ [BEAN_TAKEN]: BEAN.toUpperCase() })).toEqual({ [BEAN_TAKEN]: BEAN });
+  });
+
+  it("are, where the Recipe names a batch, as before: a change of its Bean alone is due as its batch changes (#572)", () => {
+    const target = recipeParts(CONTENT, local);
+    const base = { ...heldAlready(target, HELD), [BEAN_TAKEN]: BEAN };
+    expect(dueParts(target, HELD, base, ANOTHER_BEAN)).toMatchObject({ batch: undefined });
+    expect(dueParts(target, HELD, base, ANOTHER_BEAN).beanDue).toBeUndefined();
+    // One naming a batch the tablet holds no record of yet waits for it, a Workflow holding none included.
+    const unmapped = recipeParts(CONTENT, (kind, itemId) => (kind === "beanBatch" ? undefined : local(kind, itemId)));
+    expect(unmapped.batch).toBeUndefined();
+    const none = { ...HELD, batch: null };
+    expect(dueParts(unmapped, none, { ...heldAlready(unmapped, none), [BEAN_TAKEN]: BEAN }, ANOTHER_BEAN)).toMatchObject({ batch: undefined });
+    expect(dueParts(unmapped, none, { ...heldAlready(unmapped, none), [BEAN_TAKEN]: BEAN }, ANOTHER_BEAN).beanDue).toBeUndefined();
+  });
+
   it("carry the Recipe's brew temperature with a Profile written whole", () => {
     const target = recipeParts({ ...CONTENT, profileId: "profile:classic", brewTemperature: 92 }, local);
     expect(dueParts(target, HELD, heldAlready(target, HELD))).toMatchObject({ profile: "profile:classic", brewTemperature: 92 });
@@ -375,6 +420,25 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
       fields: { "context.beanBatchId": null, "context.coffeeName": "Ethiopia", "context.coffeeRoaster": "Fixture Roasters" },
       expected: { "context.beanBatchId": "b1" },
     });
+  });
+
+  it("is, where its batch part is due for a change of the Recipe's Bean, the Bean's name and roaster into a Workflow holding no batch already, or none, expecting it to hold none still (#572)", () => {
+    const { beanBatchId: _, ...beanOnly } = CONTENT;
+    const held = { ...HELD, batch: null };
+    const target = recipeParts(beanOnly, local);
+    // Without the Bean due, nothing: the Workflow holds no batch, as the Recipe.
+    expect(partsWrite(dueParts(target, held, { ...heldAlready(target, held), [BEAN_TAKEN]: BEAN }, BEAN), held, names)).toBeNull();
+    const due = dueParts(target, held, { ...heldAlready(target, held), [BEAN_TAKEN]: BEAN }, ANOTHER_BEAN);
+    expect(partsWrite(due, held, { ...names, coffeeName: "Kenya", coffeeRoaster: "Other Roasters" })).toEqual({
+      fields: { "context.beanBatchId": null, "context.coffeeName": "Kenya", "context.coffeeRoaster": "Other Roasters" },
+      expected: { "context.beanBatchId": null },
+    });
+    expect(partsWrite(due, held, { ...names, coffeeName: null, coffeeRoaster: null })).toEqual({
+      fields: { "context.beanBatchId": null, "context.coffeeName": null, "context.coffeeRoaster": null },
+      expected: { "context.beanBatchId": null },
+    });
+    // Over a batch the Machine holds as its own, as one the Library retired: the Bean changed, so its batch goes.
+    expect(partsWrite(dueParts(target, HELD, { ...heldAlready(target, HELD), batch: null, [BEAN_TAKEN]: BEAN }, ANOTHER_BEAN), HELD, names)?.expected).toEqual({ "context.beanBatchId": "b1" });
   });
 
   it("waits for a batch or Basket the tablet holds no record of yet, and works out the yield from the ratio where it holds none", () => {

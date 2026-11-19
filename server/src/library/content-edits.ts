@@ -3,6 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { type CopiedFrom, type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
 import { KINDS, idSql, idsSql } from "./kinds.js";
 import { isObject } from "./listed.js";
+import { BEAN_TAKEN, recipeBean } from "./loaded-recipe-intake.js";
 import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
 
 // Edits of Library items' content, merged per field with the latest edit
@@ -142,6 +143,22 @@ async function saveItem(
     UPDATE ${Prisma.raw(description.table)}
     SET content = ${JSON.stringify(content)}::jsonb, field_edits = ${JSON.stringify(fieldEdits)}::jsonb ${archivedColumn} ${description.keptColumns(content)}
     WHERE id = ${idSql(description, item.id)}`;
+  if (item.kind === "recipe") await keepBeanTaken(tx, item.id, recipeBean(current.content), recipeBean(content));
+}
+
+/**
+ * Keeps the Bean a Recipe named before an edit changed it (`before`, by its
+ * global id, or null for none) as the one taken by each tablet's Workflow
+ * naming it whose base keeps none (`BEAN_TAKEN` in loaded-recipe-intake.ts),
+ * as saved by a release before #572, which took the Recipe's Bean as it was
+ * then: so the change is written into those Workflows too. Taken under the
+ * Recipe's row lock, after its Location's, as every write of those rows is.
+ */
+async function keepBeanTaken(tx: Prisma.TransactionClient, recipeId: string, before: string | null, after: string | null): Promise<void> {
+  if (before === after) return;
+  await tx.$executeRaw`
+    UPDATE tablet_loaded_recipes SET base = base || jsonb_build_object(${BEAN_TAKEN}::text, ${before}::text)
+    WHERE recipe_id = ${recipeId}::uuid AND NOT base ? ${BEAN_TAKEN}`;
 }
 
 /**

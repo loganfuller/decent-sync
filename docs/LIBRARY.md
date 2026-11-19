@@ -1641,7 +1641,9 @@ each update also writing the item's content where the record differs from it
    Following the Recipe): each of the Recipe's parts that changed since its
    Workflow last took it and that the Workflow holds otherwise, as an edit
    made anywhere, once the Recipe's record and the Basket and batch it
-   names are written; or the Workflow's `recipeId` cleared, where the
+   names are written, and, where it names no batch, its Bean's coffee name
+   and roaster, or none, once its Bean is another than the Workflow last
+   took, over any typed on the Machine (#572); or the Workflow's `recipeId` cleared, where the
    Recipe it names is not the Machine's Loaded Recipe, as one Archived or of
    a Location the Machine left. Either expects the Workflow still to name
    the tablet's record id of the Recipe. The clear of the Recipe a Machine
