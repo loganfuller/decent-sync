@@ -311,6 +311,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     });
     // A moved Machine's writers find it at another Location than its tablet's report, and ask for the tablet's
     // collections afresh, as do those of one whose sharing was turned back on; one turned off, they write nothing more.
+    // An identified one's writers plan again on its model, as a Profile it can't run is written to no Machine (#588).
     // After listening anew, every writer looks, through the Library changes listener.
     notifications.subscribe("machine_locations", (machineId) => {
       for (const session of this.connections) {

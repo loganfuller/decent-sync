@@ -196,10 +196,11 @@ Machines that can run it (`server/src/library/profile-reach.ts`):
   (`recipeWorkflow`). A Profile's record the tablet holds visible already
   is written as before, as is an edit of a Recipe's record that carries no
   Profile, or one the Machine can run; one whose Workflow carries a Profile
-  it can't run is refused like the rest. Nothing takes back what a tablet
-  holds already: a tablet that held such a Profile visible on a Bengle,
-  then set up on a DE1, keeps it, as the server plans no write of a record
-  that is as it should be.
+  it can't run is refused like the rest. This guard takes back nothing a
+  tablet holds already: a tablet that held such a Profile visible on a
+  Bengle, then set up on a DE1 at a Location that shows it, keeps it, as
+  the server plans no write of a record that is as it should be. Where the
+  Location hides it, Joining hides it on the tablet as any other.
 
 Advice in a Profile's checks (`checkProfile`) follows the models the account
 has Machines of (`accountModels`): a value is held to the widest of their
@@ -1795,7 +1796,9 @@ only the old one offered is archived or hidden on it (Joining a Location,
 below). A change to a Machine's Location History that changes the Location it is
 at now (a move, or correcting or removing its latest entry) commits with a
 `NOTIFY` on `machine_locations` naming the Machine, which wakes the writers of
-its connections, on any instance. A move an instance missed while not
+its connections, on any instance; so does entering an Unidentified Machine's
+hardware, as its model decides which Profiles it is written (A Profile
+reaches only the Machines that can run it, above). A move an instance missed while not
 listening is found when it listens again, as every writer then looks.
 
 One write is outstanding per connection, and only the connection holding a
