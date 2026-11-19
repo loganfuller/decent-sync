@@ -56,9 +56,10 @@ async function machinesAt(tx: Prisma.TransactionClient, locationId: string): Pro
  * Refuses, 409, a Profile at a Location where any Machine can't run its
  * values, as showing it there, or a Recipe there naming it, would offer it
  * to that Machine: naming the Location, each such Machine and its model,
- * or that its hardware isn't known yet, and the values. A Profile whose profile Decaid would not read is let
- * through, as nothing of it can be judged, and so is one the Library does
- * not have, which the caller refuses itself.
+ * or that its hardware isn't known yet, and the values. A Profile whose
+ * profile Decaid would not read is let through, as nothing of it can be
+ * judged, and so is one the Library does not have, which the caller
+ * refuses itself.
  */
 export async function refuseUnrunnableAt(tx: Prisma.TransactionClient, profileId: string, locationId: string): Promise<void> {
   const [row] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT content -> 'profile' AS profile FROM profiles WHERE id = ${profileId}`;

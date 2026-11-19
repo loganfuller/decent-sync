@@ -196,7 +196,10 @@ Machines that can run it (`server/src/library/profile-reach.ts`):
   (`recipeWorkflow`). A Profile's record the tablet holds visible already
   is written as before, as is an edit of a Recipe's record that carries no
   Profile, or one the Machine can run; one whose Workflow carries a Profile
-  it can't run is refused like the rest.
+  it can't run is refused like the rest. Nothing takes back what a tablet
+  holds already: a tablet that held such a Profile visible on a Bengle,
+  then set up on a DE1, keeps it, as the server plans no write of a record
+  that is as it should be.
 
 Advice in a Profile's checks (`checkProfile`) follows the models the account
 has Machines of (`accountModels`): a value is held to the widest of their
@@ -2105,8 +2108,9 @@ mismatched connection's that reported its hardware:
   one answered with a record that is not the item's or that the server
   cannot store, one still due as it was once written, which writing
   again would not change, and one carrying a profile its Machine's model
-  can't run (A Profile reaches only the Machines that can run it, above). A write the plugin does not answer within 300 s
-  is skipped too, but not kept, and counts as waiting. One is forgotten
+  can't run (A Profile reaches only the Machines that can run it, above).
+  A write the plugin does not answer within 300 s is skipped too, but not
+  kept, and counts as waiting. One is forgotten
   once a change of the same item or record is carried out there, and as
   the tablet's writer finds it no longer due (`pruneRefusals`), as when the
   item stopped being offered; until then, one no longer due is not shown.
@@ -2469,7 +2473,8 @@ fit.
 `simulate_profile` tool (`server/src/mcp/simulation.tools.ts`) simulate a
 Library Profile through `ProfileSimulationService`
 (`server/src/library/profile-simulation.service.ts`), with its checks
-(`checkProfile`), against the models the account has Machines of. Anyone who reads Profiles may, a Viewer too. The tool
+(`checkProfile`), against the models the account has Machines of. Anyone
+who reads Profiles may, a Viewer too. The tool
 answers within the size budget (ADR-0028): the headline figures, each
 step's end and why, never cut, the checks and the fit, and the run's curves
 thinned as a Shot's are.
