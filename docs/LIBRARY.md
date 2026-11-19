@@ -3318,7 +3318,7 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/`, `workflow-writes-v0.8.7/` and
 `workflow-writes-v0.9.0/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
-`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/profile-publishing.spec.ts`, `e2e/conflicts.spec.ts`,
+`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/profile-publishing.spec.ts`, `e2e/draft-following.spec.ts`, `e2e/conflicts.spec.ts`,
 `e2e/capture-only.spec.ts`,
 `e2e/sharing-status.spec.ts`, `e2e/equipment-management.spec.ts` and
 `e2e/recipe-management.spec.ts` the management interface.
