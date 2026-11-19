@@ -2561,9 +2561,10 @@ title and steps table it had:
 - **Refused on tablets**: the Machines whose tablets refused its write,
   each with why, the latest first (`ProfileView.refusedOn`, from
   `tablet_refusals`): among them a Decaid answering under another id, which
-  computes the Profile's id otherwise than this server's copy (ADR-0032),
-  so its plugin keeps nothing of it; and a Machine whose model can't run it
-  (#588).
+  computes the Profile's id otherwise than this server's copy (ADR-0032):
+  the tablet keeps the record its Decaid made, which its next report adds
+  to the Library as a separate Profile, named in the refusal; and a Machine
+  whose model can't run it (#588).
 
 An assistant reads the same (ADR-0026): `get_profile_versions`
 (`server/src/mcp/library.tools.ts`) gives the versions and the Recipes on a
@@ -2686,7 +2687,8 @@ Locations' tablets as any Profile, parents first.
 
 The dialog (`web/src/components/publish-profile.tsx`), opened from a
 Draft's page and from Return to it on a version, lists what changed
-(`differences`), the Locations, those that showed the Profile it replaces
+(`differences`) from the Profile it replaces, or, for a separate Profile,
+from the one it started from, the Locations, those that showed the Profile it replaces
 chosen to begin with, and, under each Location chosen, the Recipes there
 naming that Profile, each chosen to begin with, with the Machines that have
 it loaded now; and says for each whether the Profile replaced is hidden
@@ -2696,7 +2698,9 @@ says what was done.
 A tablet whose Decaid answers a Profile's create under another id is
 recorded as refusing it, with that id
 (`Answered with a record under another id, ...`), which the Profile's page
-shows (Refused on tablets, above).
+shows (Refused on tablets, above). The record its Decaid made stays on the
+tablet and joins the Library from its next report as a separate Profile, as
+the plugin's `writeProfile` says.
 
 ## REST API
 

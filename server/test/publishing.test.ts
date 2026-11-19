@@ -17,8 +17,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the Locations chosen, with the Recipes chosen, and the old one is hidden
 // there but where a Recipe not moved names it; a separate Profile leaves the
 // one it came from as it is; returning creates nothing; the refusals; a fork;
-// Staff and Viewers; a tablet answering under another id. Serials are made
-// up, from 58001.
+// Staff and Viewers; a tablet answering under another id; a tablet off when
+// a Profile is published to its Location. Serials are made up, from 58001.
 
 type Fields = Record<string, unknown>;
 
@@ -247,6 +247,24 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect((await refusal(api, "POST", path(CAFE_SOAK, "/return"), { from: CAFE_SOAK, locations: [cafe.id] }, 400)).message).toMatch(/itself/);
     expect((await refusal(api, "POST", path(CLASSIC, "/return"), { from: second, locations: [cafe.id] }, 409)).message).toMatch(/not a version/);
     expect((await refusal(api, "POST", path("profile:00000000000000000000", "/return"), { from: second, locations: [cafe.id] }, 404)).message).toBe("No such Profile");
+
+    // Only Recipes at a Location chosen, each once, not Archived, naming the Profile replaced; each refusal leaves everything as it was.
+    const ret = path(second, "/return");
+    const lungo = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: cafe.id, content: { name: "Publish Lungo", profileId: CLASSIC } }, 201)).recipe.id;
+    const retired = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: cafe.id, content: { name: "Publish Retired", profileId: CAFE_SOAK } }, 201)).recipe.id;
+    await api.send("PUT", `/recipes/${retired}/archived`, { archived: true }, 200);
+    expect((await refusal(api, "POST", ret, { from: CAFE_SOAK, locations: [roastery.id], recipes: [recipes.espresso] }, 400)).message).toMatch(/at none of the Locations chosen/);
+    expect((await refusal(api, "POST", ret, { from: CAFE_SOAK, locations: [cafe.id], recipes: [recipes.espresso, recipes.espresso] }, 400)).message).toMatch(/each Recipe once/);
+    expect((await refusal(api, "POST", ret, { from: CAFE_SOAK, locations: [cafe.id], recipes: [retired] }, 409)).message).toMatch(/Archived/);
+    expect((await refusal(api, "POST", ret, { from: CAFE_SOAK, locations: [cafe.id], recipes: [lungo] }, 409)).message).toMatch(/doesn't name the Profile being replaced/);
+    // Nor to an Archived version.
+    await api.send("PUT", path(second, "/archived"), { archived: true }, 200);
+    expect((await refusal(api, "POST", ret, { from: CAFE_SOAK, locations: [cafe.id] }, 409)).message).toMatch(/is Archived/);
+    await api.send("PUT", path(second, "/archived"), { archived: false }, 200);
+    await api.send("PUT", `/recipes/${lungo}/archived`, { archived: true }, 200);
+    expect(await shownAt(CAFE_SOAK)).toEqual(["Publish cafe"]);
+    expect(await shownAt(second)).toEqual([]);
+    expect((await recipe(recipes.espresso)).content.profileId).toBe(CAFE_SOAK);
   });
 
   it("publishes a new version with every Recipe moved, hiding the old one at the Location, and the tablets there with it", async () => {
@@ -283,12 +301,19 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect(same.message).toMatch(/Its steps are those of "Publish soak"/);
     expect(same.checks?.map((check) => check.code)).toEqual(["sameSteps"]);
 
-    // A separate Profile titled as one shown at the cafe; refused there, taken at the roastery, where none is.
+    // A separate Profile titled as one shown at the cafe, refused there.
     const titled = await save(await start({ profileId: third, as: "separate" }), soak("publish SOAK ", 6));
     expect((await refusal(api, "POST", `/drafts/${titled.id}/publish`, { saves: titled.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["titleInUse"]);
     // A new version shares its title with the versions it replaces.
     const again = await save(await start({ profileId: third, as: "version" }), soak("Publish soak", 6.8));
     expect((await publish(again, { locations: [cafe.id] })).profile.title).toBe("Publish soak");
+    // But not with the bundled Profile its chain was saved from, which is not one of them.
+    const fromClassic = await cafeTablet.addProfile(derivedProfile("Publish from Classic", 9.4), { parentId: CLASSIC });
+    await expect.poll(async () => (await api.call("GET", path(String(fromClassic.id)))).status, { timeout: 15_000 }).toBe(200);
+    await api.send("PUT", path(CLASSIC, `/locations/${cafe.id}`), { shown: true }, 200);
+    const asClassic = await save(await start({ profileId: String(fromClassic.id), as: "version" }), soak(classic.title, 6.1));
+    expect((await refusal(api, "POST", `/drafts/${asClassic.id}/publish`, { saves: asClassic.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["titleInUse"]);
+    await api.send("PUT", path(CLASSIC, `/locations/${cafe.id}`), { shown: false }, 200);
 
     const untitled = await save(await start({ shape: "classic" }), soak("", 5.5));
     expect((await refusal(api, "POST", `/drafts/${untitled.id}/publish`, { saves: untitled.saves, locations: [roastery.id] }, 409)).checks?.map((check) => check.code)).toContain("noTitle");
@@ -359,5 +384,19 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     const result = await staffAssistant.client.callTool({ name: "publish_draft", arguments: { id: staffDraft.id, saves: staffDraft.saves, locations: [cafe.id] } });
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toMatch(/only at the Locations they work at/);
+    const staffReturn = await staffAssistant.client.callTool({ name: "return_to_profile_version", arguments: { profileId: latest, from: fourth, locations: [cafe.id] } });
+    expect(staffReturn.isError).toBe(true);
+    expect(JSON.stringify(staffReturn.content)).toMatch(/only at the Locations/);
+  });
+
+  it("publishes to a Location whose tablet is off, which gets it on connecting", async () => {
+    const annex = await api.createLocation("Publish annex", "America/Chicago");
+    const annexMachine = await api.createMachine("Publish annex 1", annex.id);
+    const draft = await save(await start({ profileId: CLASSIC, as: "separate" }), soak("Publish while off", 5.1));
+    const published = await publish(draft, { locations: [annex.id] });
+    expect(published.shownAt).toEqual([{ id: annex.id, name: "Publish annex" }]);
+    const annexTablet = tablets.syncing(annexMachine, server, { api: emptyLibrary("58003") });
+    await api.waitForOnline(annexMachine);
+    await expect.poll(() => held(annexTablet, published.profile.id)?.visibility, { timeout: 15_000 }).toBe("visible");
   });
 });

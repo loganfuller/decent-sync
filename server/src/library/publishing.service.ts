@@ -105,13 +105,13 @@ export class PublishingService {
     refuseElsewhere(ask.locations, scope, "publish a Profile");
     const draft = await this.prisma.draft.findUnique({ where: { id: draftId }, select: { startedFromId: true, publishesAs: true } });
     if (!draft) throw new NotFoundException("No such Draft");
-    // The versions a new version replaces, whose titles it may share: read before the transaction, as the chain only grows.
+    // The versions a new version replaces, whose titles it may share, but for a bundled Profile the chain was saved from: read before the transaction, as the chain only grows.
     const chain =
       draft.publishesAs === "VERSION" && draft.startedFromId !== null
         ? new Set(
-            (await this.profiles.versions(draft.startedFromId, scope).catch((caught: unknown) => (caught instanceof NotFoundException ? [] : Promise.reject(caught)))).map(
-              (version) => version.id,
-            ),
+            (await this.profiles.versions(draft.startedFromId, scope).catch((caught: unknown) => (caught instanceof NotFoundException ? [] : Promise.reject(caught))))
+              .filter((version) => !version.bundled)
+              .map((version) => version.id),
           )
         : new Set<string>();
     return this.prisma.$transaction(async (tx) => {

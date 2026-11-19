@@ -116,14 +116,14 @@ export class ProfilesService {
     const [decided, machineModel, refused] = await Promise.all([
       this.prisma.profileLocation.findMany({ where: { profileId: id }, include: { location: true } }),
       this.machineModel(profile.archived ? [] : profile.locations.map((here) => here.locationId)),
-      // Each tablet's refusal, under the Machine whose tablet it last was.
+      // The refusal of each Machine's tablet, as its sharing status picks it (sharing-status.ts): a tablet it no longer has never writes again to clear its own.
       this.prisma.$queryRaw<{ machineId: string; machineName: string; error: string; refusedAt: Date }[]>`
         SELECT m.id::text AS "machineId", m.name AS "machineName", r.error, r.refused_at AS "refusedAt"
-        FROM tablet_refusals r
-        JOIN LATERAL (
-          SELECT machine_id FROM machine_tablets WHERE tablet_id = r.tablet_id AND machine_id IS NOT NULL ORDER BY last_hello DESC NULLS LAST LIMIT 1
-        ) AS mine ON true
-        JOIN machines m ON m.id = mine.machine_id
+        FROM machines m
+        JOIN tablet_refusals r ON r.tablet_id = COALESCE(
+          CASE WHEN m.identification <> 'MISMATCH' THEN m.connected_tablet_id END,
+          (SELECT tablet_id FROM machine_tablets WHERE machine_id = m.id ORDER BY last_hello DESC NULLS LAST LIMIT 1)
+        )
         WHERE r.kind = 'profile' AND r.item_id = ${id} AND r.change = 'write'
         ORDER BY r.refused_at DESC, m.name`,
     ]);

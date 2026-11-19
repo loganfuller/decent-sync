@@ -11,7 +11,9 @@ import { tabletAt } from "./support/tablets.js";
 // changed, the Locations, the Lab first as it showed the soak, and the
 // Recipes there with where each is loaded, one of them left on the soak,
 // which stays shown there. From the new version's page, the soak is
-// returned to through the same dialog. Serials are made up, from 58051.
+// returned to through the same dialog. A Duplicate, published as a separate
+// Profile, says what it changes from the one it started from and moves no
+// Recipes. Serials are made up, from 58051.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Fields = Record<string, unknown>;
@@ -98,4 +100,31 @@ test("publishes a Draft as a new version at the Locations and with the Recipes c
   await expect(page.getByRole("status").filter({ hasText: "Shown at Publish lab" })).toContainText("Lab Soak is hidden at Publish lab.");
   await expect(page.getByRole("region", { name: "Recipes on this version" })).toContainText("Lab Espresso");
   await expect.poll(() => tablet.profiles().find((record) => record.id === newId)?.visibility, { timeout: 15_000 }).toBe("hidden");
+});
+
+test("says what a separate Profile changes from the one it started from, and offers no Recipes to move", async ({ page }) => {
+  const lab = await createLocation(page, "Separate lab");
+  const tablet = await tabletAt(page, server, "Separate lab group", lab, "58052", { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [classicRecord], ...NO_DYE2_LISTS });
+  // Its own steps, as a Profile's id is its steps' hash, not its title's.
+  const soakId = String((await tablet.addProfile({ ...soak("Separate Soak"), target_weight: 42 })).id);
+  await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(soakId)}`)).status()).toBe(200);
+  const made = await page.request.post("/api/recipes", { data: { locationId: lab.id, slot: 1, content: { name: "Separate Espresso", profileId: soakId } } });
+  expect(made.status(), await made.text()).toBe(201);
+
+  await page.goto(`/library/profiles/${encodeURIComponent(soakId)}`);
+  await page.getByRole("button", { name: "Duplicate", exact: true }).click();
+  await expect(page).toHaveURL(/\/library\/drafts\//);
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Stop at weight").fill("36");
+  await expect(page.getByText("saving…")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Publish the Draft" });
+  await expect(dialog.getByRole("region", { name: "What changed" })).toContainText("36 g, unless a Recipe sets a yield");
+  // Compared with the soak, named over its column.
+  await expect(dialog.getByRole("region", { name: "What changed" }).getByRole("columnheader", { name: "Separate Soak", exact: true })).toBeVisible();
+  await dialog.getByRole("checkbox", { name: "Separate lab" }).click();
+  await expect(dialog.getByRole("list", { name: "Recipes at Separate lab" })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Shown at Separate lab" })).toBeVisible();
 });

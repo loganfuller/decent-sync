@@ -69,6 +69,8 @@ export function PublishDialog({
   const [replaced, setReplaced] = useState<Profile | null>();
   const [recipes, setRecipes] = useState<RecipeOnProfile[]>();
   const [to, setTo] = useState<ProfileDefinition | null>();
+  // For a separate Profile, which replaces none, the one it started from, to say what changed.
+  const [startedFrom, setStartedFrom] = useState<Profile | null>(null);
   const [newer, setNewer] = useState<{ id: string; title: string | null; savedAt: string; profile: ProfileDefinition | null }[]>([]);
   const [chosenLocations, setChosenLocations] = useState<Set<string>>();
   const [chosenRecipes, setChosenRecipes] = useState<Set<string>>(new Set());
@@ -78,6 +80,7 @@ export function PublishDialog({
 
   const draftNewer = target.kind === "draft" ? target.draft.newer : undefined;
   const returnTo = target.kind === "return" ? target.to.id : undefined;
+  const comparedTo = target.kind === "draft" && !replaces ? (target.draft.startedFrom?.id ?? null) : null;
   useEffect(() => {
     if (!open) return;
     let current = true;
@@ -98,6 +101,8 @@ export function PublishDialog({
       setRecipes([]);
       setChosenLocations((chosen) => chosen ?? new Set());
     }
+    // Only to compare: a source since Archived or gone leaves nothing to compare, and publishing is not held up for it.
+    if (comparedTo) api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(comparedTo)}`).then(({ profile }) => current && setStartedFrom(profile), () => undefined);
     if (returnTo) api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(returnTo)}`).then(({ profile }) => current && setTo(definitionOf(profile)), failed);
     if (draftNewer && draftNewer.length > 0) {
       Promise.all(draftNewer.map((version) => api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(version.id)}`).then(({ profile }) => ({ ...version, profile: definitionOf(profile) })))).then(
@@ -109,12 +114,13 @@ export function PublishDialog({
       current = false;
     };
     // mayChangeAt is a new function each render; the account's Locations don't change while the dialog is open.
-  }, [open, replaces, returnTo, draftNewer]);
+  }, [open, replaces, returnTo, comparedTo, draftNewer]);
 
   const reset = () => {
     setReplaced(undefined);
     setRecipes(undefined);
     setTo(undefined);
+    setStartedFrom(null);
     setNewer([]);
     setChosenLocations(undefined);
     setChosenRecipes(new Set());
@@ -123,7 +129,8 @@ export function PublishDialog({
   };
 
   const after = target.kind === "draft" ? target.profile : to;
-  const before = replaced ? definitionOf(replaced) : null;
+  const comparedWith = replaced ?? startedFrom;
+  const before = comparedWith ? definitionOf(comparedWith) : null;
   const changes = before && after ? differences(before, after) : null;
   const chosen = chosenLocations ?? new Set<string>();
   const offered = (locations ?? []).filter((location) => mayChangeAt(location.id) || chosen.has(location.id));
@@ -235,7 +242,7 @@ export function PublishDialog({
               {changes.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nothing in its steps or what it states once.</p>
               ) : (
-                <ChangesTable caption="What changed" before={name(replaced)} after={target.kind === "draft" ? "This Draft" : target.to.name} rows={changes} />
+                <ChangesTable caption="What changed" before={name(comparedWith)} after={target.kind === "draft" ? "This Draft" : target.to.name} rows={changes} />
               )}
             </section>
           )}
