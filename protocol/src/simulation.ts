@@ -20,7 +20,7 @@
 // Pure: no Node or browser API, as the plugin bundles this package.
 
 import { MODEL_FIGURES, type MachineModel } from "./machine-models.js";
-import { type Profile, type ProfileStep, type StepLimiter, stepTarget } from "./profile.js";
+import { PROFILE_LIMITS, type Profile, type ProfileStep, type StepLimiter, stepTarget } from "./profile.js";
 import { type Sample, type ShotCurve, type StepSpan, FIRST_DRIP_GRAMS, lastRecordedWeight, stepSpans, timeToFirstDrip } from "./record-samples.js";
 
 // The machine ------------------------------------------------------------------
@@ -45,6 +45,15 @@ const PRESSURE_RESPONSE = 2;
 
 /** A step shorter than this runs as none: Decaid sends a step's time in tenths of a second, rounded (`convert_float_to_F8_1_7`). */
 const NO_LENGTH = 0.05;
+
+/**
+ * A step's time as the machine runs it: at most 127 s (PROFILE_LIMITS), as
+ * the machine's wire format holds no more, so a run is bounded by its steps
+ * however long a stored profile says one is.
+ */
+function stepSeconds(step: ProfileStep): number {
+  return Math.min(PROFILE_LIMITS.seconds.max, step.seconds);
+}
 
 /** The least resistance a puck has, where water fills the space above it and meets none. */
 const LEAST_RESISTANCE = 0.001;
@@ -155,13 +164,14 @@ const MEASURABLE_FLOW = 0.3;
  * then; the water it took before the first drip (`timeToFirstDrip`); and
  * the grams that reached the cup for each ml through it after that. A Shot
  * with no scale takes what the standard puck holds and yields. `dose` is
- * the Shot's, where it recorded one.
+ * the Shot's, where it recorded one. Null where no sample shows the puck's
+ * resistance, as where the Shot recorded no flow or its pump never ran
+ * against pressure.
  */
-export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | null = null): Puck {
+export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | null = null): Puck | null {
   const shot = samples.filter((sample) => sample.shade === null);
   const doseOf = dose !== null && dose > 0 ? dose : STANDARD_DOSE;
   const standardHolds = STANDARD_HEADSPACE + SOAKED_PER_GRAM * doseOf;
-  if (shot.length === 0) return { resistance: [[0, LEAST_RESISTANCE]], holds: standardHolds, yieldPerMl: 1, dose: doseOf, measuredTo: 0 };
   const seconds = shot.map((sample) => sample.seconds);
   const pressure = shot.map((sample) => Math.max(0, sample.values.pressure ?? 0));
   const flow = shot.map((sample) => Math.max(0, sample.values.flow ?? 0));
@@ -188,7 +198,7 @@ export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | n
     filling = false;
     points.push([pumped[n]!, pressure[n]! / (puckFlow * puckFlow)]);
   }
-  if (points.length === 0) points.push([0, LEAST_RESISTANCE]);
+  if (filling) return null;
   const resistance = monotoneInVolume(smoothed(points));
   const firstDrip = timeToFirstDrip(shot);
   const last = lastRecordedWeight(shot);
@@ -326,7 +336,8 @@ export interface Simulation {
  * Runs a profile on a puck, as a Machine of the model would with a scale
  * under the cup. Each step ends at its time, its exit, its water pumped or
  * the weight in the cup reaching its weight, whichever comes first, a step
- * of no length at once, whatever its exit; the Shot stops when the weight in
+ * of no length at once, whatever its exit, and none longer than the machine
+ * runs one (127 s, PROFILE_LIMITS); the Shot stops when the weight in
  * the cup reaches the stop-at weight, or when its last step ends. A profile
  * of no steps runs for none.
  */
@@ -350,6 +361,8 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
   let stepPumped = 0;
   let from = 0;
   let stop: SimulatedRun["stop"] | null = null;
+  let peakPressure = 0;
+  let peakFlow = 0;
 
   const sample = (step: ProfileStep | undefined, target: number | null) => {
     samples.push({
@@ -376,7 +389,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
       stepStart = time;
       stepPumped = pumped;
       from = step.pump === "pressure" ? pressure : flow;
-      if (step.seconds >= NO_LENGTH) return true;
+      if (stepSeconds(step) >= NO_LENGTH) return true;
       steps[index]!.end = round(time);
       steps[index]!.reason = "time";
       index++;
@@ -384,14 +397,17 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
     return false;
   };
 
-  sample(profile.steps[0], profile.steps[0] ? initialTarget(profile.steps[0], 0) : null);
-  if (!begin()) stop = { seconds: 0, reason: "lastStep" };
+  // The first sample is of the step the run begins with, past any of no length, or of none.
+  const begun = begin();
+  const first = begun ? profile.steps[index] : undefined;
+  sample(first, first ? initialTarget(first, 0) : null);
+  if (!begun) stop = { seconds: 0, reason: "lastStep" };
 
   while (!stop) {
     const step = profile.steps[index]!;
     const elapsed = time + SIMULATION_TICK - stepStart;
     const goal = stepTarget(step);
-    const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / step.seconds) : goal;
+    const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / stepSeconds(step)) : goal;
     const resistance = Math.max(LEAST_RESISTANCE, resistanceAt(puck.resistance, pumped));
 
     // What the pump is asked for this tick.
@@ -419,6 +435,8 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
     weightFlow = (weight - before) / SIMULATION_TICK;
     time += SIMULATION_TICK;
     sample(step, target);
+    peakPressure = Math.max(peakPressure, pressure);
+    peakFlow = Math.max(peakFlow, flow);
 
     if (stopWeight !== null && weight >= stopWeight) {
       steps[index]!.end = round(time);
@@ -444,8 +462,8 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
     stop,
     duration: stop.seconds,
     timeToFirstDrip: firstDrip ? firstDrip.seconds : null,
-    peakPressure: Math.max(...samples.map((s) => s.values.pressure ?? 0)),
-    peakFlow: Math.max(...samples.map((s) => s.values.flow ?? 0)),
+    peakPressure,
+    peakFlow,
     weight,
     weightFlowAtStop: weightFlow,
     water: pumped,
@@ -467,7 +485,7 @@ function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; f
   }
   if (step.volume > 0 && at.water >= step.volume) return "water";
   if (step.weight !== null && step.weight > 0 && at.weight >= step.weight) return "weight";
-  if (at.elapsed >= step.seconds - 1e-9) return "time";
+  if (at.elapsed >= stepSeconds(step) - 1e-9) return "time";
   return null;
 }
 

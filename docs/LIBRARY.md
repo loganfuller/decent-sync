@@ -2336,7 +2336,8 @@ A Library Profile can be simulated on a puck (#577, ADR-0032), so a person
 or an assistant can see what it does before pulling a Shot. One pure module,
 `protocol/src/simulation.ts`, runs it, for the management interface in the
 browser and for the server's REST route and MCP tool alike. Everything it
-returns is simulated, and says so.
+returns is simulated, and says so, but the recorded Shot's figures beside a
+fit.
 
 - **The run.** `simulateProfile` takes a profile, a puck, a dose, a stop-at
   weight and a Machine model, and returns the run: a sample each 0.1 s from
@@ -2349,7 +2350,8 @@ returns is simulated, and says so.
   its step's, and it has no temperature of its own.
 - **Steps.** A step ends at its maximum time, its exit, the water it may pump
   or its weight in the cup, whichever comes first; a step under 0.05 s, which
-  Decaid sends as none, is passed through at once, whatever its exit. The
+  Decaid sends as none, is passed through at once, whatever its exit, and
+  one over 127 s runs 127 s, as the machine's wire format holds no more. The
   Shot stops when the cup reaches the stop-at weight, or when its last step
   ends. A step that gets to its target over the whole step ramps from what
   the run measured as it began, not from the step before's target, as
@@ -2373,7 +2375,8 @@ returns is simulated, and says so.
   from its samples after its Preheat: its resistance from its pressure and
   the flow through the puck at each sample where the pump was running and
   pressure had built, the water it took before its first drip, and the
-  grams that reached the cup for each ml through it after. Another dose
+  grams that reached the cup for each ml through it after; none where no
+  sample shows its resistance. Another dose
   scales a puck's resistance in proportion and the water its coffee soaks
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
@@ -2454,10 +2457,12 @@ Every endpoint requires the account session; Staff read them as Admins do.
   sample; `checks` are the Profile's (`checkProfile`); `fit` is
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
-  where Decaid would not read the Shot's own profile. 400 for a value out of
-  range, or both `grind` and `shotId`; 404 for no such Profile or Shot; 409
-  for a Profile whose profile Decaid would not read, or a Shot with too few
-  samples to work its puck out from.
+  where Decaid would not read the Shot's own profile or it has more than 20
+  steps. 400 for a value out of range, or both `grind` and `shotId`; 404 for
+  no such Profile or Shot; 409 for a Profile whose profile Decaid would not
+  read or that has more than 20 steps, the most a machine takes, or a Shot
+  whose samples show nothing of its puck's resistance: no pressure and flow
+  together.
 - `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
   required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
   roaster, name } }` if the Library has a Bean of that roaster and name.

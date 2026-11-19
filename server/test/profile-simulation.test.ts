@@ -37,6 +37,7 @@ interface Simulation {
 /** Classic Italian espresso, which Decaid bundles, by the id Decaid gives it. */
 const CLASSIC = "profile:39e939592679fb194706";
 const SHOT = "simulated-classic";
+const FLOWLESS = "simulated-classic-flowless";
 
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
@@ -72,7 +73,11 @@ describe("A Library Profile simulated on a puck", () => {
     const recorded = JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json", import.meta.url), "utf8")) as Fields;
     const workflow = recorded.workflow as Fields;
     tablet.pullShot({ ...recorded, id: SHOT, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
+    // The same Shot with no flow recorded, from which no puck can be worked out.
+    const flowless = (recorded.measurements as Array<{ machine: Fields }>).map(({ machine: { flow: _, ...machine }, ...rest }) => ({ ...rest, machine }));
+    tablet.pullShot({ ...recorded, id: FLOWLESS, measurements: flowless, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
     await answers(api, `/shots/${SHOT}`);
+    await answers(api, `/shots/${FLOWLESS}`);
   });
   afterAll(async () => {
     await assistant?.close();
@@ -146,6 +151,7 @@ describe("A Library Profile simulated on a puck", () => {
     expect((await refused({ stopAt: "501" })).status).toBe(400);
     expect(await refused({}, "profile:00000000000000000000")).toEqual({ status: 404, message: "No such Profile" });
     expect(await refused({ shotId: "no-such-shot" })).toEqual({ status: 404, message: "Shot not found" });
+    expect(await refused({ shotId: FLOWLESS })).toEqual({ status: 409, message: `Shot ${FLOWLESS} recorded no pressure and flow to work its puck out from` });
   });
 
   it("is read by Staff away from the Profile's Locations, and by a Viewer", async () => {

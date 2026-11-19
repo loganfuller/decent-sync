@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import {
   MACHINE_MODELS,
+  MAX_PROFILE_STEPS,
   type MachineModel,
   PROFILE_LIMITS,
   type ProfileChecks,
@@ -59,7 +60,7 @@ export interface ProfileSimulation {
    * On a Shot's puck, the Shot's own steps run on it, stopped as it stopped,
    * beside the Shot: each's duration, time to first drip, peak pressure and
    * each step's end. Null on the standard puck, and where Decaid would not
-   * read the Shot's own profile.
+   * read the Shot's own profile or it has more steps than a machine takes.
    */
   fit: ShotFit | null;
 }
@@ -76,13 +77,15 @@ export class ProfileSimulationService {
    * otherwise on the standard puck at the grind asked, with the dose asked,
    * else the Shot's or 18 g, stopping at the weight asked, else the Profile's
    * stop-at weight, on a Machine of the model asked. 409 for a Profile whose
-   * profile Decaid would not read, and for a Shot with no samples after its
-   * Preheat.
+   * profile Decaid would not read or that has more steps than a machine
+   * takes (MAX_PROFILE_STEPS), which bounds the run, and for a Shot whose
+   * samples show nothing of its puck's resistance.
    */
   async simulate(profileId: string, ask: SimulationAsk): Promise<ProfileSimulation> {
     const item = await this.profiles.get(profileId);
     const profile = item.profile;
     if (!profile) throw new ConflictException(`Profile ${profileId}'s profile can't be read as Decaid reads one, so it can't be simulated`);
+    if (profile.steps.length > MAX_PROFILE_STEPS) throw new ConflictException(`Profile ${profileId} has ${profile.steps.length} steps, more than the ${MAX_PROFILE_STEPS} a machine takes, so it can't be simulated`);
     const stopAt = ask.stopAt ?? (profile.target_weight !== null && profile.target_weight > 0 ? profile.target_weight : null);
     const checks = checkProfile(profile);
     const of = { id: item.id, title: item.title };
@@ -91,10 +94,10 @@ export class ProfileSimulationService {
       return { profile: of, model: ask.model, puck: { kind: "standard", grind: ask.grind }, dose: run.dose, stopAt: run.stopAt, run, checks, fit: null };
     }
     const shot = await this.shots.forSimulation(ask.shotId);
-    if (shot.samples.filter((sample) => sample.shade === null).length < 2) throw new ConflictException(`Shot ${ask.shotId} recorded too few samples to work its puck out from`);
     const puck = shotPuck(shot.samples, shot.dose);
+    if (!puck) throw new ConflictException(`Shot ${ask.shotId} recorded no pressure and flow to work its puck out from`);
     const run = simulateProfile({ profile, puck, dose: ask.dose ?? puck.dose, stopAt, model: ask.model });
-    const fit = shot.profile ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: shotStopAt(shot.samples, shot.stopReason), model: shot.model }).fit : null;
+    const fit = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: shotStopAt(shot.samples, shot.stopReason), model: shot.model }).fit : null;
     return { profile: of, model: ask.model, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks, fit };
   }
 }

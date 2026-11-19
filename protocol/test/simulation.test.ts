@@ -197,9 +197,31 @@ describe("a step of no length", () => {
     }
   });
 
+  it("as the first step, leaves the run's first sample to the step it begins with", () => {
+    const result = run([pressure("Nothing", 9, { seconds: 0 }), flow("Fill", 4, { seconds: 6 })]);
+    expect(result.steps.map((step) => step.start)).toEqual([0, 0]);
+    expect(result.samples[0]!.step).toEqual({ frame: 1, name: "Fill" });
+    expect(result.samples[0]!.targets).toMatchObject({ pressure: null, flow: 4 });
+    expect(result.samples.some((sample) => sample.step?.frame === 0)).toBe(false);
+    const nothing = run([pressure("Nothing", 9, { seconds: 0 })]);
+    expect(nothing.samples).toHaveLength(1);
+    expect(nothing.samples[0]!.step).toBeNull();
+  });
+
   it("a step of 0.05 s or more runs a tick", () => {
     const result = run([flow("Fill", 4, { seconds: 6 }), flow("Tick", 1.5, { seconds: 0.05 }), pressure("Extract", 6, { seconds: 10 })]);
     expect(result.steps[1]!.end! - result.steps[1]!.start!).toBeCloseTo(SIMULATION_TICK, 6);
+  });
+});
+
+describe("a step longer than the machine runs one", () => {
+  it("runs 127 s, as the machine's wire format holds no more", () => {
+    const result = run([flow("Endless", 0.2, { seconds: 12_700 })]);
+    expect(result.steps[0]).toMatchObject({ start: 0, end: 127, reason: "time" });
+    expect(result.duration).toBe(127);
+    expect(result.samples).toHaveLength(1271);
+    expect(result.peakFlow).toBeCloseTo(Math.max(...result.samples.map((sample) => sample.values.flow!)), 9);
+    expect(result.peakPressure).toBeCloseTo(Math.max(...result.samples.map((sample) => sample.values.pressure!)), 9);
   });
 });
 
@@ -360,7 +382,7 @@ describe("a Shot's puck", () => {
       };
       const shotProfile = profileOf(record.workflow.profile)!;
       const samples = shotSamples(record.measurements, shotProfile);
-      const puck = shotPuck(samples, record.workflow.context.targetDoseWeight);
+      const puck = shotPuck(samples, record.workflow.context.targetDoseWeight)!;
       expect(puck.dose).toBe(18);
       expect(puck.resistance.length).toBeGreaterThan(10);
       const { run: fitted, fit } = fitToShot({ samples, profile: shotProfile, puck, stopAt: shotStopAt(samples, record.stopReason) });
@@ -380,6 +402,16 @@ describe("a Shot's puck", () => {
     const samples = shotSamples(unweighed, profileOf(record.workflow.profile));
     expect(shotPuck(samples, 18)).toMatchObject({ holds: standardPuck().holds, yieldPerMl: 1 });
     expect(shotStopAt(samples, "targetWeight")).toBeNull();
+  });
+
+  it("is none where no sample shows its resistance: no flow recorded, or the pump never running against pressure", () => {
+    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: Array<{ machine: Record<string, unknown> }> };
+    const shotProfile = profileOf(record.workflow.profile);
+    const without = (field: string) => shotSamples(record.measurements.map((measurement) => ({ ...measurement, machine: { ...measurement.machine, [field]: undefined } })), shotProfile);
+    expect(shotPuck(shotSamples(record.measurements, shotProfile), 18)).not.toBeNull();
+    expect(shotPuck(without("flow"), 18)).toBeNull();
+    expect(shotPuck(without("pressure"), 18)).toBeNull();
+    expect(shotPuck([], 18)).toBeNull();
   });
 
   it("stops a run as the Shot stopped: at its last weight, or with its steps where its machine ended it", () => {
