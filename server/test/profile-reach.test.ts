@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { LOADED_RECIPE_KIND } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Prisma } from "../src/generated/prisma/client.js";
@@ -29,6 +30,16 @@ interface Check {
   step: number | null;
   path?: string;
   message: string;
+}
+
+interface ConflictView {
+  id: string;
+  item: { id: string };
+  field: string;
+  value: unknown;
+  location: { id: string } | null;
+  state: string;
+  current: { value: unknown; versionId: string | null };
 }
 
 interface Refusal {
@@ -153,7 +164,11 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
     await api.waitForOnline(harborMachine);
     await api.createMachine("Harbor 2", harbor.id);
     const message = await restRefusal("PUT", `${profilePath(fast)}/locations/${harbor.id}`, { shown: true }, 409);
-    expect(message).toBe('"Fast Bloom" can\'t reach Harbor: Harbor 1 and Harbor 2 are DE1s, which can\'t run Step 1, "Bloom": its flow is 17.93, outside 0 to 15.');
+    // Harbor 2's tablet hasn't connected, so its hardware isn't known, and it is held to a DE1's ranges.
+    const value = 'Step 1, "Bloom": its flow is 17.93, outside 0 to 15';
+    expect(message).toBe(
+      `"Fast Bloom" can't reach Harbor: Harbor 1 is a DE1, which can't run ${value}. Harbor 2's hardware isn't known yet, so it is held to a DE1's ranges and can't run ${value}.`,
+    );
     expect(await toolError("set_location_offering", { kind: "profile", id: fast, locationId: harbor.id, offered: true })).toBe(message);
     // Hiding it is never refused.
     expect((await api.call("PUT", `${profilePath(fast)}/locations/${harbor.id}`, { shown: false })).status).toBe(200);
@@ -166,7 +181,7 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
     expect(created.status).toBe(201);
     bengleRecipe = ((await created.json()) as { recipe: { id: string } }).recipe.id;
     const message = await restRefusal("POST", "/recipes", { locationId: harbor.id, content: { name: "Harbor Bloom", profileId: fast } }, 409);
-    expect(message).toMatch(/^"Fast Bloom" can't reach Harbor: Harbor 1 and Harbor 2 are DE1s/);
+    expect(message).toMatch(/^"Fast Bloom" can't reach Harbor: Harbor 1 is a DE1, which can't run/);
     expect(await toolError("create_recipe", { locationId: harbor.id, name: "Harbor Bloom", profileId: fast })).toBe(message);
     expect(await restRefusal("POST", `/recipes/${bengleRecipe}/copies`, { locationId: harbor.id, grinderId: null }, 409)).toBe(message);
     expect(await toolError("copy_recipe", { id: bengleRecipe, locationId: harbor.id, grinderId: null })).toBe(message);
@@ -205,6 +220,43 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
     expect(bengleTablet.profiles().find((record) => record.id === fast)).toMatchObject({ visibility: "visible" });
     expect((dye2List(bengleTablet, "recipes") as Record_[]).some((record) => record.name === "Bengle Bloom")).toBe(true);
   });
+
+  it("refuses a Conflict's value showing it where a Machine can't run it, through REST and MCP alike", async () => {
+    // Two Bengles at Pier, each on its own instance, hold it shown, then hidden.
+    const pier = await api.createLocation("Pier", "America/Chicago");
+    const [first, second] = [await api.createMachine("Pier 1", pier.id), await api.createMachine("Pier 2", pier.id)];
+    const one = tablets.syncing(first, server, { api: bengleLibrary(58804) });
+    const two = tablets.syncing(second, other, { api: bengleLibrary(58805) });
+    await api.waitForOnline(first, second);
+    const visibility = (tablet: SimulatedTablet) => tablet.profiles().find((record) => record.id === fast)?.visibility;
+    const atPier = async () => (await api.get<{ profile: { shownAt: { location: LocationView }[] } }>(profilePath(fast))).profile.shownAt.some((here) => here.location.id === pier.id);
+    expect((await api.call("PUT", `${profilePath(fast)}/locations/${pier.id}`, { shown: true })).status).toBe(200);
+    for (const tablet of [one, two]) await expect.poll(() => visibility(tablet)).toBe("visible");
+    expect((await api.call("PUT", `${profilePath(fast)}/locations/${pier.id}`, { shown: false })).status).toBe(200);
+    for (const tablet of [one, two]) await expect.poll(() => visibility(tablet)).toBe("hidden");
+
+    // The first shows it offline; the second shows it and hides it again, later, which the first had not seen.
+    one.loseNetwork();
+    await one.setProfileVisibility(fast, "visible");
+    await delay(20);
+    await two.setProfileVisibility(fast, "visible");
+    await expect.poll(atPier).toBe(true);
+    await two.setProfileVisibility(fast, "hidden");
+    await expect.poll(atPier).toBe(false);
+    one.restoreNetwork();
+    const conflictsOf = async () => (await api.get<{ conflicts: ConflictView[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === fast);
+    await expect.poll(async () => (await conflictsOf()).length).toBe(1);
+    const [conflict] = await conflictsOf();
+    expect(conflict).toMatchObject({ field: "shown", value: true, location: { id: pier.id }, current: { value: false } });
+
+    // A Machine entry made there, its tablet yet to connect, is held to a DE1's ranges.
+    await api.createMachine("Pier 3", pier.id);
+    const message = await restRefusal("POST", `/conflicts/${conflict!.id}/use`, { seen: conflict!.current.versionId }, 409);
+    expect(message).toBe(`"Fast Bloom" can't reach Pier: Pier 3's hardware isn't known yet, so it is held to a DE1's ranges and can't run Step 1, "Bloom": its flow is 17.93, outside 0 to 15.`);
+    expect(await toolError("resolve_conflict", { id: conflict!.id, resolution: "use", seen: conflict!.current.versionId })).toBe(message);
+    expect(await atPier()).toBe(false);
+    expect((await conflictsOf()).map((open) => open.state)).toEqual(["open"]);
+  });
 });
 
 describe("The writes a Machine is due", () => {
@@ -214,7 +266,7 @@ describe("The writes a Machine is due", () => {
   const atBrew = (profile: Record_, temperature: number): Record_ => ({ ...profile, steps: (profile.steps as Record_[]).map((step) => ({ ...step, temperature })) });
   const at = { decidedAt: null, contentDecidedAt: null } as const;
   /** The Profile each Recipe names. */
-  const recipes: Record<string, string> = { r1: "profile:fast", r2: "profile:slow" };
+  const recipes: Record<string, string> = { r1: "profile:fast", r2: "profile:slow", r3: "profile:gone" };
 
   /** A transaction reading a Machine of the model, the Library's Profiles by id, and the Profile each Recipe names. */
   function reading(model: string | null, profiles: Record<string, unknown>): Prisma.TransactionClient {
@@ -242,6 +294,8 @@ describe("The writes a Machine is due", () => {
     { kind: "recipe", globalId: "r1", localId: null, fields: { name: "Bloom", profileId: "profile:fast", profileSnapshot: fastRaw }, ...at },
     { kind: "recipe", globalId: "r1", localId: "r1", fields: { workflow: { profile: atBrew(fastRaw, 96) } }, expected: {}, ...at },
     { kind: "recipe", globalId: "r2", localId: "r2", fields: { "dashboardVariables.dose": 18, workflow: { context: { targetDoseWeight: 18 }, profile: atBrew(slowRaw, 106) } }, expected: {}, ...at },
+    // One naming none of the Library's Profiles, judged on its Workflow's copy.
+    { kind: "recipe", globalId: "r3", localId: "r3", fields: { workflow: { profile: fastRaw } }, expected: {}, ...at },
     // A Loaded Recipe's Profile written into the Workflow, and its dose alone.
     { kind: LOADED_RECIPE_KIND, globalId: "r1", localId: null, fields: { profile: fastRaw, "context.targetDoseWeight": 18 }, expected: {}, ...at },
     { kind: LOADED_RECIPE_KIND, globalId: "r1", localId: null, fields: { "context.targetDoseWeight": 18 }, expected: {}, ...at },
@@ -251,21 +305,22 @@ describe("The writes a Machine is due", () => {
 
   it("marks each carrying a profile a DE1 can't run not to be written, with why, on a DE1 or a Machine not yet bound", async () => {
     const why = 'Step 1, "Bloom": its flow is 17.93, outside 0 to 15';
-    const expected = [
-      `Not written: a DE1 can't run this Profile: ${why}`,
-      `Not written: a DE1 can't run this Profile: ${why}`,
+    const expected = (who: string) => [
+      `Not written: ${who} this Profile: ${why}`,
+      `Not written: ${who} this Profile: ${why}`,
       null,
       null,
-      `Not written: a DE1 can't run its Profile, "Fast Bloom": ${why}`,
-      `Not written: a DE1 can't run its Profile, "Fast Bloom": ${why}`,
+      `Not written: ${who} its Profile, "Fast Bloom": ${why}`,
+      `Not written: ${who} its Profile, "Fast Bloom": ${why}`,
       null,
-      `Not written: a DE1 can't run its Profile, "Fast Bloom": ${why}`,
+      `Not written: ${who} its Profile, "Fast Bloom": ${why}`,
+      `Not written: ${who} its Profile, "Fast Bloom": ${why}`,
       null,
       null,
     ];
     const profiles = { "profile:fast": fastRaw, "profile:slow": slowRaw };
-    expect(notWritten(await markUnrunnable(reading("DE1Pro", profiles), "machine", changes))).toEqual(expected);
-    expect(notWritten(await markUnrunnable(reading(null, profiles), "machine", changes))).toEqual(expected);
+    expect(notWritten(await markUnrunnable(reading("DE1Pro", profiles), "machine", changes))).toEqual(expected("a DE1 can't run"));
+    expect(notWritten(await markUnrunnable(reading(null, profiles), "machine", changes))).toEqual(expected("this Machine's hardware isn't known yet, so it is held to a DE1's ranges and can't run"));
   });
 
   it("marks none on a Bengle, leaving each as planned", async () => {

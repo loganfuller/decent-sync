@@ -166,7 +166,8 @@ the same, but its flow targets, flow limits and flow exits go to 20 ml/s, its
 pump's rating. A value is judged as authored, never as either model's
 resolution would send it, and nothing rounds or holds a Profile's values.
 A Machine's model is its bound hardware's (`machineModelOf`): a DE1 for any
-other name, and for a Machine not yet bound. So a Profile reaches only the
+other name, and for a Machine whose hardware isn't known yet, as one not yet
+bound, which a refusal says. So a Profile reaches only the
 Machines that can run it (`server/src/library/profile-reach.ts`):
 
 - Showing it at a Location where any Machine can't run it, capture-only ones
@@ -179,8 +180,9 @@ Machines that can run it (`server/src/library/profile-reach.ts`):
   since; an edit that leaves the Recipe's Profile as it is is not. A
   Profile can still come to be shown where a Machine can't run it: a
   tablet's own Profiles join the Library at its Location as before
-  (ADR-0018), restoring an Archived Profile shows it again wherever it was
-  shown, and a Machine moved to a Location meets what is shown there. The
+  (ADR-0018), restoring an Archived Profile or Recipe shows it again
+  wherever it was shown, and a Machine moved to a Location meets what is
+  shown there. The
   writes below keep it from such a Machine.
 - The server writes no Profile to a Machine whose model can't run it, nor a
   Recipe's record carrying it (its `profileSnapshot`, and the Workflow DYE2

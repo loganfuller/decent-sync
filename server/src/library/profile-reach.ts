@@ -24,13 +24,15 @@ import { isObject } from "./listed.js";
 // or Loaded Recipe carrying it, as when such a Machine moved to a Location
 // that shows it. A Machine's model is its bound hardware's
 // (`machineModelOf`): a DE1 for any other name, and for none, which keeps
-// one not yet bound to the narrower ranges.
+// one whose hardware isn't known yet, as one not yet bound, to the narrower
+// ranges, and says so.
 
-/** A Machine at a Location, with its model. */
+/** A Machine at a Location, with its model, and whether its hardware is known, which a Machine not yet bound's isn't. */
 interface PlacedMachine {
   id: string;
   name: string;
   model: MachineModel;
+  known: boolean;
 }
 
 /** The models the account has Machines of, in MACHINE_MODELS order: a Draft is held to the widest of their ranges (`checkProfile`); a DE1 alone for none. */
@@ -47,14 +49,14 @@ async function machinesAt(tx: Prisma.TransactionClient, locationId: string): Pro
     JOIN LATERAL (SELECT location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS here ON true
     WHERE here.location_id = ${locationId}::uuid
     ORDER BY m.name`;
-  return rows.map((row) => ({ id: row.id, name: row.name, model: machineModelOf(row.model) }));
+  return rows.map((row) => ({ id: row.id, name: row.name, model: machineModelOf(row.model), known: row.model !== null }));
 }
 
 /**
  * Refuses, 409, a Profile at a Location where any Machine can't run its
  * values, as showing it there, or a Recipe there naming it, would offer it
  * to that Machine: naming the Location, each such Machine and its model,
- * and the values. A Profile whose profile Decaid would not read is let
+ * or that its hardware isn't known yet, and the values. A Profile whose profile Decaid would not read is let
  * through, as nothing of it can be judged, and so is one the Library does
  * not have, which the caller refuses itself.
  */
@@ -70,9 +72,20 @@ export async function refuseUnrunnableAt(tx: Prisma.TransactionClient, profileId
   });
   if (cant.length === 0) return;
   const [location] = await tx.$queryRaw<{ name: string }[]>`SELECT name FROM locations WHERE id = ${locationId}::uuid`;
-  const why = cant.map(({ model, machines: these, values }) => {
-    const names = listed(these.map((machine) => machine.name));
-    return `${names} ${these.length > 1 ? `are ${model}s` : `is a ${model}`}, which can't run ${values.map((value) => outOfRangeText(profile, value)).join("; ")}`;
+  const why = cant.flatMap(({ model, machines: these, values }) => {
+    const text = values.map((value) => outOfRangeText(profile, value)).join("; ");
+    const known = these.filter((machine) => machine.known).map((machine) => machine.name);
+    const unknown = these.filter((machine) => !machine.known).map((machine) => machine.name);
+    return [
+      ...(known.length === 0 ? [] : [`${listed(known)} ${known.length > 1 ? `are ${model}s` : `is a ${model}`}, which can't run ${text}`]),
+      ...(unknown.length === 0
+        ? []
+        : [
+            unknown.length > 1
+              ? `The hardware of ${listed(unknown)} isn't known yet, so they are held to a ${model}'s ranges and can't run ${text}`
+              : `${unknown[0]}'s hardware isn't known yet, so it is held to a ${model}'s ranges and can't run ${text}`,
+          ]),
+    ];
   });
   throw new ConflictException({
     statusCode: 409,
@@ -104,6 +117,7 @@ export async function markUnrunnable(tx: Prisma.TransactionClient, machineId: st
   if (carried.every((profile) => profile === null)) return changes;
   const [machine] = await tx.$queryRaw<{ model: string | null }[]>`SELECT model FROM machines WHERE id = ${machineId}::uuid`;
   const model = machineModelOf(machine?.model);
+  const known = typeof machine?.model === "string";
   // A Profile's record made visible carries no content: the Library's is what the tablet holds.
   const ids = carried.flatMap((profile) => (profile !== null && "id" in profile ? [profile.id] : []));
   const contents =
@@ -130,7 +144,7 @@ export async function markUnrunnable(tx: Prisma.TransactionClient, machineId: st
     if (!profile) return change;
     const values = unrunnable(profile, model);
     if (values.length === 0) return change;
-    return { ...change, notWritten: notWrittenWhy(change, profile, model, values) };
+    return { ...change, notWritten: notWrittenWhy(change, profile, model, known, values) };
   });
 }
 
@@ -158,8 +172,9 @@ function carriedProfile(change: PlannedChange): { raw: unknown } | { id: string 
   return null;
 }
 
-/** Why a write is not made to a Machine of the model, for its sharing status. */
-function notWrittenWhy(change: PlannedWrite, profile: Profile, model: MachineModel, values: readonly ValueOutOfRange[]): string {
+/** Why a write is not made to a Machine of the model, or held to its ranges as its hardware isn't known, for its sharing status. */
+function notWrittenWhy(change: PlannedWrite, profile: Profile, model: MachineModel, known: boolean, values: readonly ValueOutOfRange[]): string {
   const what = change.kind === "profile" ? "this Profile" : `its Profile, "${profile.title}"`;
-  return `Not written: a ${model} can't run ${what}: ${values.map((value) => outOfRangeText(profile, value)).join("; ")}`;
+  const who = known ? `a ${model} can't run` : `this Machine's hardware isn't known yet, so it is held to a ${model}'s ranges and can't run`;
+  return `Not written: ${who} ${what}: ${values.map((value) => outOfRangeText(profile, value)).join("; ")}`;
 }
