@@ -312,9 +312,22 @@ export class LibraryEditsService {
    * Edits a Profile's title, author and notes, anywhere, as a Bean's content
    * is edited: merged per field (ADR-0020), and written to every tablet that
    * holds it as a tablet's edit of them is. 409 for one of Decaid's bundled
-   * Profiles, whose title, author and notes Decaid refuses to change.
+   * Profiles, whose title, author and notes Decaid refuses to change, and
+   * for a title another Profile the Library has unarchived has already,
+   * whatever its case and the spaces around it: Streamline finds the
+   * tablet's record of the Workflow's profile by its title, so would save a
+   * barista's changes on either to the other.
    */
   async editProfile(id: string, values: Record<string, unknown>, editor: Editor): Promise<void> {
+    if (typeof values.title === "string") {
+      const [other] = await this.prisma.$queryRaw<{ title: string }[]>`
+        SELECT content -> 'profile' ->> 'title' AS title FROM profiles
+        WHERE id <> ${id} AND NOT archived AND lower(btrim(content -> 'profile' ->> 'title')) = lower(btrim(${values.title}))
+          -- A bundled Profile's edit is refused as such, below.
+          AND NOT EXISTS (SELECT 1 FROM profiles AS edited WHERE edited.id = ${id} AND edited.bundled)
+        LIMIT 1`;
+      if (other) throw new ConflictException(`A Profile in the Library is titled "${other.title}" already`);
+    }
     await this.editShared({ kind: "profile", id }, values, editor, null, (content, row) => {
       if (row.bundled) throw new ConflictException(BUNDLED_PROFILE_TEXT);
       return values;

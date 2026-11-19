@@ -409,10 +409,13 @@ export interface Range {
  * The ranges the server holds a profile's numbers to, Streamline's
  * (`FIELD_LIMITS` and `EXIT_MAX_MAP` in
  * streamline-js:src/modules/profile-field-limits.js, v0.2.27), as the spec
- * lists them (#574). Decaid checks none of them, and a value beyond what the
- * machine's wire format holds wraps to another: a step's time goes as an
- * 8-bit count of half-seconds' worth, so 128 s runs as 0. A step's target
- * and exit are ranged by the quantity, its limiter by the quantity it caps.
+ * lists them (#574). Decaid checks none of them, and the machine's wire
+ * format holds less than a double: a step's time goes as one byte, in
+ * tenths of a second below 12.75 s and whole seconds from there, so
+ * anything over 127 s runs as 127 s (`convert_float_to_F8_1_7` in
+ * decaid:lib/src/models/device/impl/de1/unified_de1/unified_de1.profile.dart,
+ * v0.9.2). A step's target and exit are ranged by the quantity, its limiter
+ * by the quantity it caps.
  */
 export const PROFILE_LIMITS = {
   pressure: { min: 0, max: 12 },

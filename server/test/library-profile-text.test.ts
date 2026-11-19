@@ -150,7 +150,7 @@ describe("A Profile's title, author and notes edited in the management interface
     expect((await viewProfile(id)).profile).toMatchObject({ title: "Merge Bloom v3", author: "Lab", notes: "Cafe notes" });
   });
 
-  it("clears an author or notes as Decaid holds none, empty, and refuses a title cleared, a field it does not set, and a bundled Profile's", async () => {
+  it("clears an author or notes as Decaid holds none, empty, and refuses a title cleared or another Profile's, a field it does not set, and a bundled Profile's", async () => {
     const { cafe, labTablet, cafeTablet } = await labAndCafe("Refusals", 57621, { bundled: true });
     const id = await sharedProfile(labTablet, cafeTablet, cafe, "Refused Bloom", 5.25);
 
@@ -172,6 +172,13 @@ describe("A Profile's title, author and notes edited in the management interface
     const bundled = (de1ProOnDecaid092()["/profiles"] as Record_[]).find((record) => record.isDefault === true)!;
     const bundledId = String(bundled.id);
     await expect.poll(async () => (await api.call("GET", profilePath(bundledId))).status).toBe(200);
+    // Another Profile's title, whatever its case and spaces, as Streamline finds a tablet's record by title; its own, recased, is fine.
+    const bundledTitle = String((bundled.profile as Record_).title);
+    expect(await refusal({ title: ` ${bundledTitle.toUpperCase()} ` }, 409)).toBe(`A Profile in the Library is titled "${bundledTitle}" already`);
+    expect((await edit(id, { title: "REFUSED BLOOM" })).status).toBe(200);
+    await expect.poll(() => textOn(labTablet, id)?.title, { timeout: 15_000 }).toBe("REFUSED BLOOM");
+    expect((await edit(id, { title: "Refused Bloom" })).status).toBe(200);
+    await expect.poll(() => textOn(labTablet, id)?.title, { timeout: 15_000 }).toBe("Refused Bloom");
     const versions = (await history(bundledId)).length;
     const response = await edit(bundledId, { title: "Renamed" });
     expect(response.status).toBe(409);
