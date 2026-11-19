@@ -276,6 +276,10 @@ describe("the checks", () => {
       { code: "weightNeedsScale", step: 1, path: "steps.1.weight", message: 'Step 2, "pour" ends at a weight in the cup, which needs a scale connected.' },
     ]);
     expect(checkProfile({ ...profile, steps: [{ ...profile.steps[1]!, weight: 0 }] }).advice).toEqual([]);
+    // A time the machine is sent as none, in tenths rounded, has no length either; 0.05 s is sent as a tenth.
+    const timed = (seconds: number) => checkProfile({ ...profile, steps: [{ ...profile.steps[0]!, seconds }] }).advice.map((check) => check.code);
+    expect(timed(0.04)).toEqual(["exitOnNoLength"]);
+    expect(timed(0.05)).toEqual([]);
   });
 });
 

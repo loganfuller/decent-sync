@@ -615,7 +615,8 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
     const label = stepLabel(profile, index);
     if (step.weight !== null && step.weight > 0)
       advice.push({ code: "weightNeedsScale", step: index, path: `steps.${index}.weight`, message: `${label} ends at a weight in the cup, which needs a scale connected.` });
-    if (step.seconds === 0 && step.exit !== null)
+    // Decaid sends a step's time in tenths of a second, rounded, so one under 0.05 s runs as none (`convert_float_to_F8_1_7`).
+    if (step.seconds < 0.05 && step.exit !== null)
       advice.push({ code: "exitOnNoLength", step: index, path: `steps.${index}.exit`, message: `${label} has no length, so the machine leaves it at once and its exit never applies.` });
     if (step.pump === "flow" && step.flow > PUMP_MAX_FLOW)
       advice.push({ code: "pumpTooSlow", step: index, path: `steps.${index}.flow`, message: `${label} asks for ${step.flow} ml/s, and the pump gives about ${PUMP_MAX_FLOW} ml/s at most.` });
