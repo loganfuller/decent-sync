@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -10,7 +10,8 @@ import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type ProfileSimulation, ProfileSimulationService, readSimulationAsk } from "./profile-simulation.service.js";
-import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
+import { type RecipeOnProfileView, RecipesService } from "./recipes.service.js";
+import { type ProfileSummary, type ProfileVersionView, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
 
 /**
  * The Library's Profiles, and the Locations showing each. Staff read them,
@@ -28,6 +29,7 @@ export class ProfilesController {
     private readonly edits: LibraryEditsService,
     private readonly prisma: PrismaService,
     private readonly simulation: ProfileSimulationService,
+    private readonly recipes: RecipesService,
   ) {}
 
   @AllowStaff()
@@ -43,10 +45,31 @@ export class ProfilesController {
   }
 
   /**
+   * Its Profile Versions (ADR-0032), the chain of `parentId` links through
+   * it, forks and all, the latest saved first, each with who saved it and
+   * how many Shots are on it (`ProfilesService.versions`).
+   */
+  @AllowStaff()
+  @Get(":id/versions")
+  async profileVersions(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: ProfileVersionView[] }> {
+    return { versions: await this.profiles.versions(readProfileId(id), scope) };
+  }
+
+  /** The Recipes, not Archived, that name it, each with the Machines that have it loaded now. 404 for no such Profile. */
+  @AllowStaff()
+  @Get(":id/recipes")
+  async namingRecipes(@Param("id") id: string): Promise<{ recipes: RecipeOnProfileView[] }> {
+    const profileId = readProfileId(id);
+    if (!(await this.prisma.profile.count({ where: { id: profileId } }))) throw new NotFoundException("No such Profile");
+    return { recipes: await this.recipes.namingProfile(profileId) };
+  }
+
+  /**
    * Simulates it on a puck (`ProfileSimulationService.simulate`): the
    * standard puck at `grind`, from -1 to 1, or the puck of the Shot
    * `shotId`, with `dose` in grams, stopping at `stopAt` grams, 0 to run its
-   * steps out, on a Machine of `model`, DE1 or Bengle.
+   * steps out, on a Machine of `model`, DE1 or Bengle, else of the model it
+   * is simulated as where it is shown (`ProfileView.machineModel`).
    */
   @AllowStaff()
   @Get(":id/simulation")

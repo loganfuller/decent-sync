@@ -19,9 +19,9 @@
 //
 // Pure: no Node or browser API, as the plugin bundles this package.
 
-import { MODEL_FIGURES, type MachineModel } from "./machine-models.js";
-import { PROFILE_LIMITS, type Profile, type ProfileStep, type StepLimiter, stepTarget } from "./profile.js";
-import { type Sample, type ShotCurve, type StepSpan, FIRST_DRIP_GRAMS, lastRecordedWeight, stepSpans, timeToFirstDrip } from "./record-samples.js";
+import { MODEL_FIGURES, type MachineModel, machineModelOf } from "./machine-models.js";
+import { MAX_PROFILE_STEPS, PROFILE_LIMITS, type Profile, type ProfileStep, type StepLimiter, profileOf, stepTarget } from "./profile.js";
+import { type Sample, type ShotCurve, type StepSpan, FIRST_DRIP_GRAMS, lastRecordedWeight, shotSamples, stepSpans, timeToFirstDrip } from "./record-samples.js";
 
 // The machine ------------------------------------------------------------------
 
@@ -738,4 +738,68 @@ export function fitToShot({ samples, profile, puck, stopAt, model }: { samples: 
   const ran = weighed ? profile : { ...profile, steps: profile.steps.map((step) => ({ ...step, weight: null })) };
   const run = simulateProfile({ profile: ran, puck, stopAt, stopOn: "reached", ...(model ? { model } : {}) });
   return { run, fit: { shot: shotFigures(samples), simulated: runFigures(run) } };
+}
+
+// Simulating on a Shot's puck --------------------------------------------------
+
+/** What a simulation on a Shot's puck reads of the Shot. */
+export interface SimulationShot {
+  /** Its samples (`shotSamples`). */
+  samples: Sample<ShotCurve>[];
+  /** Its own profile, its Workflow's; null where Decaid would not read it. */
+  profile: Profile | null;
+  /** The coffee it used, g, as weighed or else as set; null where it recorded neither. */
+  dose: number | null;
+  /** What stopped it, as Decaid recorded it. */
+  stopReason: string | null;
+  /** The model of the Machine it recorded, a DE1 for any DE1 model and where it recorded none (`machineModelOf`). */
+  model: MachineModel;
+}
+
+/** What a simulation on a Shot's puck reads of the Shot, from its full record and its measurements, as the server stores both. */
+export function simulationShotOf(record: unknown, measurements: unknown): SimulationShot {
+  const shot = fieldsOf(record);
+  const workflow = fieldsOf(shot.workflow);
+  const profile = profileOf(workflow.profile);
+  const above = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null);
+  return {
+    samples: shotSamples(measurements, profile),
+    profile,
+    dose: above(fieldsOf(shot.annotations).actualDoseWeight) ?? above(fieldsOf(workflow.context).targetDoseWeight),
+    stopReason: typeof shot.stopReason === "string" ? shot.stopReason : null,
+    model: machineModelOf(fieldsOf(workflow.machine).model),
+  };
+}
+
+function fieldsOf(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** A profile simulated on a Shot's puck, with how close a run of the Shot's own steps on it comes to the Shot. */
+export interface ShotPuckRun {
+  puck: Puck;
+  run: SimulatedRun;
+  /**
+   * The Shot's own steps run on its puck, stopped as it stopped, beside the
+   * Shot (`fitToShot`); null where Decaid would not read its own profile or
+   * it has more steps than a machine takes, and where a run can't end as the
+   * Shot did (`shotFitStop`).
+   */
+  fit: ShotFit | null;
+}
+
+/**
+ * Simulates a profile on a Shot's puck (`shotPuck`): with `dose`, else the
+ * Shot's, stopping at `stopAt`, on a Machine of `model`; and fits the Shot's
+ * own steps to it, on the model of the Shot's Machine. Null for a Shot whose
+ * samples show nothing of its puck's resistance.
+ */
+export function simulateOnShot({ profile, shot, dose, stopAt, model }: { profile: Profile; shot: SimulationShot; dose?: number | null; stopAt: number | null; model: MachineModel }): ShotPuckRun | null {
+  const puck = shotPuck(shot.samples, shot.dose);
+  if (!puck) return null;
+  const run = simulateProfile({ profile, puck, dose: dose ?? puck.dose, stopAt, model });
+  const own = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
+  const stop = own ? shotFitStop(shot.samples, shot.stopReason, shot.model, own) : null;
+  const fit = own && stop ? fitToShot({ samples: shot.samples, profile: own, puck, stopAt: stop.stopAt, model: shot.model }).fit : null;
+  return { puck, run, fit };
 }

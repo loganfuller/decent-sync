@@ -110,7 +110,7 @@ export interface CurrentValueView {
 }
 
 const connectedApp = { select: { id: true, name: true, clientHost: true } } as const;
-const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp, location: true } as const;
+export const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp, location: true } as const;
 
 /** The longest field name an item's history is filtered by. */
 export const MAX_HISTORY_FIELD = 200;
@@ -289,7 +289,7 @@ function grouped<T, K>(values: readonly T[], key: (value: T) => K): Map<K, T[]> 
   return groups;
 }
 
-function viewSource(
+export function viewSource(
   row: {
     machine: { id: string; name: string } | null;
     tabletId: string | null;

@@ -1,8 +1,11 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type Profile, isRecordId, profileOf, profileTextOf } from "@decent-sync/protocol";
+import { type MachineModel, type Profile, isRecordId, machineModelOf, profileOf, profileTextOf } from "@decent-sync/protocol";
+import type { Scope } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
+import { shotListedSql, shotPulledWithSql } from "../shots/links.js";
+import { type SourceView, viewSource, withSource } from "./history.service.js";
 
 /** A Profile as the REST API lists it. */
 export interface ProfileSummary {
@@ -42,7 +45,41 @@ export interface ProfileView extends ProfileSummary {
    * it again where it is shown. A Location not listed does not show it.
    */
   locations: { location: LocationView; shown: boolean; since: string }[];
+  /**
+   * The Machine model it is simulated as unless another is asked for: a
+   * Bengle where every Machine at the Locations showing it is one, and there
+   * is at least one; a DE1 where it is shown nowhere, at no Location with a
+   * Machine, or where a DE1 is among them (#578, #588).
+   */
+  machineModel: MachineModel;
 }
+
+/**
+ * One of a Profile's Profile Versions: a Profile in the chain of Decaid's
+ * `parentId` links through it, as the REST API returns one.
+ */
+export interface ProfileVersionView {
+  id: string;
+  title: string | null;
+  bundled: boolean;
+  archived: boolean;
+  /** The Profile it was saved from, where that is in the chain; null for the first. */
+  parentId: string | null;
+  /**
+   * When it was saved: by the record its first tablet sent, as its history's
+   * first version has it, else when it joined the Library.
+   */
+  savedAt: string;
+  /** Who saved it, its history's first version's source: the Machine whose tablet saved it, or the account that published it; null where its history has none. */
+  savedBy: SourceView | null;
+  /** The Locations showing it, as `ProfileSummary.shownAt` has them. */
+  shownAt: { location: LocationView; since: string }[];
+  /** How many Shots the Shots list lists on it, by the Library's rule for a Shot's Profile (`shotPulledWithSql`). */
+  shots: number;
+}
+
+/** The most Profiles a chain of versions is read to, which no real chain comes near. */
+export const MAX_PROFILE_VERSIONS = 200;
 
 const withPlaces = {
   createdLocation: true,
@@ -67,7 +104,10 @@ export class ProfilesService {
     const content = object(profile.content);
     const parentId = typeof content.parentId === "string" ? content.parentId : null;
     const parent = parentId === null ? null : await this.prisma.profile.findUnique({ where: { id: parentId }, select: { id: true, content: true } });
-    const decided = await this.prisma.profileLocation.findMany({ where: { profileId: id }, include: { location: true } });
+    const [decided, machineModel] = await Promise.all([
+      this.prisma.profileLocation.findMany({ where: { profileId: id }, include: { location: true } }),
+      this.machineModel(profile.archived ? [] : profile.locations.map((here) => here.locationId)),
+    ]);
     return {
       ...summary(profile),
       content,
@@ -76,7 +116,81 @@ export class ProfilesService {
       locations: decided
         .map((here) => ({ location: viewLocation(here.location), shown: here.shown, since: here.decidedAt.toISOString() }))
         .sort((a, b) => a.location.name.localeCompare(b.location.name)),
+      machineModel,
     };
+  }
+
+  /**
+   * Its Profile Versions (ADR-0032): every Profile in the chain of `parentId`
+   * links through it, up to the first, whose link names no Profile in the
+   * Library, and down through every Profile saved from one in the chain, so
+   * a fork's branches both; the latest saved first. 404 for no such Profile.
+   */
+  async versions(id: string, scope: Scope): Promise<ProfileVersionView[]> {
+    if (!(await this.prisma.profile.count({ where: { id } }))) throw profileNotFound();
+    // UNION, not UNION ALL, so a loop of links, which Decaid's hash makes all but impossible, ends.
+    const chain = await this.prisma.$queryRaw<{ id: string }[]>`
+      WITH RECURSIVE up AS (
+        SELECT id, content ->> 'parentId' AS parent FROM profiles WHERE id = ${id}
+        UNION
+        SELECT p.id, p.content ->> 'parentId' FROM profiles p JOIN up ON p.id = up.parent
+      ), first AS (
+        SELECT coalesce((SELECT up.id FROM up WHERE up.parent IS NULL OR NOT EXISTS (SELECT 1 FROM profiles WHERE profiles.id = up.parent) LIMIT 1), ${id}) AS id
+      ), down AS (
+        SELECT id FROM first
+        UNION
+        SELECT p.id FROM profiles p JOIN down ON p.content ->> 'parentId' = down.id
+      )
+      SELECT id FROM down LIMIT ${MAX_PROFILE_VERSIONS}`;
+    const ids = chain.map((row) => row.id);
+    const [profiles, firsts, shots] = await Promise.all([
+      this.prisma.profile.findMany({ where: { id: { in: ids } }, include: withPlaces }),
+      this.prisma.itemVersion.findMany({
+        where: { kind: "profile", itemId: { in: ids } },
+        distinct: ["itemId"],
+        orderBy: [{ itemId: "asc" }, { receivedAt: "asc" }, { seq: "asc" }],
+        include: withSource,
+      }),
+      Promise.all(ids.map((profileId) => this.shotCount(profileId))),
+    ]);
+    const inChain = new Set(ids);
+    const firstOf = new Map(firsts.map((version) => [version.itemId, version]));
+    const shotsOf = new Map(ids.map((profileId, index) => [profileId, shots[index]!]));
+    return profiles
+      .map((profile): ProfileVersionView => {
+        const parentId = object(profile.content).parentId;
+        const first = firstOf.get(profile.id);
+        const { shownAt, title, bundled, archived } = summary(profile);
+        return {
+          id: profile.id,
+          title,
+          bundled,
+          archived,
+          parentId: typeof parentId === "string" && parentId !== profile.id && inChain.has(parentId) ? parentId : null,
+          savedAt: (first?.editedAt ?? profile.createdAt).toISOString(),
+          savedBy: first ? viewSource(first, scope) : null,
+          shownAt,
+          shots: shotsOf.get(profile.id) ?? 0,
+        };
+      })
+      .sort((a, b) => b.savedAt.localeCompare(a.savedAt) || a.id.localeCompare(b.id));
+  }
+
+  /** How many Shots the Shots list lists on the Profile (`shotPulledWithSql`). */
+  private async shotCount(profileId: string): Promise<number> {
+    const [row] = await this.prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM shots s WHERE ${shotListedSql("s")} AND ${shotPulledWithSql("s", profileId)}`;
+    return row?.count ?? 0;
+  }
+
+  /** The model a Profile shown at these Locations is simulated as (`ProfileView.machineModel`): of the Machines there now, by their latest Location History entry. */
+  private async machineModel(locationIds: readonly string[]): Promise<MachineModel> {
+    if (locationIds.length === 0) return "DE1";
+    const machines = await this.prisma.$queryRaw<{ model: string | null }[]>`
+      SELECT m.model FROM machines m
+      JOIN LATERAL (SELECT location_id FROM location_assignments WHERE machine_id = m.id ORDER BY effective_from DESC LIMIT 1) AS here ON true
+      WHERE here.location_id = ANY(${[...locationIds]}::uuid[])`;
+    return machines.length > 0 && machines.every((machine) => machineModelOf(machine.model) === "Bengle") ? "Bengle" : "DE1";
   }
 }
 

@@ -475,6 +475,28 @@ test("README screenshots", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
   }
 
+  if (!process.env.SKIP_STILLS && still("profile")) {
+    // The Profile page (#578): House Espresso's Profile, its graph and its steps. A clip outside the viewport is cut at
+    // its edge, so the viewport is taller here.
+    await page.setViewportSize({ width: 1280, height: 2000 });
+    const listed = (await (await page.request.get("/api/profiles")).json()) as { profiles: { id: string; title: string | null }[] };
+    await page.goto(`/library/profiles/${encodeURIComponent(listed.profiles.find((each) => each.title === "Gentle and sweet")!.id)}`);
+    const runs = page.getByRole("region", { name: "How it runs", exact: true });
+    const steps = page.getByRole("region", { name: "Steps", exact: true });
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme);
+      await page.reload();
+      await expect(runs.getByRole("img", { name: /^Simulated run of / })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Recipes on this version" }).getByRole("listitem").first()).toBeVisible();
+      await page.waitForTimeout(1500);
+      await page.mouse.move(0, 0);
+      const top = (await runs.boundingBox())!;
+      const end = (await steps.boundingBox())!;
+      await page.screenshot({ path: path.join(OUT, `profile-${theme}.png`), clip: { x: top.x, y: top.y, width: top.width, height: end.y + end.height - top.y } });
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+  }
+
   if (process.env.SKIP_LIVE) return;
   // The Live View: a real recorded shot replayed on Bar Left's tablet, its card captured from the Preheat on. A clip
   // outside the viewport is cut at its edge, so the viewport is taller here.

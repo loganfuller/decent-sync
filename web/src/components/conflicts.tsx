@@ -137,7 +137,7 @@ export function attributePairs(value: unknown): { key: string; value: string }[]
 }
 
 /** Where an edit came from: a Machine's tablet, or an account, here or through a Connected App, such as an assistant. */
-function SourceText({ source }: { source: EditSource | null }) {
+export function SourceText({ source }: { source: EditSource | null }) {
   const { state } = useAuth();
   if (source === null) return <span className="text-muted-foreground">Not known</span>;
   if (source.machine) {

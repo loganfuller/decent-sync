@@ -37,7 +37,10 @@ const simulateInput = z.object({
     .max(PROFILE_LIMITS.targetWeight.max)
     .optional()
     .describe("The weight in grams it stops at, 0 to run until its last step ends; the Profile's own stop-at weight where left out, and with none, until its last step ends."),
-  model: z.enum(MACHINE_MODELS).default("DE1").describe("The Machine model it runs on: DE1, for any DE1 model, or Bengle; a DE1 where left out."),
+  model: z
+    .enum(MACHINE_MODELS)
+    .optional()
+    .describe("The Machine model it runs on: DE1, for any DE1 model, or Bengle. Where left out, a Bengle where every Machine at the Locations showing the Profile is one, otherwise a DE1, as the Profile's page simulates it."),
   curves: z
     .union([z.boolean(), z.array(z.enum(runCurveNames)).min(1)])
     .default(true)
@@ -125,7 +128,7 @@ export class SimulationTools {
       grind: ask.grind ?? 0,
       dose: ask.dose ?? null,
       stopAt: ask.stopAt ?? null,
-      model: ask.model ?? "DE1",
+      model: ask.model ?? null,
     });
     return simulationOf(simulation, askedCurves(RUN_CURVES, curves));
   }
