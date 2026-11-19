@@ -756,14 +756,16 @@ const JUDGED_AFTER_SECONDS = 3;
  * limit holds it back, a decline is cut short, or the puck can't build it.
  * A step that ended at its exit, its water or its weight did what it was
  * asked; one that ran `JUDGED_AFTER_SECONDS` or less, one the run never came
- * to, and one asking for a flow the pump can't give, which `pumpTooSlow`
- * says already, are not judged.
+ * to, and one asking for a flow the pump of the model it was simulated as
+ * can't give, where `pumpTooSlow` says so already (`tooFast`), are not judged.
  */
 function targetsNotReached(profile: Profile, run: SimulatedRun, tooFast: ReadonlySet<number>): ProfileCheck[] {
+  const maxFlow = MODEL_FIGURES[run.model].maxFlow;
   const found: ProfileCheck[] = [];
   for (const ran of run.steps) {
     const step = profile.steps[ran.index];
-    if (!step || ran.start === null || ran.end === null || ran.end - ran.start <= JUDGED_AFTER_SECONDS + 1e-6 || tooFast.has(ran.index)) continue;
+    if (!step || ran.start === null || ran.end === null || ran.end - ran.start <= JUDGED_AFTER_SECONDS + 1e-6) continue;
+    if (tooFast.has(ran.index) && step.pump === "flow" && step.flow > maxFlow) continue;
     if (ran.reason !== "time" && ran.reason !== "stop") continue;
     const target = stepTarget(step);
     const during = run.samples.filter((sample) => sample.step?.frame === ran.index && sample.seconds > ran.start! && sample.seconds <= ran.end! + 1e-9);

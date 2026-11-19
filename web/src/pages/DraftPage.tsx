@@ -75,7 +75,7 @@ function DraftEditor({ id }: { id: string }) {
       },
       (caught: unknown) => {
         if (!current) return;
-        if (caught instanceof ApiError && caught.status === 404) setDraft(null);
+        if (caught instanceof ApiError && caught.status === 404 && caught.message === DRAFT_NOT_FOUND) setDraft(null);
         else setError(caught instanceof Error ? caught.message : "The Draft could not be loaded");
       },
     );
@@ -129,7 +129,8 @@ function DraftEditor({ id }: { id: string }) {
     try {
       const saved = await api<SavedDraft>("PUT", path, { profile, saves: saves.current }, { keepalive: left.current });
       failures.current = 0;
-      saves.current = saved.draft.saves;
+      // The count only grows: a tab-close save's answer may have come back first.
+      saves.current = Math.max(saves.current, saved.draft.saves);
       if (!left.current) {
         setDraft(saved.draft);
         if (saved.between) setBetween(saved.between);

@@ -2489,8 +2489,8 @@ limit holds it back, a decline is cut short or the puck can't build it. A
 step that ended at its exit, its water or its weight did what it was asked,
 and gets none; nor does one that ran 3 s or less, which is over before the
 pump catches up and is usually carried on by the next, as a lever's forced
-rise is, or one asking for a flow the pump can't give, which `pumpTooSlow`
-says already. On the standard puck it is advice for 29 of Decaid's 73
+rise is, or one asking for a flow the pump of the model simulated can't
+give, which `pumpTooSlow` says already. On the standard puck it is advice for 29 of Decaid's 73
 bundled Profiles on a medium grind, most of them declines the Shot stops
 before they end, and pour-over pulses the puck holds back. Anyone
 who reads Profiles may, a Viewer too. The tool

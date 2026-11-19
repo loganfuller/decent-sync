@@ -385,6 +385,12 @@ describe("the checks of a simulated run", () => {
     // 11 ml/s, past what a DE1's pump gives, for 30 s.
     const flush = { ...plain(), steps: [{ name: "flush", pump: "flow", transition: "fast", exit: null, volume: 0, seconds: 30, weight: null, temperature: 92, sensor: "coffee", flow: 11, limiter: null } as ProfileStep] };
     expect(checkProfile(flush, { run: run(flush) }).advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
+    // Simulated on a Bengle, whose pump gives it, a DE1's too slow pump is no reason to leave out the step a limit of 4 bar holds back on the puck.
+    const limited = { ...flush, steps: [fill, { ...flush.steps[0]!, limiter: { value: 4, range: 0.6 } } as ProfileStep] };
+    const onBengle = simulateProfile({ profile: limited, puck: standardPuck(0), stopAt: limited.target_weight, model: "Bengle" });
+    expect(checkProfile(limited, { models: ["DE1", "Bengle"], run: onBengle }).advice.map((check) => check.code)).toEqual(["pumpTooSlow", "targetNotReached"]);
+    // On a DE1, its pump the reason, pumpTooSlow alone.
+    expect(checkProfile(limited, { models: ["DE1", "Bengle"], run: run(limited) }).advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
   });
 });
 
