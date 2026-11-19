@@ -23,6 +23,14 @@ export interface ModelFigures {
   maxPressure: number;
   /** How quickly its pump's flow follows what it is asked for: the time constant, s. */
   pumpResponse: number;
+  /**
+   * The parts of a bar or ml/s Decaid sends a step's target, exit and limiter
+   * in, each in one byte: sixteenths to a DE1, tenths to a Bengle
+   * (`_writeSteps` in
+   * decaid:lib/src/models/device/impl/de1/unified_de1/unified_de1.profile.dart,
+   * v0.9.2).
+   */
+  wireScale: number;
 }
 
 /**
@@ -33,8 +41,8 @@ export interface ModelFigures {
  * against a Bengle's Shots.
  */
 export const MODEL_FIGURES = {
-  DE1: { maxFlow: 8, pressureStepMaxFlow: 6, maxPressure: 12, pumpResponse: 0.2 },
-  Bengle: { maxFlow: 15, pressureStepMaxFlow: 11, maxPressure: 12, pumpResponse: 0.2 },
+  DE1: { maxFlow: 8, pressureStepMaxFlow: 6, maxPressure: 12, pumpResponse: 0.2, wireScale: 16 },
+  Bengle: { maxFlow: 15, pressureStepMaxFlow: 11, maxPressure: 12, pumpResponse: 0.2, wireScale: 10 },
 } as const satisfies Record<string, ModelFigures>;
 
 /** A model a profile runs on: any DE1 model, or a Bengle. */

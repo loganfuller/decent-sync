@@ -16,6 +16,7 @@ import {
   shotSamples,
   shotStopAt,
   simulateProfile,
+  sentStep,
   standardPuck,
   stepSeconds,
   stepSpans,
@@ -250,6 +251,23 @@ describe("a step's water", () => {
     const ending = (volume: number) => run([flow("Fill", 1, { seconds: 20, volume }), flow("Rest", 0, { seconds: 1 })]).steps[0]!;
     expect(ending(1.9)).toMatchObject({ reason: "water", end: ending(1).end });
     expect(ending(0.9)).toMatchObject({ reason: "time", end: 20 });
+    // Ten bits: past 1023 it wraps, as Decaid writes it.
+    expect([1023, 1024, 1025].map((volume) => sentStep(flow("Fill", 1, { volume })).volume)).toEqual([1023, 0, 1]);
+  });
+});
+
+describe("a step's target, exit and limiter", () => {
+  it("are what Decaid sends the model: sixteenths to a DE1, tenths to a Bengle", () => {
+    const step = flow("Fill", 4.03, { exit: { type: "pressure", condition: "over", value: 3.02 }, limiter: { value: 1.47, range: 0.62 } });
+    expect(sentStep(step, "DE1")).toMatchObject({ flow: 4, exit: { value: 3 }, limiter: { value: 1.5, range: 0.625 } });
+    expect(sentStep(step, "Bengle")).toMatchObject({ flow: 4, exit: { value: 3 }, limiter: { value: 1.5, range: 0.6 } });
+    expect(sentStep(pressure("Hold", 8.6), "DE1")).toMatchObject({ pressure: 8.625 });
+  });
+
+  it("run as sent: a flow too small for a DE1's byte pumps nothing", () => {
+    const result = run([flow("Trickle", 0.02, { seconds: 100, volume: 1 })]);
+    expect(result.steps[0]).toMatchObject({ end: 100, reason: "time" });
+    expect(result.water).toBe(0);
   });
 });
 

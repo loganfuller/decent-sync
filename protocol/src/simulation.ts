@@ -60,11 +60,32 @@ export function stepSeconds(step: ProfileStep): number {
 
 /**
  * The water a step may pump as the machine runs it, ml: Decaid sends it as a
- * whole number of ml, cut down, up to 1023 (`convert_float_to_U10P0`, as
- * above), so 1.9 ml runs as 1.
+ * whole number of ml, cut down, in ten bits (`convert_float_to_U10P0`, as
+ * above), so 1.9 ml runs as 1, and 1025, past PROFILE_LIMITS, as 1.
  */
 function stepVolume(step: ProfileStep): number {
-  return step.volume > 0 ? Math.min(1023, Math.trunc(step.volume)) : 0;
+  return step.volume > 0 ? Math.trunc(step.volume) & 1023 : 0;
+}
+
+/**
+ * A step as Decaid sends it to a Machine of the model, which is what the
+ * machine runs: its time (`stepSeconds`) and water (`stepVolume`), and its
+ * target, exit and limiter each in one byte of the model's parts of a unit
+ * (`ModelFigures.wireScale`), rounded, so a flow of 0.02 ml/s runs on a DE1
+ * as none.
+ */
+export function sentStep(step: ProfileStep, model: MachineModel = "DE1"): ProfileStep {
+  const scale = MODEL_FIGURES[model].wireScale;
+  const sent = (value: number) => (Math.trunc(0.5 + value * scale) & 255) / scale;
+  const target = sent(stepTarget(step));
+  return {
+    ...step,
+    ...(step.pump === "pressure" ? { pressure: target } : { flow: target }),
+    seconds: stepSeconds(step),
+    volume: stepVolume(step),
+    exit: step.exit ? { ...step.exit, value: sent(step.exit.value) } : null,
+    limiter: step.limiter ? { value: sent(step.limiter.value), range: sent(step.limiter.range) } : null,
+  } as ProfileStep;
 }
 
 /** The least resistance a puck has, where water fills the space above it and meets none. */
@@ -366,6 +387,8 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
   const puck = puckForDose(given, dose ?? given.dose);
   const stopWeight = stopAt !== null && stopAt > 0 ? stopAt : null;
   const steps: RunStep[] = profile.steps.map((step, index) => ({ index, name: step.name, start: null, end: null, reason: null }));
+  // What the machine runs.
+  const sentSteps = profile.steps.map((step) => sentStep(step, model));
   const samples: Sample<ShotCurve>[] = [];
   const pumpFollow = 1 - Math.exp(-SIMULATION_TICK / figures.pumpResponse);
 
@@ -386,7 +409,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
 
   /** A sample now, of the step at `at`, the one running from now, or the last where the run has stopped; null for none. */
   const sample = (at: number | null, target: number | null) => {
-    const step = at === null ? undefined : profile.steps[at];
+    const step = at === null ? undefined : sentSteps[at];
     samples.push({
       seconds: round(time),
       shade: null,
@@ -405,13 +428,13 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
 
   /** Begins the step at `index`, passing through any of no length; false once past the last. */
   const begin = (): boolean => {
-    while (index < profile.steps.length) {
-      const step = profile.steps[index]!;
+    while (index < sentSteps.length) {
+      const step = sentSteps[index]!;
       steps[index]!.start = round(time);
       stepStart = time;
       stepPumped = pumped;
       from = step.pump === "pressure" ? pressure : flow;
-      if (stepSeconds(step) > 0) return true;
+      if (step.seconds > 0) return true;
       steps[index]!.end = round(time);
       steps[index]!.reason = "time";
       index++;
@@ -420,17 +443,17 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
   };
 
   // The first sample is of the step the run begins with, past any of no length, or of none.
-  if (begin()) sample(index, initialTarget(profile.steps[index]!, from));
+  if (begin()) sample(index, initialTarget(sentSteps[index]!, from));
   else {
     sample(null, null);
     stop = { seconds: 0, reason: "lastStep" };
   }
 
   while (!stop) {
-    const step = profile.steps[index]!;
+    const step = sentSteps[index]!;
     const elapsed = time + SIMULATION_TICK - stepStart;
     const goal = stepTarget(step);
-    const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / stepSeconds(step)) : goal;
+    const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / step.seconds) : goal;
     const resistance = Math.max(LEAST_RESISTANCE, resistanceAt(puck.resistance, pumped));
 
     // What the pump is asked for this tick.
@@ -476,7 +499,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, model = "D
       }
     }
     if (stop || index === ran) sample(ran, target);
-    else sample(index, initialTarget(profile.steps[index]!, from));
+    else sample(index, initialTarget(sentSteps[index]!, from));
   }
 
   const firstDrip = samples.find((s) => (s.values.weight ?? 0) >= FIRST_DRIP_GRAMS);
@@ -502,7 +525,7 @@ function initialTarget(step: ProfileStep, measured: number): number {
   return step.transition === "smooth" ? measured : stepTarget(step);
 }
 
-/** Why a step ends after this tick, or null while it runs on. */
+/** Why a step, as sent (`sentStep`), ends after this tick, or null while it runs on. */
 function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; flow: number; water: number; weight: number }): StepEnd | null {
   const exit = step.exit;
   // Decaid's simulated machine takes an exit of 0 or less as none (`_stepExitConditionMet`).
@@ -510,10 +533,9 @@ function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; f
     const reading = exit.type === "pressure" ? at.pressure : at.flow;
     if (exit.condition === "over" ? reading >= exit.value : reading <= exit.value) return "exit";
   }
-  const volume = stepVolume(step);
-  if (volume > 0 && at.water >= volume) return "water";
+  if (step.volume > 0 && at.water >= step.volume) return "water";
   if (step.weight !== null && step.weight > 0 && at.weight >= step.weight) return "weight";
-  if (at.elapsed >= stepSeconds(step) - 1e-9) return "time";
+  if (at.elapsed >= step.seconds - 1e-9) return "time";
   return null;
 }
 
