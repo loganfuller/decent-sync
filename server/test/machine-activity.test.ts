@@ -72,6 +72,7 @@ interface Activity {
 const LAB_SERIAL = "47601";
 const MOVER_SERIAL = "47602";
 const BAR_SERIAL = "47603";
+const NEWCOMER_SERIAL = "47604";
 
 /** The recording's tablet's record id of the Ethiopia's recipe. */
 const ETHIOPIA = "1";
@@ -119,6 +120,14 @@ const MOVER_DAYS: Change[] = [
 ];
 const MOVED_AT = "2026-02-10T20:00:00Z";
 
+/**
+ * A Machine added to the Lab at 18:00 on the 10th there, which was 01:00 on
+ * the 11th in UTC, after noon UTC on the 10th, when it was at none (#587).
+ * Its dose is set to 20 g at 19:00.
+ */
+const NEWCOMER_ADDED_AT = "2026-02-11T01:00:00Z";
+const NEWCOMER_DAYS: Change[] = [["2026-02-11T02:00:00Z", { targetDoseWeight: 20 }]];
+
 function withoutId<T extends { id: string }>({ id: _, ...rest }: T): Omit<T, "id"> {
   return rest;
 }
@@ -162,6 +171,7 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
   let lab1: CreatedMachine;
   let mover: CreatedMachine;
   let bar: CreatedMachine;
+  let newcomer: CreatedMachine;
   /** The Recipe the bar loaded, and a moment before it did. */
   let ethiopia: string;
   let beforeLoad: string;
@@ -179,10 +189,12 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
     lab1 = await api.createMachine("Lab 1");
     mover = await api.createMachine("Mover");
     bar = await api.createMachine("Lab bar");
+    newcomer = await api.createMachine("Newcomer");
     for (const machine of [lab1, mover, bar]) {
       await api.send("POST", `/machines/${machine.machine.id}/location-history`, { locationId: lab.id, effectiveFrom: "2025-01-01T00:00:00Z" }, 201);
     }
     await api.send("POST", `/machines/${mover.machine.id}/location-history`, { locationId: harbor.id, effectiveFrom: MOVED_AT }, 201);
+    await api.send("POST", `/machines/${newcomer.machine.id}/location-history`, { locationId: lab.id, effectiveFrom: NEWCOMER_ADDED_AT }, 201);
   });
   afterAll(async () => {
     await assistant?.close();
@@ -191,14 +203,15 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
     await server?.stop();
   });
 
-  it("has the Lab's Machine and the one that moved report their days, and the bar load a Recipe and have its grind changed", async () => {
+  it("has the Lab's Machine, the one that moved and the one added report their days, and the bar load a Recipe and have its grind changed", async () => {
     const labTablet = tablets.syncing(lab1, server, { api: emptyLibrary(LAB_SERIAL) });
     const moverTablet = tablets.syncing(mover, server, { api: emptyLibrary(MOVER_SERIAL) });
     const barTablet = tablets.syncing(bar, server, { api: recordedDye2MainTablet(BAR_SERIAL, "Activity"), dye2: new SimulatedDye2() });
-    await api.waitForOnline(lab1, mover, bar);
+    const newcomerTablet = tablets.syncing(newcomer, server, { api: emptyLibrary(NEWCOMER_SERIAL) });
+    await api.waitForOnline(lab1, mover, bar, newcomer);
     // Each has joined its Location, and nothing of that is left under way to be timed with what follows.
-    await quiesced(api, { tablets: { labTablet, moverTablet, barTablet }, machines: { lab1, mover, bar } });
-    await Promise.all([report(lab1, labTablet, LAB_DAYS), report(mover, moverTablet, MOVER_DAYS)]);
+    await quiesced(api, { tablets: { labTablet, moverTablet, barTablet, newcomerTablet }, machines: { lab1, mover, bar, newcomer } });
+    await Promise.all([report(lab1, labTablet, LAB_DAYS), report(mover, moverTablet, MOVER_DAYS), report(newcomer, newcomerTablet, NEWCOMER_DAYS)]);
 
     // The bar, as the test runs: the Ethiopia's applied from DYE2's Select Recipe page, then its grind changed.
     beforeLoad = new Date().toISOString();
@@ -411,6 +424,19 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
     // The 12th there begins asleep, with the dose it was left at.
     const after = await read(mover, { from: "2026-02-12", to: "2026-02-12" });
     expect([states(after), trail(after)]).toEqual([[["sleeping", "idle", "2026-02-11T12:00:00"]], [["inEffect", [], "2026-02-10T22:00:00"]]]);
+  });
+
+  it("reads the day a Machine came to its first Location after noon UTC by that Location's clock, so a Workflow of its evening there, after midnight UTC, is that day's", async () => {
+    // The 10th, from its start in UTC, which was sooner than at the Lab, to its end at the Lab, 07:00 on the 11th in
+    // UTC, not UTC's 10th, which ended before it came.
+    const added = await read(newcomer, { from: "2026-02-10", to: "2026-02-10", kind: "workflowChanges" });
+    expect(await read(newcomer, { from: "2026-02-10T00:00:00Z", to: "2026-02-11T07:00:00Z", kind: "workflowChanges" })).toEqual(added);
+    // No Workflow was in effect as the day began, so the first in it is.
+    expect(trail(added)).toEqual([["inEffect", [], "2026-02-11T02:00:00"]]);
+    expect(added.workflowChanges!.entries[0]!.workflow).toMatchObject({ dose: 20 });
+    expect(instants(await tool(newcomer, { from: "2026-02-10", to: "2026-02-10", kinds: ["workflowChanges"] }))).toEqual(instants(asTool(added)));
+    // The day before it came is UTC's, and holds nothing of it.
+    expect((await read(newcomer, { from: "2026-02-09", to: "2026-02-09", kind: "workflowChanges" })).workflowChanges).toEqual({ entries: [], total: 0 });
   });
 
   it("pages each list by limit and offset, gives only the kinds asked for, and keeps the Workflow changes of one cause", async () => {

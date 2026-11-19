@@ -3,8 +3,9 @@ import { queryValue } from "../record-filters.js";
 import { readTime } from "./input.js";
 
 // A Machine's days: a day or an hour of a Machine is that of the Location it
-// was at then, by its Location History, in that Location's time zone, and
-// UTC's while it was at none. What reads a range of a Machine's activity, or
+// was at then, by its Location History, in that Location's time zone, the
+// whole of the day it came to its first Location included, and UTC's before
+// that day (`dayStays`). What reads a range of a Machine's activity, or
 // counts its use by day or hour, reads its days here.
 
 /**
@@ -20,6 +21,41 @@ export interface Stay {
 /** A Machine's stays, oldest first, from its Location History, oldest first, as the REST API gives it. */
 export function staysOf(history: readonly { effectiveFrom: string; location: { timeZone: string } }[]): Stay[] {
   return history.map((entry) => ({ from: Date.parse(entry.effectiveFrom), timeZone: entry.location.timeZone }));
+}
+
+/**
+ * A Machine's stays as its days are read, oldest first: the first from the
+ * start of the day it came there, by that Location's clock, so that day is
+ * wholly its first Location's, as the day of a Machine added there in the
+ * evening west of UTC is, after midnight UTC (#587). Before it, the Machine
+ * was at none, and its days are UTC's.
+ */
+export function dayStays(stays: readonly Stay[]): Stay[] {
+  const [first, ...rest] = stays;
+  if (!first) return [];
+  return [{ from: startOfDay(cameOn(first), first.timeZone).getTime(), timeZone: first.timeZone }, ...rest];
+}
+
+/**
+ * The hours of the day a Machine came to its first Location that began in
+ * UTC before that day began there, as west of UTC, in milliseconds: they are
+ * that date's too (`rangeBound`), so that day is longer by them, and none
+ * east of UTC or before a first Location.
+ */
+export function firstDayLead(stays: readonly Stay[]): { from: number; to: number } | null {
+  const first = stays[0];
+  if (!first) return null;
+  const lead = { from: startOfDay(cameOn(first), null).getTime(), to: dayStays(stays)[0]!.from };
+  return lead.from < lead.to ? lead : null;
+}
+
+/** The date a stay began on, by its Location's clock, or in UTC for a zone this runtime doesn't know. */
+function cameOn(stay: Stay): string {
+  try {
+    return Temporal.Instant.fromEpochMilliseconds(stay.from).toZonedDateTimeISO(stay.timeZone).toPlainDate().toString();
+  } catch {
+    return new Date(stay.from).toISOString().slice(0, 10);
+  }
 }
 
 /** The time zone of the Location the Machine was at, at a moment, by its stays, oldest first; null before its first. */
@@ -80,13 +116,25 @@ export function startOfDay(day: string, timeZone: string | null | undefined, day
  * A bound of a range of the Machine's activity as a moment: one given with
  * its offset as itself, and a date as when that day began at the Location
  * the Machine was at, or for an end the day after it, through its end, in
- * UTC while it was at none. The day's Location is the one it was at at noon
- * UTC that day, within the day nearly everywhere, which differs only on a
- * day it moved between time zones.
+ * UTC before the day it came to its first (`dayStays`). The day's Location
+ * is the one it was at at noon UTC that day, within the day nearly
+ * everywhere, which differs only on a day it moved between time zones.
+ *
+ * So a date holds the moments its use is counted under (`useSpans`): a day
+ * before the one it came to its first Location on ends when that day began
+ * there, which east of UTC is before midnight UTC, and that day begins when
+ * the day began in UTC if that was sooner, as west of UTC, as its bucket
+ * does.
  */
 export function rangeBound(bound: string, stays: readonly Stay[], end: boolean): Date {
   if (!isDay(bound)) return new Date(bound);
-  return startOfDay(bound, timeZoneAt(stays, Date.parse(`${bound}T12:00:00Z`)), end ? 1 : 0);
+  const days = dayStays(stays);
+  const noon = Date.parse(`${bound}T12:00:00Z`);
+  const came = days[0]?.from ?? Infinity;
+  const utc = startOfDay(bound, null, end ? 1 : 0).getTime();
+  if (noon < came) return new Date(Math.min(utc, came));
+  if (!end && utc < came) return new Date(utc);
+  return startOfDay(bound, timeZoneAt(days, noon), end ? 1 : 0);
 }
 
 /**

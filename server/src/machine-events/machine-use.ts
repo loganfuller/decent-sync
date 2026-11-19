@@ -1,7 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { nameDecaidState } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
-import { type Stay, rangeBound, readRangeBound, timeZoneAt } from "../machines/machine-days.js";
+import { type Stay, dayStays, firstDayLead, rangeBound, readRangeBound, timeZoneAt } from "../machines/machine-days.js";
 import { queryValue } from "../record-filters.js";
 
 // A Machine's use (#475; #465, Machine Activity): for each day of a range, or
@@ -11,8 +11,8 @@ import { queryValue } from "../record-filters.js";
 // Nothing is stored for it.
 //
 // A day or an hour is that of the Location the Machine was at then, by its
-// Location History, in that Location's time zone, and UTC's while it was at
-// none (`useSpans`). A Machine State lasts until the next one reported, so a
+// Location History, in that Location's time zone, and UTC's before the day
+// it came to its first (`useSpans`). A Machine State lasts until the next one reported, so a
 // Machine whose tablet was off counts as in its last state until its tablet
 // reports again: Monitoring's connection history (milestone 9) will correct
 // that.
@@ -33,7 +33,10 @@ const DAY = 24 * HOUR;
 /**
  * The longest range of each kind, in milliseconds: by day, `MAX_USE_DAYS`
  * days and the hour a day gains as the clocks go back; by hour, 25 hours,
- * the longest a day is, as the clocks go back.
+ * the longest a day is, as the clocks go back. The hours of the day a
+ * Machine came to its first Location before it began there, which that
+ * day is longer by (`firstDayLead`), aren't counted while the range reaches
+ * as far into that day there, whose buckets they share.
  */
 const LONGEST: Record<UseBy, number> = { day: MAX_USE_DAYS * DAY + HOUR, hour: 25 * HOUR };
 
@@ -120,10 +123,13 @@ export function useRange({ from, to, by }: UseRequest, stays: readonly Stay[], n
   };
   const end = to === undefined ? now : moment(to, true);
   // With no start, from the day the range's last moment is in, or the days before it too.
-  const lastDay = zoned(end - 1, timeZoneAt(stays, end - 1)).toPlainDate();
+  const lastDay = zoned(end - 1, timeZoneAt(dayStays(stays), end - 1)).toPlainDate();
   const start = moment(from ?? lastDay.subtract({ days: by === "day" ? DEFAULT_USE_DAYS - 1 : 0 }).toString(), false);
   if (to !== undefined && end <= start) throw new BadRequestException("Choose an end after the start");
-  if (end - start > LONGEST[by]) {
+  const lead = firstDayLead(stays);
+  // As many of those hours as it covers, and no more than it reaches into the day there, whose buckets they share.
+  const shared = lead ? Math.max(0, Math.min(Math.min(end, lead.to) - Math.max(start, lead.from), end - lead.to)) : 0;
+  if (end - start - shared > LONGEST[by]) {
     throw new BadRequestException(by === "day" ? `Choose a range of at most ${MAX_USE_DAYS} days` : "Choose a range of at most 25 hours to read by hour");
   }
   return { from: start, to: end };
@@ -140,7 +146,8 @@ export interface UseSpan {
 /**
  * A range cut into the days, or hours, of the Machine: each moment belongs
  * to the date, and hour, the wall clock read at the Location the Machine was
- * at then, UTC's before its first stay. The buckets are in the order of
+ * at then, UTC's before the day it came to its first (`dayStays`), as a
+ * date given for the range is read. The buckets are in the order of
  * their dates and hours, and the spans in the order of time.
  *
  * A bucket is nearly always one span. A day the clocks change in is one
@@ -152,7 +159,7 @@ export interface UseSpan {
 export function useSpans(range: { from: number; to: number }, stays: readonly Stay[], by: UseBy): { buckets: Pick<UseBucket, "date" | "hour">[]; spans: UseSpan[] } {
   const unit = by === "day" ? DAY : HOUR;
   const labelled = new Map<string, { date: string; hour?: number; spans: Omit<UseSpan, "bucket">[] }>();
-  const zones = [{ from: -Infinity, timeZone: null }, ...stays];
+  const zones = [{ from: -Infinity, timeZone: null }, ...dayStays(stays)];
   zones.forEach(({ from, timeZone }, n) => {
     const end = Math.min(range.to, zones[n + 1]?.from ?? Infinity);
     for (let at = Math.max(range.from, from); at < end; ) {
