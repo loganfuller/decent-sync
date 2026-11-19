@@ -725,6 +725,32 @@ describe("the latest release beside the change", () => {
       }
     });
 
+    // A Machine following a Draft (#581) came in the wire revision after the latest release's: the change's server sends a
+    // Draft only to the change's plugin, lists a Machine on the latest release's plugin as needing its plugin updated, and
+    // can't yet judge one whose tablet has only connected to the latest release's server, which records no revision.
+    it("has a Machine on the change's plugin follow a Draft, and offers none on the latest release's plugin or server for following", async () => {
+      const location = await apis.change.createLocation("Followed, on both", "America/Chicago");
+      await apis.change.send("PATCH", `/locations/${location.id}`, { triesDrafts: true });
+      const current = await connected("Followed, on the change", "change", "change", { location });
+      const behind = await connected("Followed, plugin behind", "latest release", "change", { location });
+      const elsewhere = await connected("Followed, server behind", "change", "latest release", { location });
+      const { draft } = await apis.change.send<{ draft: { id: string; profile: Record<string, unknown> } }>("POST", "/drafts", { shape: "classic" }, 201);
+      type Offered = { id: string; needsPluginUpdate: boolean; canFollow: boolean };
+      const { trying } = await apis.change.get<{ trying: { machines: Offered[] } }>(`/drafts/${draft.id}/trying`);
+      const offered = (machine: CreatedMachine) => trying.machines.find((each) => each.id === machine.machine.id);
+      expect(offered(current.machine)).toMatchObject({ needsPluginUpdate: false, canFollow: true });
+      expect(offered(behind.machine)).toMatchObject({ needsPluginUpdate: true, canFollow: false });
+      expect(offered(elsewhere.machine)).toMatchObject({ needsPluginUpdate: false, canFollow: false });
+      for (const { machine } of [behind, elsewhere]) {
+        expect((await apis.change.call("PUT", `/drafts/${draft.id}/following`, { machineId: machine.machine.id })).status).toBe(409);
+      }
+      await apis.change.send("PUT", `/drafts/${draft.id}/following`, { machineId: current.machine.machine.id });
+      await expect.poll(() => (current.tablet.workflow().profile as Record<string, unknown>).title).toBe(`${String(draft.profile.title)} (Draft)`);
+      const draftWrites = (tablet: SimulatedTablet) => tablet.received.filter((frame) => (frame as Record<string, unknown>).kind === "draft");
+      expect([draftWrites(current.tablet).length, draftWrites(behind.tablet).length, draftWrites(elsewhere.tablet).length]).toEqual([1, 0, 0]);
+      await apis.change.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
+    });
+
     // A range typed into a grinder under 1.10.0, whose server kept the record as sent and took none of it in (#551):
     // the change's server takes it in from the tablet's next report, where the Grinder never had one, rather than
     // writing the Grinder's none over it. The tablet keeps the latest release's plugin, as in the minutes after a deploy.

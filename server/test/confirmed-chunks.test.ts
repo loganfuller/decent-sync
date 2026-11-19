@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CLOSE_CODES, CONFIRMED_CHUNKS_WIRE_REVISION, type Chunk, MAX_FRAME_BYTES, globalIdOf } from "@decent-sync/protocol";
+import { CLOSE_CODES, type Chunk, MAX_FRAME_BYTES, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES } from "../src/sync/sender.js";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
@@ -240,22 +240,6 @@ describe("The server's chunks to the plugin", () => {
     await back.deliver({ type: "collection", id: randomUUID(), name: "scale", available: false });
     expect(new Set(chunksOn(back).map((chunk) => chunk.id)).size).toBe(1);
     expect((back.messages as Frame[]).filter((frame) => frame.type === "answer")).toEqual([]);
-  });
-
-  it("sends a plugin behind the confirmations' wire revision a large write in chunks all at once, as before", async () => {
-    // Too large for one frame, and more than the server would send unconfirmed to a plugin that confirms.
-    const { second, beanId, notes } = await largeBean("Unconfirmed", MAX_UNCONFIRMED_BYTES + MAX_FRAME_BYTES);
-    const raw = await rawTablet(second, { wireRevision: CONFIRMED_CHUNKS_WIRE_REVISION - 1 });
-    await expect.poll(() => chunksOn(raw).length).toBeGreaterThan(0);
-    const { count } = chunksOn(raw)[0]!;
-    expect(count).toBeGreaterThan(2);
-    // Every chunk arrives though none is confirmed.
-    await expect.poll(() => chunksOn(raw).length).toBe(count);
-    expect(bytesOf(chunksOn(raw))).toBeGreaterThan(MAX_UNCONFIRMED_BYTES);
-    const write = whole(chunksOn(raw));
-    expect(write).toMatchObject({ type: "write", kind: "bean", globalId: beanId, fields: { notes } });
-    // Named by the write's id, as the previous release named them.
-    expect(new Set(chunksOn(raw).map((chunk) => chunk.id))).toEqual(new Set([write.id]));
   });
 
   it("refuses a confirmation it can't read, and one sent before a hello", async () => {

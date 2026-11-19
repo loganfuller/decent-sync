@@ -975,7 +975,7 @@ var __decentSync = (() => {
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
-  var WIRE_REVISION = 3;
+  var WIRE_REVISION = 4;
   var FIRST_WIRE_REVISION = 1;
   function wireRevisionOf(message) {
     return message.wireRevision ?? FIRST_WIRE_REVISION;
@@ -1072,7 +1072,12 @@ var __decentSync = (() => {
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
   var WORKFLOW_CAUSES = ["plugin", "other"];
-  var PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn"];
+  var PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn", "draft"];
+  function workflowDeliveryFor(delivery, peer) {
+    if (delivery.pluginWrite !== "draft" || peerHasWireRevision(peer, FOLLOWED_DRAFTS_WIRE_REVISION)) return delivery;
+    const { pluginWrite: _, ...rest } = delivery;
+    return { ...rest, cause: "other" };
+  }
   var UTC_OFFSET_COLLECTIONS = ["appSettings", "presenceSettings"];
   function hasUtcOffset(name) {
     return UTC_OFFSET_COLLECTIONS.includes(name);
@@ -1201,6 +1206,8 @@ var __decentSync = (() => {
     return isObject2(value) ? Object.fromEntries(Object.keys(value).sort().map((key2) => [key2, value[key2]])) : value;
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
+  var DRAFT_KIND = "draft";
+  var FOLLOWED_DRAFTS_WIRE_REVISION = 4;
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
   function profileAtBrewTemperature(profile, temperature) {
     const temperatures = shiftedTemperatures(
@@ -1306,13 +1313,10 @@ var __decentSync = (() => {
     const uuid = "00000000-0000-0000-0000-000000000000";
     return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
   }
-  var CONFIRMED_CHUNKS_WIRE_REVISION = 3;
-  var REQUESTS_WIRE_REVISION = 3;
   var SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot"];
   var MAX_SHOTS_PAGE = 50;
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
   var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"];
-  var REFERENCE_COPIES_WIRE_REVISION = 3;
   var MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
   var MAX_REFERENCE_VERSION_LENGTH = 128;
   var MAX_SHOT_RATING = 10;
@@ -2773,7 +2777,8 @@ var __decentSync = (() => {
     tool: dye2Writer("equipment"),
     recipe: dye2Writer("recipes"),
     [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
-    [LOADED_RECIPE_KIND]: { write: writeLoadedRecipe, changesWorkflow: true }
+    [LOADED_RECIPE_KIND]: { write: writeLoadedRecipe, changesWorkflow: true },
+    [DRAFT_KIND]: { write: writeFollowedDraft, changesWorkflow: true }
   };
   function writerOf(kind) {
     return Object.prototype.hasOwnProperty.call(WRITERS, kind) ? WRITERS[kind] : void 0;
@@ -2948,7 +2953,7 @@ var __decentSync = (() => {
       if (!writerOf(write.kind)?.changesWorkflow) {
         return this.afterShot(again, async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
       }
-      const named = write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
+      const named = write.kind === DRAFT_KIND ? "draft" : write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
       return this.afterShot(
         again,
         () => this.loaded.ownWrite(named, async (answered3) => {
@@ -3163,6 +3168,23 @@ var __decentSync = (() => {
       if (ofMachine.length === 0 || ofMachine.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
       machineSettings = false;
     }
+  }
+  async function writeFollowedDraft(write, _log, posted) {
+    const profile = readProfile(write.fields.profile);
+    if (!profile.profile) return refused(write, null, profile.problem);
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed3(current.text) : void 0;
+    if (!isObject6(workflow)) return refused(write, current.status, current.text);
+    const body = { profile: profile.profile, ...dye2RecipeIdOf(workflow) === null ? {} : clearRecipe() };
+    let updated;
+    const answer = await putWorkflow(body, (workflow2, body2) => {
+      updated = workflow2;
+      posted.answered?.(workflow2, body2);
+    });
+    if (!answer.ok || updated === void 0) return refused(write, answer.status, answer.text);
+    posted.workflowWritten(workflow, updated);
+    const record3 = { ...workflowContext(updated), ...isObject6(updated.profile) ? { profile: updated.profile } : {}, draft: profile.profile };
+    return written(write, record3, ["profile"], (/* @__PURE__ */ new Date()).toISOString());
   }
   var STEAM_OFF_KEPT = /* @__PURE__ */ new Set([RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow]);
   function isMachineSetting(field) {
@@ -5456,11 +5478,9 @@ var __decentSync = (() => {
     /**
      * The server welcomed a connection: it is told what the tablet holds, once
      * that is read and the copies an earlier connection brought are kept,
-     * where `current` says the connection is still the one welcomed. A server
-     * behind the copies' wire revision is told nothing, and sends none.
+     * where `current` says the connection is still the one welcomed.
      */
-    async welcomed(send, serverRevision, current) {
-      if (!peerHasWireRevision(serverRevision, REFERENCE_COPIES_WIRE_REVISION)) return;
+    async welcomed(send, current) {
       await this.settled();
       if (this.stopped || !current()) return;
       const held = {};
@@ -5775,7 +5795,6 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     ask(question) {
       const connection = this.connection;
       if (!connection) return Promise.resolve({ unanswered: "unreachable" });
-      if (!peerHasWireRevision(connection.serverRevision, REQUESTS_WIRE_REVISION)) return Promise.resolve({ unanswered: "serverTooOld" });
       const id = this.outbox.nextId();
       return new Promise((resolve) => {
         let giveUp = () => {
@@ -6119,8 +6138,6 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       __publicField(this, "sender");
       /** Puts the open handle's chunked messages from the server back together. */
       __publicField(this, "chunks", new Reassembly());
-      /** Whether the server that welcomed the open handle waits for its chunks to be confirmed (CONFIRMED_CHUNKS_WIRE_REVISION). */
-      __publicField(this, "confirmsChunks", false);
       /** Bumped by every attempt and drop, so late results of an older one are ignored. */
       __publicField(this, "attempt", 0);
       __publicField(this, "connecting", false);
@@ -6354,7 +6371,6 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         this.handle = handle;
         this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
         this.chunks = new Reassembly();
-        this.confirmsChunks = false;
         this.welcomed = false;
         this.sentHardware = identity.machine;
         this.machineAway = false;
@@ -6419,12 +6435,10 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       if (decoded.message.type !== "chunk") return this.onMessage(handle, decoded.message);
       const added = this.chunks.add(decoded.message, CHUNK_LIMITS);
       if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
-      if (this.confirmsChunks) {
-        const { id, index } = decoded.message;
-        this.send(handle, { type: "chunkReceived", id, index }).catch((error) => {
-          this.sendFailed(handle, `could not confirm a chunk: ${describe3(error)}`);
-        });
-      }
+      const { id, index } = decoded.message;
+      this.send(handle, { type: "chunkReceived", id, index }).catch((error) => {
+        this.sendFailed(handle, `could not confirm a chunk: ${describe3(error)}`);
+      });
       if (added.status === "incomplete") return;
       const whole = decodeServerMessage(added.text);
       if (!whole.ok) return this.log(`Ignoring a message from the server: ${whole.problem}`);
@@ -6444,13 +6458,13 @@ ${JSON.stringify(copy?.reference ?? null)}`;
               `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`
             );
           }
-          this.confirmsChunks = peerHasWireRevision(wireRevisionOf(message), CONFIRMED_CHUNKS_WIRE_REVISION);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
           this.machineEvents.welcome();
+          const serverRevision = wireRevisionOf(message);
           this.outbox.welcome(async (delivery) => {
             try {
-              await this.send(handle, delivery);
+              await this.send(handle, delivery.type === "workflow" ? workflowDeliveryFor(delivery, serverRevision) : delivery);
             } catch (error) {
               this.sendFailed(handle, "could not send a delivery");
               throw error;
@@ -6477,7 +6491,6 @@ ${JSON.stringify(copy?.reference ?? null)}`;
                 throw error;
               }
             },
-            wireRevisionOf(message),
             () => handle === this.handle
           );
           break;

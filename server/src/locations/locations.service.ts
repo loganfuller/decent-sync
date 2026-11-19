@@ -1,7 +1,8 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma.service.js";
 import { type Location, Prisma } from "../generated/prisma/client.js";
-import { type LocationFields, locationNotFound } from "./input.js";
+import { endStrandedFollowings } from "../library/draft-following.js";
+import { type LocationEdit, type LocationFields, locationNotFound } from "./input.js";
 
 /** A Location as the REST API returns it. */
 export interface LocationView {
@@ -11,8 +12,18 @@ export interface LocationView {
   timeZone: string;
 }
 
+/** A Location with its settings, as the Locations routes return it. */
+export interface LocationSettingsView extends LocationView {
+  /** Whether Drafts may be tried here (ADR-0032): only its Machines can follow a Draft. Off unless an Admin turned it on. */
+  triesDrafts: boolean;
+}
+
 export function viewLocation(location: Location): LocationView {
   return { id: location.id, name: location.name, timeZone: location.timeZone };
+}
+
+export function viewLocationSettings(location: Location): LocationSettingsView {
+  return { ...viewLocation(location), triesDrafts: location.triesDrafts };
 }
 
 @Injectable()
@@ -28,9 +39,14 @@ export class LocationsService {
     return this.prisma.location.create({ data: fields }).catch(refuseDuplicateName(fields.name));
   }
 
-  async update(id: string, fields: Partial<LocationFields>): Promise<Location> {
+  /** Edits it. Turning off that Drafts may be tried there ends the following of each of its Machines, which is written its Draft no more. */
+  async update(id: string, fields: LocationEdit): Promise<Location> {
     try {
-      return await this.prisma.location.update({ where: { id }, data: fields });
+      return await this.prisma.$transaction(async (tx) => {
+        const location = await tx.location.update({ where: { id }, data: fields });
+        if (fields.triesDrafts === false) await endStrandedFollowings(tx);
+        return location;
+      });
     } catch (error) {
       // P2025: no row matched the id.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") throw locationNotFound();

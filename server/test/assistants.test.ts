@@ -180,6 +180,7 @@ describe("connecting an assistant", () => {
         "edit_recipe",
         "edit_shot",
         "edit_tool",
+        "follow_draft",
         "move_machine",
         "publish_draft",
         "resolve_conflict",
@@ -189,6 +190,7 @@ describe("connecting an assistant", () => {
         "set_machine_sharing",
         "set_recipe_slot",
         "set_reference_shot",
+        "stop_following_draft",
       ];
       expect(tools.map((tool) => tool.name).sort()).toEqual([...reading, ...changing].sort());
       // Archiving retires an item everywhere, a Settings Edit writes a Machine's settings, and discarding a Draft leaves

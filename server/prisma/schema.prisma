@@ -291,6 +291,9 @@ model Location {
   /// An IANA time zone, spelled as PostgreSQL knows it, so date filters can
   /// use it with AT TIME ZONE. See server/src/locations/time-zones.ts.
   timeZone  String   @map("time_zone")
+  /// Whether Drafts may be tried here (ADR-0032, ticket #581), which an
+  /// Admin turns on: only its Machines can follow a Draft.
+  triesDrafts Boolean @default(false) @map("tries_drafts")
   createdAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -355,6 +358,10 @@ model Machine {
   connectionId        String?               @map("connection_id")
   pluginVersion       String?               @map("plugin_version")
   decaidVersion       String?               @map("decaid_version")
+  /// The wire revision of the plugin that `hello` came from (ADR-0025), so
+  /// any instance can say whether it can follow a Draft (ticket #581); null
+  /// until a release that records it accepts one.
+  wireRevision        Int?                  @map("wire_revision")
   remoteAddress       String?               @map("remote_address")
   /// Whether it takes part in the Library at its Location: on unless an
   /// Admin turned sharing off, making it a Capture-only Machine, whose
@@ -401,6 +408,8 @@ model Machine {
   settingsEdits      SettingsEdit[]
   liveViewLeases     LiveViewLease[]
   shotEdits          ShotEdit[]
+  draftFollowings    DraftFollowing[]
+  draftTrials        DraftTrial[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -1487,9 +1496,68 @@ model Draft {
   /// When it was started, by PostgreSQL's clock.
   createdAt             DateTime        @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
+  following DraftFollowing?
+  trials    DraftTrial[]
+
   @@index([savedByAccountId])
   @@index([savedByConnectedAppId])
   @@map("drafts")
+}
+
+/// A profile a Draft was written to a following Machine with (ADR-0032,
+/// ticket #581): the Draft keeps each for as long as it lives, so a Shot
+/// pulled on that Machine with its steps is a Trial Shot of the Draft, tied
+/// to the steps it ran. Gone with the Draft, as it is published or
+/// discarded. See server/src/library/draft-following.ts.
+model DraftTrial {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  draftId         String   @map("draft_id") @db.Uuid
+  draft           Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  machineId       String   @map("machine_id") @db.Uuid
+  machine         Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// The profile as the write carried it, under the title a tablet shows a
+  /// followed Draft by.
+  profile         Json     @db.JsonB
+  /// When the server recorded the plugin's answer, by PostgreSQL's clock.
+  writtenAt       DateTime @default(dbgenerated("statement_timestamp()")) @map("written_at") @db.Timestamptz(3)
+  /// When the plugin had Decaid's answer, by the tablet's clock, which a
+  /// Shot pulled on it is timed by too: a Shot pulled from then on with
+  /// these steps is a Trial Shot.
+  tabletWrittenAt DateTime @map("tablet_written_at") @db.Timestamptz(3)
+
+  followings DraftFollowing[]
+
+  @@index([draftId])
+  @@index([machineId])
+  @@map("draft_trials")
+}
+
+/// The Machine a Draft is followed on (ADR-0032, ticket #581): the server's
+/// record that the Machine should hold the Draft's steps, kept once it has
+/// ended so the Draft's page can say when and offer to follow again. A
+/// Machine follows one Draft at a time (a partial unique index in the
+/// migration). Gone with the Draft.
+model DraftFollowing {
+  draftId   String      @id @map("draft_id") @db.Uuid
+  draft     Draft       @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  machineId String      @map("machine_id") @db.Uuid
+  machine   Machine     @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// When it was last turned on, by PostgreSQL's clock.
+  startedAt DateTime    @default(dbgenerated("statement_timestamp()")) @map("started_at") @db.Timestamptz(3)
+  /// The profile the Machine's Workflow was last written since then; null
+  /// until it is written one.
+  trialId   String?     @map("trial_id") @db.Uuid
+  trial     DraftTrial? @relation(fields: [trialId], references: [id], onDelete: SetNull)
+  /// When it ended, and why: `workflow`, as the Machine's Workflow came to
+  /// hold another profile; `stopped`, by a person; `location`, as its
+  /// Location stopped trying Drafts or the Machine left it. Null while
+  /// following.
+  endedAt   DateTime?   @map("ended_at") @db.Timestamptz(3)
+  endedWhy  String?     @map("ended_why")
+
+  @@index([machineId])
+  @@index([trialId])
+  @@map("draft_followings")
 }
 
 /// Whether a Profile is shown at one Location (ADR-0008), a field of its own

@@ -1,3 +1,4 @@
+import { followedDraftDue, followsDraft } from "./draft-following.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type DeletedKind, LIBRARY_ITEM_KINDS, LIBRARY_KINDS, REMOVAL_ORDER, type WrittenKind, isLibraryKind } from "@decent-sync/protocol";
@@ -127,8 +128,11 @@ export async function changesDue(
   // Nothing is written to one of DYE2's lists the tablet holds in a shape that is not recognised (ADR-0005).
   const unrecognised = await unrecognisedLists(tx, tablet.tabletId);
   const writable = (change: { kind: WrittenKind }) => !isLibraryKind(change.kind) || !unrecognised.has(LIBRARY_ITEM_KINDS[change.kind].list);
-  // The Loaded Recipe's fields last, once the Recipe's record, and the Basket and batch they name, are written.
-  const loaded = await loadedRecipeDue(tx, tablet, locationId);
+  // The Loaded Recipe's fields last, once the Recipe's record, and the Basket and batch they name, are written. A Machine
+  // following a Draft is due that Draft's profile instead (ADR-0032): its write ends the Loaded Recipe, which its Workflow
+  // no longer names by the time the tablet reports it, so nothing of the Recipe is written over the Draft meanwhile.
+  const following = await followsDraft(tx, tablet.machineId);
+  const loaded = following ? await followedDraftDue(tx, tablet, locationId) : await loadedRecipeDue(tx, tablet, locationId);
   const changes = [
     ...writes,
     ...(await deletesDue(tx, tablet.tabletId, skipped)),

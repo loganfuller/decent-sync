@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import { type ErrorCode, type Hello, MISSED_HEARTBEATS } from "@decent-sync/protocol";
+import { type ErrorCode, type Hello, MISSED_HEARTBEATS, wireRevisionOf } from "@decent-sync/protocol";
 import { transferPendingCollections } from "../collections/transfer.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
@@ -464,6 +464,7 @@ export class MachinesService {
         connectionId,
         pluginVersion: hello.pluginVersion,
         decaidVersion: hello.decaidVersion,
+        wireRevision: wireRevisionOf(hello),
         remoteAddress: connection.remoteAddress,
         refusalReason: null,
         refusedAt: null,

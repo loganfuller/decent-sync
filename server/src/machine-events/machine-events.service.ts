@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { PLUGIN_WORKFLOW_WRITES, type MachineStateDelivery, type PluginWorkflowWrite, type WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
+import { followedWorkflowReported } from "../library/draft-following.js";
 import { INTAKE_TRANSACTION, lockTablet, sharingLocation } from "../library/intake.js";
 import { takeInWorkflow } from "../library/joining.js";
 import { lockLocation } from "../library/location-state.js";
@@ -180,6 +181,8 @@ export class MachineEventsService {
         )`;
       if (takenIn) {
         const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
+        // A Machine following a Draft stops following once its Workflow's profile is another's (ADR-0032).
+        await followedWorkflowReported(tx, reporter.machineId, message.workflow);
         return takeInWorkflow(tx, tablet, message.workflow, (entry, joining) =>
           takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { dye2Absent: message.dye2Absent, recipeNamedAt: message.recipeNamedAt }),
         );

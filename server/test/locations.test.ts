@@ -43,7 +43,8 @@ describe("Locations", () => {
 
     expect(response.status).toBe(201);
     ({ location: uptown } = (await response.json()) as { location: LocationView });
-    expect(uptown).toEqual({ id: expect.any(String), name: "Uptown", timeZone: "America/Chicago" });
+    // Drafts are tried at no Location until an Admin turns that on (#581, draft-following.test.ts).
+    expect(uptown).toEqual({ id: expect.any(String), name: "Uptown", timeZone: "America/Chicago", triesDrafts: false });
   });
 
   it("refuses a time zone that is not an IANA time zone, naming each problem", async () => {
@@ -143,7 +144,7 @@ describe("Locations", () => {
   it("refuses edits that are empty, invalid or clash with another name", async () => {
     const empty = await call("PATCH", `/locations/${uptown.id}`, {});
     expect(empty.status).toBe(400);
-    expect(await problems(empty)).toBe("Send a new name or time zone");
+    expect(await problems(empty)).toBe("Send a new name or time zone, or whether Drafts may be tried here");
 
     const invalid = await call("PATCH", `/locations/${uptown.id}`, { name: "", timeZone: "UTC+1" });
     expect(invalid.status).toBe(400);

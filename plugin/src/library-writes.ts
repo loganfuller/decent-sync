@@ -7,6 +7,7 @@ import {
   BREW_TEMPERATURE_FIELD,
   DYE2_RECIPE_FIELD,
   LOADED_RECIPE_KIND,
+  DRAFT_KIND,
   LOADED_RECIPE_PARTS,
   MACHINE_SETTING_PARTS,
   RECIPE_SETTINGS,
@@ -209,7 +210,8 @@ const ROUTES = {
 /**
  * Each kind the server writes, described once: the Library's kinds
  * (`LIBRARY_ITEM_KINDS`), the clearing of a Workflow's grinder, batch and
- * Basket, and a Workflow's Loaded Recipe.
+ * Basket, a Workflow's Loaded Recipe, and the profile of the Draft its
+ * Machine follows.
  */
 const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKindWriter : KindWriter } = {
   bean: recordWriter("bean", ROUTES.bean),
@@ -226,6 +228,7 @@ const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKin
   recipe: dye2Writer("recipes"),
   [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
   [LOADED_RECIPE_KIND]: { write: writeLoadedRecipe, changesWorkflow: true },
+  [DRAFT_KIND]: { write: writeFollowedDraft, changesWorkflow: true },
 };
 
 /** How the plugin carries out the server's changes of a kind, or undefined for a kind it does not know. */
@@ -471,7 +474,7 @@ export class LibraryWrites {
       return this.afterShot(again, async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
     }
     // A write of LOADED_RECIPE_KIND naming DYE2_RECIPE_FIELD alone unloads the Recipe, clearing it (`writeLoadedRecipe`).
-    const named = write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
+    const named = write.kind === DRAFT_KIND ? "draft" : write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
     return this.afterShot(again, () =>
       this.loaded.ownWrite(named, async (answered) => {
         const answer = await carryOut(write, this.log, Object.assign((key: Dye2Key) => this.posted(key), this.posted, { answered }));
@@ -830,6 +833,37 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     if (ofMachine.length === 0 || ofMachine.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
     machineSettings = false;
   }
+}
+
+/**
+ * Sets the profile of the Draft the Machine follows as the Workflow's
+ * profile (`DRAFT_KIND`, ADR-0032), whole, whatever profile it holds,
+ * through one `PUT /workflow`, which also clears the recipe the Workflow
+ * names (DYE2_RECIPE_FIELD), as DYE2 does on a change of profile: the
+ * Draft's is no recipe's profile, so the Machine's Loaded Recipe ends. The
+ * rest of the Workflow, its dose, yield, batch, grinder and Basket, stays.
+ * A write Decaid takes is told of (`ListPosted.workflowWritten`). Answers
+ * with the Workflow's `context` and `profile` as Decaid returned them and
+ * the profile the write carried (`draft`), timed now, as a Workflow carries
+ * no time, by the tablet's clock, which a Shot pulled on it is timed by too.
+ */
+async function writeFollowedDraft(write: LibraryWrite, _log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
+  // As Decaid reads it, which it would refuse as it does where this does.
+  const profile = readProfile(write.fields.profile);
+  if (!profile.profile) return refused(write, null, profile.problem);
+  const current = await request("GET", "/workflow");
+  const workflow = current.ok ? parsed(current.text) : undefined;
+  if (!isObject(workflow)) return refused(write, current.status, current.text);
+  const body = { profile: profile.profile, ...(dye2RecipeIdOf(workflow) === null ? {} : clearRecipe()) };
+  let updated: Record<string, unknown> | undefined;
+  const answer = await putWorkflow(body, (workflow, body) => {
+    updated = workflow;
+    posted.answered?.(workflow, body);
+  });
+  if (!answer.ok || updated === undefined) return refused(write, answer.status, answer.text);
+  posted.workflowWritten(workflow, updated);
+  const record = { ...workflowContext(updated), ...(isObject(updated.profile) ? { profile: updated.profile } : {}), draft: profile.profile };
+  return written(write, record, ["profile"], new Date().toISOString());
 }
 
 /** The Workflow's fields never written while its steam is off: its steam temperature, which would turn steam on, and its steam time (ADR-0022). */

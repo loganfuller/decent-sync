@@ -179,6 +179,27 @@ export class ShotsService {
   }
 
   /**
+   * The listed Shots of those ids, each as `list` shows one, in the order of
+   * the ids, leaving out any that is not listed: as a Draft's Trial Shots
+   * are shown (ticket #581).
+   */
+  async listed(ids: readonly string[]) {
+    if (ids.length === 0) return [];
+    const page = await this.prisma.$transaction(
+      async (tx) => {
+        const found = await tx.$queryRaw<{ id: string }[]>`SELECT s.id FROM shots s ${listedJoins} WHERE ${listed} AND s.id = ANY(${[...ids]}::text[])`;
+        if (found.length === 0) return [];
+        const rows = await withLinks(tx, await tx.shot.findMany({ where: { id: { in: found.map((row) => row.id) } }, omit: listOmitted, include: creditView }));
+        const [details, specs] = await Promise.all([recordedDetailsOf(tx, rows.map((row) => row.id)), shotSpecs(tx, rows.map((row) => row.id))]);
+        const byId = new Map(rows.map((row) => [row.id, { ...row, ...details.get(row.id)!, spec: specs.get(row.id)!.spec }]));
+        return ids.flatMap((id) => byId.get(id) ?? []);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    return page.map(shownShot);
+  }
+
+  /**
    * The Shot Summary of the Shots `list` lists for the same filters, grouped
    * by `groupBy`, with the `numbers` named: a page of its groups, each, with
    * a `bucket`, as its days' or weeks' buckets (summary.ts).

@@ -11,6 +11,7 @@ const locationsOutput = z.object({
       id: z.string(),
       name: z.string(),
       timeZone: z.string().describe("Its IANA time zone, such as America/Chicago. A day at the Location is a day in this zone."),
+      triesDrafts: z.boolean().describe("Whether Drafts may be tried at it: only a Machine at such a Location can follow a Draft."),
       machines: z.array(z.object({ id: z.string(), name: z.string() })).describe("The Machines at it now, by name."),
     }),
   ),
@@ -44,6 +45,7 @@ export class LocationsTools {
         id: location.id,
         name: location.name,
         timeZone: location.timeZone,
+        triesDrafts: location.triesDrafts,
         machines: machines.filter((machine) => machine.location?.id === location.id).map((machine) => ({ id: machine.id, name: machine.name })),
       })),
     };

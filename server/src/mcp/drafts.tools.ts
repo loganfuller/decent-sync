@@ -4,6 +4,7 @@ import { MACHINE_MODELS, STARTING_SHAPES } from "@decent-sync/protocol";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { type DraftSummary, type DraftView, DraftsService, MAX_DRAFT_STEPS } from "../library/drafts.service.js";
+import { DraftFollowingService, type DraftTrying, FOLLOWING_ENDS_LOADED_RECIPE, MAX_TRIAL_SHOTS } from "../library/draft-following.service.js";
 import { type PublishedView, PublishingService, readPublishAsk } from "../library/publishing.service.js";
 import { readProfileId } from "../library/profiles.service.js";
 import { type Budget, BudgetedTool } from "./budget.js";
@@ -18,7 +19,9 @@ import { callerOf } from "./token-verifier.js";
 // Profile, a starting shape or a profile, saved, simulated and discarded,
 // by an Admin or Staff, as anyone who may change the Library may. A Viewer
 // sees none. Publishing one, and returning a Profile to an earlier version
-// (#580), are here too, Staff choosing only their own Locations.
+// (#580), are here too, Staff choosing only their own Locations; and so is
+// trying one on a Machine (#581): a Draft's read says whether a Machine
+// follows it and lists its Trial Shots, and following starts and stops here.
 
 const id = z.string();
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
@@ -61,12 +64,73 @@ const draftItem = draftSummary.extend({
     .describe("For a new version, the versions of startedFrom the Library gained since the Draft began, from a tablet or another Draft, the latest first: publishing it then forks the chain beside them, so tell the person and offer to compare first. Empty otherwise."),
 });
 
+const machineRef = z.object({ id, name: z.string() });
+const locationRef = z.object({ id, name: z.string() });
+
+const followingShape = z
+  .object({
+    machine: machineRef.extend({ location: locationRef.nullable() }),
+    startedAt: z.string(),
+    state: z
+      .enum(["current", "waiting", "ended"])
+      .describe("current: the Machine has the Draft's steps as saved; waiting: it is still to be written them, as while it is off or pulling a Shot; ended: following ended, and it is written nothing more until follow_draft is called again."),
+    since: z.string().nullable().describe("When the Machine was written the steps of the Draft it has; null until it is written any."),
+    waitingFor: z.string().nullable().describe("Why it is still to be written, where known, as its tablet's refusal; null otherwise."),
+    ended: z
+      .object({ at: z.string(), why: z.enum(["workflow", "stopped", "location"]) })
+      .nullable()
+      .describe("For one that ended: when, and why. workflow: the Machine's Workflow came to hold another profile, whoever changed it, a barista, a Recipe or Streamline's wake profile; stopped: someone stopped it; location: its Location stopped trying Drafts, or the Machine left it."),
+    has: z.string().nullable().describe("The title of the profile the Machine's Workflow holds now."),
+    titleOnTablet: z.string().describe("The title the Draft is on the tablet under."),
+  })
+  .nullable()
+  .describe("The Machine the Draft is followed on, or was last; null where it never was.");
+
+const tryingShape = z.object({
+  following: followingShape,
+  machines: z
+    .array(
+      machineRef.extend({
+        location: locationRef,
+        needsPluginUpdate: z.boolean().describe("Its plugin is from before a Machine could follow a Draft: it needs updating first."),
+        canFollow: z.boolean().describe("Whether follow_draft can name it now: false too for one whose tablet has not connected since the server was upgraded."),
+        follows: z.object({ id, title: z.string() }).nullable().describe("Another Draft it follows now, which stop_following_draft is to stop first."),
+      }),
+    )
+    .describe("The Machines the Draft can be followed on: those at a Location an Admin turned trying Drafts on for (edit_location)."),
+  trialShots: z
+    .array(
+      z.object({
+        id: z.string().describe("The Shot, as get_shot reads it and simulate_draft's shotId takes it."),
+        pulledAt: z.string().nullable(),
+        machine: machineRef.nullable(),
+        duration: z.number().nullable().describe("In seconds, without its Preheat."),
+        dose: z.number().nullable(),
+        yield: z.number().nullable(),
+        steps: z.enum(["current", "earlier"]).describe("Whether it ran the Draft's steps as saved now, or earlier ones."),
+        trialId: z.string().describe("The steps it ran, which get_draft reads given as trialId."),
+      }),
+    )
+    .describe(`Its Trial Shots, the latest first, at most ${MAX_TRIAL_SHOTS}: the Shots pulled with its steps on a Machine following it, whatever the brew temperature or yield set on the tablet.`),
+});
+
+const TRYING =
+  "A Machine at a Location that tries Drafts can follow a Draft: its tablet is written the Draft's profile as its Workflow's, now and on each save, held while a Shot runs, under the Draft's title with (Draft) after it and never as one of the tablet's Profiles. A Shot pulled on it with those steps is a Trial Shot.";
+
 /** A Draft's profile, its steps, title, author and notes among it, given as it is (ADR-0028): rounded or cut, it would be another profile, which edit_draft, given it back, would refuse. */
 const DRAFT_WHOLE = ["/draft/profile/title", "/draft/profile/author", "/draft/profile/notes", "/draft/profile/version", "/draft/profile/beverage_type", "/draft/profile/steps", "/draft/profile/tank_temperature", "/draft/profile/target_weight", "/draft/profile/target_volume", "/draft/profile/target_volume_count_start"];
 const draftBudget: Budget = { whole: DRAFT_WHOLE };
 
 const listOutput = z.object({ drafts: z.array(draftSummary).describe("Every Draft, the one saved last first.") });
 const draftOutput = z.object({ draft: draftItem });
+const triedDraftOutput = z.object({
+  draft: draftItem.extend(tryingShape.shape),
+  trial: z
+    .object({ id, machine: machineRef, writtenAt: z.string(), profile: profileShape })
+    .optional()
+    .describe("For a trialId given: the profile the Draft was written to the Machine with, which that Trial Shot ran, to compare with the Draft's now or to give create_draft."),
+});
+const tryingOutput = z.object({ trying: tryingShape });
 const heldShape = z.object({ step: z.number().nullable(), path: z.string(), from: z.number(), to: z.number() });
 
 const shapeKeys = STARTING_SHAPES.map((shape) => shape.key) as [string, ...string[]];
@@ -144,6 +208,7 @@ export class DraftsTools {
   constructor(
     private readonly drafts: DraftsService,
     private readonly publishing: PublishingService,
+    private readonly followings: DraftFollowingService,
   ) {}
 
   @BudgetedTool({
@@ -161,15 +226,45 @@ export class DraftsTools {
   @BudgetedTool({
     name: "get_draft",
     title: "Read a Draft",
-    description: `Reads a Draft: its whole profile, as Decaid reads one, what it will publish as, who saved it last, how many times it has been saved, and its checks. ${DRAFTS}`,
-    inputSchema: z.object({ id: id.describe("The Draft.") }),
-    outputSchema: draftOutput,
+    description: `Reads a Draft: its whole profile, as Decaid reads one, what it will publish as, who saved it last, how many times it has been saved, its checks, whether a Machine follows it and has its steps, the Machines that can, and its Trial Shots. ${DRAFTS} ${TRYING}`,
+    inputSchema: z.object({ id: id.describe("The Draft."), trialId: id.optional().describe("One of its Trial Shots' trialId, to read the steps that Shot ran as trial.") }),
+    outputSchema: triedDraftOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: draftBudget,
+    budget: { whole: [...DRAFT_WHOLE, "/trial/profile"] },
   })
-  async getDraft({ id: draftId }: { id: string }, context: McpContext): Promise<{ draft: DraftView }> {
-    return { draft: await this.drafts.get(draftId, callerOf(context).scope) };
+  async getDraft({ id: draftId, trialId }: { id: string; trialId?: string }, context: McpContext): Promise<z.infer<typeof triedDraftOutput>> {
+    const { scope } = callerOf(context);
+    const draft = await this.drafts.get(draftId, scope);
+    const trying = tryingOf(await this.followings.trying(draftId, scope));
+    const trial = trialId === undefined ? undefined : await this.followings.trial(draftId, trialId, scope);
+    return { draft: { ...draft, ...trying }, ...(trial ? { trial } : {}) } as z.infer<typeof triedDraftOutput>;
+  }
+
+  @BudgetedTool({
+    name: "follow_draft",
+    title: "Have a Machine follow a Draft",
+    description: `Has a Machine follow a Draft, as its page in the management interface does: one of get_draft's machines that canFollow, which follows one Draft at a time. ${FOLLOWING_ENDS_LOADED_RECIPE}: tell the person so, and ask before calling it. Following ends by itself once the Machine's Workflow holds another profile, whoever changed it, and when the Draft is published or discarded; Decent Sync then writes the Machine nothing until this is called again, which replaces what it has loaded. Staff choose only Machines at their Locations. Returns how the Draft is tried, as get_draft does. ${TRYING}`,
+    inputSchema: z.object({ id: id.describe("The Draft."), machineId: id.describe("The Machine, as get_draft's machines gives it.") }),
+    outputSchema: tryingOutput,
+    annotations: { ...CHANGES, idempotentHint: true },
+    scopes: [READ, CHANGE],
+  })
+  async followDraft({ id: draftId, machineId }: { id: string; machineId: string }, context: McpContext): Promise<z.infer<typeof tryingOutput>> {
+    return { trying: tryingOf(await this.followings.start(draftId, machineId, callerOf(context).scope)) };
+  }
+
+  @BudgetedTool({
+    name: "stop_following_draft",
+    title: "Stop a Machine following a Draft",
+    description: `Stops the Machine following a Draft: it keeps what its Workflow holds, the Draft's steps as last written, and is written nothing more. Its Trial Shots stay the Draft's. Returns how the Draft is tried, as get_draft does. ${TRYING}`,
+    inputSchema: z.object({ id: id.describe("The Draft.") }),
+    outputSchema: tryingOutput,
+    annotations: { ...CHANGES, idempotentHint: false },
+    scopes: [READ, CHANGE],
+  })
+  async stopFollowingDraft({ id: draftId }: { id: string }, context: McpContext): Promise<z.infer<typeof tryingOutput>> {
+    return { trying: tryingOf(await this.followings.stop(draftId, callerOf(context).scope)) };
   }
 
   @BudgetedTool({
@@ -270,6 +365,24 @@ export class DraftsTools {
     await this.drafts.discard(draftId, callerOf(context).scope);
     return { discarded: true };
   }
+}
+
+/** How a Draft is tried, its Trial Shots each in a few numbers. */
+function tryingOf(trying: DraftTrying): z.infer<typeof tryingShape> {
+  return {
+    following: trying.following,
+    machines: trying.machines,
+    trialShots: trying.trialShots.map(({ shot, steps, trialId }) => ({
+      id: shot.id,
+      pulledAt: shot.pulledAt?.toISOString() ?? null,
+      machine: shot.machine,
+      duration: shot.duration,
+      dose: shot.actualDose ?? shot.targetDose,
+      yield: shot.actualYield ?? shot.targetYield,
+      steps,
+      trialId,
+    })),
+  };
 }
 
 /** Where to publish or return, as the REST API reads it (`readPublishAsk`). */

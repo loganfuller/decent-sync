@@ -294,7 +294,8 @@ describe("Drafts", () => {
 
     const { result: listed } = await assistant.callWithinBudget<{ drafts: Draft[] }>("list_drafts");
     expect(listed.drafts).toEqual((await api.get<{ drafts: Draft[] }>("/drafts")).drafts);
-    expect((await assistant.callWithinBudget<{ draft: Draft }>("get_draft", { id: edited.draft.id })).result.draft).toEqual(edited.draft);
+    // With how it is tried (#581): followed on no Machine, where no Location tries Drafts.
+    expect((await assistant.callWithinBudget<{ draft: Draft }>("get_draft", { id: edited.draft.id })).result.draft).toEqual({ ...edited.draft, following: null, machines: [], trialShots: [] });
 
     const { result: simulated } = await assistant.callWithinBudget<Fields & { draft: Fields; steps: unknown[]; checks: Fields }>("simulate_draft", { id: edited.draft.id, grind: 0.5, curves: false });
     const rest = (await api.get<{ simulation: Fields & { run: Fields } }>(`/drafts/${edited.draft.id}/simulation?grind=0.5`)).simulation;

@@ -1,4 +1,4 @@
-import { REQUESTS_WIRE_REVISION, type SkinAnswer, type SkinAsk, type SkinQuestion, type SkinRequest, peerHasWireRevision } from "@decent-sync/protocol";
+import { type SkinAnswer, type SkinAsk, type SkinQuestion, type SkinRequest } from "@decent-sync/protocol";
 import type { Outbox } from "./outbox.js";
 
 /**
@@ -83,7 +83,6 @@ export class SkinRequests {
   ask(question: SkinQuestion): Promise<Asked> {
     const connection = this.connection;
     if (!connection) return Promise.resolve({ unanswered: "unreachable" });
-    if (!peerHasWireRevision(connection.serverRevision, REQUESTS_WIRE_REVISION)) return Promise.resolve({ unanswered: "serverTooOld" });
     const id = this.outbox.nextId();
     return new Promise((resolve) => {
       let giveUp = () => {};

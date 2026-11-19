@@ -1,11 +1,10 @@
-import { type Chunk, MAX_CHUNKED_LENGTH, MAX_SHOTS_PAGE, REQUESTS_WIRE_REVISION, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { type Chunk, MAX_CHUNKED_LENGTH, MAX_SHOTS_PAGE, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary, recipeNamedInWorkflow } from "./support/loaded-tablets.js";
 import { longShot, shotFixture } from "./support/shot-fixtures.js";
 import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import { RawConnection, type SimulatedTablet, helloWith, settingsFor } from "./support/simulated-tablet.js";
-import { StandInServer } from "./support/stand-in-server.js";
 import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -516,19 +515,6 @@ describe("The plugin's shots and shot endpoints, for a Machine that is not serve
     // A plugin with no settings to connect with answers the same.
     const unset = tablets.load({ settings: {} });
     expect(await both(unset)).toEqual([expect.objectContaining({ status: 503, body: expect.objectContaining({ code: "unreachable" }) }), expect.objectContaining({ status: 503 })]);
-  });
-
-  it("refuses a server of the release before requests as too old to ask, sending it nothing", async () => {
-    const standIn = await StandInServer.start({ wireRevision: REQUESTS_WIRE_REVISION - 1 });
-    try {
-      const tablet = tablets.load({ settings: settingsFor({ token: "stand-in token 50916", serverUrl: standIn.url }), api: emptyLibrary(50_916), timeScale: 50 });
-      await welcomed(tablet);
-      const refusal = { status: 503, body: { code: "serverTooOld", message: expect.stringContaining("too old") } };
-      expect(await both(tablet)).toEqual([refusal, refusal]);
-      expect(requestsSent(tablet)).toEqual([]);
-    } finally {
-      await standIn.stop();
-    }
   });
 
   describe("requests and answers, with raw frames", () => {

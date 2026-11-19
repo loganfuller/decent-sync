@@ -2,6 +2,7 @@ import {
   LIBRARY_ITEM_KINDS,
   type LibraryKind,
   type LibraryList,
+  DRAFT_KIND,
   LOADED_RECIPE_KIND,
   STEAM_TIME_FROM,
   STEAM_TIME_TO,
@@ -43,6 +44,7 @@ import {
 import type { AnswerRecorded, AnsweringTablet, PlannedTablet, ReportingTablet, SeenDecision } from "./intake.js";
 import type { FieldType } from "./item-input.js";
 import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
+import { recordFollowedDraftWritten } from "./draft-following.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
 import { addBatchAt, enterRemainingWeight, finishBatchAt, showAt, showProfileAt } from "./location-state.js";
@@ -871,9 +873,23 @@ const LOADED_RECIPE: WrittenKindDescription = {
     recordLoadedRecipeWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.contentSeen),
 };
 
+/**
+ * The profile of the Draft a Machine follows, set as its tablet's Workflow's
+ * profile (ADR-0032), named by the Draft's id (draft-following.ts).
+ */
+const FOLLOWED_DRAFT: WrittenKindDescription = {
+  name: "Draft",
+  itemNames: async (db, ids) => {
+    const rows = await db.$queryRaw<{ id: string; title: string | null }[]>`SELECT id::text AS id, profile ->> 'title' AS title FROM drafts WHERE id::text = ANY(${[...ids].map((id) => id.toLowerCase())}::text[])`;
+    return new Map(rows.map((row) => [row.id, row.title?.trim() || null]));
+  },
+  recordWritten: (prisma, tablet, answer) => recordFollowedDraftWritten(prisma, tablet, answer.globalId.toLowerCase(), answer.record, answer.updatedAt),
+};
+
 /** The description of a kind the server writes. */
 export function writtenKind(kind: WrittenKind): WrittenKindDescription {
   if (kind === LOADED_RECIPE_KIND) return LOADED_RECIPE;
+  if (kind === DRAFT_KIND) return FOLLOWED_DRAFT;
   return kind === WORKFLOW_KIND ? WORKFLOW : KINDS[kind];
 }
 
