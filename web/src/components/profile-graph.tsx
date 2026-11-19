@@ -1,7 +1,8 @@
-import { type Profile, type Sample, type ShotCurve, type SimulatedRun, sentStep } from "@decent-sync/protocol";
+import { type Profile, type ProfileLimits, type Range, type Sample, type ShotCurve, type SimulatedRun, sentStep, stepTarget } from "@decent-sync/protocol";
 import { type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject, type SVGProps, useEffect, useId, useRef, useState } from "react";
 import { RECORD_CLASSES, RECORD_VARIABLES } from "@/components/record-colors";
 import { type GraphLayout, LANES, type Lane, type LaneLabel, type LaneRanges, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "@/lib/profile-graph-layout";
+import { exitRange, held, targetRange } from "@/lib/profile-edits";
 import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/lib/profile-words";
 
 // A Profile's graph (#578): a simulated run of it in lanes of pressure, flow
@@ -13,6 +14,12 @@ import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/
 // blue for the run, orange for the Shot or version compared with it, dashed
 // grey for the plan. Pointing at a moment, or moving to it with the arrow
 // keys on the graph's time slider, reads the values there.
+//
+// Editing a Draft (#579), it draws the run of the version the Draft started
+// from faint behind it, and handles on the selected step: its target, its
+// exit and its maximum time, a bracket of its own past the band's end where
+// the step ends sooner. Each is dragged, or moved with the arrow keys as a
+// slider; while one is dragged the axes hold still.
 //
 // Its layout (profile-graph-layout.ts) is apart from its drawing, the
 // drawing is hidden from screen readers, which read the graph in words from
@@ -26,6 +33,28 @@ export interface GraphCompared {
   samples: Sample<ShotCurve>[];
   /** Where it stopped, s, marked with its name, such as "The Shot stopped"; none to leave it unmarked. */
   stop?: { seconds: number; label: string } | null;
+}
+
+/** A run drawn faint behind the run, such as the version a Draft started from, simulated on the same puck. */
+export interface GraphBaseline {
+  /** What the legend calls it, such as "Version 2, simulated". */
+  label: string;
+  run: SimulatedRun;
+}
+
+/** What a handle on the graph sets of the selected step: its target, its exit's value or its maximum time. */
+export type HandleField = "target" | "exit" | "seconds";
+
+/** A Draft's graph being edited: the step selected, whose handles are drawn, and what a handle or a band chosen changes. */
+export interface GraphEditing {
+  /** The selected step, by index. */
+  step: number;
+  /** The ranges each handle holds its value to: the widest of the account's models'. */
+  limits: ProfileLimits;
+  /** A step chosen on the graph, by its band. */
+  onSelect(step: number): void;
+  /** A handle moved, to `value`. */
+  onChange(field: HandleField, value: number): void;
 }
 
 /** The graph's width as laid out, measured, so its text stays its size at any width. */
@@ -143,6 +172,8 @@ export function ProfileGraph({
   run,
   runLabel = "Simulated",
   compared,
+  baseline,
+  editing,
   label,
   ranges: pinned,
 }: {
@@ -151,6 +182,10 @@ export function ProfileGraph({
   /** What the legend calls the run. */
   runLabel?: string;
   compared?: GraphCompared | null;
+  /** A run drawn faint behind it, such as that of the version a Draft started from. */
+  baseline?: GraphBaseline | null;
+  /** The selected step's handles, for a Draft. */
+  editing?: GraphEditing | null;
   /** The graph in words, for screen readers. */
   label: string;
   /** Lane ranges held as given, as while a target is dragged, rather than fitted to what is drawn. */
@@ -159,13 +194,22 @@ export function ProfileGraph({
   const [ref, width] = useWidth();
   const clipId = useId();
   const captionId = useId();
+  // The axes as they were when a handle began to be dragged, held still until it is let go.
+  const [stillAxes, setStillAxes] = useState<{ end: number; tick: number; ranges: LaneRanges } | null>(null);
 
   const comparedSamples = (compared?.samples ?? []).filter((sample) => sample.seconds >= 0 && sample.shade === null);
   const comparedEnd = comparedSamples.at(-1)?.seconds ?? 0;
+  const baselineRun = baseline?.run;
   const beyond = planBeyond(profile, run);
-  const reached = Math.max(run.duration, comparedEnd);
-  const { end, tick } = timeAxis(reached, beyond.at(-1)?.until ?? reached);
-  const layout = graphLayout({ width, end, tick, ranges: { ...laneRanges(profile, run, comparedSamples), ...pinned } });
+  // The selected step's maximum time, from its start: the axis shows it, up to about half again as long as the run.
+  const selectedRan = editing ? run.steps[editing.step] : undefined;
+  const selectedStep = editing ? profile.steps[editing.step] : undefined;
+  const bracketAt = selectedRan?.start !== null && selectedRan?.start !== undefined && selectedStep ? selectedRan.start + selectedStep.seconds : null;
+  const reached = Math.max(run.duration, comparedEnd, baselineRun?.duration ?? 0, bracketAt === null ? 0 : Math.min(bracketAt, run.duration * 1.6));
+  const axis = stillAxes ?? timeAxis(reached, Math.max(beyond.at(-1)?.until ?? reached, bracketAt ?? 0));
+  const fitted = { ...laneRanges(profile, run, [...comparedSamples, ...(baselineRun?.samples ?? [])]), ...pinned };
+  const layout = graphLayout({ width, end: axis.end, tick: axis.tick, ranges: stillAxes?.ranges ?? fitted });
+  const { end } = layout;
   const { x, y, plot, lanes, height, short, cupY, ranges } = layout;
 
   // The plan in the lane of each sample's pump, a pump stopped as 0; null where the pump controls the other.
@@ -176,9 +220,11 @@ export function ProfileGraph({
   const runPoints = (lane: "pressure" | "flow") => run.samples.map((sample): [number, number] | null => (sample.values[lane] === null ? null : [x(sample.seconds), y(lane, sample.values[lane]!)]));
   const comparedPoints = (lane: Lane) =>
     comparedSamples.map((sample): [number, number] | null => (sample.values[lane] === null || sample.values[lane] === undefined ? null : [x(sample.seconds), y(lane, sample.values[lane]!)]));
+  const baselinePoints = (lane: "pressure" | "flow") =>
+    (baselineRun?.samples ?? []).map((sample): [number, number] | null => (sample.values[lane] === null ? null : [x(sample.seconds), y(lane, sample.values[lane]!)]));
   const points: Record<Lane, { run: ([number, number] | null)[]; plan: ([number, number] | null)[]; compared: ([number, number] | null)[] }> = {
-    pressure: { run: runPoints("pressure"), plan: planPoints("pressure"), compared: comparedPoints("pressure") },
-    flow: { run: runPoints("flow"), plan: planPoints("flow"), compared: comparedPoints("flow") },
+    pressure: { run: runPoints("pressure"), plan: planPoints("pressure"), compared: [...comparedPoints("pressure"), ...baselinePoints("pressure")] },
+    flow: { run: runPoints("flow"), plan: planPoints("flow"), compared: [...comparedPoints("flow"), ...baselinePoints("flow")] },
     temperature: { run: [], plan: temperaturePlan, compared: comparedPoints("temperature") },
   };
 
@@ -244,6 +290,14 @@ export function ProfileGraph({
           </svg>
           {runLabel}
         </span>
+        {baseline && (
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="22" height="8">
+              <line x1="1" y1="4" x2="21" y2="4" className="stroke-muted-foreground/50" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            {baseline.label}
+          </span>
+        )}
         {compared && (
           <span className="inline-flex items-center gap-1.5">
             <svg width="22" height="8">
@@ -272,7 +326,28 @@ export function ProfileGraph({
         </span>
       </div>
       {width > 0 && (
-        <GraphPointer layout={layout} profile={profile} run={run} runLabel={runLabel} compared={compared ? { label: compared.label, samples: comparedSamples, end: comparedEnd } : undefined}>
+        <GraphPointer
+          layout={layout}
+          profile={profile}
+          run={run}
+          runLabel={runLabel}
+          compared={compared ? { label: compared.label, samples: comparedSamples, end: comparedEnd } : undefined}
+          onPick={editing ? (at) => {
+            const band = bands.find((each) => at >= each.start && at <= each.end);
+            if (band) editing.onSelect(band.index);
+          } : undefined}
+          overlay={
+            editing && (
+              <EditHandles
+                layout={layout}
+                profile={profile}
+                run={run}
+                editing={editing}
+                onHold={(holding) => setStillAxes(holding ? { end: layout.end, tick: layout.tick, ranges: layout.ranges } : null)}
+              />
+            )
+          }
+        >
           {/* What the graph shows is its caption, in words; the drawing is left out of what screen readers read. */}
           <svg role="none" width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block text-xs" data-graph-end={end}>
             <defs>
@@ -289,6 +364,12 @@ export function ProfileGraph({
                 return (
                   <g key={band.index} data-step-band={band.index}>
                     {order % 2 === 0 && <rect x={x(band.start)} y={plot.top} width={x(band.end) - x(band.start)} height={plot.bottom - plot.top} className="fill-muted/60" />}
+                    {editing?.step === band.index && (
+                      <g data-selected-band>
+                        <rect x={x(band.start)} y={plot.top} width={x(band.end) - x(band.start)} height={plot.bottom - plot.top} className="fill-(--this-record)/[0.07] dark:fill-(--this-record-dark)/[0.14]" />
+                        <line x1={x(band.start)} x2={x(band.end)} y1={plot.top - 1} y2={plot.top - 1} className={RECORD_CLASSES.current.stroke} strokeWidth={2} />
+                      </g>
+                    )}
                     <line x1={x(band.start)} x2={x(band.start)} y1={plot.top} y2={plot.bottom} className="stroke-border" />
                     <g clipPath={`url(#${clipId}-band-${band.index})`}>
                       <FittedText
@@ -391,6 +472,27 @@ export function ProfileGraph({
                 </text>
               )}
 
+              {baseline && baselineRun && (
+                <g data-baseline>
+                  <g className="stroke-muted-foreground/45" fill="none" strokeWidth={2} strokeLinejoin="round">
+                    <path d={pathOf(baselinePoints("pressure"))} />
+                    <path d={pathOf(baselinePoints("flow"))} />
+                  </g>
+                  {Math.abs(baselineRun.stop.seconds - run.stop.seconds) > 0.3 && (
+                    <g>
+                      <line x1={x(baselineRun.stop.seconds)} x2={x(baselineRun.stop.seconds)} y1={plot.top} y2={plot.bottom} className="stroke-muted-foreground/50" strokeDasharray="3 3" />
+                      <text
+                        x={x(baselineRun.stop.seconds) + (baselineRun.stop.seconds > run.stop.seconds ? 4 : -4)}
+                        y={lanes.flow.top + 14}
+                        textAnchor={baselineRun.stop.seconds > run.stop.seconds ? "start" : "end"}
+                        className="fill-muted-foreground text-[11px]"
+                      >
+                        {`${baseline.label.replace(/, simulated$/, "")} stops`}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              )}
               {compared && (
                 <g className={RECORD_CLASSES.previous.stroke} fill="none" strokeWidth={2} strokeLinejoin="round" data-compared>
                   <path d={pathOf(points.pressure.compared)} />
@@ -534,6 +636,8 @@ function GraphPointer({
   run,
   runLabel,
   compared,
+  onPick,
+  overlay,
   children,
 }: {
   layout: GraphLayout;
@@ -541,6 +645,10 @@ function GraphPointer({
   run: SimulatedRun;
   runLabel: string;
   compared: { label: string; samples: Sample<ShotCurve>[]; end: number } | undefined;
+  /** A moment clicked on the graph, s, as to choose the step there. */
+  onPick?(seconds: number): void;
+  /** What is laid over the graph and takes its own pointer, such as a Draft's handles. */
+  overlay?: ReactNode;
   children: ReactNode;
 }) {
   const [pointer, setPointer] = useState<number | null>(null);
@@ -582,7 +690,10 @@ function GraphPointer({
       onPointerDown={onPointer}
       // A click gives the slider the keys, as a click on a slider does, so the arrows move on from where it was:
       // on the click, after the press has moved the focus where a press does.
-      onClick={() => slider.current?.focus({ preventScroll: true })}
+      onClick={(event) => {
+        onPick?.(layout.secondsAt(event.clientX - event.currentTarget.getBoundingClientRect().left));
+        slider.current?.focus({ preventScroll: true });
+      }}
       onPointerLeave={(event) => event.pointerType === "mouse" && setPointer(null)}
     >
       {children}
@@ -641,7 +752,205 @@ function GraphPointer({
         style={{ top: layout.plot.top }}
         onKeyDown={onKey}
       />
+      {overlay}
     </div>
+  );
+}
+
+/** How a handle on the graph is laid out: a point dragged up and down in a lane, or a bracket dragged along the time axis. */
+type HandleShape = { kind: "point"; x: number; y: number } | { kind: "bracket"; x: number; top: number; bottom: number };
+
+/**
+ * One handle on the graph, a slider to the keyboard and to assistive
+ * technology: dragged, it sets the value at the pointer (`valueAt`, from the
+ * pointer's place on the graph, px); the arrow keys move it by `step`, ten
+ * at a time with Shift or Page Up and Down, and Home and End to its range's
+ * ends. While it is dragged the graph's axes hold still (`onHold`).
+ */
+function Handle({
+  shape,
+  label,
+  value,
+  range,
+  step,
+  text,
+  tag,
+  valueAt,
+  onValue,
+  onHold,
+  name,
+  tagLeft,
+}: {
+  shape: HandleShape;
+  label: string;
+  value: number;
+  range: Range;
+  step: number;
+  /** The value in words, for assistive technology. */
+  text: string;
+  /** What its tag on the graph reads. */
+  tag: string;
+  valueAt(x: number, y: number): number;
+  onValue(value: number): void;
+  onHold(holding: boolean): void;
+  /** What tests and styles find it by. */
+  name: string;
+  /** Whether a point's tag goes on its left, as near the graph's right edge. */
+  tagLeft?: boolean;
+}) {
+  const dragging = useRef(false);
+  // A handle taken away mid-drag, as when its step's band changes, lets the axes go, as its pointerup never comes.
+  const hold = useRef(onHold);
+  hold.current = onHold;
+  useEffect(
+    () => () => {
+      if (dragging.current) hold.current(false);
+    },
+    [],
+  );
+  const move = (event: PointerEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.parentElement!.getBoundingClientRect();
+    onValue(valueAt(event.clientX - box.left, event.clientY - box.top));
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const by = event.shiftKey || event.key === "PageUp" || event.key === "PageDown" ? step * 10 : step;
+    let next: number;
+    if (["ArrowUp", "ArrowRight", "PageUp"].includes(event.key)) next = value + by;
+    else if (["ArrowDown", "ArrowLeft", "PageDown"].includes(event.key)) next = value - by;
+    else if (event.key === "Home") next = range.min;
+    else if (event.key === "End") next = range.max;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    onValue(held(next, range));
+  };
+  const point = shape.kind === "point";
+  const style = point
+    ? { left: shape.x - 9, top: shape.y - 9, width: 18, height: 18 }
+    : { left: shape.x - 7, top: shape.top, width: 14, height: shape.bottom - shape.top };
+  return (
+    <div
+      role="slider"
+      tabIndex={0}
+      aria-label={label}
+      aria-orientation={point ? "vertical" : "horizontal"}
+      aria-valuemin={range.min}
+      aria-valuemax={range.max}
+      aria-valuenow={value}
+      aria-valuetext={text}
+      data-handle={name}
+      className={`group absolute z-10 touch-none outline-none select-none ${point ? "cursor-ns-resize" : "cursor-ew-resize"}`}
+      style={style}
+      onKeyDown={onKeyDown}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.focus({ preventScroll: true });
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragging.current = true;
+        onHold(true);
+      }}
+      onPointerMove={(event) => {
+        event.stopPropagation();
+        if (dragging.current) move(event);
+      }}
+      onPointerUp={(event) => {
+        event.stopPropagation();
+        if (!dragging.current) return;
+        dragging.current = false;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        onHold(false);
+      }}
+      onPointerCancel={() => {
+        dragging.current = false;
+        onHold(false);
+      }}
+      onLostPointerCapture={() => {
+        if (!dragging.current) return;
+        dragging.current = false;
+        onHold(false);
+      }}
+    >
+      {point ? (
+        <span className="absolute inset-0.5 rounded-full border-2 border-(--this-record) bg-background shadow-sm group-focus-visible:ring-2 group-focus-visible:ring-ring dark:border-(--this-record-dark)" />
+      ) : (
+        <span className={`absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 group-focus-visible:ring-2 group-focus-visible:ring-ring ${RECORD_CLASSES.current.background}`} />
+      )}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute rounded px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white ${RECORD_CLASSES.current.background} ${
+          !point ? "-top-5 left-1/2 -translate-x-1/2" : tagLeft ? "top-1/2 right-full mr-1.5 -translate-y-1/2" : "top-1/2 left-full ml-1.5 -translate-y-1/2"
+        }`}
+      >
+        {tag}
+      </span>
+    </div>
+  );
+}
+
+/** The selected step's handles: its target, its exit where it has one, and its maximum time; none for a step the run never came to. A step of no length keeps them, at its start, so its maximum time can be brought back. */
+function EditHandles({ layout, profile, run, editing, onHold }: { layout: GraphLayout; profile: Profile; run: SimulatedRun; editing: GraphEditing; onHold(holding: boolean): void }) {
+  const ran = run.steps[editing.step];
+  const step = profile.steps[editing.step];
+  if (!ran || !step || ran.start === null || ran.end === null || ran.end < ran.start) return null;
+  const start = ran.start;
+  const along = (fraction: number) => layout.x(start) + (layout.x(ran.end!) - layout.x(start)) * fraction;
+  const name = stepName(step, editing.step);
+  const unit = (lane: "pressure" | "flow") => (lane === "pressure" ? "bar" : "ml/s");
+  const target = stepTarget(step);
+  const targetLimits = targetRange(step, editing.limits);
+  // A step that gets to its target over the whole step gets there at its maximum time.
+  const targetX = step.transition === "smooth" ? layout.x(start + step.seconds) : along(0.62);
+  const exit = step.exit && step.seconds > 0 ? step.exit : null;
+  const timeRange = editing.limits.seconds;
+  const bracketX = layout.x(start + step.seconds);
+  const offAxis = start + step.seconds > layout.end;
+  return (
+    <>
+      <Handle
+        name="target"
+        shape={{ kind: "point", x: targetX, y: layout.y(step.pump, target) }}
+        label={`${name}'s target, ${unit(step.pump)}`}
+        value={target}
+        range={targetLimits}
+        step={0.1}
+        text={`${measure(target)} ${unit(step.pump)}`}
+        tag={`${measure(target)} ${unit(step.pump)}`}
+        valueAt={(_, y) => held(layout.valueAt(step.pump, y), targetLimits)}
+        onValue={(value) => editing.onChange("target", value)}
+        onHold={onHold}
+        tagLeft={targetX > layout.width - 90}
+      />
+      {exit && (
+        <Handle
+          name="exit"
+          shape={{ kind: "point", x: along(0.3), y: layout.y(exit.type, exit.value) }}
+          label={`${name}'s exit, ${exit.type} ${exit.condition}, ${unit(exit.type)}`}
+          value={exit.value}
+          range={exitRange(exit.type, editing.limits)}
+          step={0.1}
+          text={capitalised(exitText(exit))}
+          tag={capitalised(exitText(exit))}
+          valueAt={(_, y) => held(layout.valueAt(exit.type, y), exitRange(exit.type, editing.limits))}
+          onValue={(value) => editing.onChange("exit", value)}
+          onHold={onHold}
+        />
+      )}
+      <Handle
+        name="seconds"
+        shape={{ kind: "bracket", x: bracketX, top: layout.plot.top, bottom: layout.plot.bottom }}
+        label={`${name}'s maximum time, s`}
+        value={step.seconds}
+        range={timeRange}
+        step={0.5}
+        text={`At most ${seconds(step.seconds)}`}
+        tag={`At most ${seconds(step.seconds)}${offAxis ? " ›" : ""}`}
+        valueAt={(x) => held(layout.secondsAt(x) - start, timeRange)}
+        onValue={(value) => editing.onChange("seconds", value)}
+        onHold={onHold}
+      />
+    </>
   );
 }
 

@@ -15,11 +15,11 @@ import { MAX_CURVE_POINTS, askedCurves, curveSchema, curvesOf, thinnedToSchema }
 const id = z.string();
 
 /** The curves a run has: those of a Shot but its temperature, which the simulation doesn't simulate. */
-const RUN_CURVES = { pressure: SHOT_CURVES.pressure, flow: SHOT_CURVES.flow, weight: SHOT_CURVES.weight, weightFlow: SHOT_CURVES.weightFlow } as const;
-type RunCurve = keyof typeof RUN_CURVES;
-const runCurveNames = Object.keys(RUN_CURVES) as [RunCurve, ...RunCurve[]];
+export const RUN_CURVES = { pressure: SHOT_CURVES.pressure, flow: SHOT_CURVES.flow, weight: SHOT_CURVES.weight, weightFlow: SHOT_CURVES.weightFlow } as const;
+export type RunCurve = keyof typeof RUN_CURVES;
+export const runCurveNames = Object.keys(RUN_CURVES) as [RunCurve, ...RunCurve[]];
 
-const simulateInput = z.object({
+export const simulateInput = z.object({
   profileId: id.describe("The Library Profile to simulate."),
   shotId: id
     .optional()
@@ -58,7 +58,7 @@ const figures = z.object({
     .describe("Each step it came to and spent time in, by its index from 0 and name, and when it ended. Match the Shot's and the run's by index: either may leave out a step the other has."),
 });
 
-const simulateOutput = z.object({
+export const simulateOutput = z.object({
   profile: z.object({ id, title: z.string().nullable() }),
   model: z.enum(MACHINE_MODELS),
   puck: z
@@ -82,7 +82,7 @@ const simulateOutput = z.object({
       blocking: z.array(z.object({ code: z.string(), step: z.number().nullable(), path: z.string().optional(), message: z.string() })),
       advice: z.array(z.object({ code: z.string(), step: z.number().nullable(), path: z.string().optional(), message: z.string() })),
     })
-    .describe("The Profile's checks, against the widest ranges of the models the account has Machines of: blocking, what would stop it being published, and advice, what the machine accepts but may not be meant, as a value one of those models can't run (modelCantRun) or a flow it can't keep up with (pumpTooSlow), each naming its step by index, or null for the whole Profile."),
+    .describe("The Profile's checks, against the widest ranges of the models the account has Machines of: blocking, what would stop it being published, and advice, what the machine accepts but may not be meant, as a value one of those models can't run (modelCantRun), a flow it can't keep up with (pumpTooSlow) or a step whose target this run never comes near before its time is up or the Shot stops (targetNotReached), each naming its step by index, or null for the whole Profile."),
   fit: z
     .object({ shot: figures.describe("The Shot's own, as recorded."), simulated: figures.describe("Its own steps', run on its puck, stopped at the weight it reached, or run out where it ran its steps out with no scale.") })
     .nullable()
@@ -101,7 +101,7 @@ const simulateOutput = z.object({
 
 type SimulateOutput = z.infer<typeof simulateOutput>;
 
-const simulateBudget: Budget = { rest: "Asked for with fewer curves, it has more of its text." };
+export const simulateBudget: Budget = { rest: "Asked for with fewer curves, it has more of its text." };
 
 /** What a simulated run is, for the tool's description. */
 const SIMULATION = `Simulates a Library Profile on a puck, as a Machine of the model with a scale under the cup would run it: the standard puck, a fixed resistance through the Shot scaled by grind, or a Shot's, worked out from its samples. Everything it gives is simulated, not measured, but fit.shot, the Shot's own recorded figures. Each step ends at its maximum time (time), its exit (exit), the water it may pump (water) or its weight in the cup (weight), judged a second ahead at its rate as Decaid judges it, whichever comes first, or with the Shot (stop); a step of no length is passed through at once, whatever its exit, and a step runs the time the machine is sent: rounded to a tenth of a second below 12.75 s and to a whole second from there, up to 127 s, and its water in whole ml, cut down, and its target, exit and limiter in sixteenths of a unit on a DE1 or tenths on a Bengle, as the machine is sent them. The Shot stops when the weight, judged a second ahead at its rate as Decaid judges it, reaches the stop-at weight (weight), so the cup holds a few grams less at the stop (a Bengle's firmware makes that stop, modelled the same way), or when its last step ends (lastStep). A step that gets to its target over the whole step ramps from the value measured as it begins. A step's limiter caps the quantity its pump doesn't control, easing over its range. A DE1's pump gives about 8 ml/s at most, and about 6 on a step whose pump controls pressure; a Bengle keeps up with about 15. Temperature is not simulated, so the run follows each step's target alone. Times are seconds from the start of the profile; the run starts with the pump at rest, with no Preheat. Pressure is in bar, flow in ml/s, weights in grams and weightFlow in g/s. On a Shot's puck, fit gives the Shot's duration, time to first drip, peak pressure and each step's end beside a run of the Shot's own steps on its puck: how far to trust the simulation on that puck. Its curves give each series as [seconds, value] points with its targets, the plan, every reading or thinned to ${MAX_CURVE_POINTS} keeping its shape and peaks, as thinnedTo says.`;
@@ -135,7 +135,7 @@ export class SimulationTools {
 }
 
 /** A simulation as simulate_profile gives it, with its curves thinned as a Shot's are, those asked for. */
-function simulationOf(simulation: ProfileSimulation, curves: Partial<Record<RunCurve, CurveInfo>> | undefined): SimulateOutput {
+export function simulationOf(simulation: ProfileSimulation, curves: Partial<Record<RunCurve, CurveInfo>> | undefined): SimulateOutput {
   const { run } = simulation;
   const response: SimulateOutput = {
     profile: simulation.profile,

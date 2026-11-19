@@ -1,15 +1,26 @@
-import { type Profile as ProfileDefinition, type ShotFit, type SimulatedRun, profileOf, profileTextOf, simulateOnShot, simulateProfile, standardPuck } from "@decent-sync/protocol";
-import { Download } from "lucide-react";
+import {
+  type MachineModel,
+  type Profile as ProfileDefinition,
+  type ShotFit,
+  type SimulatedRun,
+  profileOf,
+  profileTextOf,
+  simulateOnShot,
+  simulateProfile,
+  standardPuck,
+} from "@decent-sync/protocol";
+import { Copy, Download, Pencil } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { ItemConflictsCard, ItemHistoryCard, SourceText, itemPath } from "@/components/conflicts";
 import { ItemShotsCard } from "@/components/item-shots";
+import { useStartDraft } from "@/components/drafts";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ArchiveButton, ContentForm, DeleteButton, PROFILE_FIELDS } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
-import { ProfileGraph } from "@/components/profile-graph";
+import { type GraphEditing, ProfileGraph } from "@/components/profile-graph";
 import { DoseFields, type GraphShot, GrindControl, ModelChoice, type PuckAsk, RunFigures, loadGraphShot, startingAsk, unsimulatable } from "@/components/profile-simulation";
 import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
 import { OrNone } from "@/components/records";
@@ -162,6 +173,7 @@ function ProfileDetails({ id }: { id: string }) {
           <p className="font-mono text-xs break-all text-muted-foreground">{profile.id}</p>
         </div>
         <div className="flex flex-wrap items-start gap-2">
+          {mayChange && definition && <StartDraftButtons profile={profile} />}
           <ExportButton profile={profile} />
           {mayChange && (
             <>
@@ -180,7 +192,14 @@ function ProfileDetails({ id }: { id: string }) {
         </Alert>
       )}
 
-      <HowItRuns profile={profile} definition={definition} earlier={earlier} recipes={recipes ?? []} onRun={setRun} />
+      <HowItRuns
+        title={profileTitle(profile)}
+        machineModel={profile.machineModel}
+        definition={definition}
+        shotProfileIds={[profile.id, ...earlier.map((version) => version.id)]}
+        recipes={recipes ?? []}
+        onRun={setRun}
+      />
 
       <StepsCard definition={definition} run={run} />
 
@@ -271,6 +290,32 @@ function ProfileDetails({ id }: { id: string }) {
   );
 }
 
+/**
+ * Starts a Draft of it (#579): Edit, to change it, publishing as a new
+ * version of it, which one of Decaid's bundled Profiles doesn't offer, and
+ * Duplicate, a copy of it to publish as a Profile of its own.
+ */
+function StartDraftButtons({ profile }: { profile: Profile }) {
+  const { start, starting, error } = useStartDraft();
+  return (
+    <>
+      {!profile.bundled && (
+        <Button disabled={starting} onClick={() => void start({ profileId: profile.id, as: "version" })}>
+          <Pencil aria-hidden /> Edit
+        </Button>
+      )}
+      <Button variant="outline" disabled={starting} onClick={() => void start({ profileId: profile.id, as: "separate" })}>
+        <Copy aria-hidden /> Duplicate
+      </Button>
+      {error && (
+        <Alert variant="destructive" className="basis-full">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+    </>
+  );
+}
+
 /** Gives its profile, as its record holds it, as Decaid's profile JSON, in a file named by its title. */
 function ExportButton({ profile }: { profile: Profile }) {
   const exportIt = () => {
@@ -291,32 +336,64 @@ function ExportButton({ profile }: { profile: Profile }) {
   );
 }
 
-/** The graph of how it runs, simulated on the standard puck or a Shot's, with its controls and figures. */
-function HowItRuns({
-  profile,
+/**
+ * The graph of how a profile runs, simulated on the standard puck or a
+ * Shot's, with its controls and figures: a Library Profile's, or a Draft's
+ * (#579), drawn with the version it started from faint behind it, its
+ * figures said against that version's, and handles on its selected step.
+ */
+export function HowItRuns({
+  title,
+  machineModel,
   definition,
-  earlier,
+  shotProfileIds,
   recipes,
   onRun,
+  baseline,
+  editing,
+  runLabel,
 }: {
-  profile: Profile;
+  /** The profile's title, as the graph's words name it. */
+  title: string;
+  /** The model it is simulated as until another is chosen. */
+  machineModel: MachineModel | undefined;
   definition: ProfileDefinition | null;
-  earlier: ProfileVersion[];
+  /** The Profiles whose Shots the Shot pickers offer first. */
+  shotProfileIds: string[];
   recipes: RecipeOnProfile[];
   onRun(run: SimulatedRun | undefined): void;
+  /** A profile simulated on the same puck and drawn faint behind it, such as the version a Draft started from, by what the legend calls it. */
+  baseline?: { label: string; profile: ProfileDefinition } | null;
+  editing?: GraphEditing | null;
+  /** What the legend calls the run. */
+  runLabel?: string;
 }) {
   const [puck, setPuck] = useState<"standard" | "shot">("standard");
   // Each puck keeps its own: the standard puck's as started or changed, a Shot's as that Shot ran.
   const [asks, setAsks] = useState<Record<"standard" | "shot", PuckAsk>>(() => {
-    const starting = startingAsk(definition, profile.machineModel);
+    const starting = startingAsk(definition, machineModel);
     return { standard: starting, shot: starting };
   });
+  // Whether the standard puck stops where the person chose, rather than at the profile's stop-at weight.
+  const [stopChosen, setStopChosen] = useState(false);
+  // A Draft's stop-at weight changed moves where the standard puck's simulation stops.
+  const stopAtWeight = definition?.target_weight ?? null;
+  const firstStopAt = useRef(stopAtWeight);
+  useEffect(() => {
+    if (stopAtWeight === firstStopAt.current) return;
+    firstStopAt.current = stopAtWeight;
+    setStopChosen(false);
+    setAsks((now) => ({ ...now, standard: { ...now.standard, stopAt: stopAtWeight !== null && stopAtWeight > 0 ? stopAtWeight : 0 } }));
+  }, [stopAtWeight]);
   const ask = asks[puck];
   const [puckShot, setPuckShot] = useState<GraphShot>();
   const [overlay, setOverlay] = useState<GraphShot>();
   const [picking, setPicking] = useState<"puck" | "overlay">();
   const [shotError, setShotError] = useState<string>();
-  const change = (next: Partial<PuckAsk>) => setAsks((now) => ({ ...now, [puck]: { ...now[puck], ...next } }));
+  const change = (next: Partial<PuckAsk>) => {
+    if (puck === "standard" && next.stopAt !== undefined) setStopChosen(true);
+    setAsks((now) => ({ ...now, [puck]: { ...now[puck], ...next } }));
+  };
   const cannot = unsimulatable(definition);
 
   const result = useMemo(() => {
@@ -328,6 +405,14 @@ function HowItRuns({
     return { run: simulateProfile({ profile: definition, puck: standardPuck(ask.grind), dose: ask.dose, stopAt: ask.stopAt, model: ask.model }), fit: null };
   }, [cannot, definition, puck, puckShot, ask]);
   useEffect(() => onRun(result?.run), [result, onRun]);
+  // The baseline on the same puck, where it can be simulated: on the standard puck stopping at its own stop-at weight, unless the person chose where both stop.
+  const baselineProfile = baseline?.profile;
+  const baselineRun = useMemo(() => {
+    if (!baselineProfile || unsimulatable(baselineProfile)) return undefined;
+    if (puck === "shot") return puckShot ? simulateOnShot({ profile: baselineProfile, shot: puckShot.simulation, dose: ask.dose, stopAt: ask.stopAt, model: ask.model })?.run : undefined;
+    const stopAt = stopChosen ? ask.stopAt : startingAsk(baselineProfile, ask.model).stopAt;
+    return simulateProfile({ profile: baselineProfile, puck: standardPuck(ask.grind), dose: ask.dose, stopAt, model: ask.model });
+  }, [baselineProfile, puck, puckShot, ask, stopChosen]);
 
   // Each Shot asked for, so one that answers after a later choice is dropped.
   const latest = useRef(0);
@@ -360,7 +445,13 @@ function HowItRuns({
   const comparedLabel = puck === "shot" ? "The Shot, as it ran" : "The Shot laid over it";
   const comparedSamples = compared?.simulation.samples ?? [];
   const run = result?.run;
-  const words = run && definition ? graphWords(profileTitle(profile), definition, run, puck === "shot") : "";
+  const words = run && definition ? graphWords(title, definition, run, puck === "shot") : "";
+  const against =
+    puck === "shot" && puckShot
+      ? { label: "the Shot", samples: puckShot.simulation.samples }
+      : baseline && baselineRun
+        ? { label: baseline.label.replace(/, simulated$/, ""), samples: baselineRun.samples }
+        : undefined;
 
   return (
     <Card role="region" aria-label="How it runs">
@@ -445,7 +536,7 @@ function HowItRuns({
               <div className={`grid min-w-0 gap-4 ${puck === "shot" && puckShot ? "xl:grid-cols-[minmax(0,1fr)_24rem]" : ""}`}>
                 <div className="grid min-w-0 gap-4">
                   <div className="flex flex-wrap items-end justify-between gap-3">
-                    <RunFigures run={run} against={puck === "shot" && puckShot ? { label: "the Shot", samples: puckShot.simulation.samples } : undefined} />
+                    <RunFigures run={run} against={against} />
                     {puck === "standard" && (
                       <div className="flex flex-wrap items-center gap-2">
                         {overlay && (
@@ -466,8 +557,11 @@ function HowItRuns({
                   <ProfileGraph
                     profile={definition}
                     run={run}
+                    runLabel={runLabel}
                     label={words}
                     compared={compared && comparedSamples.length > 0 ? { label: comparedLabel, samples: comparedSamples, stop: { seconds: lastSecond(comparedSamples), label: "The Shot stopped" } } : null}
+                    baseline={baseline && baselineRun ? { label: baseline.label, run: baselineRun } : null}
+                    editing={editing}
                   />
                 </div>
                 {puck === "shot" && puckShot && <PuckShot shot={puckShot} fit={result?.fit ?? null} onChange={() => setPicking("puck")} />}
@@ -485,7 +579,7 @@ function HowItRuns({
             ? "The simulation runs on the puck worked out from this Shot's pressure and flow, with its dose and the weight it stopped at, as the model of its Machine."
             : "The Shot's pressure, flow and temperature are drawn over the simulation."
         }
-        profileIds={[profile.id, ...earlier.map((version) => version.id)]}
+        profileIds={shotProfileIds}
         onPick={(shot) => picking && choose(shot.id, picking)}
       />
     </Card>

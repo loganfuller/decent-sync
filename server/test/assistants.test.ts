@@ -138,6 +138,7 @@ describe("connecting an assistant", () => {
         "find_library_items",
         "find_shots",
         "find_steam_records",
+        "get_draft",
         "get_library_item",
         "get_machine",
         "get_machine_activity",
@@ -147,11 +148,13 @@ describe("connecting an assistant", () => {
         "get_shot",
         "get_steam_record",
         "list_conflicts",
+        "list_drafts",
         "list_locations",
         "list_machines",
         "list_settings_edits",
         "list_settings_history",
         "list_shot_values",
+        "simulate_draft",
         "simulate_profile",
         "summarise_shots",
       ];
@@ -160,13 +163,16 @@ describe("connecting an assistant", () => {
         "create_basket",
         "create_bean",
         "create_bean_batch",
+        "create_draft",
         "create_grinder",
         "create_location",
         "create_recipe",
         "create_tool",
+        "discard_draft",
         "edit_basket",
         "edit_bean",
         "edit_bean_batch",
+        "edit_draft",
         "edit_grinder",
         "edit_location",
         "edit_machine_settings",
@@ -183,9 +189,9 @@ describe("connecting an assistant", () => {
         "set_reference_shot",
       ];
       expect(tools.map((tool) => tool.name).sort()).toEqual([...reading, ...changing].sort());
-      // Archiving retires an item everywhere, and a Settings Edit writes a Machine's settings, which an app may ask about
-      // more carefully; nothing else changing is destructive.
-      const destructive = ["set_archived", "edit_machine_settings"];
+      // Archiving retires an item everywhere, a Settings Edit writes a Machine's settings, and discarding a Draft leaves
+      // nothing of it, which an app may ask about more carefully; nothing else changing is destructive.
+      const destructive = ["set_archived", "edit_machine_settings", "discard_draft"];
       for (const tool of tools) {
         expect(tool.annotations, tool.name).toMatchObject(changing.includes(tool.name) ? { readOnlyHint: false, destructiveHint: destructive.includes(tool.name) } : { readOnlyHint: true });
         // Every tool keeps its response within the budget (ADR-0028), and lets Claude Code keep a slight overrun inline.

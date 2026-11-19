@@ -6,6 +6,7 @@ Rules a server change follows across modules. The code each line names shows the
 
 - A REST route needs a signed-in account unless marked `@Public()`, and an Admin unless marked `@AllowStaff()`, so a new route stays Admin-only until Staff are meant to use it (`server/src/accounts/guards.ts`).
 - A Viewer reaches only the `@AllowStaff()` routes that read (`GET`) and those marked `@AllowViewer()`, so a reading route opened to Staff opens to Viewers.
+- Drafts are the one thing Staff read that a Viewer doesn't: `DraftsService` refuses a Viewer's Scope (`nothing`) itself, and `access.test.ts` lists their reading routes apart (`DRAFT_READS`).
 - `server/test/access.test.ts` names every route marked either way, and fails until a new one is named.
 - Staff read everything an Admin reads but other accounts' personal information; their Locations limit only what they change.
 - A Staff route that changes something takes the account's `Scope` (`@CurrentScope()`, `server/src/accounts/scope.ts`), read with the session on every request and never kept, so a change applies to the next request on any instance.

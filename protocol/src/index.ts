@@ -21,6 +21,7 @@ export * from "./record-samples.js";
 export * from "./settings-fields.js";
 export * from "./settings-history.js";
 export * from "./simulation.js";
+export * from "./starting-shapes.js";
 export * from "./steam-phases.js";
 
 /**

@@ -102,6 +102,15 @@ Each server has one owner: a household, or a business with all of its sites.
   the one before, are listed with who saved each, and any two compared, each
   simulated on the same puck. It lists the Recipes on it, with the Machines
   that have each loaded, and exports as Decaid's profile JSON.
+- **Shape a Profile on its graph.** Edit a Profile, duplicate any, Decaid's
+  bundled ones included, or start one from six starting shapes or a profile
+  file, as a Draft kept here and on no tablet, saved as it changes. Drag a
+  step's target, exit and maximum time on the graph, or use the keyboard and
+  the inspector beside it; add, duplicate, delete and reorder steps; undo
+  and redo. The graph simulates again on every change, with the version it
+  started from faint behind it, and checks list what would stop it
+  publishing and what the machine accepts that may not be meant, such as a
+  target the run never reaches. Drafts can't be published yet.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.

@@ -544,6 +544,10 @@ written it (Writing to tablets, below).
 An assistant makes the same changes through the MCP endpoint (ADR-0026):
 creating and editing Beans, Bean Batches, Grinders, Baskets and Tools,
 editing a Profile's title, author and notes (`edit_profile`, #576),
+listing, reading, starting, changing, simulating and discarding Drafts
+(`list_drafts`, `get_draft`, `create_draft`, `edit_draft`,
+`simulate_draft` and `discard_draft`, `server/src/mcp/drafts.tools.ts`,
+#579),
 Archiving and restoring any item, showing and hiding Profiles, Baskets and
 Tools and adding and finishing batches at Locations, and using and
 dismissing Conflicts' values (`server/src/mcp/library-changes.tools.ts`,
@@ -702,8 +706,9 @@ Conflict names is kept, still refused, so history goes on naming it
   `item-input.ts`), so a tablet's record never differs from it for that
   alone. A bundled Profile's are refused (409), as Decaid refuses to change
   them. Its steps change only on tablets so far: a Profile with other steps
-  is another Profile, which joins the Library from the tablet that saved it,
-  until Drafts are published from here (ADR-0032).
+  is another Profile, which joins the Library from the tablet that saved it.
+  A Draft changes them here (Drafts, below), but can't be published yet
+  (#580).
 - **Baskets and Tools** are shown or hidden at each Location as a Profile is
   (`showEquipment`), which is how a lab's Basket reaches a cafe: showing one
   there writes it to the cafe's tablets, and hiding it there removes it from
@@ -2476,7 +2481,18 @@ fit.
 `simulate_profile` tool (`server/src/mcp/simulation.tools.ts`) simulate a
 Library Profile through `ProfileSimulationService`
 (`server/src/library/profile-simulation.service.ts`), with its checks
-(`checkProfile`), against the models the account has Machines of. Anyone
+(`checkProfile`), against the models the account has Machines of, and with
+those of the run: advice of each step whose pressure or flow never comes
+within half a unit, or 10% of a target above 5, of its target while it runs
+out its time or until the Shot stops (`targetNotReached`, #579), as when its
+limit holds it back, a decline is cut short or the puck can't build it. A
+step that ended at its exit, its water or its weight did what it was asked,
+and gets none; nor does one that ran 3 s or less, which is over before the
+pump catches up and is usually carried on by the next, as a lever's forced
+rise is, or one asking for a flow the pump of the model simulated can't
+give, which `pumpTooSlow` says already. On the standard puck it is advice for 29 of Decaid's 73
+bundled Profiles on a medium grind, most of them declines the Shot stops
+before they end, and pour-over pulses the puck holds back. Anyone
 who reads Profiles may, a Viewer too. The tool
 answers within the size budget (ADR-0028): the headline figures, each
 step's end and why, never cut, the checks and the fit, and the run's curves
@@ -2538,11 +2554,80 @@ title and steps table it had:
   that have each loaded, the Shots on it and on its earlier versions, its
   title, author and notes, and its history. Export gives its record's
   profile as Decaid's profile JSON, in a file named by its title.
+- **Edit** and **Duplicate** start a Draft of it (Drafts, below), but for a
+  Viewer; one of Decaid's bundled Profiles offers Duplicate alone.
 
 An assistant reads the same (ADR-0026): `get_profile_versions`
 (`server/src/mcp/library.tools.ts`) gives the versions and the Recipes on a
 Profile as the two routes below do, `get_library_item` a version's steps and
 its profile, what Export gives, and `simulate_profile` its simulation.
+
+## Drafts
+
+A Draft (ADR-0032, #579) is a profile being written or changed in the
+management interface: a row of its own (`drafts`,
+`server/src/library/drafts.service.ts`), which no tablet is ever written.
+It is not Library content: it is shown at no Location, makes no Conflict
+and keeps no history but who saved it last and when. Admins and Staff may
+read, change and discard any Draft, Staff anywhere, as no Location holds
+one; a Viewer sees none (403 "A Viewer sees no Drafts", the one thing a
+Viewer can't read that Staff can). Publishing one is #580.
+
+- **Started** from a Library Profile, by Edit, its profile copied as it is,
+  publishing as a new version of it, or by Duplicate, with " copy" after its
+  title, publishing as a separate Profile; from one of six starting shapes
+  (`STARTING_SHAPES`, `protocol/src/starting-shapes.ts`, there rather than in
+  the web's source so an assistant can start one too), each a title, a line
+  on what it is for and plain steps with nothing to stop or advise of on a
+  medium puck; or from a profile file, Decaid's profile JSON, a bare profile
+  or a whole record holding it under `profile` (`readProfileFile`), its
+  values held to the widest ranges of the account's models (`holdToLimits`),
+  and what was held said. Edit of a bundled Profile is refused (409). A
+  Draft keeps a file's steps beyond the 20 a machine takes, up to 100
+  (`MAX_DRAFT_STEPS`), which stop it publishing and simulating.
+- **Saved** whole, its profile read as Decaid reads one and refused (400)
+  with a value outside the widest ranges of the account's models. A save
+  names the count of saves it started from (`saves`): it is taken either
+  way, under the row's lock, the later save winning, and answers how many
+  saves came between and the latest of them, which the page shows. What it
+  publishes as can be changed too, a new version only for one started from
+  a Profile, and not one of Decaid's bundled ones (409).
+- **Checked** as any profile is (`checkProfile`), against the widest ranges
+  of the account's models and the Library's Profiles, so one whose steps a
+  Library Profile has, as a Draft of Edit unchanged, is refused publishing;
+  a simulation adds the run's checks.
+- **Simulated** as a Library Profile is, as the model of the Profile it
+  started from, or else a Bengle where every Machine of the account is one,
+  and otherwise a DE1 (`DraftView.machineModel`).
+
+Its page (`/library/drafts/:id`, `web/src/pages/DraftPage.tsx`) is the
+Profile page with a Draft loaded. The graph simulates again in the browser
+on every change, with the version it started from, or its starting shape,
+simulated on the same puck and drawn faint behind it, stopping at its own
+stop-at weight unless one was chosen for both, and the headline figures
+said against that one's. The selected step has handles on the graph
+(`web/src/components/profile-graph.tsx`): its target in its pump's lane,
+at the band's middle, or at its maximum time for a ramp; its exit in the
+lane it watches; and its maximum time, a bracket of its own from its start,
+past the band's end where the step ends sooner. Each is dragged, holding
+the axes still while it is, or moved as a slider with the arrow keys, ten
+times as far with Shift. The inspector beside it
+(`web/src/components/profile-editor.tsx`) edits the step and the whole
+profile, a later step's temperature against the first's and the brew
+temperature, the first step's, moving all of them from where they were as
+it began to be typed, each number held to the ranges as it is
+typed and kept as typed, not at a model's resolution. Steps are added,
+duplicated, deleted and moved up or down, where preinfusion ends staying on
+the step it ends after (`web/src/lib/profile-edits.ts`). Every change can be
+undone and redone through the session, changes of one field within a
+second being one (`web/src/lib/edit-history.ts`). It is saved half a second
+after the last change, and as the page is left or the tab closed. A save
+refused waits for the next change; one lost to the connection or a server
+error is tried again, ever more slowly; and a Draft discarded or published
+meanwhile is said to be gone. New Profile (`/library/profiles/new`) starts one from
+a starting shape, drawn as it runs on a medium puck, a duplicate or a file,
+and the Library's Profiles tab lists the Drafts above the Profiles, the one
+saved last first, each with what it will become and who saved it last.
 
 ## REST API
 
@@ -2638,6 +2723,33 @@ Every endpoint requires the account session; Staff read them as Admins do.
   read or that has more than 20 steps, the most a machine takes, or a Shot
   whose samples show nothing of its puck's resistance: no pressure and flow
   together.
+- `GET /api/drafts` returns `{ drafts }`, every Draft, the one saved last
+  first, each `{ id, title, startedFrom, shape, publishesAs, savedBy,
+  savedAt, saves, createdAt }`: `startedFrom` the Library Profile it was
+  started from, `{ id, title, bundled }`, its title and bundled null where
+  the Library no longer has it, or null; `shape` the starting shape, `{ key,
+  title }`, or null; `publishesAs` `version` or `separate`; and `savedBy` a
+  source as an item's history gives one. `GET /api/drafts/:id` returns `{
+  draft }`, the same with its `profile`, the `profileId` Decaid would give
+  it, the `models` the account has Machines of, its `machineModel` and its
+  `checks`. 403 for a Viewer, 404 for no such Draft.
+- `POST /api/drafts` starts one and returns `{ draft, held }` with 201, from
+  `{ profileId, as }`, `as` `version` (Edit) or `separate` (Duplicate); `{
+  shape }`, a starting shape's key; or `{ file }`, a profile file's content.
+  `held` lists each value of a file held to the ranges, `{ step, path, from,
+  to }`. 400 for none or more than one of them, an unknown shape or a file
+  Decaid would not read; 404 for no such Profile; 409 for Edit of a bundled
+  one.
+- `PUT /api/drafts/:id`, with `{ profile?, publishesAs?, saves }`, saves it
+  and returns `{ draft, between }`, `between` null or `{ saves, savedBy,
+  savedAt }`, the saves made since the count `saves` names and the latest of
+  them. 400 for a profile Decaid would not read, one of more than 100 steps,
+  a value outside the widest ranges of the account's models, or `version`
+  for one started from no Profile; 409 for `version` for one started from a
+  bundled Profile. `DELETE /api/drafts/:id` discards it,
+  204. `GET /api/drafts/:id/simulation` simulates it, taking the query a
+  Profile's simulation does, and returns `{ simulation }` with `draft: { id,
+  title }` in place of `profile`; 409 for more than 20 steps or none.
 - `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
   required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
   roaster, name } }` if the Library has a Bean of that roaster and name.
@@ -2966,6 +3078,7 @@ the same Profiles.
 `server/test/library-profile-management.test.ts`,
 `server/test/library-profile-text.test.ts`,
 `server/test/profile-simulation.test.ts`,
+`server/test/drafts.test.ts`,
 `server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,
@@ -2976,7 +3089,8 @@ built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
 `server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
-`server/test/join-plan.test.ts` and `protocol/test/simulation.test.ts`
+`server/test/join-plan.test.ts`, `protocol/test/simulation.test.ts`,
+`protocol/test/profile.test.ts` and `web/test/profile-edits.test.ts`
 the pure modules;
 `server/test/simulated-bean-writes.test.ts`,
 `server/test/simulated-batch-writes.test.ts`,
@@ -2989,7 +3103,7 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/`, `workflow-writes-v0.8.7/` and
 `workflow-writes-v0.9.0/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
-`e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts`,
+`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/conflicts.spec.ts`,
 `e2e/capture-only.spec.ts`,
 `e2e/sharing-status.spec.ts`, `e2e/equipment-management.spec.ts` and
 `e2e/recipe-management.spec.ts` the management interface.

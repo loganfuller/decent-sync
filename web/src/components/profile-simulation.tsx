@@ -149,7 +149,7 @@ export function RunFigures({ run, against }: { run: SimulatedRun; against?: { la
         <div key={figure.term} className="grid gap-0.5">
           <dt className="text-sm text-muted-foreground">{figure.term}</dt>
           <dd className="text-2xl leading-tight font-semibold">{figure.value}</dd>
-          {figure.compared && <dd className="text-xs text-muted-foreground">{`${figure.compared} than ${against!.label}`}</dd>}
+          {figure.compared && <dd className="text-xs text-muted-foreground">{figure.compared === "The same" ? `The same as ${against!.label}` : `${figure.compared} than ${against!.label}`}</dd>}
         </div>
       ))}
     </dl>

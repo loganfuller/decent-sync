@@ -77,6 +77,12 @@ const STAFF = [
   "GET /api/profiles/:id/simulation",
   "GET /api/profiles/:id/versions",
   "GET /api/profiles/:id/recipes",
+  "GET /api/drafts",
+  "POST /api/drafts",
+  "GET /api/drafts/:id",
+  "PUT /api/drafts/:id",
+  "DELETE /api/drafts/:id",
+  "GET /api/drafts/:id/simulation",
   "GET /api/baskets",
   "POST /api/baskets",
   "GET /api/baskets/:id",
@@ -146,12 +152,16 @@ const STAFF = [
   "POST /api/connected-apps/:id/disconnect",
 ];
 
+/** Staff's routes that read Drafts, which a Viewer, who may change nothing in the Library, never sees (ADR-0032). */
+const DRAFT_READS = ["GET /api/drafts", "GET /api/drafts/:id", "GET /api/drafts/:id/simulation"];
+
 /**
- * Routes a Viewer may use, who sees what Staff see and changes nothing: Staff's that read, signing out, answering an
- * app's request to connect, which acts as the Viewer, reading only, and disconnecting their own Connected Apps.
+ * Routes a Viewer may use, who sees what Staff see but Drafts and changes nothing: Staff's that read, signing out,
+ * answering an app's request to connect, which acts as the Viewer, reading only, and disconnecting their own
+ * Connected Apps.
  */
 const VIEWER = [
-  ...STAFF.filter((name) => name.startsWith("GET ")),
+  ...STAFF.filter((name) => name.startsWith("GET ") && !DRAFT_READS.includes(name)),
   "DELETE /api/session",
   "POST /api/oauth/requests/:id/approve",
   "POST /api/oauth/requests/:id/deny",
@@ -231,7 +241,13 @@ describe("who may use each route", () => {
   it("refuses a Viewer every route but the public ones and those for Viewers, saying why", async () => {
     for (const route of routes.filter((route) => !PUBLIC.includes(route.name) && !BEARER.includes(route.name))) {
       const { status, message } = await refusal(route, viewer);
-      const why = VIEWER.includes(route.name) ? undefined : STAFF.includes(route.name) ? "A Viewer can't change anything" : "Only an Admin can do this";
+      const why = VIEWER.includes(route.name)
+        ? undefined
+        : DRAFT_READS.includes(route.name)
+          ? "A Viewer sees no Drafts"
+          : STAFF.includes(route.name)
+            ? "A Viewer can't change anything"
+            : "Only an Admin can do this";
       expect({ route: route.name, refused: status === 403 ? message : undefined }).toEqual({ route: route.name, refused: why });
     }
   });

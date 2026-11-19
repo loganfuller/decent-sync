@@ -9,6 +9,7 @@
 
 import { MACHINE_MODELS, MODEL_FIGURES, type MachineModel } from "./machine-models.js";
 import { sha256Hex } from "./sha256.js";
+import type { SimulatedRun } from "./simulation.js";
 
 /** Decaid's drink kinds (`BeverageType`); it reads any other as espresso. */
 export const BEVERAGE_TYPES = ["espresso", "pourover", "cleaning", "calibrate", "manual"] as const;
@@ -159,6 +160,17 @@ export function readProfile(value: unknown): ReadProfile {
 /** A profile read, or null where Decaid would refuse it (`readProfile`). */
 export function profileOf(value: unknown): Profile | null {
   return readProfile(value).profile ?? null;
+}
+
+/**
+ * Reads a profile file to import (#579): Decaid's profile JSON, either a
+ * bare profile or a whole record, one holding its profile under `profile`,
+ * as Decaid's REST API gives it and this server's Profile records hold it;
+ * read as `readProfile` reads one.
+ */
+export function readProfileFile(value: unknown): ReadProfile {
+  if (isObject(value) && !Array.isArray(value.steps) && isObject(value.profile)) return readProfile(value.profile);
+  return readProfile(value);
 }
 
 /** Reads one step, or says which field Decaid would refuse it for. */
@@ -595,7 +607,8 @@ export type ProfileCheckCode =
   | "weightNeedsScale"
   | "exitOnNoLength"
   | "pumpTooSlow"
-  | "modelCantRun";
+  | "modelCantRun"
+  | "targetNotReached";
 
 export interface ProfileCheck {
   code: ProfileCheckCode;
@@ -626,6 +639,11 @@ export interface ProfileCheckContext {
    * flow one of them can't keep up with. A DE1 where none is given.
    */
   models?: readonly MachineModel[];
+  /**
+   * A simulated run of the profile, to be advised of a step whose target it
+   * never reaches (`targetNotReached`), on the puck it was simulated on.
+   */
+  run?: SimulatedRun;
 }
 
 /** A step named for a person: its number from 1 and its name, if it has one. */
@@ -656,7 +674,8 @@ const KEEPS_UP: Readonly<Record<MachineModel, string>> = {
   Bengle: `a Bengle's heater keeps up with about ${MODEL_FIGURES.Bengle.maxFlow} ml/s at most`,
 };
 
-function fieldLabel(profile: Profile, field: ProfileField): string {
+/** A profile's field named for a person, by its path: "Step 2, "Pour": its pressure", or "Tank temperature". */
+export function fieldLabel(profile: Profile, field: ProfileField): string {
   if (field.step === null) return FIELD_NAMES[field.path] ?? field.path;
   const name = FIELD_NAMES[field.path.replace(/^steps\.\d+\./, "")] ?? field.path;
   return `${stepLabel(profile, field.step)}: its ${name}`;
@@ -665,7 +684,7 @@ function fieldLabel(profile: Profile, field: ProfileField): string {
 /**
  * Checks a profile (#574): what stops it being published, and advice. A
  * check that needs to know of the Library, or of the simulated run, is made
- * only where the context, or a later caller, gives what it needs.
+ * only where the context gives what it needs.
  */
 export function checkProfile(profile: Profile, context: ProfileCheckContext = {}): ProfileChecks {
   const blocking: ProfileCheck[] = [];
@@ -718,7 +737,60 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
     const ranges = by.map(({ model, range }) => `a ${model} takes ${range.min} to ${range.max}`).join(", and ");
     advice.push({ code: "modelCantRun", step: value.step, path: value.path, message: `${fieldLabel(profile, value)} is ${value.from}, which ${names} can't run: ${ranges}.` });
   }
+  if (context.run) advice.push(...targetsNotReached(profile, context.run, new Set(advice.flatMap((check) => (check.code === "pumpTooSlow" && check.step !== null ? [check.step] : [])))));
   return { blocking, advice };
+}
+
+/** How near a step's pressure or flow must come to its target to have reached it: half a unit, or 10% of a target above 5, as a ramp run out lags its plan by a few tenths. */
+function nearEnough(target: number): number {
+  return Math.max(0.5, Math.abs(target) * 0.1);
+}
+
+/** How long a step must run past to be judged by `targetsNotReached`: one of this or less, such as a lever's 3 s forced rise, is over before the pump catches up, and the next step usually carries on toward the same. */
+const JUDGED_AFTER_SECONDS = 3;
+
+/**
+ * Each step of the run whose pump's pressure or flow never came near its
+ * target (`nearEnough`) while it ran out its time or ran until the Shot
+ * stopped: what the machine accepts, but likely not what was meant, as a
+ * limit holds it back, a decline is cut short, or the puck can't build it.
+ * A step that ended at its exit, its water or its weight did what it was
+ * asked; one that ran `JUDGED_AFTER_SECONDS` or less, one the run never came
+ * to, and one asking for a flow the pump of the model it was simulated as
+ * can't give, where `pumpTooSlow` says so already (`tooFast`), are not judged.
+ */
+function targetsNotReached(profile: Profile, run: SimulatedRun, tooFast: ReadonlySet<number>): ProfileCheck[] {
+  const maxFlow = MODEL_FIGURES[run.model].maxFlow;
+  const found: ProfileCheck[] = [];
+  for (const ran of run.steps) {
+    const step = profile.steps[ran.index];
+    if (!step || ran.start === null || ran.end === null || ran.end - ran.start <= JUDGED_AFTER_SECONDS + 1e-6) continue;
+    if (tooFast.has(ran.index) && step.pump === "flow" && step.flow > maxFlow) continue;
+    if (ran.reason !== "time" && ran.reason !== "stop") continue;
+    const target = stepTarget(step);
+    const during = run.samples.filter((sample) => sample.step?.frame === ran.index && sample.seconds > ran.start! && sample.seconds <= ran.end! + 1e-9);
+    if (during.length === 0) continue;
+    let nearest = during[0]!.values[step.pump] ?? 0;
+    for (const sample of during) {
+      const value = sample.values[step.pump] ?? 0;
+      if (Math.abs(value - target) < Math.abs(nearest - target)) nearest = value;
+    }
+    if (Math.abs(nearest - target) <= nearEnough(target)) continue;
+    const unit = step.pump === "pressure" ? "bar" : "ml/s";
+    const before = ran.reason === "stop" ? "the Shot stops" : "its time is up";
+    found.push({
+      code: "targetNotReached",
+      step: ran.index,
+      path: `steps.${ran.index}.${step.pump}`,
+      message: `${stepLabel(profile, ran.index)} never reaches its ${shortNumber(target)} ${unit} on the puck simulated: the nearest it comes is ${shortNumber(nearest)} ${unit}, before ${before}.`,
+    });
+  }
+  return found;
+}
+
+/** A number to a tenth, without a trailing .0. */
+function shortNumber(value: number): string {
+  return String(Math.round(value * 10) / 10);
 }
 
 // Title, author and notes --------------------------------------------------------

@@ -55,6 +55,7 @@ model Account {
   settingsEdits SettingsEdit[]
   shotEdits     ShotEdit[]
   connectedApps ConnectedApp[]
+  drafts        Draft[]
 
   @@map("accounts")
 }
@@ -196,6 +197,7 @@ model ConnectedApp {
   conflicts          Conflict[]
   settingsEdits      SettingsEdit[]
   shotEdits          ShotEdit[]
+  drafts             Draft[]
 
   @@index([accountId])
   @@index([lastUsedAt])
@@ -1437,6 +1439,57 @@ model Profile {
   /// The migration indexes its content's steps, by hash, which a Shot's
   /// Profile is found by (server/src/shots/links.ts); Prisma cannot express it.
   @@map("profiles")
+}
+
+/// What publishing a Draft makes of it (ADR-0032): a new Profile Version
+/// of the Profile it started from, or a separate Profile.
+enum DraftPublishing {
+  VERSION
+  SEPARATE
+
+  @@map("draft_publishing")
+}
+
+/// A Draft (ADR-0032, ticket #579): a profile being written or changed in
+/// the management interface, held by the server alone, saved as it changes
+/// and offered on no tablet. Not Library content: it is shown at no
+/// Location, makes no Conflict and has no history but who saved it last. See
+/// server/src/library/drafts.service.ts.
+model Draft {
+  id                    String          @id @default(uuid(7)) @db.Uuid
+  /// Its profile as Decaid writes one (`Profile` in protocol/), as last
+  /// saved, held to the widest ranges of the models the account had
+  /// Machines of then.
+  profile               Json            @db.JsonB
+  /// The Library Profile it was started from, by Edit or Duplicate, by
+  /// Decaid's id with no foreign key, so adding the table locks nothing the
+  /// running release writes; it may since have been deleted. Null for one
+  /// started from a starting shape or a file.
+  startedFromId         String?         @map("started_from_id")
+  /// The starting shape it was started from, by its key (`STARTING_SHAPES`
+  /// in protocol/); null for one started from a Profile or a file.
+  shape                 String?
+  /// A new version of the Profile it was started from, or a separate
+  /// Profile, which is all one started from no Profile can be.
+  publishesAs           DraftPublishing @map("publishes_as")
+  /// Who saved it last: an account, and the Connected App it saved it
+  /// through, if one (ADR-0026); each null once deleted.
+  savedByAccountId      String?         @map("saved_by_account_id") @db.Uuid
+  savedByAccount        Account?        @relation(fields: [savedByAccountId], references: [id], onDelete: SetNull)
+  savedByConnectedAppId String?         @map("saved_by_connected_app_id") @db.Uuid
+  savedByConnectedApp   ConnectedApp?   @relation(fields: [savedByConnectedAppId], references: [id], onDelete: SetNull)
+  /// When it was saved last, by PostgreSQL's clock.
+  savedAt               DateTime        @default(dbgenerated("transaction_timestamp()")) @map("saved_at") @db.Timestamptz(3)
+  /// How many times it has been saved, its creation the first: a save names
+  /// the count it started from, so the server can tell it of a save made
+  /// between, which it takes all the same, the later save winning.
+  saves                 Int             @default(1)
+  /// When it was started, by PostgreSQL's clock.
+  createdAt             DateTime        @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  @@index([savedByAccountId])
+  @@index([savedByConnectedAppId])
+  @@map("drafts")
 }
 
 /// Whether a Profile is shown at one Location (ADR-0008), a field of its own

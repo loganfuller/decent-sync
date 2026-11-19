@@ -8,6 +8,8 @@ import { BasketsController, ToolsController } from "./equipment.controller.js";
 import { EquipmentService } from "./equipment.service.js";
 import { ConflictsController } from "./conflicts.controller.js";
 import { ConflictsService } from "./conflicts.service.js";
+import { DraftsController } from "./drafts.controller.js";
+import { DraftsService } from "./drafts.service.js";
 import { GrindersController } from "./grinders.controller.js";
 import { GrindersService } from "./grinders.service.js";
 import { HistoryService } from "./history.service.js";
@@ -36,6 +38,7 @@ import { SharingService } from "./sharing.service.js";
     BeanBatchesController,
     GrindersController,
     ProfilesController,
+    DraftsController,
     BasketsController,
     ToolsController,
     RecipesController,
@@ -55,9 +58,11 @@ import { SharingService } from "./sharing.service.js";
     RecipeEditsService,
     SharingService,
     ProfileSimulationService,
+    DraftsService,
   ],
   exports: [
     ProfileSimulationService,
+    DraftsService,
     BeansService,
     BeanBatchesService,
     GrindersService,

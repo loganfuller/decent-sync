@@ -4,6 +4,8 @@ import {
   MAX_PROFILE_STEPS,
   type MachineModel,
   PROFILE_LIMITS,
+  type Profile,
+  type ProfileCheckContext,
   type ProfileChecks,
   STANDARD_DOSE,
   type ShotFit,
@@ -53,7 +55,7 @@ export interface ProfileSimulation {
   /** The weight it stops at, g, or null where it runs until its last step ends. */
   stopAt: number | null;
   run: SimulatedRun;
-  /** The Profile's checks (`checkProfile`): what would stop it being published, and advice, held to the widest ranges of the models the account has Machines of (#588). */
+  /** The Profile's checks (`checkProfile`): what would stop it being published, and advice, held to the widest ranges of the models the account has Machines of (#588), the run's among them, as a step whose target it never reaches. */
   checks: ProfileChecks;
   /**
    * On a Shot's puck, the Shot's own steps run on it, stopped as it stopped,
@@ -87,19 +89,28 @@ export class ProfileSimulationService {
     const profile = item.profile;
     if (!profile) throw new ConflictException(`Profile ${profileId}'s profile can't be read as Decaid reads one, so it can't be simulated`);
     if (profile.steps.length > MAX_PROFILE_STEPS) throw new ConflictException(`Profile ${profileId} has ${profile.steps.length} steps, more than the ${MAX_PROFILE_STEPS} a machine takes, so it can't be simulated`);
+    const simulated = await this.simulateProfile(profile, ask, item.machineModel, { models: await this.profiles.accountModels() });
+    return { profile: { id: item.id, title: item.title }, ...simulated };
+  }
+
+  /**
+   * Simulates a profile, as `simulate` does a Library Profile's, on a
+   * Machine of the model asked, else `model`; its checks are made with the
+   * context given and the run. A Draft's is simulated so (#579). The caller
+   * refuses one of more steps than a machine takes.
+   */
+  async simulateProfile(profile: Profile, ask: SimulationAsk, model: MachineModel, context: ProfileCheckContext): Promise<Omit<ProfileSimulation, "profile">> {
     const stopAt = ask.stopAt ?? (profile.target_weight !== null && profile.target_weight > 0 ? profile.target_weight : null);
-    const checks = checkProfile(profile, { models: await this.profiles.accountModels() });
-    const of = { id: item.id, title: item.title };
-    const model = ask.model ?? item.machineModel;
+    const asked = ask.model ?? model;
     if (ask.shotId === null) {
-      const run = simulateProfile({ profile, puck: standardPuck(ask.grind), dose: ask.dose ?? STANDARD_DOSE, stopAt, model });
-      return { profile: of, model, puck: { kind: "standard", grind: ask.grind }, dose: run.dose, stopAt: run.stopAt, run, checks, fit: null };
+      const run = simulateProfile({ profile, puck: standardPuck(ask.grind), dose: ask.dose ?? STANDARD_DOSE, stopAt, model: asked });
+      return { model: asked, puck: { kind: "standard", grind: ask.grind }, dose: run.dose, stopAt: run.stopAt, run, checks: checkProfile(profile, { ...context, run }), fit: null };
     }
     const shot = await this.shots.forSimulation(ask.shotId);
-    const simulated = simulateOnShot({ profile, shot, dose: ask.dose, stopAt, model });
+    const simulated = simulateOnShot({ profile, shot, dose: ask.dose, stopAt, model: asked });
     if (!simulated) throw new ConflictException(`Shot ${ask.shotId} recorded no pressure and flow to work its puck out from`);
     const { run, fit } = simulated;
-    return { profile: of, model, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks, fit };
+    return { model: asked, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks: checkProfile(profile, { ...context, run }), fit };
   }
 }
 

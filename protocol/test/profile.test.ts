@@ -15,6 +15,11 @@ import {
   profileId,
   profileStepsKey,
   readProfile,
+  readProfileFile,
+  STARTING_SHAPES,
+  simulateProfile,
+  standardPuck,
+  startingShape,
   stepsKey,
 } from "../src/index.js";
 import { sha256Hex } from "../src/sha256.js";
@@ -326,6 +331,102 @@ describe("the checks", () => {
     const timed = (seconds: number) => checkProfile({ ...profile, steps: [{ ...profile.steps[0]!, seconds }] }).advice.map((check) => check.code);
     expect(timed(0.04)).toEqual(["exitOnNoLength"]);
     expect(timed(0.05)).toEqual([]);
+  });
+});
+
+describe("the checks of a simulated run", () => {
+  const run = (profile: Profile) => simulateProfile({ profile, puck: standardPuck(0), stopAt: profile.target_weight, model: "DE1" });
+  const steps = () => plain().steps as [ProfileStep, ProfileStep];
+
+  it("advise of a step whose target the run never comes near, as when a limit holds it back, naming the step", () => {
+    const [fill, pour] = steps();
+    // A flow limit of 0.8 ml/s holds a medium puck under 4 bar for the pour's whole 30 s, short of the 36 g it stops at.
+    const limited = { ...plain(), steps: [fill, { ...pour, limiter: { value: 0.8, range: 0.2 } } as ProfileStep] };
+    expect(checkProfile(limited, { run: run(limited) }).advice).toEqual([
+      { code: "targetNotReached", step: 1, path: "steps.1.pressure", message: expect.stringMatching(/^Step 2, "pour" never reaches its 9 bar on the puck simulated: the nearest it comes is [\d.]+ bar, before its time is up\.$/) },
+    ]);
+    const flat = { ...plain(), steps: [fill, { ...pour, transition: "fast", pressure: 6, limiter: null } as ProfileStep] };
+    expect(checkProfile(flat, { run: run(flat) }).advice).toEqual([]);
+  });
+
+  it("advise of a ramp the Shot stops before it gets to its target", () => {
+    const [fill, pour] = steps();
+    // A decline to 3 bar over 60 s, stopped at 36 g long before it gets there.
+    const cut = { ...plain(), steps: [fill, { ...pour, pressure: 3, limiter: null, seconds: 60 } as ProfileStep] };
+    expect(checkProfile(cut, { run: run(cut) }).advice.map((check) => [check.code, check.step, check.message.endsWith("before the Shot stops.")])).toEqual([["targetNotReached", 1, true]]);
+  });
+
+  it("leave a step alone that ended at its exit, its water or its weight, and one the run never came to", () => {
+    const [fill, pour] = steps();
+    // The fill exits over 4 bar, the next pumps its 3 ml, and the Shot stops at 10 g in the third, before the fourth.
+    const ended = {
+      ...plain(),
+      target_weight: 10,
+      steps: [fill, { ...pour, volume: 3 }, { ...pour, name: "hold", transition: "fast", pressure: 4, limiter: null }, { ...pour, name: "never", pressure: 2, limiter: null }] as ProfileStep[],
+    };
+    const ran = run(ended);
+    expect(ran.steps.map((step) => step.reason)).toEqual(["exit", "water", "stop", null]);
+    expect(checkProfile(ended, { run: ran }).advice).toEqual([]);
+    // A step held well under its 9 bar, ended at 2 g in the cup.
+    const weighed = { ...plain(), target_weight: 0, steps: [fill, { ...pour, transition: "fast", limiter: { value: 0.5, range: 0.1 }, weight: 2 } as ProfileStep] };
+    const stopped = run(weighed);
+    expect(stopped.steps.map((step) => step.reason)).toEqual(["exit", "weight"]);
+    expect(checkProfile(weighed, { run: stopped }).advice.map((check) => check.code)).toEqual(["weightNeedsScale"]);
+  });
+
+  it("leave a step alone that ran under 3 s, and one asking for a flow the pump can't give, which is advised of already", () => {
+    const [fill, pour] = steps();
+    // A 2 s rise to 9 bar, held back by a limit, and carried on by the pour.
+    const rise = { ...pour, name: "rise", transition: "fast", seconds: 2, limiter: { value: 0.8, range: 0.2 } } as ProfileStep;
+    const short = { ...plain(), steps: [fill, rise, { ...pour, transition: "fast", limiter: null } as ProfileStep] };
+    const ranShort = run(short);
+    expect(ranShort.steps[1]).toMatchObject({ reason: "time" });
+    expect(checkProfile(short, { run: ranShort }).advice).toEqual([]);
+    // 11 ml/s, past what a DE1's pump gives, for 30 s.
+    const flush = { ...plain(), steps: [{ name: "flush", pump: "flow", transition: "fast", exit: null, volume: 0, seconds: 30, weight: null, temperature: 92, sensor: "coffee", flow: 11, limiter: null } as ProfileStep] };
+    expect(checkProfile(flush, { run: run(flush) }).advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
+    // Simulated on a Bengle, whose pump gives it, a DE1's too slow pump is no reason to leave out the step a limit of 4 bar holds back on the puck.
+    const limited = { ...flush, steps: [fill, { ...flush.steps[0]!, limiter: { value: 4, range: 0.6 } } as ProfileStep] };
+    const onBengle = simulateProfile({ profile: limited, puck: standardPuck(0), stopAt: limited.target_weight, model: "Bengle" });
+    expect(checkProfile(limited, { models: ["DE1", "Bengle"], run: onBengle }).advice.map((check) => check.code)).toEqual(["pumpTooSlow", "targetNotReached"]);
+    // On a DE1, its pump the reason, pumpTooSlow alone.
+    expect(checkProfile(limited, { models: ["DE1", "Bengle"], run: run(limited) }).advice.map((check) => check.code)).toEqual(["pumpTooSlow"]);
+  });
+});
+
+describe("a profile file to import", () => {
+  it("reads a bare profile, and a whole record by its profile", () => {
+    const profile = plain();
+    expect(readProfileFile(profile)).toEqual({ profile });
+    const record = { id: profileId(profile), parentId: null, profile, isDefault: false, visibility: "visible", metadata: { source: "user" } };
+    expect(readProfileFile(record)).toEqual({ profile });
+  });
+
+  it("says why it can't be read, as readProfile does", () => {
+    expect(readProfileFile([])).toEqual({ problem: "A profile must be an object" });
+    expect(readProfileFile({ profile: { ...plain(), steps: [{ pump: "steam" }] } }).problem).toMatch(/^Step 1/);
+  });
+});
+
+describe("the starting shapes", () => {
+  it("are six, each with its own key, a title and a line on what it is for", () => {
+    expect(STARTING_SHAPES.map((shape) => shape.key)).toEqual(["classic", "lever", "steady-flow", "blooming", "long", "blank"]);
+    for (const shape of STARTING_SHAPES) {
+      expect(shape.title, shape.key).not.toBe("");
+      expect(shape.description, shape.key).toMatch(/\.$/);
+      expect(startingShape(shape.key)).toBe(shape);
+    }
+    expect(startingShape("none")).toBeUndefined();
+  });
+
+  it("read as Decaid reads them, plain steps a DE1 runs, with nothing to stop or advise of on a medium puck", () => {
+    for (const shape of STARTING_SHAPES) {
+      expect(readProfile(shape.profile), shape.key).toEqual({ profile: shape.profile });
+      expect(checkProfile(shape.profile, { run: simulateProfile({ profile: shape.profile, puck: standardPuck(0), stopAt: shape.profile.target_weight, model: "DE1" }) }), shape.key).toEqual({ blocking: [], advice: [] });
+      expect(holdToLimits(shape.profile).held, shape.key).toEqual([]);
+    }
+    // Each its own steps, so no two publish as one Profile.
+    expect(new Set(STARTING_SHAPES.map((shape) => profileId(shape.profile))).size).toBe(STARTING_SHAPES.length);
   });
 });
 
