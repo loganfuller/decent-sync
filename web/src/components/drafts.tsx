@@ -7,7 +7,7 @@ import { ConfirmButton } from "@/components/machines";
 import { RelativeTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { type DraftSummary, type StartedDraft, api } from "@/lib/api";
+import { ApiError, type DraftSummary, type StartedDraft, api } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 // Drafts in the management interface (#579): starting one, what each will
@@ -98,7 +98,15 @@ export function DiscardDraftButton({ draft, label = "Discard", onDone }: { draft
 
 /** The Library's Drafts, above its Profiles, the one saved last first: each with what it will become and who saved it last. Nothing while there are none. */
 export function DraftsCard() {
-  const load = useCallback(async () => (await api<{ drafts: DraftSummary[] }>("GET", "/drafts")).drafts, []);
+  // A server of the release before has no Drafts, as during a deploy (ADR-0025): the list is left out.
+  const load = useCallback(
+    () =>
+      api<{ drafts: DraftSummary[] }>("GET", "/drafts").then(
+        ({ drafts }) => drafts,
+        (caught: unknown) => (caught instanceof ApiError && caught.status === 404 ? [] : Promise.reject(caught)),
+      ),
+    [],
+  );
   const { data: drafts, error, reload } = usePolled(load, DETAILS_POLL_MS);
   if (error) return <FormError error={error} />;
   if (!drafts || drafts.length === 0) return null;

@@ -190,6 +190,23 @@ test("the checks name their step, both kinds, and choosing one selects it", asyn
   await expect(checks(page).getByText("Nothing stops this from publishing")).toBeVisible();
 });
 
+test("a save made after someone else's is taken, and the page says another came between", async ({ page }) => {
+  await page.goto("/library/profiles");
+  await page.getByRole("region", { name: "Drafts" }).getByRole("link", { name: /^Open the Draft Lab Soak, hotter$/ }).click();
+  await expect(inspector(page)).toBeVisible();
+  // Saved meanwhile elsewhere, as by a colleague.
+  const id = new URL(page.url()).pathname.split("/").at(-1)!;
+  const { draft } = (await (await page.request.get(`/api/drafts/${id}`)).json()) as { draft: SavedDraft };
+  expect((await page.request.put(`/api/drafts/${id}`, { data: { profile: { ...draft.profile, notes: "Saved elsewhere" }, saves: draft.saves } })).status()).toBe(200);
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Author").fill("Lab lead");
+  await expect(page.getByText(/^Another save came between: You, here saved this Draft .+ after you opened it, and your change was saved over it\.$/)).toBeVisible();
+  // The later save wins: the notes saved elsewhere are gone with it.
+  expect((await saved(page)).profile).toMatchObject({ author: "Lab lead", notes: "" });
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByText(/^Another save came between/)).toHaveCount(0);
+});
+
 test("New Profile starts a Draft from a starting shape, a duplicate of a bundled Profile or a file, which is held to the ranges", async ({ page }) => {
   // A bundled Profile's page offers Duplicate, not Edit.
   await page.goto(`/library/profiles/${encodeURIComponent(CLASSIC)}`);
