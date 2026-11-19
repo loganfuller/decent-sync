@@ -75,6 +75,8 @@ function ProfileDetails({ id }: { id: string }) {
   const [versions, setVersions] = useState<ProfileVersion[]>();
   const [recipes, setRecipes] = useState<RecipeOnProfile[]>();
   const [sideError, setSideError] = useState<string>();
+  // The run the graph draws, which the steps table says what each step did in.
+  const [run, setRun] = useState<SimulatedRun>();
   const path = `/profiles/${encodeURIComponent(id)}`;
 
   useEffect(() => {
@@ -163,9 +165,9 @@ function ProfileDetails({ id }: { id: string }) {
         </Alert>
       )}
 
-      <HowItRuns profile={profile} definition={definition} earlier={earlier} recipes={recipes ?? []} />
+      <HowItRuns profile={profile} definition={definition} earlier={earlier} recipes={recipes ?? []} onRun={setRun} />
 
-      <StepsCard definition={definition} profile={profile} />
+      <StepsCard definition={definition} run={run} />
 
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-2">
         <VersionsCard profile={profile} versions={versions} names={names} />
@@ -274,7 +276,19 @@ function ExportButton({ profile }: { profile: Profile }) {
 }
 
 /** The graph of how it runs, simulated on the standard puck or a Shot's, with its controls and figures. */
-function HowItRuns({ profile, definition, earlier, recipes }: { profile: Profile; definition: ProfileDefinition | null; earlier: ProfileVersion[]; recipes: RecipeOnProfile[] }) {
+function HowItRuns({
+  profile,
+  definition,
+  earlier,
+  recipes,
+  onRun,
+}: {
+  profile: Profile;
+  definition: ProfileDefinition | null;
+  earlier: ProfileVersion[];
+  recipes: RecipeOnProfile[];
+  onRun(run: SimulatedRun | undefined): void;
+}) {
   const [ask, setAsk] = useState<PuckAsk>(() => startingAsk(definition, profile.machineModel));
   const [puck, setPuck] = useState<"standard" | "shot">("standard");
   const [puckShot, setPuckShot] = useState<GraphShot>();
@@ -292,6 +306,7 @@ function HowItRuns({ profile, definition, earlier, recipes }: { profile: Profile
     }
     return { run: simulateProfile({ profile: definition, puck: standardPuck(ask.grind), dose: ask.dose, stopAt: ask.stopAt, model: ask.model }), fit: null };
   }, [cannot, definition, puck, puckShot, ask]);
+  useEffect(() => onRun(result?.run), [result, onRun]);
 
   const choose = (id: string, as: "puck" | "overlay") => {
     setShotError(undefined);
@@ -513,13 +528,8 @@ function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | nul
   );
 }
 
-/** Its steps in plain words, each with when it moves on and what the simulation on the standard puck did, and the figures it states once. */
-function StepsCard({ profile, definition }: { profile: Profile; definition: ProfileDefinition | null }) {
-  const run = useMemo(() => {
-    if (unsimulatable(definition) || !definition) return undefined;
-    const ask = startingAsk(definition, profile.machineModel);
-    return simulateProfile({ profile: definition, puck: standardPuck(ask.grind), dose: ask.dose, stopAt: ask.stopAt, model: ask.model });
-  }, [definition, profile.machineModel]);
+/** Its steps in plain words, each with when it moves on and what the simulation the graph draws did with it, and the figures it states once. */
+function StepsCard({ definition, run }: { definition: ProfileDefinition | null; run: SimulatedRun | undefined }) {
   const steps = definition?.steps ?? [];
   return (
     <Card role="region" aria-label="Steps">
@@ -527,7 +537,7 @@ function StepsCard({ profile, definition }: { profile: Profile; definition: Prof
         <CardTitleWithInfo title="Steps">
           <p>
             What the Machine follows, which decides the Profile&apos;s id: new steps make a new Profile. Later steps&apos; temperatures are given against the first&apos;s, as a
-            Recipe&apos;s brew temperature moves them all. Simulated is what the simulation did on the standard puck, with 18 g in.
+            Recipe&apos;s brew temperature moves them all. Simulated is what the simulation drawn above did with each step.
           </p>
         </CardTitleWithInfo>
       </CardHeader>

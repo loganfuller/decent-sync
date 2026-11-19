@@ -114,11 +114,12 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await graph.getByRole("radio", { name: "Bengle" }).click();
   await expect(graph.getByText(/^20 g in, stopping at 44 g, on a Bengle/)).toBeVisible();
 
+  // The steps say what the simulation drawn did: now the Recipe's 20 g in, stopping at 44 g, on a Bengle.
   const steps = page.getByRole("region", { name: "Steps" });
   await expect(rows(steps.getByRole("table", { name: "Steps" }))).toHaveText([
     /^1FillPumps 8 ml\/s at onceOver 4 bar, or after 15 s\d+\.\d s, pressure passed 4 bar$/,
     /^2SettleStops the pumpAt oncePassed through at once$/,
-    /^3PercolationHolds 6\.5 bar at once, flow limited to 1\.5 ml\/s, 2 °C coolerAfter 60 s\d+\.\d s, the Shot stopped at 40 g$/,
+    /^3PercolationHolds 6\.5 bar at once, flow limited to 1\.5 ml\/s, 2 °C coolerAfter 60 s\d+\.\d s, the Shot stopped at 44 g$/,
   ]);
   const facts = steps.getByLabel("The Profile");
   await expect(facts).toContainText("Brew temperature90 °C, unless a Recipe sets its own");
