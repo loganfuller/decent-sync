@@ -983,16 +983,17 @@ paged routes above are as they were.
   `server/src/machines/machine-days.ts`, which both call): a date is that
   day at the Location the Machine was at at noon UTC that day, by its
   Location History, in its time zone, and UTC's before the day it came to
-  its first Location, through its end for `to`. The day it came to its first Location, by that
-  Location's clock, is that Location's from its start (`dayStays`), as for
-  a Machine added in the evening west of UTC, after noon UTC
+  its first Location, through its end for `to`. The day it came to its
+  first Location, by that Location's clock, is that Location's from its
+  start (`dayStays`), as for a Machine added in the evening west of UTC,
+  after noon UTC
   ([#587](https://github.com/loganfuller/decent-sync/issues/587)), so the
   On one day card's today holds what it did there that evening. That day
   begins when it began in UTC if that was sooner, as west of UTC, and the
   day before it ends when it began there, as east of UTC, so a date holds
-  the moments `get_machine_use` counts under it. An end
-  not given is open: since the first, or until now. A range that ends at
-  or before its start is refused with 400, as is a time outside the years
+  the moments `get_machine_use` counts under it. An end not given is
+  open: since the first, or until now. A range that ends at or before its
+  start is refused with 400, as is a time outside the years
   1 to 9999.
 - **The lists.** `kind`, given once or more, names the lists to give
   (`workflowChanges`, `loadedRecipes`, `machineStates`), all three if none,
@@ -1048,8 +1049,9 @@ offset of the Location the Machine was at then.
   bounds give the last 14 days. By day it is at most 31 days, and by hour
   at most 25 hours, the longest a day is, as the clocks go back, not
   counting the hours the day it came to its first Location began in UTC
-  before it began there (`firstDayLead`); a longer one
-  is refused with 400, as is one whose `to` is at or before its start. On a
+  before it began there (`firstDayLead`), as far as the range reaches into
+  that day there, whose buckets they share; a longer one is refused with
+  400, as is one whose `to` is at or before its start. On a
   day the Machine moved between time zones a date is still read by where it
   was at noon UTC, so a range of that one date leaves out the part of it
   spent at the other Location, which a range of the days either side
