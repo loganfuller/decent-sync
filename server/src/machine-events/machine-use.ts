@@ -35,7 +35,8 @@ const DAY = 24 * HOUR;
  * days and the hour a day gains as the clocks go back; by hour, 25 hours,
  * the longest a day is, as the clocks go back. The hours of the day a
  * Machine came to its first Location before it began there, which that
- * day is longer by (`firstDayLead`), aren't counted.
+ * day is longer by (`firstDayLead`), aren't counted while the range reaches
+ * as far into that day there, whose buckets they share.
  */
 const LONGEST: Record<UseBy, number> = { day: MAX_USE_DAYS * DAY + HOUR, hour: 25 * HOUR };
 
@@ -126,8 +127,9 @@ export function useRange({ from, to, by }: UseRequest, stays: readonly Stay[], n
   const start = moment(from ?? lastDay.subtract({ days: by === "day" ? DEFAULT_USE_DAYS - 1 : 0 }).toString(), false);
   if (to !== undefined && end <= start) throw new BadRequestException("Choose an end after the start");
   const lead = firstDayLead(stays);
-  const leading = lead ? Math.max(0, Math.min(end, lead.to) - Math.max(start, lead.from)) : 0;
-  if (end - start - leading > LONGEST[by]) {
+  // As many of those hours as it covers, and no more than it reaches into the day there, whose buckets they share.
+  const shared = lead ? Math.max(0, Math.min(Math.min(end, lead.to) - Math.max(start, lead.from), end - lead.to)) : 0;
+  if (end - start - shared > LONGEST[by]) {
     throw new BadRequestException(by === "day" ? `Choose a range of at most ${MAX_USE_DAYS} days` : "Choose a range of at most 25 hours to read by hour");
   }
   return { from: start, to: end };

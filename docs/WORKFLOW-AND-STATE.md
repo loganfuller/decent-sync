@@ -982,8 +982,8 @@ paged routes above are as they were.
   time with its offset, read as the tool reads them (`machineRange` in
   `server/src/machines/machine-days.ts`, which both call): a date is that
   day at the Location the Machine was at at noon UTC that day, by its
-  Location History, in its time zone, and UTC's while it was at none,
-  through its end for `to`. The day it came to its first Location, by that
+  Location History, in its time zone, and UTC's before the day it came to
+  its first Location, through its end for `to`. The day it came to its first Location, by that
   Location's clock, is that Location's from its start (`dayStays`), as for
   a Machine added in the evening west of UTC, after noon UTC
   ([#587](https://github.com/loganfuller/decent-sync/issues/587)), so the

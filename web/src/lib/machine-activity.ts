@@ -43,7 +43,7 @@ export function dateIn(timeZone: string | undefined, at = Date.now()): string {
 export function timeZoneAt(history: readonly Pick<LocationHistoryEntry, "effectiveFrom" | "location">[], at: string): string {
   const moment = Date.parse(at);
   const first = history[0];
-  let found = first && dateIn(first.location.timeZone, moment) === dateIn(first.location.timeZone, Date.parse(first.effectiveFrom)) ? first.location.timeZone : "UTC";
+  let found = first && moment < Date.parse(first.effectiveFrom) && dateIn(first.location.timeZone, moment) === dateIn(first.location.timeZone, Date.parse(first.effectiveFrom)) ? first.location.timeZone : "UTC";
   for (const entry of history) {
     if (Date.parse(entry.effectiveFrom) > moment) break;
     found = entry.location.timeZone;

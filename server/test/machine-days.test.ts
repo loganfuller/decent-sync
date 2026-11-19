@@ -77,6 +77,11 @@ describe("the days of a Machine", () => {
     // A range from partway through those hours leaves out only the part of them it covers.
     expect(useRange({ by: "hour", from: "2026-11-18T03:00:00Z", to: "2026-11-19T07:00:00Z" }, CHICAGO, now).to).toBe(ms("2026-11-19T07:00:00Z"));
     expect(() => useRange({ by: "hour", from: "2026-11-18T03:00:00Z", to: "2026-11-19T07:00:01Z" }, CHICAGO, now)).toThrow("at most 25 hours");
+    // A range that ends in those hours shares no bucket with the day there, so all of it counts.
+    expect(() => useRange({ by: "hour", from: "2026-11-16T23:00:00Z", to: "2026-11-18T01:00:00Z" }, CHICAGO, now)).toThrow("at most 25 hours");
+    // One reaching an hour into the day there leaves out only an hour of them.
+    expect(useRange({ by: "hour", from: "2026-11-17T05:00:00Z", to: "2026-11-18T07:00:00Z" }, CHICAGO, now).from).toBe(ms("2026-11-17T05:00:00Z"));
+    expect(() => useRange({ by: "hour", from: "2026-11-17T04:59:59Z", to: "2026-11-18T07:00:00Z" }, CHICAGO, now)).toThrow("at most 25 hours");
     // By day, 31 dates are read with it among them.
     const month = useRange({ by: "day", from: "2026-11-18", to: "2026-12-18" }, CHICAGO, ms("2026-12-20T00:00:00Z"));
     expect(useSpans(month, CHICAGO, "day").buckets).toHaveLength(31);
