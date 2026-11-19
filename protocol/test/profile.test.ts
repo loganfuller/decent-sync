@@ -5,9 +5,13 @@ import {
   type Profile,
   type ProfileStep,
   MAX_PROFILE_STEPS,
+  MODEL_LIMITS,
   PROFILE_LIMITS,
   checkProfile,
   holdToLimits,
+  outOfRange,
+  unrunnable,
+  widestLimits,
   profileId,
   profileStepsKey,
   readProfile,
@@ -235,6 +239,46 @@ describe("the limits", () => {
   });
 });
 
+describe("the ranges by model", () => {
+  it("are a DE1's as Streamline's, and a Bengle's the same but for flow targets, limits and exits up to its pump's 20 ml/s", () => {
+    expect(MODEL_LIMITS.DE1).toBe(PROFILE_LIMITS);
+    expect(MODEL_LIMITS.Bengle).toEqual({ ...PROFILE_LIMITS, flow: { min: 0, max: 20 }, flowLimit: { min: 0, max: 20 }, flowExit: { min: 0, max: 20 } });
+    expect(MODEL_LIMITS.Bengle.pressure).toEqual({ min: 0, max: 12 });
+    expect(MODEL_LIMITS.Bengle.pressureExit).toEqual({ min: 0, max: 12 });
+  });
+
+  it("widen to the widest of the models', a DE1's for none", () => {
+    expect(widestLimits([])).toEqual(MODEL_LIMITS.DE1);
+    expect(widestLimits(["DE1"])).toEqual(MODEL_LIMITS.DE1);
+    expect(widestLimits(["DE1", "Bengle"])).toEqual(MODEL_LIMITS.Bengle);
+  });
+
+  it("say what a model can't run, as authored, with each value's range", () => {
+    const profile = plain();
+    const fast: Profile = {
+      ...profile,
+      steps: [{ ...profile.steps[0]!, flow: 18 } as ProfileStep, { ...profile.steps[1]!, limiter: { value: 12, range: 0.6 }, exit: { type: "flow", condition: "over", value: 9 } }],
+    };
+    expect(unrunnable(fast, "DE1")).toEqual([
+      { step: 0, path: "steps.0.flow", from: 18, to: 15, range: { min: 0, max: 15 } },
+      { step: 1, path: "steps.1.exit.value", from: 9, to: 8, range: { min: 0, max: 8 } },
+      { step: 1, path: "steps.1.limiter.value", from: 12, to: 8, range: { min: 0, max: 8 } },
+    ]);
+    expect(unrunnable(fast, "Bengle")).toEqual([]);
+    // Judged as authored: 15.01 ml/s is outside a DE1's range, though the machine would be sent it as 15.
+    expect(unrunnable({ ...profile, steps: [{ ...profile.steps[0]!, flow: 15.01 } as ProfileStep] }, "DE1").map((value) => value.from)).toEqual([15.01]);
+    expect(unrunnable(profile, "DE1")).toEqual([]);
+  });
+
+  it("take rounding noise at a range's end as in it, as a bundled cleaning profile's -4e-16 bar", () => {
+    const profile = plain();
+    const noisy: Profile = { ...profile, steps: [profile.steps[0]!, { ...profile.steps[1]!, pressure: -3.885780586188048e-16 } as ProfileStep] };
+    expect(outOfRange(noisy)).toEqual([]);
+    expect(outOfRange({ ...profile, steps: [profile.steps[0]!, { ...profile.steps[1]!, pressure: -0.001 } as ProfileStep] })).toHaveLength(1);
+    for (const record of recorded.bundled) expect(unrunnable(read(record.profile), "DE1"), record.id).toEqual([]);
+  });
+});
+
 describe("the checks", () => {
   it("find nothing in a plain profile", () => {
     expect(checkProfile(plain())).toEqual({ blocking: [], advice: [] });
@@ -282,6 +326,44 @@ describe("the checks", () => {
     const timed = (seconds: number) => checkProfile({ ...profile, steps: [{ ...profile.steps[0]!, seconds }] }).advice.map((check) => check.code);
     expect(timed(0.04)).toEqual(["exitOnNoLength"]);
     expect(timed(0.05)).toEqual([]);
+  });
+});
+
+describe("the checks by model", () => {
+  const profile = plain();
+  const withFlow = (flow: number): Profile => ({ ...profile, steps: [{ ...profile.steps[0]!, flow } as ProfileStep, profile.steps[1]!] });
+
+  it("are a DE1's where no model, or only a DE1, is given", () => {
+    const de1 = checkProfile(withFlow(18), { models: ["DE1"] });
+    expect(de1).toEqual(checkProfile(withFlow(18)));
+    expect(de1.blocking).toEqual([{ code: "outOfRange", step: 0, path: "steps.0.flow", message: 'Step 1, "fill": its flow is 18, outside 0 to 15.' }]);
+    expect(checkProfile(withFlow(18), { models: [] })).toEqual(de1);
+  });
+
+  it("hold a profile to the widest of the models' ranges, advising of a value one of them can't run, naming it", () => {
+    const checks = checkProfile(withFlow(18), { models: ["Bengle", "DE1"] });
+    expect(checks.blocking).toEqual([]);
+    expect(checks.advice).toEqual([
+      { code: "pumpTooSlow", step: 0, path: "steps.0.flow", message: "Step 1, \"fill\" asks for 18 ml/s, and a DE1's pump gives about 8 ml/s at most, and a Bengle's heater keeps up with about 15 ml/s at most." },
+      { code: "modelCantRun", step: 0, path: "steps.0.flow", message: 'Step 1, "fill": its flow is 18, which a DE1 can\'t run: a DE1 takes 0 to 15.' },
+    ]);
+    const limited: Profile = { ...profile, steps: [profile.steps[0]!, { ...profile.steps[1]!, limiter: { value: 12, range: 0.6 } }] };
+    expect(checkProfile(limited, { models: ["DE1", "Bengle"] }).advice).toEqual([
+      { code: "modelCantRun", step: 1, path: "steps.1.limiter.value", message: 'Step 2, "pour": its limit is 12, which a DE1 can\'t run: a DE1 takes 0 to 8.' },
+    ]);
+    expect(checkProfile(withFlow(22), { models: ["DE1", "Bengle"] }).blocking).toEqual([
+      { code: "outOfRange", step: 0, path: "steps.0.flow", message: 'Step 1, "fill": its flow is 22, outside 0 to 20.' },
+    ]);
+  });
+
+  it("advise of a flow above what each model keeps up with: a DE1's pump's 8 ml/s and a Bengle's heater's 15", () => {
+    expect(checkProfile(withFlow(10), { models: ["Bengle"] }).advice).toEqual([]);
+    expect(checkProfile(withFlow(16), { models: ["Bengle"] }).advice).toEqual([
+      { code: "pumpTooSlow", step: 0, path: "steps.0.flow", message: "Step 1, \"fill\" asks for 16 ml/s, and a Bengle's heater keeps up with about 15 ml/s at most." },
+    ]);
+    expect(checkProfile(withFlow(10), { models: ["DE1", "Bengle"] }).advice.map((check) => check.message)).toEqual([
+      "Step 1, \"fill\" asks for 10 ml/s, and a DE1's pump gives about 8 ml/s at most.",
+    ]);
   });
 });
 

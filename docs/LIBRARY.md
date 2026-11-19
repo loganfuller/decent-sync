@@ -156,6 +156,45 @@ never deleted, so their Shots still find it (Writing to tablets, below);
 but a Basket or Tool it does not show is removed from DYE2's list, which
 can hide nothing (Taking in a tablet's baskets and tools, below).
 
+### A Profile reaches only the Machines that can run it
+
+A DE1 and a Bengle run a profile's numbers in different ranges
+(`MODEL_LIMITS` in `protocol/src/profile.ts`, #588): a DE1 takes a step's
+target, exit and limiter in sixteenths up to 15.9, and a value above wraps to
+another (20 ml/s runs as 4), so its ranges are Streamline's; a Bengle's are
+the same, but its flow targets, flow limits and flow exits go to 20 ml/s, its
+pump's rating. A value is judged as authored, never as either model's
+resolution would send it, and nothing rounds or holds a Profile's values.
+A Machine's model is its bound hardware's (`machineModelOf`): a DE1 for any
+other name, and for a Machine not yet bound. So a Profile reaches only the
+Machines that can run it (`server/src/library/profile-reach.ts`):
+
+- Showing it at a Location where any Machine can't run it, capture-only ones
+  too, is refused (409), naming the Location, those Machines, their model
+  and the values, through the REST API, the MCP endpoint and a Conflict's
+  value alike (`refuseUnrunnableAt`); hiding it never is. So is creating,
+  copying or editing a Recipe there to name it (`setUses` in
+  `recipe-edits.service.ts`), shown there already or not, since a Recipe
+  shows its Profile at its Location, which may have gained such a Machine
+  since; an edit that leaves the Recipe's Profile as it is is not. A
+  tablet's own Profiles join the Library as before (ADR-0018).
+- The server writes no Profile to a Machine whose model can't run it, nor a
+  Recipe's record carrying it (its `profileSnapshot`, and the Workflow DYE2
+  derives), nor a Loaded Recipe's Profile into its Workflow, as when such a
+  Machine moved to a Location that shows it (`markUnrunnable`, as
+  `changesDue` plans each tablet's writes). Each such write is marked with
+  why (`notWritten`), and the tablet's writer records it as refused rather
+  than writing it, so its Machine's sharing status lists it (Sharing status,
+  below). A Profile's record the tablet holds visible already, or an edit of
+  a Recipe's record that leaves its Profile alone, is written as before.
+
+Advice in a Profile's checks (`checkProfile`) follows the models the account
+has Machines of (`accountModels`): a value is held to the widest of their
+ranges, as a Draft is, and a value one of them can't run, or a flow one of
+them can't keep up with (a DE1's pump about 8 ml/s, a 250 V/15 A Bengle's
+heater about 15), is advice naming that model. An account with DE1s only
+sees a DE1's ranges, as before.
+
 ## Storage
 
 `server/src/library/`, in PostgreSQL:
@@ -2048,8 +2087,9 @@ mismatched connection's that reported its hardware:
   has yet to send names. A write the writer skips for another reason is
   kept the same way, with no status and why, so nothing waits unexplained:
   one answered with a record that is not the item's or that the server
-  cannot store, and one still due as it was once written, which writing
-  again would not change. A write the plugin does not answer within 300 s
+  cannot store, one still due as it was once written, which writing
+  again would not change, and one carrying a profile its Machine's model
+  can't run (A Profile reaches only the Machines that can run it, above). A write the plugin does not answer within 300 s
   is skipped too, but not kept, and counts as waiting. One is forgotten
   once a change of the same item or record is carried out there, and as
   the tablet's writer finds it no longer due (`pruneRefusals`), as when the
@@ -2413,7 +2453,7 @@ fit.
 `simulate_profile` tool (`server/src/mcp/simulation.tools.ts`) simulate a
 Library Profile through `ProfileSimulationService`
 (`server/src/library/profile-simulation.service.ts`), with its checks
-(`checkProfile`). Anyone who reads Profiles may, a Viewer too. The tool
+(`checkProfile`), against the models the account has Machines of. Anyone who reads Profiles may, a Viewer too. The tool
 answers within the size budget (ADR-0028): the headline figures, each
 step's end and why, never cut, the checks and the fit, and the run's curves
 thinned as a Shot's are.
@@ -2609,9 +2649,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `PUT /api/profiles/:id/locations/:locationId`, with `{ shown }`, shows the
   Profile at the Location or hides it there; `PUT /api/profiles/:id/archived`,
   with `{ archived }`, Archives or restores it. Each returns `{ profile }`;
-  400 without a boolean, 404 for no such Profile or Location, and 403 for
-  Staff showing or hiding one at a Location they do not work at. They
-  Archive and restore any.
+  400 without a boolean, 404 for no such Profile or Location, 403 for
+  Staff showing or hiding one at a Location they do not work at, and 409
+  for showing one where a Machine can't run it, naming them and the values.
+  They Archive and restore any.
 - `DELETE /api/beans/:id`, `DELETE /api/bean-batches/:id`, `DELETE
   /api/grinders/:id`, `DELETE /api/profiles/:id`, `DELETE /api/baskets/:id`,
   `DELETE /api/tools/:id` and `DELETE /api/recipes/:id` hard-delete one, a
@@ -2690,7 +2731,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   its steam and hot water modes, a value DYE2 would not save, as a steam,
   hot water or flush setting out of its editor's range, an item the Library does not have, or
   `toolAttributes` naming a Tool the Recipe does not use; 409 for another
-  Location's Grinder, an Archived item, putting an Archived Recipe in a
+  Location's Grinder, an Archived item, a Profile a Machine at the Location
+  can't run (and so for such a copy), putting an Archived Recipe in a
   slot, moving one to `next` with no slot free, or a Recipe whose Location
   no longer exists; 404 for no such Recipe
   or Location; 403 for Staff at a Location they do not work at.

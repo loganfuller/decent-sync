@@ -52,7 +52,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/settings-fields.ts`: each settings field the management interface shows or edits, with its validation.
 - `src/settings-history.ts`: how a Settings History compares values and folds changes.
 - `src/machine-states.ts`: naming a Machine State.
-- `src/profile.ts`: a profile as Decaid reads and writes one, its limits and checks, and Decaid's id for it; `src/sha256.ts` the hash that id is of.
+- `src/profile.ts`: a profile as Decaid reads and writes one, its ranges by Machine model and checks, and Decaid's id for it; `src/sha256.ts` the hash that id is of.
 - `src/simulation.ts`: the simulation of a profile on a puck, the standard one or a Shot's, and how close it comes to a Shot.
 - `src/machine-models.ts`: the models a profile runs on, a DE1 or a Bengle, and each one's figures.
 - `src/record-samples.ts`, `src/steam-phases.ts`: samples and phases of Shots and Steam Records.
@@ -76,7 +76,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/locations/`: Locations and their time zones.
 - `src/machines/`: machine entries, tokens, identity, Pending Machines, Location History, tablets, crediting.
 - `src/sync/`: the plugin's WebSocket gateway at `/sync`, identity resolution and each connection's writes.
-- `src/library/`: the Library: taking in tablets' reports, edits, Conflicts, Recipes, joining and writes due.
+- `src/library/`: the Library: taking in tablets' reports, edits, Conflicts, Recipes, joining, writes due, and which Machines a Profile reaches by their model (`profile-reach.ts`).
 - `src/shots/`, `src/steam-records/`: capture, extraction, Shot Summaries, spec judgements, edits and reads.
 - `src/machine-events/`: Workflow and machine state events, Loaded Recipes, dial-in trail and Machine use.
 - `src/collections/`: collections, paired devices and Settings History.

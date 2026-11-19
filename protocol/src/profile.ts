@@ -7,7 +7,7 @@
 //
 // Pure: no Node or browser API, as the plugin bundles this package.
 
-import { MODEL_FIGURES } from "./machine-models.js";
+import { MACHINE_MODELS, MODEL_FIGURES, type MachineModel } from "./machine-models.js";
 import { sha256Hex } from "./sha256.js";
 
 /** Decaid's drink kinds (`BeverageType`); it reads any other as espresso. */
@@ -413,8 +413,7 @@ export interface Range {
 }
 
 /**
- * The ranges the server holds a profile's numbers to, Streamline's
- * (`FIELD_LIMITS` and `EXIT_MAX_MAP` in
+ * A DE1's ranges, Streamline's (`FIELD_LIMITS` and `EXIT_MAX_MAP` in
  * streamline-js:src/modules/profile-field-limits.js, v0.2.27), as the spec
  * lists them (#574). Decaid checks none of them, and the machine's wire
  * format holds less than a double: a step's time goes as one byte, in
@@ -424,7 +423,7 @@ export interface Range {
  * v0.9.2). A step's target and exit are ranged by the quantity, its limiter
  * by the quantity it caps.
  */
-export const PROFILE_LIMITS = {
+const DE1_LIMITS = {
   pressure: { min: 0, max: 12 },
   flow: { min: 0, max: 15 },
   temperature: { min: 0, max: 105 },
@@ -443,11 +442,55 @@ export const PROFILE_LIMITS = {
   targetVolume: { min: 0, max: 500 },
 } as const satisfies Record<string, Range>;
 
+/** The ranges a model runs a profile's numbers in, one for each kind of number. */
+export type ProfileLimits = { readonly [Name in keyof typeof DE1_LIMITS]: Range };
+
+/**
+ * The ranges each model runs a profile's numbers in (#588). A DE1 takes a
+ * step's target, exit and limiter in sixteenths, up to 15.9, and a value
+ * above wraps to another (20 ml/s runs as 4); a Bengle takes them in
+ * tenths, up to 25.5 (`_writeSteps` in
+ * decaid:lib/src/models/device/impl/de1/unified_de1/unified_de1.profile.dart,
+ * v0.9.2). A Bengle's ranges are a DE1's, but its flow targets, flow limits
+ * and flow exits go to 20 ml/s, its pump's rating; pressure stays 0 to 12
+ * bar on both.
+ */
+export const MODEL_LIMITS: Readonly<Record<MachineModel, ProfileLimits>> = {
+  DE1: DE1_LIMITS,
+  Bengle: { ...DE1_LIMITS, flow: { min: 0, max: 20 }, flowLimit: { min: 0, max: 20 }, flowExit: { min: 0, max: 20 } },
+};
+
+/** A DE1's ranges (MODEL_LIMITS), which hold where no model is named, as for what the machine is sent of any model, such as a step's time. */
+export const PROFILE_LIMITS: ProfileLimits = DE1_LIMITS;
+
+/**
+ * The widest of the models' ranges: for each kind of number, the lowest
+ * minimum and the highest maximum among them, as a Draft is held to those of
+ * the models the account has Machines of (#588); a DE1's for none.
+ */
+export function widestLimits(models: readonly MachineModel[]): ProfileLimits {
+  const each = models.length === 0 ? [MODEL_LIMITS.DE1] : models.map((model) => MODEL_LIMITS[model]);
+  const names = Object.keys(DE1_LIMITS) as (keyof ProfileLimits)[];
+  return Object.fromEntries(
+    names.map((name) => [name, { min: Math.min(...each.map((limits) => limits[name].min)), max: Math.max(...each.map((limits) => limits[name].max)) }]),
+  ) as unknown as ProfileLimits;
+}
+
+/**
+ * How far past a range's end a value may lie and still be in it: rounding
+ * noise, as the -4e-16 bar a bundled cleaning profile holds for 0, which
+ * the machine is sent as 0. Nothing coarser, as a value is judged as
+ * authored, not as a model's resolution would send it.
+ */
+const RANGE_SLACK = 1e-9;
+
+/** Whether the value is in the range, but for rounding noise (RANGE_SLACK). */
+function inRange(value: number, range: Range): boolean {
+  return value >= range.min - RANGE_SLACK && value <= range.max + RANGE_SLACK;
+}
+
 /** The most steps a profile may have, as Streamline's editor allows. */
 export const MAX_PROFILE_STEPS = 20;
-
-/** About the most flow a DE1's pump gives, ml/s, as the simulation's DE1 has it; a Bengle's gives more. */
-export const PUMP_MAX_FLOW = MODEL_FIGURES.DE1.maxFlow;
 
 /** A profile's field, named by its path in Decaid's JSON (`steps.2.limiter.value`), and the step it is of, by index, or null for the profile's own. */
 export interface ProfileField {
@@ -461,42 +504,63 @@ export interface HeldValue extends ProfileField {
   to: number;
 }
 
-/** Each number of a profile with its range: [step index or null, path, value, range]. */
-function rangedNumbers(profile: Profile): Array<[number | null, string, number, Range]> {
+/** Each number of a profile with its range among the limits: [step index or null, path, value, range]. */
+function rangedNumbers(profile: Profile, limits: ProfileLimits): Array<[number | null, string, number, Range]> {
   const numbers: Array<[number | null, string, number, Range]> = [];
   profile.steps.forEach((step, index) => {
     const at = `steps.${index}`;
-    numbers.push([index, `${at}.${step.pump}`, stepTarget(step), PROFILE_LIMITS[step.pump]]);
-    numbers.push([index, `${at}.temperature`, step.temperature, PROFILE_LIMITS.temperature]);
-    numbers.push([index, `${at}.seconds`, step.seconds, PROFILE_LIMITS.seconds]);
-    numbers.push([index, `${at}.volume`, step.volume, PROFILE_LIMITS.volume]);
-    if (step.weight !== null) numbers.push([index, `${at}.weight`, step.weight, PROFILE_LIMITS.weight]);
-    if (step.exit) numbers.push([index, `${at}.exit.value`, step.exit.value, step.exit.type === "pressure" ? PROFILE_LIMITS.pressureExit : PROFILE_LIMITS.flowExit]);
+    numbers.push([index, `${at}.${step.pump}`, stepTarget(step), limits[step.pump]]);
+    numbers.push([index, `${at}.temperature`, step.temperature, limits.temperature]);
+    numbers.push([index, `${at}.seconds`, step.seconds, limits.seconds]);
+    numbers.push([index, `${at}.volume`, step.volume, limits.volume]);
+    if (step.weight !== null) numbers.push([index, `${at}.weight`, step.weight, limits.weight]);
+    if (step.exit) numbers.push([index, `${at}.exit.value`, step.exit.value, step.exit.type === "pressure" ? limits.pressureExit : limits.flowExit]);
     if (step.limiter) {
-      numbers.push([index, `${at}.limiter.value`, step.limiter.value, step.pump === "pressure" ? PROFILE_LIMITS.flowLimit : PROFILE_LIMITS.pressureLimit]);
-      numbers.push([index, `${at}.limiter.range`, step.limiter.range, PROFILE_LIMITS.limiterRange]);
+      numbers.push([index, `${at}.limiter.value`, step.limiter.value, step.pump === "pressure" ? limits.flowLimit : limits.pressureLimit]);
+      numbers.push([index, `${at}.limiter.range`, step.limiter.range, limits.limiterRange]);
     }
   });
-  numbers.push([null, "tank_temperature", profile.tank_temperature, PROFILE_LIMITS.tankTemperature]);
-  if (profile.target_weight !== null) numbers.push([null, "target_weight", profile.target_weight, PROFILE_LIMITS.targetWeight]);
-  if (profile.target_volume !== null) numbers.push([null, "target_volume", profile.target_volume, PROFILE_LIMITS.targetVolume]);
+  numbers.push([null, "tank_temperature", profile.tank_temperature, limits.tankTemperature]);
+  if (profile.target_weight !== null) numbers.push([null, "target_weight", profile.target_weight, limits.targetWeight]);
+  if (profile.target_volume !== null) numbers.push([null, "target_volume", profile.target_volume, limits.targetVolume]);
   return numbers;
 }
 
-/** Each of a profile's numbers outside its range. */
-export function outOfRange(profile: Profile): HeldValue[] {
-  return rangedNumbers(profile)
-    .filter(([, , value, range]) => value < range.min || value > range.max)
-    .map(([step, path, value, range]) => ({ step, path, from: value, to: Math.min(range.max, Math.max(range.min, value)) }));
+/** A value outside its range: what it is, the nearest end of its range, and the range. */
+export interface ValueOutOfRange extends HeldValue {
+  range: Range;
+}
+
+/** Each of a profile's numbers outside its range among the limits, a DE1's where none are given, with its range. */
+export function outOfRange(profile: Profile, limits: ProfileLimits = PROFILE_LIMITS): ValueOutOfRange[] {
+  return rangedNumbers(profile, limits)
+    .filter(([, , value, range]) => !inRange(value, range))
+    .map(([step, path, value, range]) => ({ step, path, from: value, to: Math.min(range.max, Math.max(range.min, value)), range }));
 }
 
 /**
- * A profile with each number held to the nearest end of its range, and what
- * was held, so an imported profile's changes can be reported. Its steps are
- * never cut: more than MAX_PROFILE_STEPS is a check that stops publishing.
+ * Each of a profile's numbers a Machine of the model can't run, as outside
+ * its ranges (MODEL_LIMITS): none for a profile it runs. A Location where a
+ * Machine can't run a Profile doesn't show it, and the server writes it to
+ * no such Machine (#588).
  */
-export function holdToLimits(profile: Profile): { profile: Profile; held: HeldValue[] } {
-  const held = outOfRange(profile);
+export function unrunnable(profile: Profile, model: MachineModel): ValueOutOfRange[] {
+  return outOfRange(profile, MODEL_LIMITS[model]);
+}
+
+/** A value outside its range, in words for a person: "Step 2, "Pour": its flow is 18, outside 0 to 15". */
+export function outOfRangeText(profile: Profile, value: ValueOutOfRange): string {
+  return `${fieldLabel(profile, value)} is ${value.from}, outside ${value.range.min} to ${value.range.max}`;
+}
+
+/**
+ * A profile with each number held to the nearest end of its range among the
+ * limits, a DE1's where none are given, and what was held, so an imported
+ * profile's changes can be reported. Its steps are never cut: more than
+ * MAX_PROFILE_STEPS is a check that stops publishing.
+ */
+export function holdToLimits(profile: Profile, limits: ProfileLimits = PROFILE_LIMITS): { profile: Profile; held: HeldValue[] } {
+  const held = outOfRange(profile, limits).map(({ step, path, from, to }) => ({ step, path, from, to }));
   if (held.length === 0) return { profile, held };
   const copy = copied(profile) as Profile;
   for (const { path, to } of held) setPath(copy, path, to);
@@ -530,7 +594,8 @@ export type ProfileCheckCode =
   | "titleInUse"
   | "weightNeedsScale"
   | "exitOnNoLength"
-  | "pumpTooSlow";
+  | "pumpTooSlow"
+  | "modelCantRun";
 
 export interface ProfileCheck {
   code: ProfileCheckCode;
@@ -554,6 +619,13 @@ export interface ProfileCheckContext {
   libraryProfiles?: ReadonlyArray<{ id: string; title: string }>;
   /** The titles of the Profiles shown where this one would be, for a separate Profile, which may share none of them. */
   titlesInUse?: readonly string[];
+  /**
+   * The models of the Machines the profile is for: for a Draft, those the
+   * account has Machines of (#588). It is held to the widest of their ranges
+   * (`widestLimits`), and advised of a value one of them can't run, and of a
+   * flow one of them can't keep up with. A DE1 where none is given.
+   */
+  models?: readonly MachineModel[];
 }
 
 /** A step named for a person: its number from 1 and its name, if it has one. */
@@ -578,6 +650,12 @@ const FIELD_NAMES: Record<string, string> = {
   target_volume: "Stop-at volume",
 };
 
+/** What keeps up with a model's flow, and how much, ml/s (`MODEL_FIGURES.maxFlow`), in words for a person. */
+const KEEPS_UP: Readonly<Record<MachineModel, string>> = {
+  DE1: `a DE1's pump gives about ${MODEL_FIGURES.DE1.maxFlow} ml/s at most`,
+  Bengle: `a Bengle's heater keeps up with about ${MODEL_FIGURES.Bengle.maxFlow} ml/s at most`,
+};
+
 function fieldLabel(profile: Profile, field: ProfileField): string {
   if (field.step === null) return FIELD_NAMES[field.path] ?? field.path;
   const name = FIELD_NAMES[field.path.replace(/^steps\.\d+\./, "")] ?? field.path;
@@ -599,14 +677,9 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
   profile.steps.forEach((step, index) => {
     if (step.name.trim() === "") blocking.push({ code: "stepNoName", step: index, path: `steps.${index}.name`, message: `${stepLabel(profile, index)} has no name.` });
   });
-  for (const held of outOfRange(profile)) {
-    const range = rangedNumbers(profile).find(([, path]) => path === held.path)![3];
-    blocking.push({
-      code: "outOfRange",
-      step: held.step,
-      path: held.path,
-      message: `${fieldLabel(profile, held)} is ${held.from}, outside ${range.min} to ${range.max}.`,
-    });
+  const models: readonly MachineModel[] = context.models === undefined || context.models.length === 0 ? ["DE1"] : MACHINE_MODELS.filter((model) => context.models!.includes(model));
+  for (const value of outOfRange(profile, widestLimits(models))) {
+    blocking.push({ code: "outOfRange", step: value.step, path: value.path, message: `${outOfRangeText(profile, value)}.` });
   }
   if (context.libraryProfiles && profile.steps.length > 0) {
     const id = profileId(profile);
@@ -625,9 +698,26 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
     // Decaid sends a step's time in tenths of a second, rounded, so one under 0.05 s runs as none (`convert_float_to_F8_1_7`).
     if (step.seconds < 0.05 && step.exit !== null)
       advice.push({ code: "exitOnNoLength", step: index, path: `steps.${index}.exit`, message: `${label} has no length, so the machine leaves it at once and its exit never applies.` });
-    if (step.pump === "flow" && step.flow > PUMP_MAX_FLOW)
-      advice.push({ code: "pumpTooSlow", step: index, path: `steps.${index}.flow`, message: `${label} asks for ${step.flow} ml/s, and a DE1's pump gives about ${PUMP_MAX_FLOW} ml/s at most.` });
+    const slower = step.pump === "flow" ? models.filter((model) => step.flow > MODEL_FIGURES[model].maxFlow) : [];
+    if (step.pump === "flow" && slower.length > 0)
+      advice.push({ code: "pumpTooSlow", step: index, path: `steps.${index}.flow`, message: `${label} asks for ${step.flow} ml/s, and ${slower.map((model) => KEEPS_UP[model]).join(", and ")}.` });
   });
+  // A value in the widest range that one of the models can't run, as it would wrap to another there, naming each such model.
+  const cantRun = new Map<string, { value: ValueOutOfRange; by: { model: MachineModel; range: Range }[] }>();
+  const widest = new Set(outOfRange(profile, widestLimits(models)).map((value) => value.path));
+  for (const model of models) {
+    for (const value of unrunnable(profile, model)) {
+      if (widest.has(value.path)) continue;
+      const found = cantRun.get(value.path) ?? { value, by: [] };
+      found.by.push({ model, range: value.range });
+      cantRun.set(value.path, found);
+    }
+  }
+  for (const { value, by } of cantRun.values()) {
+    const names = by.map(({ model }) => `a ${model}`).join(" or ");
+    const ranges = by.map(({ model, range }) => `a ${model} takes ${range.min} to ${range.max}`).join(", and ");
+    advice.push({ code: "modelCantRun", step: value.step, path: value.path, message: `${fieldLabel(profile, value)} is ${value.from}, which ${names} can't run: ${ranges}.` });
+  }
   return { blocking, advice };
 }
 

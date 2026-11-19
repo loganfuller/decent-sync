@@ -53,7 +53,7 @@ export interface ProfileSimulation {
   /** The weight it stops at, g, or null where it runs until its last step ends. */
   stopAt: number | null;
   run: SimulatedRun;
-  /** The Profile's checks (`checkProfile`): what would stop it being published, and advice. */
+  /** The Profile's checks (`checkProfile`): what would stop it being published, and advice, held to the widest ranges of the models the account has Machines of (#588). */
   checks: ProfileChecks;
   /**
    * On a Shot's puck, the Shot's own steps run on it, stopped as it stopped,
@@ -88,7 +88,7 @@ export class ProfileSimulationService {
     if (!profile) throw new ConflictException(`Profile ${profileId}'s profile can't be read as Decaid reads one, so it can't be simulated`);
     if (profile.steps.length > MAX_PROFILE_STEPS) throw new ConflictException(`Profile ${profileId} has ${profile.steps.length} steps, more than the ${MAX_PROFILE_STEPS} a machine takes, so it can't be simulated`);
     const stopAt = ask.stopAt ?? (profile.target_weight !== null && profile.target_weight > 0 ? profile.target_weight : null);
-    const checks = checkProfile(profile);
+    const checks = checkProfile(profile, { models: await this.profiles.accountModels() });
     const of = { id: item.id, title: item.title };
     const model = ask.model ?? item.machineModel;
     if (ask.shotId === null) {

@@ -156,6 +156,12 @@ export interface PlannedWrite {
    * its answer shows. Null if none was.
    */
   contentDecidedAt: Date | null;
+  /**
+   * Why the server writes it to no tablet of this Machine, as it carries a
+   * profile the Machine's model can't run (`markUnrunnable`, #588): its
+   * writer records it as refused, with this, rather than writing it.
+   */
+  notWritten?: string;
 }
 
 /**

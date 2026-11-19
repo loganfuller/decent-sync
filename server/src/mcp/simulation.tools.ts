@@ -82,7 +82,7 @@ const simulateOutput = z.object({
       blocking: z.array(z.object({ code: z.string(), step: z.number().nullable(), path: z.string().optional(), message: z.string() })),
       advice: z.array(z.object({ code: z.string(), step: z.number().nullable(), path: z.string().optional(), message: z.string() })),
     })
-    .describe("The Profile's checks: blocking, what would stop it being published, and advice, what the machine accepts but may not be meant, each naming its step by index, or null for the whole Profile."),
+    .describe("The Profile's checks, against the widest ranges of the models the account has Machines of: blocking, what would stop it being published, and advice, what the machine accepts but may not be meant, as a value one of those models can't run (modelCantRun) or a flow it can't keep up with (pumpTooSlow), each naming its step by index, or null for the whole Profile."),
   fit: z
     .object({ shot: figures.describe("The Shot's own, as recorded."), simulated: figures.describe("Its own steps', run on its puck, stopped at the weight it reached, or run out where it ran its steps out with no scale.") })
     .nullable()
