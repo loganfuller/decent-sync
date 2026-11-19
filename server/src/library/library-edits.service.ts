@@ -19,8 +19,9 @@ import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLo
 // hiding Profiles at Locations, and Archiving and restoring them (ticket
 // #88); and showing and hiding Baskets and Tools at Locations (ticket #138),
 // and creating, editing, Archiving and restoring them (ticket #139).
-// A Profile is never created or edited here: Decaid computes its id from
-// what the machine executes, so Profiles join the Library from tablets.
+// A Profile's title, author and notes are edited here too (#576), outside
+// the id Decaid computes from what the machine executes, so it stays the
+// same Profile; a bundled Profile's are Decaid's, which it refuses to change.
 // Each is an edit by the account, timed by PostgreSQL's clock (ADR-0016), made over the
 // item as it stands, as using a Conflict's value is (ADR-0020): it decides
 // every field it sets whatever the times of the edits before it, and keeps
@@ -35,7 +36,7 @@ import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLo
 // to an item Archived at once, and two of one name are never created at once.
 //
 // Staff edit the Library's shared content anywhere (a Bean's, a batch's
-// details, a Basket's and a Tool's) and Archive and restore items, but add
+// details, a Basket's, a Tool's and a Profile's title, author and notes) and Archive and restore items, but add
 // and finish batches, set their remaining weight, create and edit Grinders,
 // create Baskets and Tools, and show and hide Profiles, Baskets and Tools
 // only at their own Locations, as a Grinder belongs to one.
@@ -308,6 +309,34 @@ export class LibraryEditsService {
   }
 
   /**
+   * Edits a Profile's title, author and notes, anywhere, as a Bean's content
+   * is edited: merged per field (ADR-0020), and written to every tablet that
+   * holds it as a tablet's edit of them is. 409 for one of Decaid's bundled
+   * Profiles, whose title, author and notes Decaid refuses to change, and
+   * for a title another Profile the Library has, Archived ones too, as
+   * tablets keep their records hidden, compared as Streamline compares
+   * titles (`sameTitle`): Streamline finds the tablet's record of the
+   * Workflow's profile, and of the profile it loads at wake, by its title,
+   * so would take either for the other. Judged under PROFILE_TITLE_LOCK,
+   * taken after the Profile's row lock, so two edits never both take a
+   * title.
+   */
+  async editProfile(id: string, values: Record<string, unknown>, editor: Editor): Promise<void> {
+    await this.editShared({ kind: "profile", id }, values, editor, null, async (content, row, tx) => {
+      if (row.bundled) throw new ConflictException(BUNDLED_PROFILE_TEXT);
+      const title = values.title;
+      // A title kept as it is, as an assistant may send with other fields, takes nothing from another Profile.
+      if (typeof title === "string" && !(typeof content.title === "string" && sameTitle(content.title, title))) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_TITLE_LOCK}::bigint)`;
+        const others = await tx.$queryRaw<{ title: string | null }[]>`SELECT content -> 'profile' ->> 'title' AS title FROM profiles WHERE id <> ${id}`;
+        const other = others.find((profile) => profile.title !== null && sameTitle(profile.title, title));
+        if (other) throw new ConflictException(`A Profile in the Library is titled "${other.title}" already`);
+      }
+      return values;
+    });
+  }
+
+  /**
    * Archives a Profile, so it is shown nowhere and hidden on every tablet
    * that holds it, or restores it, shown again where it is shown: anywhere,
    * Staff too. Only the management interface Archives a Profile (ADR-0019).
@@ -331,14 +360,14 @@ export class LibraryEditsService {
    * Location's for a Grinder, whose Archived state changes only under it.
    * With a scope, Staff edit a Grinder only at its own Location. With
    * `over`, the edit is what it returns for the item's content as it stands,
-   * read under that lock, or is refused as it throws.
+   * and its row, read under that lock, or is refused as it throws.
    */
   private async editShared(
     item: ItemRef,
     values: Record<string, unknown>,
     editor: Editor,
     scope: Scope | null,
-    over?: (content: Record<string, unknown>) => Record<string, unknown>,
+    over?: (content: Record<string, unknown>, row: ItemRow, tx: Prisma.TransactionClient) => Record<string, unknown> | Promise<Record<string, unknown>>,
   ): Promise<void> {
     const description = KINDS[item.kind];
     await this.prisma.$transaction(async (tx) => {
@@ -351,8 +380,8 @@ export class LibraryEditsService {
         if (owned.locationId !== null) await lockLocation(tx, owned.locationId);
       }
       await lockItems(tx, item.kind, [item.id]);
-      await found(tx, item.kind, item.id);
-      const edit = over ? over(await contentOf(tx, item)) : values;
+      const row = await found(tx, item.kind, item.id);
+      const edit = over ? await over(description.values(row.content), row, tx) : values;
       const edited = await editContent(tx, item, { values: edit, at: await editTime(tx), seenAt: "everything" }, accountSource(editor));
       if (edited.writesDue) await notify(tx, "library_changes", item.id);
     }, INTAKE_TRANSACTION);
@@ -391,19 +420,33 @@ function notFound(kind: LibraryKind): NotFoundException {
   return new NotFoundException(`No such ${KINDS[kind].name}`);
 }
 
-/** The item's content as edits merge it (`values` in kinds.ts), read under its row lock. */
-async function contentOf(tx: Prisma.TransactionClient, item: ItemRef): Promise<Record<string, unknown>> {
-  const description = KINDS[item.kind];
-  const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
-  return typeof row?.content === "object" && row.content !== null && !Array.isArray(row.content) ? description.values(row.content as Record<string, unknown>) : {};
+/** What an edit of an item reads of its row: its content, and whether it is one of Decaid's bundled Profiles, false for any other kind. */
+interface ItemRow {
+  content: Record<string, unknown>;
+  bundled: boolean;
 }
 
-/** 404 unless the Library has the item. */
-async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string): Promise<void> {
+/** The item's row, read under its row lock where the caller holds it; 404 unless the Library has the item. */
+async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string): Promise<ItemRow> {
   const description = KINDS[kind];
-  const [row] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, id)}`;
+  const bundled = kind === "profile" ? Prisma.sql`bundled` : Prisma.sql`false`;
+  const [row] = await tx.$queryRaw<{ content: unknown; bundled: boolean }[]>`
+    SELECT content, ${bundled} AS bundled FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, id)}`;
   if (!row) throw notFound(kind);
+  const content = typeof row.content === "object" && row.content !== null && !Array.isArray(row.content) ? (row.content as Record<string, unknown>) : {};
+  return { content, bundled: row.bundled };
 }
+
+/** Taken by an edit of a Profile's title, so two edits never both take the same title (`editProfile`). */
+const PROFILE_TITLE_LOCK = 4_000_011;
+
+/** Whether two Profile titles are one to Streamline, which finds a profile by its title trimmed and lower-cased (`resolveProfileKeyByTitle` in streamline-js:src/modules/active-profile.js, v0.2.27). */
+function sameTitle(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** Why a bundled Profile's title, author and notes are not edited. */
+export const BUNDLED_PROFILE_TEXT = "Decaid's bundled Profiles keep the title, author and notes Decaid gives them";
 
 export function staffElsewhere(what: string): ForbiddenException {
   return new ForbiddenException(`Staff ${what} only at the Locations they work at`);

@@ -9,6 +9,7 @@ import {
   recipeSlotOf,
   sameValue,
   writtenRecipeSlot,
+  profileOf,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { batchRetiredSql } from "./kinds.js";
@@ -117,7 +118,7 @@ async function writeContext(tx: Prisma.TransactionClient, ids: TabletIds, conten
     grinderModels: await names("grinders", "model", named("grinderId")),
     basketNames: await names("baskets", "name", named("basketId")),
     toolNames: await names("tools", "name", tools),
-    profiles: new Map(profiles.flatMap((row) => (isObject(row.profile) ? [[row.id, row.profile]] : []))),
+    profiles: new Map(profiles.flatMap((row) => { const profile = profileOf(row.profile); return profile ? [[row.id, profile] as const] : []; })),
   };
 }
 
@@ -202,8 +203,9 @@ async function intakeContext(
 
 /** The Library Profile a record's `profileSnapshot` is, as DYE2 saves a profile read from the Workflow without its id; null for none. */
 async function snapshotProfile(tx: Prisma.TransactionClient, view: RecipeView): Promise<string | null> {
-  if ((typeof view.profileId === "string" && view.profileId !== "") || !isObject(view.profileSnapshot)) return null;
-  const [row] = await tx.$queryRaw<{ id: string | null }[]>`SELECT ${profileOfSql(Prisma.sql`${JSON.stringify(view.profileSnapshot)}::jsonb`)} AS id`;
+  const snapshot = profileOf(view.profileSnapshot);
+  if ((typeof view.profileId === "string" && view.profileId !== "") || snapshot === null) return null;
+  const [row] = await tx.$queryRaw<{ id: string | null }[]>`SELECT ${profileOfSql(Prisma.sql`${JSON.stringify(snapshot)}::jsonb`)} AS id`;
   return row?.id ?? null;
 }
 

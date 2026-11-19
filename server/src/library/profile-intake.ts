@@ -1,4 +1,4 @@
-import { isRecordId } from "@decent-sync/protocol";
+import { isRecordId, profileTextOf } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { changedFields } from "./merge.js";
 
@@ -93,13 +93,14 @@ export type ProfileIntakeStep =
    */
   | { kind: "delete"; profileId: string; updatedAt: Date | null; shown: false };
 
-/** The fields of a Profile's `profile` that are its content's edits: outside its id (ADR-0006). */
-const PROFILE_TEXT = ["title", "author", "notes"] as const;
-
-/** A Profile's title, author and notes, from its record or its content: each null where it has none. */
+/**
+ * A Profile's title, author and notes, from its record or its content: the
+ * fields of its `profile` that are its content's edits, outside its id
+ * (ADR-0006), each read as Decaid reads it (`profileTextOf`), empty where it
+ * has none, as Decaid holds none.
+ */
 export function profileText(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const profile = isObject(record.profile) ? record.profile : {};
-  return Object.fromEntries(PROFILE_TEXT.map((field) => [field, profile[field] ?? null]));
+  return { ...profileTextOf(record.profile) };
 }
 
 /**

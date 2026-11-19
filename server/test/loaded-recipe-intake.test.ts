@@ -1,4 +1,4 @@
-import { RECIPE_SETTING_NAMES, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { type Profile, RECIPE_SETTING_NAMES, profileAtBrewTemperature, readProfile } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import {
   BEAN_TAKEN,
@@ -21,6 +21,18 @@ import {
 } from "../src/library/loaded-recipe-intake.js";
 import type { FieldEdits } from "../src/library/merge.js";
 import { withoutOwnEdits } from "../src/library/recipe-intake.js";
+
+/** A profile as Decaid reads one, titled so, of steps named so, each a flow step of 8 s at 92 °C but where given. */
+function profileOf(title: string, steps: Array<{ name: string; temperature?: number; pump?: "flow" | "pressure" }>): Profile {
+  const read = readProfile({
+    title,
+    tank_temperature: 0,
+    target_volume_count_start: 0,
+    steps: steps.map(({ name, temperature = 92, pump = "flow" }) => ({ name, pump, transition: "fast", exit: null, volume: 0, seconds: 8, temperature, sensor: "coffee", [pump]: 6, limiter: null })),
+  });
+  if (!read.profile) throw new Error(read.problem);
+  return read.profile;
+}
 
 // How the parts of a Workflow that follow its Loaded Recipe map to the
 // Recipe's content, both ways (ADR-0022, tickets #146, #173, #216, #550 and #570):
@@ -329,7 +341,7 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
     [`grinder:${OTHER_GRINDER}`]: "g2",
   };
   const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
-  const CLASSIC = { title: "Classic Italian espresso", steps: [{ name: "pour" }] };
+  const CLASSIC = profileOf("Classic Italian espresso", [{ name: "pour" }]);
   const names = { profile: CLASSIC, grinderModel: "EK43", basketName: "18g", coffeeName: "Ethiopia", coffeeRoaster: "Fixture Roasters" };
 
   it("is its Grinder, with its model, and its Profile whole, expecting nothing of the Profile, at the Recipe's brew temperature, or its first step's", () => {
@@ -452,7 +464,7 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
 describe("The dial written into a Workflow", () => {
   const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950, feedRate: "SF", basket: "k2" };
   /** The Library's `profile:classic`, as the write carries it. */
-  const classic = { title: "Classic", tank_temperature: 0, steps: [{ name: "fill", temperature: 92, pump: "flow" }, { name: "pour", temperature: 90, pump: "pressure" }] };
+  const classic = profileOf("Classic", [{ name: "fill", temperature: 92, pump: "flow" }, { name: "pour", temperature: 90, pump: "pressure" }]);
   const current = {
     profileId: "profile:classic",
     beanBatchId: "b2",
@@ -493,7 +505,7 @@ describe("The dial written into a Workflow", () => {
     const renamed = { ...classic, title: "Classic, renamed" };
     expect(heldByRecord(target, current, renamed)).toEqual({ ...target, profile: undefined });
     // The record holds it in another key order, as Decaid and jsonb differ, or only as its snapshot, which DYE2 reads where it embeds none.
-    const reordered = { steps: classic.steps.map(({ pump, temperature, name }) => ({ pump, temperature, name })), tank_temperature: 0, title: "Classic" };
+    const reordered = Object.fromEntries(Object.entries({ ...classic, steps: classic.steps.map((step) => Object.fromEntries(Object.entries(step).reverse())) }).reverse());
     expect(heldByRecord(target, { ...current, workflow: { profile: reordered } }, classic)).toEqual(target);
     expect(heldByRecord(target, { ...current, workflow: { context: {} } }, classic)).toEqual(target);
     expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: renamed }, classic)).toEqual({ ...target, profile: undefined });

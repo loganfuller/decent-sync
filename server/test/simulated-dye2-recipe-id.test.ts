@@ -1,4 +1,4 @@
-import { dye2Fingerprint } from "@decent-sync/protocol";
+import { dye2Fingerprint, profileOf } from "@decent-sync/protocol";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { DecaidAnswer } from "./support/decaid-beans.js";
 import {
@@ -1129,7 +1129,7 @@ describe("The simulated DYE2's fingerprint", () => {
       for (const [key, fingerprint] of Object.entries(entry.fingerprints)) {
         // decentespresso/dye2#43 (`026054e`): the same fingerprint, its keys sorted at every level.
         expect(dye2ProfileFingerprint(entry[key]), `${entry.name} ${key}`).toBe(fingerprint === null ? null : JSON.stringify(JSON.parse(fingerprint), sorted));
-        expect(dye2Fingerprint(entry[key]), `${entry.name} ${key}`).toBe(dye2ProfileFingerprint(entry[key]));
+        expect(dye2Fingerprint(profileOf(entry[key])), `${entry.name} ${key}`).toBe(dye2ProfileFingerprint(entry[key]));
       }
       expect([entry.recordMatchesWorkflow, entry.recordMatchesWorkflowUpdated]).toEqual([true, true]);
     }
@@ -1141,7 +1141,7 @@ describe("The simulated DYE2's fingerprint", () => {
     const workflow = steps.reapplyEdited!.after.find(({ request }) => request.path === "/workflow")!.response.body as Record_;
     expect(Object.keys((record.steps as Record_[])[0]!)).not.toEqual(Object.keys(((workflow.profile as Record_).steps as Record_[])[0]!));
     expect(dye2ProfileFingerprint(record)).toBe(dye2ProfileFingerprint(workflow.profile));
-    expect(dye2Fingerprint(record)).toBe(dye2Fingerprint(workflow.profile));
+    expect(dye2Fingerprint(profileOf(record))).toBe(dye2Fingerprint(profileOf(workflow.profile)));
   });
 });
 

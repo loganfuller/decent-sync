@@ -9,6 +9,7 @@ import {
   type WrittenKind,
   beanMatchKey,
   equipmentMatchKey,
+  profileTextOf,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -195,8 +196,8 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   recordValues(record: Record<string, unknown>): Record<string, unknown>;
   /** Columns kept from its content, set as an edit changes it, such as a Bean's roaster and name as Beans are matched; empty for none. */
   keptColumns(content: Record<string, unknown>): Prisma.Sql;
-  /** What the management interface may set of its content; null where it never sets it, as a Profile's comes from tablets. */
-  editable: EditableContent | null;
+  /** What the management interface may set of its content, as a Profile's title, author and notes, but none of its steps, which only publishing a Draft changes (ADR-0032). */
+  editable: EditableContent;
   /** Its columns on a Shot, for a kind a Shot names by its id on the tablet that pulled it (shots/links.ts): that id, and the item it links to. */
   shotLink?: { local: string; link: string };
   /** Its part of what a Location offers and a tablet holds (tablet-due.ts). */
@@ -284,6 +285,18 @@ const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
   rpmMin: "anyNumber",
   rpmMax: "anyNumber",
   rpmDefault: "anyNumber",
+};
+
+/**
+ * What the management interface sets of a Profile (ADR-0032): its title,
+ * author and notes, outside its id, so it stays the same Profile. Decaid
+ * refuses a profile with no title, so it is never cleared, and holds none of
+ * an author or notes as empty, so clearing either keeps it so.
+ */
+const PROFILE_FIELDS: Readonly<Record<string, FieldType>> = {
+  title: "name",
+  author: "decaidText",
+  notes: "decaidText",
 };
 
 /** A Basket's fields, as DYE2's baskets page saves them. */
@@ -583,7 +596,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     values: (content) => profileText(content),
     recordValues: (record) => profileText(record),
     keptColumns: () => Prisma.empty,
-    editable: null,
+    editable: { fields: PROFILE_FIELDS, defaults: {} },
     holdings: {
       key: "profiles",
       // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
@@ -665,7 +678,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     read: async (db, ids) =>
       versionedRows(
         await db.$queryRaw<ItemRow[]>`SELECT id, content, field_edits AS "fieldEdits" FROM profiles WHERE id = ANY(${[...ids]}::text[])`,
-        (row) => ({ name: text(fields(fields(row.content).profile).title), values: profileText(fields(row.content)) }),
+        (row) => ({ name: profileTextOf(fields(row.content).profile).title || null, values: profileText(fields(row.content)) }),
       ),
     itemNames: (db, ids) => namesOf(KINDS.profile, db, ids),
     takeIn: (tx, tablet, value, updatedAt) => takeInProfiles(tx, tablet, value, updatedAt),

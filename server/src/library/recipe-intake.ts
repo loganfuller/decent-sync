@@ -12,6 +12,8 @@ import {
   isZero,
   noneAtZero,
   profileAtBrewTemperature,
+  profileOf,
+  type Profile,
   recipeSlotOf,
   sameValue,
   steamTimeOf,
@@ -515,8 +517,8 @@ export interface WriteContext {
   basketNames: ReadonlyMap<string, string | null>;
   /** Each Tool's name. */
   toolNames: ReadonlyMap<string, string | null>;
-  /** Each Profile's `profile`, as Decaid keeps it, by Decaid's id; absent for one the Library does not have. */
-  profiles: ReadonlyMap<string, Record<string, unknown>>;
+  /** Each Profile's `profile`, as Decaid reads it, by Decaid's id; absent for one the Library does not have, or whose profile Decaid would not read. */
+  profiles: ReadonlyMap<string, Profile>;
 }
 
 /**
@@ -571,7 +573,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     beanBatchId: local("beanBatch", id("beanBatchId")),
     beanRoaster: named(context.beanRoasters, beanId),
     profileId,
-    profileTitle: profile && typeof profile.title === "string" ? profile.title : null,
+    profileTitle: profile?.title ?? null,
     profileSnapshot: profile ?? null,
     [RECIPE_SHOWN_FIELD]: slot !== null,
     [RECIPE_SLOT_FIELD]: slot,
@@ -604,11 +606,8 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
 }
 
 /** A profile's first step's temperature, or null for none. */
-function firstStepTemperature(profile: unknown): number | null {
-  const steps = isObject(profile) && Array.isArray(profile.steps) ? profile.steps : [];
-  const first: unknown = steps[0];
-  const temperature = isObject(first) ? first.temperature : undefined;
-  return typeof temperature === "number" && Number.isFinite(temperature) ? temperature : null;
+function firstStepTemperature(profile: Profile | undefined): number | null {
+  return profile?.steps[0]?.temperature ?? null;
 }
 
 /**
@@ -658,10 +657,10 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
   context.drinkerName = view.drinker || null;
   const workflow: Record<string, unknown> = { context };
   if (view.profileId || view.profileTitle) {
-    const snapshot = view.profileSnapshot;
+    const snapshot = profileOf(view.profileSnapshot);
     const brewTemperature = at("brewC");
-    const shifted = isObject(snapshot) && typeof brewTemperature === "number" ? profileAtBrewTemperature(snapshot, brewTemperature) : null;
-    if (isObject(snapshot) && Array.isArray(snapshot.steps) && snapshot.steps.length > 0) workflow.profile = shifted ?? snapshot;
+    const shifted = snapshot !== null && typeof brewTemperature === "number" ? profileAtBrewTemperature(snapshot, brewTemperature) : null;
+    if (snapshot !== null && snapshot.steps.length > 0) workflow.profile = shifted ?? snapshot;
   }
   const settings = RECIPE_SETTING_NAMES.flatMap((setting) => (present(at(RECIPE_SETTINGS[setting].dye2)) ? [[RECIPE_SETTINGS[setting].workflow, at(RECIPE_SETTINGS[setting].dye2)]] : []));
   return { ...workflow, ...workflowPatch(Object.fromEntries(settings)) };

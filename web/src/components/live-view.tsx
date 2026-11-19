@@ -1,6 +1,6 @@
 import { type ReactNode, memo, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { machineStateOf } from "@decent-sync/protocol";
+import { type Profile, machineStateOf } from "@decent-sync/protocol";
 import { Curves } from "@/components/curves";
 import { InfoTip } from "@/components/info-tip";
 import { describeMachineState, formatTime, machineModel } from "@/components/machines";
@@ -48,7 +48,7 @@ const REOPEN_MS = 5_000;
  * machine frame for more than 5 s are dimmed, but for a Machine that said it
  * was asleep (`liveConditionOf`).
  */
-export function LiveViewCard({ machine, askedAt, profile }: { machine: Machine; askedAt: number; profile?: unknown }) {
+export function LiveViewCard({ machine, askedAt, profile = null }: { machine: Machine; askedAt: number; profile?: Profile | null }) {
   const { live, curves, openedAt } = useLiveView(machine.id, machine.tablet?.id ?? null, askedAt);
   const now = useTimeAfter(staleAtOf(live, openedAt));
   const offlineAt = machine.online ? null : askedAt;
@@ -249,7 +249,7 @@ const LiveCurvesSection = memo(function LiveCurvesSection({
   machineId: string;
   curve: LiveCurve;
   settled: boolean;
-  profile?: unknown;
+  profile: Profile | null;
   lastShotId: string | null;
 }) {
   const live = useMemo(() => liveSamples(curve, profile), [curve, profile]);
@@ -398,7 +398,7 @@ const SHOT_STATES = new Set(["espresso", "skipStep"]);
  * reports the model Bengle, but may have another scale, whose battery is
  * hidden too.
  */
-function LiveTiles({ live, profile, integratedScale }: { live: LiveState; profile?: unknown; integratedScale: boolean }) {
+function LiveTiles({ live, profile, integratedScale }: { live: LiveState; profile: Profile | null; integratedScale: boolean }) {
   const snapshot = live.machine?.snapshot ?? {};
   const named = machineStateOf(snapshot);
   const value = (key: string) => reported(snapshot, key);
@@ -406,8 +406,7 @@ function LiveTiles({ live, profile, integratedScale }: { live: LiveState; profil
   const pulling = named !== null && SHOT_STATES.has(named.state);
   // Before its first step a shot's frame is left over from before it, as the Shot page's curves read it.
   const preheat = pulling && named.substate === "preparingForShot";
-  const steps = (profile as { steps?: unknown } | null | undefined)?.steps;
-  const step = pulling && !preheat ? profileStep(snapshot.profileFrame, Array.isArray(steps) ? steps : []) : null;
+  const step = pulling && !preheat ? profileStep(snapshot.profileFrame, profile?.steps ?? []) : null;
   const stepText = preheat ? "Preheat" : step?.name;
   // A Bengle's milk probe, while it reports.
   const milkTemperature = milkTemperatureOf(live.milkProbe, live.machine?.snapshot);

@@ -1,4 +1,4 @@
-import { SHOT_CURVES, type Sample, type ShotCurve, shotSamples } from "@decent-sync/protocol";
+import { SHOT_CURVES, type Sample, type ShotCurve, profileOf, shotSamples } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { MAX_RESPONSE_CHARS, withinBudget } from "../src/mcp/budget.js";
 import { MAX_CURVE_POINTS, askedCurves, curvesOf, withCurves } from "../src/mcp/curves.js";
@@ -17,7 +17,7 @@ const hundredths = (value: number) => Math.round(value * 100) / 100 || 0;
 
 /** A real Shot with a Preheat: 168 samples, the first 43 of them, 7.36 s, its Preheat (de1pro-v0.9.0/shot-preheat.json). */
 const fixture = preheatShotFixture();
-const profile = (fixture.workflow as { profile: unknown }).profile;
+const profile = profileOf((fixture.workflow as { profile: unknown }).profile);
 const samples = shotSamples(fixture.measurements, profile);
 /** Derived: its samples repeated, in order and with their recorded times, past 1.25 MiB, as a long tea shot's are. */
 const long = shotSamples(withRepeatedSamples(fixture, "long").measurements, profile);

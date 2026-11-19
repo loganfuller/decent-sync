@@ -1,4 +1,4 @@
-import { flowAtStop, poured, timeToFirstDrip } from "@decent-sync/protocol";
+import { flowAtStop, poured, profileOf, timeToFirstDrip } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import tapInNormal from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record.json" with { type: "json" };
 import timedStop from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record-timed-stop.json" with { type: "json" };
@@ -209,7 +209,7 @@ describe("secondTicks", () => {
 });
 
 describe("a Shot's Profile steps", () => {
-  const profile = preheatShot.workflow.profile;
+  const profile = profileOf(preheatShot.workflow.profile)!;
 
   it("names each sample's step after Preheat by its profileFrame, and none in Preheat", () => {
     const samples = shotSamples(measurements, profile);

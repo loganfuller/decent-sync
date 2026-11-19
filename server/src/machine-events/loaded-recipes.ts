@@ -6,9 +6,11 @@ import {
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
   type WorkflowDelivery,
+  type Profile,
   dye2Fingerprint,
   dye2RecipeIdOf,
   steamOff,
+  profileOf,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
@@ -354,7 +356,7 @@ async function coffeeHeld(tx: Prisma.TransactionClient, content: Readonly<Record
 async function profileChanged(tx: Prisma.TransactionClient, machineId: string, workflow: unknown): Promise<boolean> {
   const rows = await tx.$queryRaw<{ workflow: unknown }[]>`
     SELECT workflow FROM workflow_events WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 2`;
-  const profile = (value: unknown) => dye2Fingerprint(isObject(value) ? value.profile : undefined);
+  const profile = (value: unknown) => dye2Fingerprint(profileOf(isObject(value) ? value.profile : undefined));
   const previous = rows.length === 2 ? rows[1]!.workflow : undefined;
   return previous !== undefined && profile(previous) !== profile(workflow);
 }
@@ -370,7 +372,7 @@ async function recordHoldsProfile(tx: Prisma.TransactionClient, tabletId: string
   const [row] = await tx.$queryRaw<{ record: unknown }[]>`
     SELECT record FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND recipe_id = ${recipeId}::uuid`;
   const held = recordProfile(isObject(row?.record) ? row.record : null);
-  return isObject(held) && isObject(workflow) && dye2Fingerprint(held) === dye2Fingerprint(workflow.profile);
+  return held !== null && isObject(workflow) && dye2Fingerprint(held) === dye2Fingerprint(profileOf(workflow.profile));
 }
 
 /**
@@ -424,8 +426,8 @@ async function recordFromWorkflow(
 
 /** The Library Profile a Workflow's profile is, found as a Shot's is (`profileOfSql`), or null. */
 async function libraryProfileOf(tx: Prisma.TransactionClient, workflow: unknown): Promise<string | null> {
-  const profile = isObject(workflow) ? workflow.profile : undefined;
-  if (!isObject(profile)) return null;
+  const profile = profileOf(isObject(workflow) ? workflow.profile : undefined);
+  if (profile === null) return null;
   const [row] = await tx.$queryRaw<{ id: string | null }[]>`SELECT ${profileOfSql(Prisma.sql`${JSON.stringify(profile)}::jsonb`)} AS id`;
   return row?.id ?? null;
 }
@@ -442,8 +444,9 @@ async function targetParts(tx: Prisma.TransactionClient, tabletId: string, recip
   const local = await tabletLocals(tx, tabletId);
   const [record] = await tx.$queryRaw<{ record: Record<string, unknown> }[]>`
     SELECT record FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND recipe_id = ${recipeId}::uuid`;
-  const [profile] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT content -> 'profile' AS profile FROM profiles WHERE id = ${String(content.profileId ?? "")}`;
-  return heldByRecord(recipeParts(content, (kind, itemId) => local.local(kind, itemId), firstStepTemperature(profile?.profile)), record?.record ?? null, profile?.profile ?? null);
+  const [row] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT content -> 'profile' AS profile FROM profiles WHERE id = ${String(content.profileId ?? "")}`;
+  const profile = profileOf(row?.profile);
+  return heldByRecord(recipeParts(content, (kind, itemId) => local.local(kind, itemId), firstStepTemperature(profile)), record?.record ?? null, profile);
 }
 
 /**
@@ -508,7 +511,7 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
     LEFT JOIN beans AS bean ON bean.id::text = COALESCE(batch.bean_id::text, lower(${String(content.beanId ?? "")}))`;
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
   const due = partsWrite(dueParts(target, known.held, known.base, recipeBean(content)), known.held, {
-    profile: isObject(names?.profile) ? names.profile : null,
+    profile: profileOf(names?.profile),
     grinderModel: text(names?.grinderModel),
     basketName: text(names?.basketName),
     coffeeName: text(names?.coffeeName),
@@ -519,11 +522,8 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
 }
 
 /** A profile's first step's temperature, as a Recipe without a brew temperature of its own is brewed at; null for none. */
-function firstStepTemperature(profile: unknown): number | null {
-  const steps = isObject(profile) && Array.isArray(profile.steps) ? profile.steps : [];
-  const first: unknown = steps[0];
-  const temperature = isObject(first) ? first.temperature : undefined;
-  return typeof temperature === "number" && Number.isFinite(temperature) ? temperature : null;
+function firstStepTemperature(profile: Profile | null): number | null {
+  return profile?.steps[0]?.temperature ?? null;
 }
 
 /**

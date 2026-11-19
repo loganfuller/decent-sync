@@ -5,6 +5,7 @@ import {
   RECIPE_SETTING_NAMES,
   dye2Fingerprint,
   dye2RecipeIdOf,
+  profileOf,
   dye2Records,
   type PluginWorkflowWrite,
   sameValue,
@@ -330,9 +331,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     }
     if (!changed || globalId === null || !this.sharing()) return;
     if (previous !== undefined && movedBeanOrProfile(previous, workflow)) this.readSoon();
-    if (previous !== undefined && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
+    if (previous !== undefined && dye2Fingerprint(profileOf(previous.profile)) !== dye2Fingerprint(profileOf(workflow.profile))) return;
     if (turnedOn !== null) this.steamBackOn = { globalId, load: this.loads, turnedOn };
-    this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
+    this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(profileOf(workflow.profile)) });
   }
 
   /** Whether the Machine shares and DYE2 is there, so the plugin writes into the Workflow and saves into its recipes. */
@@ -374,7 +375,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? undefined : this.records?.get(recordId)?.globalId;
         // Judged again once Decaid answered, as a recipe applied while its answer was on its way is decided on meanwhile.
-        if (recordId === null || named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
+        if (recordId === null || named !== save.globalId || dye2Fingerprint(profileOf(workflow.profile)) !== save.fingerprint || !current()) return;
         if (!(await this.steamBackOnFirst(workflow, recordId, save, steamBackOn)) || !current()) return;
         if ((await recordIntoRecipe()) === "saved") await this.reportRecipes();
         this.failing = false;
@@ -522,7 +523,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     const workflow = this.latest;
     if (pending === null || workflow === undefined || this.stopped || pending.globalId !== this.loaded || pending.load !== this.loads) return;
     if (!this.sharing() || this.shot.running()) return;
-    this.saveSoon({ globalId: pending.globalId, load: pending.load, fingerprint: dye2Fingerprint(workflow.profile) });
+    this.saveSoon({ globalId: pending.globalId, load: pending.load, fingerprint: dye2Fingerprint(profileOf(workflow.profile)) });
   }
 
   /** Logs a failure once until a later step succeeds. */
@@ -638,11 +639,15 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * of that Profile does.
    */
   private async loadContext(record: Record<string, unknown>): Promise<LoadContext> {
-    const steps = (profile: unknown) => (isObject(profile) && Array.isArray(profile.steps) ? profile : null);
-    const embedded = steps(isObject(record.workflow) ? record.workflow.profile : null) ?? steps(record.profileSnapshot);
+    // A profile with steps, as Decaid reads it: a stub of a profile's id and title would merge into the Workflow's and rename its steps.
+    const full = (profile: unknown) => {
+      const read = profileOf(profile);
+      return read !== null && read.steps.length > 0 ? read : null;
+    };
+    const embedded = full(isObject(record.workflow) ? record.workflow.profile : null) ?? full(record.profileSnapshot);
     if (embedded !== null) return { profile: embedded };
     const stored = typeof record.profileId === "string" && record.profileId !== "" ? await this.readRecord(`/profiles/${encodeURIComponent(record.profileId)}`) : null;
-    return { profile: isObject(stored) ? steps(stored.profile) : null };
+    return { profile: isObject(stored) ? full(stored.profile) : null };
   }
 }
 
@@ -705,7 +710,7 @@ const PART_FIELDS: readonly string[] = Object.values(LOADED_RECIPE_PARTS).flat()
  */
 function changedBesides(before: Record<string, unknown>, after: Record<string, unknown>, written: ReadonlySet<string>): boolean {
   const set = (field: string) => [...written].some((path) => field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`));
-  if (!set("profile") && dye2Fingerprint(before.profile) !== dye2Fingerprint(after.profile)) return true;
+  if (!set("profile") && dye2Fingerprint(profileOf(before.profile)) !== dye2Fingerprint(profileOf(after.profile))) return true;
   return PART_FIELDS.some((field) => field !== "profile" && !set(field) && !sameValue(workflowValueAt(before, field), workflowValueAt(after, field)));
 }
 

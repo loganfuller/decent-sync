@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, globalIdOf, profileId, readProfile } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -145,7 +145,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     machine = await api.createMachine("Uptown bar", uptown.id);
     tablet = tablets.syncing(machine, other, { api: emptyLibrary("41190") });
     await api.waitForOnline(machine);
-    const profile = String((await tablet.addProfile(derivedProfile("Uptown Bloom", 8.25))).id);
+    const profile = String((await tablet.addProfile(derivedProfile("Uptown Bloom", 8.125))).id);
     await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(profile)}`)).status).toBe(200);
     const send = async (path: string, body: Record_) => Object.values(await api.send<Record<string, { id: string }>>("POST", path, body, 201))[0]!.id;
     uptownItems = {
@@ -211,6 +211,20 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     // The assistant reads its history as the REST API gives it.
     const { history } = await assistant.call<{ history: { entries: unknown[] } }>("get_library_item", { kind: "beanBatch", id: batch, history: true });
     expect(comparable(history.entries)).toEqual(comparable(batchVersions));
+  });
+
+  it("edits a Profile's title, author and notes, keeping its id and steps, as the Admin's through the Connected App, and on Uptown's tablet (#576)", async () => {
+    const id = uptownItems.profile;
+    const heldProfile = () => tablet.profiles().find((record) => record.id === id)?.profile as Record_ | undefined;
+    const steps = heldProfile()!.steps;
+    const edited = await assistant.call<{ profile: Record_ }>("edit_profile", { id, title: "Uptown Bloom v2", author: null, notes: "Bloom longer." });
+    expect(comparable(edited.profile)).toEqual(comparable(await restItem("profile", id)));
+    expect(edited.profile).toMatchObject({ id, title: "Uptown Bloom v2", author: null, profile: { title: "Uptown Bloom v2", author: "", notes: "Bloom longer.", steps } });
+    // What it executes given as it is, not rounded as other numbers are (its pressure is 8.125): it hashes to its id.
+    expect(profileId(readProfile(edited.profile.profile).profile!)).toBe(id);
+    await expect.poll(() => heldProfile()).toMatchObject({ title: "Uptown Bloom v2", author: "", notes: "Bloom longer.", steps });
+    const [latest] = await versions("profile", id);
+    expect(latest).toMatchObject({ fields: { title: "Uptown Bloom v2", author: "", notes: "Bloom longer." }, source: throughApp });
   });
 
   it("Archives and restores an item of each kind, as the REST API does, each recorded as through the Connected App, and Uptown's tablet follows", async () => {
@@ -293,6 +307,12 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     );
     const nowhere = randomUUID();
     expect(await toolError(assistant, "edit_bean", { id: nowhere, notes: "x" })).toBe(await restRefusal(api, "PATCH", `/beans/${nowhere}`, { content: { notes: "x" } }, 404));
+    // A Profile's title cleared, and a Profile the Library doesn't have.
+    const profilePath = `/profiles/${encodeURIComponent(uptownItems.profile)}`;
+    expect(await toolError(assistant, "edit_profile", { id: uptownItems.profile, title: "" })).toBe(await restRefusal(api, "PATCH", profilePath, { content: { title: "" } }, 400));
+    expect(await toolError(assistant, "edit_profile", { id: "profile:00000000000000000000", notes: "x" })).toBe(
+      await restRefusal(api, "PATCH", "/profiles/profile%3A00000000000000000000", { content: { notes: "x" } }, 404),
+    );
     expect(await toolError(assistant, "set_archived", { kind: "recipe", id: "not-an-id", archived: true })).toBe(
       await restRefusal(api, "PUT", "/recipes/not-an-id/archived", { archived: true }, 404),
     );
@@ -348,8 +368,9 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
 
   it("lets Staff change what the REST API lets them, the Library's shared content anywhere but what Locations offer only at their own, refused as it refuses them", async () => {
     const sam = await person("sam-411@example.com", "staff", [harbor]);
-    // A Bean's details and Archived state anywhere.
+    // A Bean's details and Archived state anywhere, and a Profile's title, author and notes.
     await sam.assistant.call("edit_bean", { id: made.bean, producer: "Gatomboya" });
+    expect((await sam.assistant.call<{ profile: { profile: Record_ } }>("edit_profile", { id: uptownItems.profile, notes: "Sam's notes" })).profile.profile).toMatchObject({ notes: "Sam's notes" });
     await sam.assistant.call("set_archived", { kind: "bean", id: made.bean, archived: true });
     await sam.assistant.call("set_archived", { kind: "bean", id: made.bean, archived: false });
     // What Harbor offers, but not Uptown.
@@ -390,6 +411,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     const calls = (name: string): [string, Record_][] => [
       ["create_bean", { roaster: "Roux", name }],
       ["edit_bean", { id: made.bean, notes: `${name} notes` }],
+      ["edit_profile", { id: uptownItems.profile, notes: `${name} notes` }],
       ["create_bean_batch", { beanId: made.bean, locations: [{ locationId: uptown.id }] }],
       ["edit_bean_batch", { id: made.batch, notes: `${name} notes` }],
       ["set_archived", { kind: "bean", id: made.bean, archived: true }],

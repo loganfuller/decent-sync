@@ -174,8 +174,8 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Created at")).toHaveText("Profile lab");
   await expect(field(library, "Saved from")).toHaveText("Lab Bloom");
+  await expect(field(page.getByLabel("Title, author and notes", { exact: true }), "Author")).toHaveText("Decent Sync fixtures");
   const profile = page.getByLabel("Profile", { exact: true });
-  await expect(field(profile, "Author")).toHaveText("Decent Sync fixtures");
   await expect(field(profile, "Target weight")).toHaveText("36 g");
   await expect(field(profile, "Target volume")).toHaveText("-");
   await expect(rows(page.getByRole("table", { name: "Steps" }))).toHaveText([

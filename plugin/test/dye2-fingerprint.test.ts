@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { dye2Fingerprint } from "@decent-sync/protocol";
+import { dye2Fingerprint, profileOf } from "@decent-sync/protocol";
 
 // The plugin tells DYE2's change of profile as DYE2 does, by its fingerprint
 // of the Workflow's profile: checked against v0.1.26's `profileFingerprint`,
@@ -55,10 +55,10 @@ describe("dye2Fingerprint", () => {
   it.each(recorded.map((entry) => [entry.name, entry] as const))("is DYE2's own for each profile left by the apply %s, its keys sorted", (_name, entry) => {
     expect(Object.keys(entry.fingerprints)).toEqual(expect.arrayContaining(["workflowUpdated", "workflow", "recipeWorkflowProfile"]));
     for (const [key, fingerprint] of Object.entries(entry.fingerprints)) {
-      expect(dye2Fingerprint(entry[key]), key).toBe(fingerprint === null ? null : sortedText(fingerprint));
+      expect(dye2Fingerprint(profileOf(entry[key])), key).toBe(fingerprint === null ? null : sortedText(fingerprint));
       if (entry[key]) expect(fingerprint, key).toEqual(expect.any(String));
       // Whatever order the profile holds its keys in, at every level.
-      expect(dye2Fingerprint(reversed(entry[key])), key).toBe(dye2Fingerprint(entry[key]));
+      expect(dye2Fingerprint(profileOf(reversed(entry[key]))), key).toBe(dye2Fingerprint(profileOf(entry[key])));
     }
   });
 
@@ -72,7 +72,7 @@ describe("dye2Fingerprint", () => {
     const workflow = copy((steps.reapplyEdited!.after.find(({ request }) => request.path === "/workflow")!.response.body as Record_).profile);
     const firstStep = (profile: Record_) => (profile.steps as Record_[])[0]!;
     expect(Object.keys(firstStep(record))).not.toEqual(Object.keys(firstStep(workflow)));
-    expect(dye2Fingerprint(record)).not.toBeNull();
-    expect(dye2Fingerprint(record)).toBe(dye2Fingerprint(workflow));
+    expect(dye2Fingerprint(profileOf(record))).not.toBeNull();
+    expect(dye2Fingerprint(profileOf(record))).toBe(dye2Fingerprint(profileOf(workflow)));
   });
 });

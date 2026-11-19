@@ -60,7 +60,8 @@ Each server has one owner: a household, or a business with all of its sites.
 
 - **Enter it once.** Beans, Bean Batches, Grinders and Profiles entered on any
   tablet join one Library, and reach the other tablets at that Location. Add
-  and edit beans, batches and grinders from the web too.
+  and edit beans, batches and grinders from the web too, and a Profile's
+  title, author and notes.
 - **Each Location chooses what it offers.** A batch is at the Locations it was
   added to, with its own remaining weight at each. Profiles, Baskets and Tools
   are shown or hidden per Location. Grinders belong to their Location.
@@ -436,7 +437,8 @@ two at once, such as two Machines on the same Recipe side by side, and by
 day or by week, each Location's own, to read a trend, Steam
 Records, and the Library
 with each item's history and Conflicts. It can create
-and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
+and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, edit a
+Profile's title, author and notes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
 Slots, choose their Reference Shots and copy them to other Locations, use or dismiss a Conflict's value, make
 Settings Edits, move Machines between Locations, and rate a Shot or edit its

@@ -599,6 +599,345 @@ var __decentSync = (() => {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
   }
 
+  // ../protocol/src/sha256.ts
+  var K = new Uint32Array([
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ]);
+  function utf8Bytes(text) {
+    const bytes = [];
+    for (let i = 0; i < text.length; i++) {
+      let code = text.charCodeAt(i);
+      if (code >= 55296 && code <= 56319 && i + 1 < text.length) {
+        const next = text.charCodeAt(i + 1);
+        if (next >= 56320 && next <= 57343) {
+          code = 65536 + (code - 55296 << 10) + (next - 56320);
+          i++;
+        }
+      }
+      if (code >= 55296 && code <= 57343) code = 65533;
+      if (code < 128) bytes.push(code);
+      else if (code < 2048) bytes.push(192 | code >> 6, 128 | code & 63);
+      else if (code < 65536) bytes.push(224 | code >> 12, 128 | code >> 6 & 63, 128 | code & 63);
+      else bytes.push(240 | code >> 18, 128 | code >> 12 & 63, 128 | code >> 6 & 63, 128 | code & 63);
+    }
+    return Uint8Array.from(bytes);
+  }
+  function sha256Hex(text) {
+    const message = utf8Bytes(text);
+    const blocks = Math.ceil((message.length + 9) / 64);
+    const padded = new Uint8Array(blocks * 64);
+    padded.set(message);
+    padded[message.length] = 128;
+    const bits = message.length * 8;
+    const view = new DataView(padded.buffer);
+    view.setUint32(padded.length - 8, Math.floor(bits / 4294967296));
+    view.setUint32(padded.length - 4, bits >>> 0);
+    const hash = new Uint32Array([1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225]);
+    const w = new Uint32Array(64);
+    for (let block = 0; block < blocks; block++) {
+      for (let t = 0; t < 16; t++) w[t] = view.getUint32(block * 64 + t * 4);
+      for (let t = 16; t < 64; t++) {
+        const x = w[t - 15];
+        const y = w[t - 2];
+        const s0 = (x >>> 7 | x << 25) ^ (x >>> 18 | x << 14) ^ x >>> 3;
+        const s1 = (y >>> 17 | y << 15) ^ (y >>> 19 | y << 13) ^ y >>> 10;
+        w[t] = w[t - 16] + s0 + w[t - 7] + s1 >>> 0;
+      }
+      let [a, b, c, d, e, f, g, h] = [hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]];
+      for (let t = 0; t < 64; t++) {
+        const S1 = (e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7);
+        const ch = e & f ^ ~e & g;
+        const t1 = h + S1 + ch + K[t] + w[t] >>> 0;
+        const S0 = (a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10);
+        const maj = a & b ^ a & c ^ b & c;
+        const t2 = S0 + maj >>> 0;
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1 >>> 0;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2 >>> 0;
+      }
+      hash[0] = hash[0] + a >>> 0;
+      hash[1] = hash[1] + b >>> 0;
+      hash[2] = hash[2] + c >>> 0;
+      hash[3] = hash[3] + d >>> 0;
+      hash[4] = hash[4] + e >>> 0;
+      hash[5] = hash[5] + f >>> 0;
+      hash[6] = hash[6] + g >>> 0;
+      hash[7] = hash[7] + h >>> 0;
+    }
+    return Array.from(hash, (word) => word.toString(16).padStart(8, "0")).join("");
+  }
+
+  // ../protocol/src/profile.ts
+  var BEVERAGE_TYPES = ["espresso", "pourover", "cleaning", "calibrate", "manual"];
+  var STEP_TRANSITIONS = ["fast", "smooth"];
+  var STEP_SENSORS = ["coffee", "water"];
+  var EXIT_TYPES = ["pressure", "flow"];
+  var EXIT_CONDITIONS = ["over", "under"];
+  function readProfile(value) {
+    if (!isObject(value)) return { problem: "A profile must be an object" };
+    const steps = [];
+    const rawSteps = Array.isArray(value.steps) ? value.steps : [];
+    for (let index = 0; index < rawSteps.length; index++) {
+      const step = readStep(rawSteps[index]);
+      if (typeof step === "string") return { problem: `Step ${index + 1}: ${step}` };
+      steps.push(step);
+    }
+    const targetVolume = readOptionalDouble(value.target_volume);
+    if (targetVolume === void 0) return { problem: "target_volume must be a number" };
+    const targetWeight = readOptionalDouble(value.target_weight);
+    if (targetWeight === void 0) return { problem: "target_weight must be a number" };
+    const countStart = readInt(value.target_volume_count_start ?? 0);
+    if (countStart === void 0) return { problem: "target_volume_count_start must be a whole number" };
+    const tank = readDouble(value.tank_temperature ?? 0);
+    if (tank === void 0) return { problem: "tank_temperature must be a number" };
+    return {
+      profile: {
+        version: readOptionalString(value.version),
+        title: readOptionalString(value.title) ?? "",
+        notes: readOptionalString(value.notes) ?? "",
+        author: readOptionalString(value.author) ?? "",
+        beverage_type: readBeverageType(value.beverage_type),
+        steps,
+        target_volume: targetVolume,
+        target_weight: targetWeight,
+        target_volume_count_start: countStart,
+        tank_temperature: tank
+      }
+    };
+  }
+  function profileOf(value) {
+    return readProfile(value).profile ?? null;
+  }
+  function readStep(value) {
+    if (!isObject(value)) return "must be an object";
+    const pump = value.pump;
+    if (pump !== "pressure" && pump !== "flow") return 'pump must be "pressure" or "flow"';
+    if (typeof value.name !== "string") return "name must be text";
+    const transition = value.transition;
+    if (!isOneOf(STEP_TRANSITIONS, transition)) return 'transition must be "fast" or "smooth"';
+    const sensor = value.sensor;
+    if (!isOneOf(STEP_SENSORS, sensor)) return 'sensor must be "coffee" or "water"';
+    let exit = null;
+    if (value.exit !== null && value.exit !== void 0) {
+      if (!isObject(value.exit)) return "exit must be an object";
+      const { type, condition } = value.exit;
+      if (!isOneOf(EXIT_TYPES, type)) return 'exit.type must be "pressure" or "flow"';
+      if (!isOneOf(EXIT_CONDITIONS, condition)) return 'exit.condition must be "over" or "under"';
+      const exitValue = readDouble(value.exit.value);
+      if (exitValue === void 0) return "exit.value must be a number";
+      exit = { type, condition, value: exitValue };
+    }
+    let limiter = null;
+    if (value.limiter !== null && value.limiter !== void 0) {
+      if (!isObject(value.limiter)) return "limiter must be an object";
+      const limit = readDouble(value.limiter.value);
+      if (limit === void 0) return "limiter.value must be a number";
+      const range = readDouble(value.limiter.range);
+      if (range === void 0) return "limiter.range must be a number";
+      limiter = { value: limit, range };
+    }
+    const numbers = { volume: 0, seconds: 0, temperature: 0, pressure: 0, flow: 0 };
+    for (const field of ["volume", "seconds", "temperature", pump]) {
+      const number = readDouble(value[field]);
+      if (number === void 0) return `${field} must be a number`;
+      numbers[field] = number;
+    }
+    const weight = readOptionalDouble(value.weight);
+    if (weight === void 0) return "weight must be a number";
+    const { volume, seconds, temperature } = numbers;
+    const name = value.name;
+    return pump === "pressure" ? { name, pump, transition, exit, volume, seconds, weight, temperature, sensor, pressure: numbers.pressure, limiter } : { name, pump, transition, exit, volume, seconds, weight, temperature, sensor, flow: numbers.flow, limiter };
+  }
+  function stepTarget(step) {
+    return step.pump === "pressure" ? step.pressure : step.flow;
+  }
+  function profileId(profile) {
+    const data = {
+      version: profile.version,
+      beverage_type: profile.beverage_type,
+      steps: profile.steps.map(stepHashed),
+      tank_temperature: double(profile.tank_temperature),
+      target_weight: optionalDouble(profile.target_weight),
+      target_volume: optionalDouble(profile.target_volume),
+      target_volume_count_start: { int: profile.target_volume_count_start }
+    };
+    return `profile:${sha256Hex(dartJson(data)).slice(0, 20)}`;
+  }
+  function profileStepsKey(profile) {
+    return stableJson({
+      version: profile.version,
+      beverage_type: profile.beverage_type,
+      tank_temperature: profile.tank_temperature,
+      target_volume: profile.target_volume,
+      target_volume_count_start: profile.target_volume_count_start,
+      steps: JSON.parse(stepsKey(profile.steps))
+    });
+  }
+  function stepsKey(steps) {
+    return stableJson(
+      steps.map((step) => {
+        const { temperature: _, ...rest } = step;
+        return rest.limiter !== null && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
+      })
+    );
+  }
+  function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (isObject(value)) return `{${Object.keys(value).sort().map((key2) => `${JSON.stringify(key2)}:${stableJson(value[key2])}`).join(",")}}`;
+    return JSON.stringify(value ?? null);
+  }
+  function double(value) {
+    return { double: value };
+  }
+  function optionalDouble(value) {
+    return value === null ? null : { double: value };
+  }
+  function stepHashed(step) {
+    const hashed = {
+      name: step.name,
+      pump: step.pump,
+      transition: step.transition,
+      exit: step.exit === null ? null : { type: step.exit.type, condition: step.exit.condition, value: double(step.exit.value) },
+      volume: double(step.volume),
+      seconds: double(step.seconds),
+      weight: optionalDouble(step.weight),
+      temperature: double(step.temperature),
+      sensor: step.sensor,
+      limiter: step.limiter === null ? null : { value: double(step.limiter.value), range: double(step.limiter.range) }
+    };
+    hashed[step.pump] = double(stepTarget(step));
+    return hashed;
+  }
+  function dartJson(value) {
+    if (value === null) return "null";
+    if (typeof value === "string") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(dartJson).join(",")}]`;
+    if ("double" in value && typeof value.double === "number") return dartDouble(value.double);
+    if ("int" in value && typeof value.int === "number") return String(Math.trunc(value.int));
+    const object3 = value;
+    return `{${Object.keys(object3).sort().map((key2) => `${JSON.stringify(key2)}:${dartJson(object3[key2])}`).join(",")}}`;
+  }
+  function dartDouble(value) {
+    if (Object.is(value, -0)) return "-0.0";
+    if (Number.isInteger(value) && Math.abs(value) < 1e21) return `${value}.0`;
+    return String(value);
+  }
+  function isObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isOneOf(values, value) {
+    return typeof value === "string" && values.includes(value);
+  }
+  function dartTrim(text) {
+    return text.replace(/^[\s\u0085]+|[\s\u0085]+$/g, "");
+  }
+  var DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+  function decimal(text) {
+    const trimmed = dartTrim(text);
+    if (!DECIMAL.test(trimmed)) return void 0;
+    const number = Number(trimmed);
+    return Number.isFinite(number) ? number : void 0;
+  }
+  function readDouble(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : void 0;
+    return typeof value === "string" ? decimal(value) : void 0;
+  }
+  function readOptionalDouble(value) {
+    if (value === null || value === void 0) return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : void 0;
+    if (typeof value !== "string") return void 0;
+    const number = decimal(value);
+    if (number !== void 0) return number;
+    const trimmed = dartTrim(value);
+    return /^[+-]?(0[xX][0-9a-fA-F]+|NaN|Infinity)$/.test(trimmed) || DECIMAL.test(trimmed) ? void 0 : null;
+  }
+  function readInt(value) {
+    const int = typeof value === "number" ? Number.isFinite(value) ? Math.trunc(value) + 0 : void 0 : typeof value === "string" && /^[+-]?\d+$/.test(dartTrim(value)) ? Number.parseInt(dartTrim(value), 10) + 0 : void 0;
+    return int !== void 0 && Number.isSafeInteger(int) ? int : void 0;
+  }
+  function readOptionalString(value) {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    return null;
+  }
+  function readBeverageType(value) {
+    const name = typeof value === "string" ? value.toLowerCase() : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+    return isOneOf(BEVERAGE_TYPES, name) ? name : "espresso";
+  }
+  var PROFILE_TEXT_FIELDS = ["title", "author", "notes"];
+  function profileTextOf(value) {
+    const profile = isObject(value) ? value : {};
+    return { title: readOptionalString(profile.title) ?? "", author: readOptionalString(profile.author) ?? "", notes: readOptionalString(profile.notes) ?? "" };
+  }
+
   // ../protocol/src/settings-history.ts
   var BRIEF_CHANGE_MS = 2 * 6e4;
 
@@ -691,13 +1030,13 @@ var __decentSync = (() => {
     if (Array.isArray(a) || Array.isArray(b)) {
       return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameValue(value, b[index]));
     }
-    if (!isObject(a) || !isObject(b)) return false;
+    if (!isObject2(a) || !isObject2(b)) return false;
     const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
     return [...keys].every((key2) => sameValue(a[key2], b[key2]));
   }
   function globalIdOf(record3) {
-    const extras = isObject(record3) ? record3.extras : void 0;
-    const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
+    const extras = isObject2(record3) ? record3.extras : void 0;
+    const id = isObject2(extras) ? extras[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
   var WORKFLOW_CAUSES = ["plugin", "other"];
@@ -716,7 +1055,7 @@ var __decentSync = (() => {
     if (!Array.isArray(value)) return null;
     const ids = /* @__PURE__ */ new Set();
     for (const record3 of value) {
-      if (!isObject(record3) || !isRecordId(record3.id) || ids.has(record3.id)) return null;
+      if (!isObject2(record3) || !isRecordId(record3.id) || ids.has(record3.id)) return null;
       ids.add(record3.id);
     }
     return value;
@@ -759,7 +1098,7 @@ var __decentSync = (() => {
     return typeof temperature === "number" && temperature < STEAM_ON_FROM;
   }
   function dye2GlobalIdOf(record3) {
-    const id = isObject(record3) ? record3[GLOBAL_ID_KEY] : void 0;
+    const id = isObject2(record3) ? record3[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
   function equipmentMatchKey(name) {
@@ -819,25 +1158,25 @@ var __decentSync = (() => {
     return typeof id === "string" && id !== "" ? id : null;
   }
   function dye2Fingerprint(profile) {
-    if (!isObject(profile)) return null;
-    const steps = Array.isArray(profile.steps) ? profile.steps.map((step) => {
-      if (!isObject(step)) return step;
+    if (profile === null) return null;
+    const steps = profile.steps.map((step) => {
       const { temperature: _, limiter, ...rest } = step;
-      return { ...rest, limiter: Boolean(limiter) && Number(isObject(limiter) ? limiter.value : void 0) !== 0 ? limiter : null };
-    }) : profile.steps;
+      return { ...rest, limiter: limiter !== null && limiter.value !== 0 ? limiter : null };
+    });
     return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps }, sortedKeys);
   }
   function sortedKeys(_key, value) {
-    return isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key2) => [key2, value[key2]])) : value;
+    return isObject2(value) ? Object.fromEntries(Object.keys(value).sort().map((key2) => [key2, value[key2]])) : value;
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
   function profileAtBrewTemperature(profile, temperature) {
-    if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
-    const steps = profile.steps;
-    const temperatures = shiftedTemperatures(steps.map((step) => isObject(step) ? step.temperature : void 0), temperature);
+    const temperatures = shiftedTemperatures(
+      profile.steps.map((step) => step.temperature),
+      temperature
+    );
     if (temperatures === null) return null;
-    return { ...profile, steps: steps.map((step, index) => isObject(step) ? { ...step, temperature: temperatures[index] } : step) };
+    return { ...profile, steps: profile.steps.map((step, index) => ({ ...step, temperature: temperatures[index] })) };
   }
   function shiftedTemperatures(base, first) {
     const origin = base[0];
@@ -872,7 +1211,7 @@ var __decentSync = (() => {
   var WORKFLOW_YIELD_OFF = 0;
   function workflowValueAt(workflow, path) {
     let value = workflow;
-    for (const name of path.split(".")) value = isObject(value) ? value[name] : Array.isArray(value) && /^\d+$/.test(name) ? value[Number(name)] : void 0;
+    for (const name of path.split(".")) value = isObject2(value) ? value[name] : Array.isArray(value) && /^\d+$/.test(name) ? value[Number(name)] : void 0;
     return value;
   }
   function workflowPatch(fields) {
@@ -881,7 +1220,7 @@ var __decentSync = (() => {
       const names = path.split(".");
       let target = patch;
       for (const name of names.slice(0, -1)) {
-        if (!isObject(target[name])) target[name] = {};
+        if (!isObject2(target[name])) target[name] = {};
         target = target[name];
       }
       target[names[names.length - 1]] = value;
@@ -961,7 +1300,7 @@ var __decentSync = (() => {
   }
   var MAX_SKIN_NOTE_LENGTH = 4e4;
   function shotRatingAndNote(record3) {
-    const annotations = isObject(record3) && isObject(record3.annotations) ? record3.annotations : {};
+    const annotations = isObject2(record3) && isObject2(record3.annotations) ? record3.annotations : {};
     const { enjoyment, espressoNotes } = annotations;
     return {
       rating: typeof enjoyment === "number" && Number.isFinite(enjoyment) ? enjoyment : null,
@@ -1102,7 +1441,7 @@ var __decentSync = (() => {
           fields.integer("timeLeftMs", { nonNegative: true });
           fields.optionalObject("schedule", (schedule) => {
             schedule.oneOf("action", WAKE_SCHEDULE_ACTIONS);
-            if (isObject(object3.schedule) && object3.schedule.action === "add") schedule.absent("id");
+            if (isObject2(object3.schedule) && object3.schedule.action === "add") schedule.absent("id");
             else schedule.string("id", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
           });
         });
@@ -1125,7 +1464,7 @@ var __decentSync = (() => {
           fields.objectField("result");
           if (object3.ask === "shots") {
             fields.optionalObject("result", (page) => {
-              page.array("shots", (shot) => isObject(shot) && typeof shot.id === "string", MAX_SHOTS_PAGE);
+              page.array("shots", (shot) => isObject2(shot) && typeof shot.id === "string", MAX_SHOTS_PAGE);
               page.optionalString("nextCursor");
             });
           }
@@ -1134,7 +1473,7 @@ var __decentSync = (() => {
           if (object3.ask === "status") {
             fields.optionalObject("result", (status) => {
               status.boolean("served");
-              if (isObject(object3.result) && object3.result.served === false) status.oneOf("notServed", NOT_SERVED);
+              if (isObject2(object3.result) && object3.result.served === false) status.oneOf("notServed", NOT_SERVED);
               else status.absent("notServed");
               for (const named of ["machine", "location"]) {
                 status.nullableObject(named, (entry) => {
@@ -1152,7 +1491,7 @@ var __decentSync = (() => {
           fields.nullableObject("copy", (copy) => {
             copy.string("version", { nonEmpty: true, maxLength: MAX_REFERENCE_VERSION_LENGTH });
             copy.optionalBoolean("tooLarge");
-            if (isObject(object3.copy) && object3.copy.tooLarge === true) {
+            if (isObject2(object3.copy) && object3.copy.tooLarge === true) {
               recipeField(copy);
               copy.absent("reference");
             } else referenceFields(copy);
@@ -1254,7 +1593,7 @@ var __decentSync = (() => {
     /** The version of a Reference Shot copy for each of some Recipe Slots, by the slot's number (`ReferencesHeld.held`). */
     versionsBySlot(key2) {
       const value = this.object[key2];
-      const held = isObject(value) ? Object.entries(value) : null;
+      const held = isObject2(value) ? Object.entries(value) : null;
       const valid = ([slot, version]) => /^[1-9]\d*$/.test(slot) && isRecipeSlot(Number(slot)) && typeof version === "string" && version !== "" && version.length <= MAX_REFERENCE_VERSION_LENGTH;
       if (!held?.every(valid)) this.problem(key2, "must be an object of versions by Recipe Slot");
     }
@@ -1263,7 +1602,7 @@ var __decentSync = (() => {
       if (value !== void 0 && typeof value !== "boolean") this.problem(key2, "must be true or false");
     }
     objectField(key2) {
-      if (!isObject(this.object[key2])) this.problem(key2, "must be an object");
+      if (!isObject2(this.object[key2])) this.problem(key2, "must be an object");
     }
     /** Any JSON value but null. */
     present(key2) {
@@ -1301,7 +1640,7 @@ var __decentSync = (() => {
     optionalObject(key2, checkFields) {
       const value = this.object[key2];
       if (value === void 0 || value === null) return;
-      if (!isObject(value)) {
+      if (!isObject2(value)) {
         this.problem(key2, "must be an object or null");
         return;
       }
@@ -1329,11 +1668,11 @@ var __decentSync = (() => {
     } catch {
       return "The frame is not JSON";
     }
-    if (!isObject(value)) return "A message must be a JSON object";
+    if (!isObject2(value)) return "A message must be a JSON object";
     if (typeof value.type !== "string") return "A message must have a string type";
     return value;
   }
-  function isObject(value) {
+  function isObject2(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function isInstant(value) {
@@ -1542,29 +1881,11 @@ var __decentSync = (() => {
 
   // src/loaded-recipe-rules.ts
   function profileKey(profile) {
-    const steps = isObject2(profile) ? stepsKey(profile.steps) : null;
-    if (steps === null || !isObject2(profile)) return null;
-    const hashed = Object.fromEntries(HASHED.map((field) => [field, profile[field] ?? null]));
-    return stableJson({ ...hashed, steps: JSON.parse(steps) });
-  }
-  var HASHED = ["version", "beverage_type", "tank_temperature", "target_volume", "target_volume_count_start"];
-  function stepsKey(steps) {
-    if (!Array.isArray(steps)) return null;
-    return stableJson(
-      steps.map((step) => {
-        if (!isObject2(step)) return step;
-        const { temperature: _, ...rest } = step;
-        return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
-      })
-    );
-  }
-  function stableJson(value) {
-    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-    if (isObject2(value)) return `{${Object.keys(value).sort().map((key2) => `${JSON.stringify(key2)}:${stableJson(value[key2])}`).join(",")}}`;
-    return JSON.stringify(value ?? null);
+    const read = profileOf(profile);
+    return read === null || read.steps.length === 0 ? null : profileStepsKey(read);
   }
   function movedBeanOrProfile(previous, workflow) {
-    if (dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return true;
+    if (dye2Fingerprint(profileOf(previous.profile)) !== dye2Fingerprint(profileOf(workflow.profile))) return true;
     return LOADED_RECIPE_PARTS.batch.some((field) => !sameValue(workflowValueAt(previous, field) ?? null, workflowValueAt(workflow, field) ?? null));
   }
   function clearRecipe() {
@@ -1588,9 +1909,9 @@ var __decentSync = (() => {
     });
   }
   function loadWrite(workflow, record3, load, omit = /* @__PURE__ */ new Set()) {
-    const context = isObject2(workflow.context) ? workflow.context : {};
-    const extras = isObject2(context.extras) ? context.extras : {};
-    const variables = isObject2(record3.dashboardVariables) ? record3.dashboardVariables : {};
+    const context = isObject3(workflow.context) ? workflow.context : {};
+    const extras = isObject3(context.extras) ? context.extras : {};
+    const variables = isObject3(record3.dashboardVariables) ? record3.dashboardVariables : {};
     const contextWrite = {};
     const extrasWrite = {};
     const dose = noneAtZero(numberOf(variables.dose));
@@ -1634,7 +1955,7 @@ var __decentSync = (() => {
     if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
     const write = {};
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
-    const key2 = profileKey(load.profile);
+    const key2 = load.profile === null ? null : profileStepsKey(load.profile);
     if (!omit.has("profile") && key2 !== null && key2 !== profileKey(workflow.profile)) write.profile = load.profile;
     const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
       const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
@@ -1655,7 +1976,7 @@ var __decentSync = (() => {
   }
   function steamBackOnWrite(workflow, record3, turnedOn) {
     if (steamOff(workflow)) return null;
-    const variables = isObject2(record3.dashboardVariables) ? record3.dashboardVariables : {};
+    const variables = isObject3(record3.dashboardVariables) ? record3.dashboardVariables : {};
     const recipes = {
       temperature: numberOf(variables[RECIPE_SETTINGS.steamTemperature.dye2]),
       duration: steamTimeOf(numberOf(variables[RECIPE_SETTINGS.steamDuration.dye2]))
@@ -1689,7 +2010,7 @@ var __decentSync = (() => {
   function sameGrind(a, b) {
     return sameGrindSetting(a, b);
   }
-  function isObject2(value) {
+  function isObject3(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
@@ -1700,14 +2021,14 @@ var __decentSync = (() => {
     const answer = await request("POST", RECORD, {});
     if (answer.status === 404) return "unavailable";
     const value = answer.ok ? parsed(answer.text) : void 0;
-    if (!isObject3(value)) throw new Error(`Decaid answered ${answer.status} asking DYE2 to save into its recipe: ${answer.text.slice(0, 200)}`);
+    if (!isObject4(value)) throw new Error(`Decaid answered ${answer.status} asking DYE2 to save into its recipe: ${answer.text.slice(0, 200)}`);
     return value.saved === true ? "saved" : "unchanged";
   }
   async function readDye2State() {
     const answer = await request("GET", "/plugins");
     const value = answer.ok ? parsed(answer.text) : void 0;
     if (!Array.isArray(value)) throw new Error(`Decaid answered ${answer.status} listing its plugins`);
-    const dye2 = value.find((plugin) => isObject3(plugin) && plugin.id === DYE2_NAMESPACE);
+    const dye2 = value.find((plugin) => isObject4(plugin) && plugin.id === DYE2_NAMESPACE);
     if (!dye2) return "absent";
     if (dye2.loaded === true) return "loaded";
     return dye2.autoLoad === false ? "disabled" : "notLoaded";
@@ -1759,7 +2080,7 @@ var __decentSync = (() => {
       return void 0;
     }
   }
-  function isObject3(value) {
+  function isObject4(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
@@ -1943,7 +2264,7 @@ var __decentSync = (() => {
         const body = clearRecipe();
         const answer = await request("PUT", "/workflow", body);
         const updated = answer.ok ? parsed2(answer.text) : void 0;
-        if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
+        if (!isObject5(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
         answered3(updated, body);
         this.workflowWritten(workflow, updated);
       });
@@ -1986,9 +2307,9 @@ var __decentSync = (() => {
       }
       if (!changed || globalId === null || !this.sharing()) return;
       if (previous !== void 0 && movedBeanOrProfile(previous, workflow)) this.readSoon();
-      if (previous !== void 0 && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
+      if (previous !== void 0 && dye2Fingerprint(profileOf(previous.profile)) !== dye2Fingerprint(profileOf(workflow.profile))) return;
       if (turnedOn !== null) this.steamBackOn = { globalId, load: this.loads, turnedOn };
-      this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
+      this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(profileOf(workflow.profile)) });
     }
     /** Whether the Machine shares and DYE2 is there, so the plugin writes into the Workflow and saves into its recipes. */
     sharing() {
@@ -2024,7 +2345,7 @@ var __decentSync = (() => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? void 0 : this.records?.get(recordId)?.globalId;
-        if (recordId === null || named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
+        if (recordId === null || named !== save.globalId || dye2Fingerprint(profileOf(workflow.profile)) !== save.fingerprint || !current()) return;
         if (!await this.steamBackOnFirst(workflow, recordId, save, steamBackOn) || !current()) return;
         if (await recordIntoRecipe() === "saved") await this.reportRecipes();
         this.failing = false;
@@ -2135,7 +2456,7 @@ var __decentSync = (() => {
         await this.ownWrite("steamOn", async (answered3) => {
           const answer = await request("PUT", "/workflow", write);
           const updated = answer.ok ? parsed2(answer.text) : void 0;
-          if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on with the Loaded Recipe's steam settings: ${answer.text.slice(0, 200)}`);
+          if (!isObject5(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on with the Loaded Recipe's steam settings: ${answer.text.slice(0, 200)}`);
           answered3(updated, write);
           this.workflowWritten(workflow, updated);
         });
@@ -2154,7 +2475,7 @@ var __decentSync = (() => {
       const workflow = this.latest;
       if (pending === null || workflow === void 0 || this.stopped || pending.globalId !== this.loaded || pending.load !== this.loads) return;
       if (!this.sharing() || this.shot.running()) return;
-      this.saveSoon({ globalId: pending.globalId, load: pending.load, fingerprint: dye2Fingerprint(workflow.profile) });
+      this.saveSoon({ globalId: pending.globalId, load: pending.load, fingerprint: dye2Fingerprint(profileOf(workflow.profile)) });
     }
     /** Logs a failure once until a later step succeeds. */
     failed(error) {
@@ -2230,7 +2551,7 @@ var __decentSync = (() => {
         }
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
         const after = answer ? parsed2(answer.text) : void 0;
-        if (isObject4(after)) this.workflowWritten(workflow, after);
+        if (isObject5(after)) this.workflowWritten(workflow, after);
       });
     }
     /** The tablet's recipes, read now. Throws if Decaid does not answer with them. */
@@ -2255,40 +2576,43 @@ var __decentSync = (() => {
      * of that Profile does.
      */
     async loadContext(record3) {
-      const steps = (profile) => isObject4(profile) && Array.isArray(profile.steps) ? profile : null;
-      const embedded = steps(isObject4(record3.workflow) ? record3.workflow.profile : null) ?? steps(record3.profileSnapshot);
+      const full = (profile) => {
+        const read = profileOf(profile);
+        return read !== null && read.steps.length > 0 ? read : null;
+      };
+      const embedded = full(isObject5(record3.workflow) ? record3.workflow.profile : null) ?? full(record3.profileSnapshot);
       if (embedded !== null) return { profile: embedded };
       const stored = typeof record3.profileId === "string" && record3.profileId !== "" ? await this.readRecord(`/profiles/${encodeURIComponent(record3.profileId)}`) : null;
-      return { profile: isObject4(stored) ? steps(stored.profile) : null };
+      return { profile: isObject5(stored) ? full(stored.profile) : null };
     }
   };
   async function putWorkflow(body, answered3) {
     const answer = await request("PUT", "/workflow", body);
     const updated = answer.ok ? parsed2(answer.text) : void 0;
-    if (isObject4(updated)) answered3(updated, body);
+    if (isObject5(updated)) answered3(updated, body);
     return answer;
   }
   function fieldPaths(body, prefix = "") {
     return Object.entries(body).flatMap(([key2, value]) => {
       const path = prefix === "" ? key2 : `${prefix}.${key2}`;
-      return isObject4(value) && path !== "profile" ? fieldPaths(value, path) : [path];
+      return isObject5(value) && path !== "profile" ? fieldPaths(value, path) : [path];
     });
   }
   var PART_FIELDS = Object.values(LOADED_RECIPE_PARTS).flat();
   function changedBesides(before, after, written2) {
     const set = (field) => [...written2].some((path) => field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`));
-    if (!set("profile") && dye2Fingerprint(before.profile) !== dye2Fingerprint(after.profile)) return true;
+    if (!set("profile") && dye2Fingerprint(profileOf(before.profile)) !== dye2Fingerprint(profileOf(after.profile))) return true;
     return PART_FIELDS.some((field) => field !== "profile" && !set(field) && !sameValue(workflowValueAt(before, field), workflowValueAt(after, field)));
   }
   async function workflowNow() {
     const answer = await request("GET", "/workflow");
     const workflow = answer.ok ? parsed2(answer.text) : void 0;
-    if (!isObject4(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
+    if (!isObject5(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
     return workflow;
   }
   function heldGlobalId(stored) {
     const held = typeof stored === "string" ? parsed2(stored) : void 0;
-    return isObject4(held) && typeof held.globalId === "string" ? held.globalId : null;
+    return isObject5(held) && typeof held.globalId === "string" ? held.globalId : null;
   }
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
@@ -2300,7 +2624,7 @@ var __decentSync = (() => {
       return void 0;
     }
   }
-  function isObject4(value) {
+  function isObject5(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
@@ -2551,15 +2875,15 @@ var __decentSync = (() => {
       if (noted && version < noted.version) return;
       const names = noted && version === noted.version ? noted.names : /* @__PURE__ */ new Set();
       this.shotsName.set(id, { version, names });
-      const workflow = isObject5(shot.workflow) ? shot.workflow : {};
-      const steps = stepsKey(isObject5(workflow.profile) ? workflow.profile.steps : void 0);
-      if (steps !== null) names.add(`profile:${steps}`);
-      const context = isObject5(workflow.context) ? workflow.context : {};
-      const extras = isObject5(context.extras) ? context.extras : {};
+      const workflow = isObject6(shot.workflow) ? shot.workflow : {};
+      const profile = profileOf(workflow.profile);
+      if (profile !== null) names.add(`profile:${stepsKey(profile.steps)}`);
+      const context = isObject6(workflow.context) ? workflow.context : {};
+      const extras = isObject6(context.extras) ? context.extras : {};
       if (typeof context.beanBatchId === "string") names.add(`beanBatch:${context.beanBatchId}`);
       if (typeof context.grinderId === "string") names.add(`grinder:${context.grinderId}`);
-      if (isObject5(extras.workflowSkin) && typeof extras.workflowSkin.selectedProfileId === "string") names.add(`profile:${extras.workflowSkin.selectedProfileId}`);
-      const edited2 = isObject5(shot.annotations) && isObject5(shot.annotations.extras) ? shot.annotations.extras : {};
+      if (isObject6(extras.workflowSkin) && typeof extras.workflowSkin.selectedProfileId === "string") names.add(`profile:${extras.workflowSkin.selectedProfileId}`);
+      const edited2 = isObject6(shot.annotations) && isObject6(shot.annotations.extras) ? shot.annotations.extras : {};
       const basket = edited2.basketId != null || edited2.basketName != null ? edited2.basketId : extras.basketId;
       if (typeof basket === "string") names.add(`basket:${basket}`);
       for (const recorded of [edited2, extras]) {
@@ -2626,7 +2950,7 @@ var __decentSync = (() => {
     const current = await request("GET", path);
     if (current.status === 404) return deleted(remove);
     const record3 = current.ok ? parsed3(current.text) : void 0;
-    if (!isObject5(record3)) return refused(remove, current.status, current.text);
+    if (!isObject6(record3)) return refused(remove, current.status, current.text);
     const carried = globalIdOf(record3);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
     if (route.namedByShots) {
@@ -2639,7 +2963,7 @@ var __decentSync = (() => {
       const listed = await request("GET", under(path));
       const children = listed.ok ? parsed3(listed.text) : void 0;
       if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
-      const ids = new Set(children.filter(isObject5).flatMap((record4) => typeof record4.id === "string" ? [record4.id] : []));
+      const ids = new Set(children.filter(isObject6).flatMap((record4) => typeof record4.id === "string" ? [record4.id] : []));
       const named = await namedByShot(child, ids);
       if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
       for (const id of ids) {
@@ -2655,9 +2979,9 @@ var __decentSync = (() => {
     const current = await request("GET", path);
     if (current.status === 404) return deleted(remove);
     const record3 = current.ok ? parsed3(current.text) : void 0;
-    if (!isObject5(record3)) return refused(remove, current.status, current.text);
-    const steps = stepsKey(isObject5(record3.profile) ? record3.profile.steps : void 0);
-    const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
+    if (!isObject6(record3)) return refused(remove, current.status, current.text);
+    const profile = profileOf(record3.profile);
+    const named = await namedByShot("profile", new Set(profile === null ? [remove.localId] : [remove.localId, stepsKey(profile.steps)]));
     if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     const answer = await request("DELETE", `${path}/purge`);
     return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
@@ -2693,21 +3017,21 @@ var __decentSync = (() => {
     const current = await request("GET", path);
     if (current.status === 404) return "gone";
     const record3 = current.ok ? parsed3(current.text) : void 0;
-    if (!isObject5(record3)) return current;
+    if (!isObject6(record3)) return current;
     return setAsideRecord(leave, record3, path);
   }
   async function archiveRecord(_leave, record3, path) {
     if (globalIdOf(record3) !== null) return "taken";
     if (record3.archived === true) return "setAside";
-    const archived = await request("PUT", path, { archived: true, extras: isObject5(record3.extras) ? record3.extras : {} });
+    const archived = await request("PUT", path, { archived: true, extras: isObject6(record3.extras) ? record3.extras : {} });
     const updated = archived.ok ? parsed3(archived.text) : void 0;
-    return isObject5(updated) && updated.archived === true ? "setAside" : archived;
+    return isObject6(updated) && updated.archived === true ? "setAside" : archived;
   }
   async function hideProfile(leave, record3) {
     if (record3.visibility !== "visible") return "setAside";
     const hidden = await setVisibility(leave.localId, "hidden");
     const updated = hidden.ok ? parsed3(hidden.text) : void 0;
-    return isObject5(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
+    return isObject6(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
   }
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
@@ -2730,25 +3054,27 @@ var __decentSync = (() => {
     const writtenFields = [];
     if (!record3) {
       const { parentId, metadata } = write.fields;
+      const profile = readProfile(write.fields.profile);
+      if (!profile.profile) return refused(write, null, profile.problem);
       const parent = typeof parentId === "string" ? await heldProfile(parentId) : void 0;
       if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
-      const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject5(metadata) ? { metadata } : {} };
+      const body = { profile: profile.profile, ...parent?.record ? { parentId } : {}, ...isObject6(metadata) ? { metadata } : {} };
       const made = await request("POST", "/profiles", body);
       const created = made.ok ? parsed3(made.text) : void 0;
-      if (!isObject5(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
+      if (!isObject6(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
       record3 = created;
       writtenFields.push(...Object.keys(body));
     }
     if (record3.id !== write.globalId || typeof visibility !== "string" || record3.visibility === visibility) return written(write, record3, writtenFields);
     const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
     const updated = again?.ok ? parsed3(again.text) : void 0;
-    if (!isObject5(updated) || updated.id !== write.globalId) return written(write, record3, writtenFields);
+    if (!isObject6(updated) || updated.id !== write.globalId) return written(write, record3, writtenFields);
     return written(write, updated, [...writtenFields, "visibility"]);
   }
   async function clearWorkflow(write, _log, posted) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed3(current.text) : void 0;
-    if (!isObject5(workflow)) return refused(write, current.status, current.text);
+    if (!isObject6(workflow)) return refused(write, current.status, current.text);
     const fields = Object.fromEntries(
       WORKFLOW_CLEARED.flatMap((group) => {
         const [id] = group;
@@ -2762,7 +3088,7 @@ var __decentSync = (() => {
     const body = workflowPatch(fields);
     const answer = await request("PUT", "/workflow", body);
     const updated = answer.ok ? parsed3(answer.text) : void 0;
-    if (!isObject5(updated)) return refused(write, answer.status, answer.text);
+    if (!isObject6(updated)) return refused(write, answer.status, answer.text);
     posted.answered?.(updated, body);
     posted.workflowWritten(workflow, updated);
     return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
@@ -2773,12 +3099,12 @@ var __decentSync = (() => {
     if (DYE2_RECIPE_FIELD in write.fields) {
       const current = await request("GET", "/workflow");
       const workflow = current.ok ? parsed3(current.text) : void 0;
-      if (!isObject5(workflow)) return refused(write, current.status, current.text);
+      if (!isObject6(workflow)) return refused(write, current.status, current.text);
       if (recordId === null || dye2RecipeIdOf(workflow) !== recordId) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
       const body = clearRecipe();
       const answer = await request("PUT", "/workflow", body);
       const updated = answer.ok ? parsed3(answer.text) : void 0;
-      if (!isObject5(updated)) return refused(write, answer.status, answer.text);
+      if (!isObject6(updated)) return refused(write, answer.status, answer.text);
       posted.answered?.(updated, body);
       posted.workflowWritten(workflow, updated);
       return written(write, loadedRecipeParts(updated), [DYE2_RECIPE_FIELD], (/* @__PURE__ */ new Date()).toISOString());
@@ -2788,7 +3114,7 @@ var __decentSync = (() => {
     for (; ; ) {
       const current = await request("GET", "/workflow");
       const workflow = current.ok ? parsed3(current.text) : void 0;
-      if (!isObject5(workflow)) return refused(write, current.status, current.text);
+      if (!isObject6(workflow)) return refused(write, current.status, current.text);
       if (dye2RecipeIdOf(workflow) !== recordId) return refused(write, null, ANOTHER_RECIPE);
       const fields = loadedRecipeFields(write, workflow, machineSettings);
       if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
@@ -2815,7 +3141,8 @@ var __decentSync = (() => {
     const { [BREW_TEMPERATURE_FIELD]: temperature, ...rest } = fields;
     const patch = workflowPatch(rest);
     if (typeof temperature === "number") {
-      const shifted = profileAtBrewTemperature(isObject5(patch.profile) ? patch.profile : workflow.profile, temperature);
+      const profile = profileOf(isObject6(patch.profile) ? patch.profile : workflow.profile);
+      const shifted = profile === null ? null : profileAtBrewTemperature(profile, temperature);
       if (shifted !== null) patch.profile = shifted;
     }
     return patch;
@@ -2835,32 +3162,31 @@ var __decentSync = (() => {
   }
   function loadedRecipeParts(workflow) {
     return {
-      context: isObject5(workflow.context) ? workflow.context : {},
-      ...Object.fromEntries(MACHINE_SETTING_PARTS.map((part) => [part, isObject5(workflow[part]) ? workflow[part] : {}])),
-      ...isObject5(workflow.profile) ? { profile: workflow.profile } : {}
+      context: isObject6(workflow.context) ? workflow.context : {},
+      ...Object.fromEntries(MACHINE_SETTING_PARTS.map((part) => [part, isObject6(workflow[part]) ? workflow[part] : {}])),
+      ...isObject6(workflow.profile) ? { profile: workflow.profile } : {}
     };
   }
   function workflowContext(workflow) {
-    return { context: isObject5(workflow.context) ? workflow.context : {} };
+    return { context: isObject6(workflow.context) ? workflow.context : {} };
   }
-  var PROFILE_TEXT = ["title", "author", "notes"];
   async function updateProfile(write, id) {
     const held = await heldProfile(id);
     if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
     if (!held.record) return refused(write, 404, "Profile not found");
     let record3 = held.record;
-    const fields = settable(write, (field) => field === "visibility" ? record3.visibility : isObject5(record3.profile) ? record3.profile[field] : void 0);
+    const read = readProfile(record3.profile);
+    const heldText = profileTextOf(record3.profile);
+    const fields = settable(write, (field) => field === "visibility" ? record3.visibility : heldText[field]);
     const writtenFields = [];
-    const text = PROFILE_TEXT.filter((field) => field in fields);
+    const text = PROFILE_TEXT_FIELDS.filter((field) => field in fields);
     if (text.length > 0) {
-      const profile = { ...isObject5(record3.profile) ? record3.profile : {} };
-      for (const field of text) {
-        if (fields[field] === null) delete profile[field];
-        else profile[field] = fields[field];
-      }
+      if (!read.profile) return refused(write, null, read.problem);
+      const profile = { ...read.profile, ...Object.fromEntries(text.map((field) => [field, typeof fields[field] === "string" ? fields[field] : ""])) };
+      if (sentProfileId(profile) !== id) return refused(write, null, "The profile as sent would hash to another id, which Decaid would replace this Profile with");
       const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
       const updated = answer.ok ? parsed3(answer.text) : void 0;
-      if (!isObject5(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
+      if (!isObject6(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
       if (updated.id !== id) return written(write, updated, text);
       record3 = updated;
       writtenFields.push(...text);
@@ -2872,7 +3198,7 @@ var __decentSync = (() => {
           return void 0;
         });
         const updated = answer?.ok ? parsed3(answer.text) : void 0;
-        if (!isObject5(updated) || updated.id !== id) {
+        if (!isObject6(updated) || updated.id !== id) {
           return writtenFields.length === 0 ? refused(write, answer?.status ?? null, answer?.text ?? "") : written(write, record3, writtenFields);
         }
         record3 = updated;
@@ -2887,11 +3213,15 @@ var __decentSync = (() => {
       Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field]))
     );
   }
+  function sentProfileId(profile) {
+    const sent = readProfile(JSON.parse(JSON.stringify(profile)));
+    return sent.profile ? profileId(sent.profile) : null;
+  }
   async function heldProfile(id) {
     const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
     if (answer.status === 404) return { record: void 0 };
     const record3 = answer.ok ? parsed3(answer.text) : void 0;
-    return isObject5(record3) && record3.id === id ? { record: record3 } : { refused: answer };
+    return isObject6(record3) && record3.id === id ? { record: record3 } : { refused: answer };
   }
   function setVisibility(id, visibility) {
     return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });
@@ -2900,7 +3230,7 @@ var __decentSync = (() => {
     const listed = await request("GET", route.list);
     if (!listed.ok) return refused(write, listed.status, listed.text);
     const parsedList = parsed3(listed.text);
-    const records = Array.isArray(parsedList) ? parsedList.filter(isObject5) : [];
+    const records = Array.isArray(parsedList) ? parsedList.filter(isObject6) : [];
     const held = records.find((record4) => globalIdOf(record4) === write.globalId.toLowerCase());
     if (held) return written(write, held, []);
     const same = records.find((record4) => globalIdOf(record4) === null && record4.archived !== true && route.sameItem(record4, write.fields));
@@ -2915,21 +3245,21 @@ var __decentSync = (() => {
     for (const field of route.deferred) delete body[field];
     const made = await request("POST", path, body);
     const record3 = made.ok ? parsed3(made.text) : void 0;
-    if (!isObject5(record3) || typeof record3.id !== "string") return refused(write, made.status, made.text);
+    if (!isObject6(record3) || typeof record3.id !== "string") return refused(write, made.status, made.text);
     const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record3[field] ?? null) ? [[field, write.fields[field]]] : []));
     const writtenFields = Object.keys(write.fields);
     if (Object.keys(later).length === 0) return written(write, record3, writtenFields);
     const again = await request("PUT", `${route.records}/${encodeURIComponent(record3.id)}`, later).catch(() => void 0);
     const updated = again?.ok ? parsed3(again.text) : void 0;
-    return written(write, isObject5(updated) && typeof updated.id === "string" ? updated : record3, writtenFields);
+    return written(write, isObject6(updated) && typeof updated.id === "string" ? updated : record3, writtenFields);
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
     const current = await request("GET", path);
     if (!current.ok) return { answer: current, written: [] };
     const parsedRecord = parsed3(current.text);
-    const record3 = isObject5(parsedRecord) ? parsedRecord : {};
-    const extras = isObject5(record3.extras) ? record3.extras : {};
+    const record3 = isObject6(parsedRecord) ? parsedRecord : {};
+    const extras = isObject6(record3.extras) ? record3.extras : {};
     const inExtras = new Set(route.inExtras ?? []);
     const fields = settable(write, (field) => inExtras.has(field) ? extras[field] : record3[field]);
     const placedFields = placed(route, fields);
@@ -2947,7 +3277,7 @@ var __decentSync = (() => {
   }
   function answerTo(write, answer, writtenFields) {
     const record3 = answer.ok ? parsed3(answer.text) : void 0;
-    if (isObject5(record3) && typeof record3.id === "string") return written(write, record3, writtenFields);
+    if (isObject6(record3) && typeof record3.id === "string") return written(write, record3, writtenFields);
     return refused(write, answer.status, answer.text);
   }
   function written(write, record3, writtenFields, at) {
@@ -2975,7 +3305,7 @@ var __decentSync = (() => {
       return void 0;
     }
   }
-  function isObject5(value) {
+  function isObject6(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function dye2Writer(key2) {
@@ -3137,7 +3467,7 @@ var __decentSync = (() => {
   function sameJson(a, b) {
     if (a === b) return true;
     if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameJson(value, b[index]));
-    if (!isObject5(a) || !isObject5(b)) return false;
+    if (!isObject6(a) || !isObject6(b)) return false;
     const keys = Object.keys(a);
     return keys.length === Object.keys(b).length && keys.every((key2) => Object.prototype.hasOwnProperty.call(b, key2) && sameJson(a[key2], b[key2]));
   }
@@ -3145,7 +3475,7 @@ var __decentSync = (() => {
   function valueAt(record3, path) {
     if (!path.startsWith(`${DASHBOARD}.`)) return record3[path];
     const variables = record3[DASHBOARD];
-    return isObject5(variables) ? variables[path.slice(DASHBOARD.length + 1)] : void 0;
+    return isObject6(variables) ? variables[path.slice(DASHBOARD.length + 1)] : void 0;
   }
   function atPaths(record3, values) {
     const result = { ...record3 };
@@ -3154,7 +3484,7 @@ var __decentSync = (() => {
       let target = result;
       let field = path;
       if (path.startsWith(`${DASHBOARD}.`)) {
-        variables ?? (variables = { ...isObject5(result[DASHBOARD]) ? result[DASHBOARD] : {} });
+        variables ?? (variables = { ...isObject6(result[DASHBOARD]) ? result[DASHBOARD] : {} });
         target = variables;
         field = path.slice(DASHBOARD.length + 1);
       }
@@ -4838,14 +5168,14 @@ var __decentSync = (() => {
   };
   function scheduleIn(presence, id) {
     const schedules = Array.isArray(presence.schedules) ? presence.schedules : [];
-    return schedules.find((schedule) => isObject6(schedule) && schedule.id === id);
+    return schedules.find((schedule) => isObject7(schedule) && schedule.id === id);
   }
   function scheduleValues(schedule) {
     return { ...schedule, keepAwakeFor: schedule.keepAwakeFor ?? null };
   }
   function addedId(text) {
     const body = parsed4(text);
-    return isObject6(body) && typeof body.id === "string" && body.id !== "" ? body.id : void 0;
+    return isObject7(body) && typeof body.id === "string" && body.id !== "" ? body.id : void 0;
   }
   function changedSince(edit, values) {
     return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", ...values ? { values } : {} };
@@ -4858,7 +5188,7 @@ var __decentSync = (() => {
   async function readObject(route) {
     const answer = await request("GET", route);
     const value = answer.ok ? parsed4(answer.text) : void 0;
-    if (isObject6(value)) return { ok: true, value };
+    if (isObject7(value)) return { ok: true, value };
     return { ok: false, answer: answer.ok ? { ...answer, text: "Decaid's answer is not an object" } : answer };
   }
   function calibrated(target, read) {
@@ -4875,12 +5205,12 @@ var __decentSync = (() => {
   }
   function stateOf(text) {
     const snapshot = parsed4(text);
-    const state = isObject6(snapshot) && isObject6(snapshot.state) ? snapshot.state.state : void 0;
+    const state = isObject7(snapshot) && isObject7(snapshot.state) ? snapshot.state.state : void 0;
     return typeof state === "string" && state !== "" ? state : null;
   }
   function decaidMessage(answer) {
     const body = parsed4(answer.text);
-    const said = isObject6(body) ? [body.error, body.message].filter((part) => typeof part === "string" && part !== "") : [];
+    const said = isObject7(body) ? [body.error, body.message].filter((part) => typeof part === "string" && part !== "") : [];
     if (said.length > 0) return said.join(": ");
     return answer.text === "" ? `Decaid answered ${answer.status}` : answer.text;
   }
@@ -4905,7 +5235,7 @@ var __decentSync = (() => {
       return void 0;
     }
   }
-  function isObject6(value) {
+  function isObject7(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function describe(error) {

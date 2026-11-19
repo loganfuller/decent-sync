@@ -42,8 +42,15 @@ import {
   isLibraryKind,
   isRecipeSlot,
   isRecordId,
+  PROFILE_TEXT_FIELDS,
+  type ProfileTextField,
   profileAtBrewTemperature,
+  profileOf,
+  profileId,
+  profileTextOf,
+  readProfile,
   sameValue,
+  stepsKey,
   steamOff,
   workflowPatch,
   workflowValueAt,
@@ -52,7 +59,7 @@ import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 import type { ShotGate } from "./shot-gate.js";
-import { clearRecipe, stepsKey } from "./loaded-recipe-rules.js";
+import { clearRecipe } from "./loaded-recipe-rules.js";
 import { type Answered, type LoadedRecipeWrites, machineMissing, putWorkflow } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
 import { randomUuid } from "./tablet-id.js";
@@ -417,8 +424,8 @@ export class LibraryWrites {
     const names = noted && version === noted.version ? noted.names : new Set<string>();
     this.shotsName.set(id, { version, names });
     const workflow = isObject(shot.workflow) ? shot.workflow : {};
-    const steps = stepsKey(isObject(workflow.profile) ? workflow.profile.steps : undefined);
-    if (steps !== null) names.add(`profile:${steps}`);
+    const profile = profileOf(workflow.profile);
+    if (profile !== null) names.add(`profile:${stepsKey(profile.steps)}`);
     const context = isObject(workflow.context) ? workflow.context : {};
     const extras = isObject(context.extras) ? context.extras : {};
     if (typeof context.beanBatchId === "string") names.add(`beanBatch:${context.beanBatchId}`);
@@ -563,8 +570,8 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: NamedByShot): Pr
   if (current.status === 404) return deleted(remove);
   const record = current.ok ? parsed(current.text) : undefined;
   if (!isObject(record)) return refused(remove, current.status, current.text);
-  const steps = stepsKey(isObject(record.profile) ? record.profile.steps : undefined);
-  const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
+  const profile = profileOf(record.profile);
+  const named = await namedByShot("profile", new Set(profile === null ? [remove.localId] : [remove.localId, stepsKey(profile.steps)]));
   if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
   const answer = await request("DELETE", `${path}/purge`);
   // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
@@ -706,9 +713,12 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
   const writtenFields: string[] = [];
   if (!record) {
     const { parentId, metadata } = write.fields;
+    // As Decaid reads it, which it would refuse as it does where this does.
+    const profile = readProfile(write.fields.profile);
+    if (!profile.profile) return refused(write, null, profile.problem);
     const parent = typeof parentId === "string" ? await heldProfile(parentId) : undefined;
     if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
-    const body = { profile: write.fields.profile, ...(parent?.record ? { parentId } : {}), ...(isObject(metadata) ? { metadata } : {}) };
+    const body = { profile: profile.profile, ...(parent?.record ? { parentId } : {}), ...(isObject(metadata) ? { metadata } : {}) };
     const made = await request("POST", "/profiles", body);
     const created = made.ok ? parsed(made.text) : undefined;
     if (!isObject(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
@@ -842,7 +852,8 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
   const { [BREW_TEMPERATURE_FIELD]: temperature, ...rest } = fields;
   const patch = workflowPatch(rest);
   if (typeof temperature === "number") {
-    const shifted = profileAtBrewTemperature(isObject(patch.profile) ? patch.profile : workflow.profile, temperature);
+    const profile = profileOf(isObject(patch.profile) ? patch.profile : workflow.profile);
+    const shifted = profile === null ? null : profileAtBrewTemperature(profile, temperature);
     if (shifted !== null) patch.profile = shifted;
   }
   return patch;
@@ -888,9 +899,6 @@ function workflowContext(workflow: Record<string, unknown>): Record<string, unkn
   return { context: isObject(workflow.context) ? workflow.context : {} };
 }
 
-/** The fields of a Profile's `profile` the server writes: outside the hash of what the machine executes, so its id stays (ADR-0006). */
-const PROFILE_TEXT = ["title", "author", "notes"] as const;
-
 /**
  * Updates the tablet's record of a Profile: its title, author and notes in
  * its `profile`, then its visibility, each only while the record holds what
@@ -903,16 +911,19 @@ async function updateProfile(write: LibraryWrite, id: string): Promise<WriteAnsw
   if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
   if (!held.record) return refused(write, 404, "Profile not found");
   let record = held.record;
-  const fields = settable(write, (field) => (field === "visibility" ? record.visibility : isObject(record.profile) ? record.profile[field] : undefined));
+  const read = readProfile(record.profile);
+  const heldText = profileTextOf(record.profile);
+  const fields = settable(write, (field) => (field === "visibility" ? record.visibility : heldText[field as ProfileTextField]));
   const writtenFields: string[] = [];
-  const text = PROFILE_TEXT.filter((field) => field in fields);
+  // Its title, author and notes, the fields of its `profile` the server writes: outside the hash of what the machine executes, so its id stays (ADR-0006).
+  const text = PROFILE_TEXT_FIELDS.filter((field) => field in fields);
   if (text.length > 0) {
-    const profile: Record<string, unknown> = { ...(isObject(record.profile) ? record.profile : {}) };
-    // Decaid leaves out a field it holds no value for.
-    for (const field of text) {
-      if (fields[field] === null) delete profile[field];
-      else profile[field] = fields[field];
-    }
+    if (!read.profile) return refused(write, null, read.problem);
+    // Decaid holds none of an author or notes as empty, and refuses a profile with no title, which the server never writes.
+    const profile = { ...read.profile, ...Object.fromEntries(text.map((field) => [field, typeof fields[field] === "string" ? fields[field] : ""])) };
+    // Decaid replaces a record whose profile hashes to another id, so one JSON would carry to it changed, as a tank
+    // temperature of -0.0 that JSON writes as 0, is refused rather than written: the tablet keeps the Profile it holds.
+    if (sentProfileId(profile) !== id) return refused(write, null, "The profile as sent would hash to another id, which Decaid would replace this Profile with");
     const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
     const updated = answer.ok ? parsed(answer.text) : undefined;
     if (!isObject(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
@@ -948,6 +959,12 @@ function settable(write: LibraryWrite, current: (field: string) => unknown): Rec
   return Object.fromEntries(
     Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field])),
   );
+}
+
+/** The id Decaid gives a profile as it reads one sent to it as JSON, or null where it would not read it. */
+function sentProfileId(profile: Readonly<Record<string, unknown>>): string | null {
+  const sent = readProfile(JSON.parse(JSON.stringify(profile)));
+  return sent.profile ? profileId(sent.profile) : null;
 }
 
 /** The tablet's record of the Profile with that id, none if Decaid answers 404, or Decaid's refusal to read it. */

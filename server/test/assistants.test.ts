@@ -168,6 +168,7 @@ describe("connecting an assistant", () => {
         "edit_grinder",
         "edit_location",
         "edit_machine_settings",
+        "edit_profile",
         "edit_recipe",
         "edit_shot",
         "edit_tool",

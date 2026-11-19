@@ -1,4 +1,4 @@
-import { type RelayedLiveFrame, isMilkProbe, machineStateOf, steamPhaseOf } from "@decent-sync/protocol";
+import { type Profile, type RelayedLiveFrame, isMilkProbe, machineStateOf, steamPhaseOf } from "@decent-sync/protocol";
 import { type CurveInfo, STEAM_CURVES, type Sample, type ShotCurve, type SteamCurve, shotSamples, steamSamples } from "./curves";
 import { liveMachineOf, milkTemperatureOf } from "./live-view";
 
@@ -178,7 +178,7 @@ export type LiveSamples = { activity: "shot"; samples: Sample<ShotCurve>[] } | {
  * `profile` naming its steps, and steaming's as the Steam Record page reads
  * one's, with no milk temperature to stop at.
  */
-export function liveSamples(curve: LiveCurve, profile?: unknown): LiveSamples {
+export function liveSamples(curve: LiveCurve, profile: Profile | null = null): LiveSamples {
   return curve.activity === "shot"
     ? { activity: "shot", samples: shotSamples(curve.measurements, profile) }
     : { activity: "steaming", samples: steamSamples(curve.measurements, null) };

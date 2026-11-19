@@ -1,4 +1,5 @@
-import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
+import { profileOf } from "@decent-sync/protocol";
+import { type FormEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import {
@@ -321,9 +322,11 @@ function NowTab({ machine, askedAt, changed }: { machine: Machine; askedAt: numb
   const load = useCallback(async () => (await api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`)).workflow, [path]);
   const { data: workflow, error, reload } = usePolled(load, DETAILS_POLL_MS);
   useReloadOn(changed, reload);
+  // Read once per Workflow read, so the Live View's samples are not read again on every render.
+  const profile = useMemo(() => profileOf(workflow?.workflow.profile), [workflow]);
   return (
     <>
-      <LiveViewCard machine={machine} askedAt={askedAt} profile={workflow?.workflow.profile} />
+      <LiveViewCard machine={machine} askedAt={askedAt} profile={profile} />
       {/* Shown once loaded: the Live View does not wait for it. A read that fails says so, over the Workflow read before it. */}
       {(error || workflow === undefined) && <Reading error={error} />}
       {workflow !== undefined && <MachineWorkflow machine={machine} current={workflow} />}

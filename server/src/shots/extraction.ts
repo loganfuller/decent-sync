@@ -6,6 +6,8 @@ import {
   flowAtStop,
   lastRecordedWeight,
   poured,
+  profileOf,
+  profileTextOf,
   realHardware,
   shotSamples,
   stepSpans,
@@ -18,7 +20,8 @@ export function extractShot(record: unknown) {
   const shot = object(record);
   const workflow = object(shot.workflow);
   const context = object(workflow.context);
-  const profile = object(workflow.profile);
+  // As Decaid reads it: its title whatever its steps hold, and its target weight only from a profile Decaid would read.
+  const profile = profileOf(workflow.profile);
   const annotations = object(shot.annotations);
   return {
     beanBatchId: string(context.beanBatchId),
@@ -29,10 +32,10 @@ export function extractShot(record: unknown) {
     recipeRecordId: dye2RecipeIdOf(workflow),
     coffeeName: string(context.coffeeName),
     coffeeRoaster: string(context.coffeeRoaster),
-    profileTitle: string(profile.title),
+    profileTitle: profileTextOf(workflow.profile).title || null,
     profileId: string(object(object(context.extras).workflowSkin).selectedProfileId),
     targetDose: number(context.targetDoseWeight),
-    targetYield: targetYield(context.targetYield, profile.target_weight),
+    targetYield: targetYield(context.targetYield, profile?.target_weight ?? null),
     actualDose: number(annotations.actualDoseWeight),
     actualYield: number(annotations.actualYield),
     enjoyment: number(annotations.enjoyment),
@@ -310,7 +313,7 @@ export function extractCurves(record: unknown, measurements: unknown) {
     duration: times.length === 0 ? null : (elapsedSeconds(times.slice(preheatTimes)) ?? 0),
     peakPressure,
     peakFlow,
-    ...measuredValues(shotSamples(measurements, object(object(record).workflow).profile)),
+    ...measuredValues(shotSamples(measurements, profileOf(object(object(record).workflow).profile))),
   };
 }
 

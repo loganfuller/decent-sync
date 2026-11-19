@@ -1,3 +1,4 @@
+import { type ProfileStep, type StepExit, profileOf, profileTextOf, stepTarget } from "@decent-sync/protocol";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
@@ -6,15 +7,16 @@ import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { formatTime } from "@/components/machines";
-import { ArchiveButton, DeleteButton } from "@/components/library-forms";
+import { ArchiveButton, ContentForm, DeleteButton, PROFILE_FIELDS } from "@/components/library-forms";
 import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Profile } from "@/lib/api";
 
-/** One Profile: the Locations showing it, which can be changed there, what the machine follows, and where it came from. */
+/** One Profile: the Locations showing it, which can be changed there, its title, author and notes, which can be edited here, what the machine follows, and where it came from. */
 export function ProfilePage() {
   const { id = "" } = useParams();
   return <ProfileDetails key={id} id={id} />;
@@ -25,6 +27,7 @@ function ProfileDetails({ id }: { id: string }) {
   const [profile, setProfile] = useState<Profile>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
+  const [editing, setEditing] = useState(false);
   // Using a Conflict\'s value, or a change here, changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const changed = () => setChanges((count) => count + 1);
@@ -71,8 +74,11 @@ function ProfileDetails({ id }: { id: string }) {
     );
   }
 
-  const content = object(profile.content.profile);
-  const steps = Array.isArray(content.steps) ? content.steps.map(object) : [];
+  // Read from its record where the server, of the release before, gives no profile, as during an upgrade (ADR-0025).
+  const definition = profile.profile === undefined ? profileOf(profile.content.profile) : profile.profile;
+  const steps = definition?.steps ?? [];
+  // Its title, author and notes, read whatever its steps hold, as the server reads them.
+  const profileText = profileTextOf(profile.content.profile);
   return (
     <section className="grid gap-6">
       {back}
@@ -93,6 +99,58 @@ function ProfileDetails({ id }: { id: string }) {
 
       <ProfileLocationsCard profile={profile} onChanged={changed} />
 
+      <Card>
+        <CardHeader>
+          <CardTitleWithInfo title="Title, author and notes">
+            {profile.bundled ? (
+              <p>One of Decaid&apos;s bundled Profiles, which keep the title, author and notes Decaid gives them.</p>
+            ) : (
+              <p>
+                Outside the steps that decide the Profile&apos;s id, so a change here keeps it the same Profile, and every tablet that holds it is written the change. Its title can&apos;t
+                be cleared.
+              </p>
+            )}
+          </CardTitleWithInfo>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
+          {editing && mayChange && !profile.bundled ? (
+            <ContentForm
+              label="Edit the title, author and notes"
+              fields={PROFILE_FIELDS}
+              content={profileText}
+              path={path}
+              onCancel={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                changed();
+              }}
+            />
+          ) : (
+            <>
+              <Fields label="Title, author and notes">
+                <Field term="Title">
+                  <OrNone>{text(profileText.title)}</OrNone>
+                </Field>
+                <Field term="Author">
+                  <OrNone>{text(profileText.author)}</OrNone>
+                </Field>
+                <Field term="Notes">
+                  <OrNone>{text(profileText.notes)}</OrNone>
+                </Field>
+              </Fields>
+              {mayChange && !profile.bundled && (
+                <div>
+                  <Button variant="outline" aria-label="Edit the title, author and notes" onClick={() => setEditing(true)}>
+                    Edit
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -102,20 +160,14 @@ function ProfileDetails({ id }: { id: string }) {
           </CardHeader>
           <CardContent>
             <Fields label="Profile">
-              <Field term="Author">
-                <OrNone>{text(content.author)}</OrNone>
-              </Field>
               <Field term="Beverage">
-                <OrNone>{text(content.beverage_type)}</OrNone>
+                <OrNone>{definition?.beverage_type}</OrNone>
               </Field>
               <Field term="Target weight">
-                <OrNone>{target(content.target_weight, "g")}</OrNone>
+                <OrNone>{target(definition?.target_weight, "g")}</OrNone>
               </Field>
               <Field term="Target volume">
-                <OrNone>{target(content.target_volume, "ml")}</OrNone>
-              </Field>
-              <Field term="Notes">
-                <OrNone>{text(content.notes)}</OrNone>
+                <OrNone>{target(definition?.target_volume, "ml")}</OrNone>
               </Field>
             </Fields>
           </CardContent>
@@ -169,9 +221,9 @@ function ProfileDetails({ id }: { id: string }) {
                 <TableRow key={index}>
                   <TableCell className="font-medium">{text(step.name) ?? `Step ${index + 1}`}</TableCell>
                   <TableCell>{pumpText(step)}</TableCell>
-                  <TableCell>{number(step.temperature) === undefined ? "-" : `${number(step.temperature)} °C`}</TableCell>
-                  <TableCell>{number(step.seconds) === undefined ? "-" : `${number(step.seconds)} s`}</TableCell>
-                  <TableCell>{exitText(object(step.exit))}</TableCell>
+                  <TableCell>{`${step.temperature} °C`}</TableCell>
+                  <TableCell>{`${step.seconds} s`}</TableCell>
+                  <TableCell>{exitText(step.exit)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -187,32 +239,20 @@ function ProfileDetails({ id }: { id: string }) {
 }
 
 /** A step's pump target, such as "Pressure 9 bar" or "Flow 4 ml/s". */
-function pumpText(step: Record<string, unknown>): string {
-  if (step.pump === "pressure") return number(step.pressure) === undefined ? "Pressure" : `Pressure ${number(step.pressure)} bar`;
-  if (step.pump === "flow") return number(step.flow) === undefined ? "Flow" : `Flow ${number(step.flow)} ml/s`;
-  return "-";
+function pumpText(step: ProfileStep): string {
+  return step.pump === "pressure" ? `Pressure ${stepTarget(step)} bar` : `Flow ${stepTarget(step)} ml/s`;
 }
 
 /** A step's exit condition, such as "pressure over 3". */
-function exitText(exit: Record<string, unknown>): string {
-  const [type, condition, value] = [text(exit.type), text(exit.condition), number(exit.value)];
-  return type && condition && value !== undefined ? `${type} ${condition} ${value}` : "-";
+function exitText(exit: StepExit | null): string {
+  return exit ? `${exit.type} ${exit.condition} ${exit.value}` : "-";
 }
 
 /** A target, such as a weight to stop at, which Decaid records as 0 or null when there is none. */
-function target(value: unknown, unit: string): string | undefined {
-  const amount = number(value);
-  return amount === undefined || amount === 0 ? undefined : `${amount} ${unit}`;
+function target(value: number | null | undefined, unit: string): string | undefined {
+  return value === null || value === undefined || value === 0 ? undefined : `${value} ${unit}`;
 }
 
-function object(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function text(value: unknown): string | undefined {
+function text(value: string | null | undefined): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

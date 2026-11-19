@@ -40,6 +40,7 @@ import {
   type SettingsEdited,
   DYE2_RECIPE_FIELD,
   dye2Fingerprint,
+  profileOf,
   dye2RecipeIdOf,
   recipeSlotOf,
   grindSettingOf,
@@ -1292,16 +1293,22 @@ describe("Library writes", () => {
     expect(dye2RecipeIdOf({ context: { extras: { dye: { recipeId: 3 } } } })).toBe("3");
     for (const id of [null, "", undefined]) expect(dye2RecipeIdOf({ context: { extras: { dye: { recipeId: id } } } })).toBeNull();
     expect(dye2RecipeIdOf({ context: { extras: { dye: { selection: { kind: "recipe", id: "1" } } } } })).toBeNull();
-    const profile = { title: "Adaptive", tank_temperature: 0, steps: [{ name: "fill", temperature: 93, limiter: { value: 0, range: 0.6 } }, { name: "pour", temperature: 90, limiter: { value: 9, range: 0.6 } }] };
-    const sentByStreamline = { ...profile, steps: [{ ...profile.steps[0], temperature: 92, limiter: null }, { ...profile.steps[1], temperature: 89 }] };
+    const step = (name: string, temperature: number, limiter: unknown) => ({ name, pump: "pressure", transition: "fast", exit: null, volume: 0, seconds: 10, weight: null, temperature, sensor: "coffee", pressure: 9, limiter });
+    const raw = { title: "Adaptive", tank_temperature: 0, steps: [step("fill", 93, { value: 0, range: 0.6 }), step("pour", 90, { value: 9, range: 0.6 })] };
+    const profile = profileOf(raw)!;
+    const sentByStreamline = { ...profile, steps: [{ ...profile.steps[0]!, temperature: 92, limiter: null }, { ...profile.steps[1]!, temperature: 89 }] };
     expect(dye2Fingerprint(sentByStreamline)).toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint({ ...profile, target_weight: 40 })).toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint({ ...profile, title: "Other" })).not.toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint(null)).toBeNull();
     // Every object's keys sorted, as DYE2's `sortKeysReplacer` writes them (decentespresso/dye2#43): the same text as DYE2's.
-    const reordered = { steps: profile.steps.map(({ limiter, temperature, name }) => ({ limiter: { range: limiter.range, value: limiter.value }, temperature, name })), tank_temperature: 0, title: "Adaptive" };
+    const reversed = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).reverse());
+    const reordered = profileOf(reversed({ ...raw, steps: raw.steps.map((each) => reversed({ ...each, limiter: reversed(each.limiter as Record<string, unknown>) })) }));
     expect(dye2Fingerprint(reordered)).toBe(dye2Fingerprint(profile));
-    expect(dye2Fingerprint(profile)).toBe('{"steps":[{"limiter":null,"name":"fill"},{"limiter":{"range":0.6,"value":9},"name":"pour"}],"tank_temperature":0,"title":"Adaptive"}');
+    const fields = '"pressure":9,"pump":"pressure","seconds":10,"sensor":"coffee","transition":"fast","volume":0,"weight":null';
+    expect(dye2Fingerprint(profile)).toBe(
+      `{"steps":[{"exit":null,"limiter":null,"name":"fill",${fields}},{"exit":null,"limiter":{"range":0.6,"value":9},"name":"pour",${fields}}],"tank_temperature":0,"title":"Adaptive"}`,
+    );
   });
 
   it("names each steam, hot water and flush setting a Recipe may hold by DYE2's name and the Workflow's, a Loaded Recipe part of its own", () => {

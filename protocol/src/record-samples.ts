@@ -6,6 +6,7 @@
 // shaded phases alike. Any field may be missing; a sample without a time is
 // left out.
 
+import type { Profile, ProfileStep } from "./profile.js";
 import { STEAM_PHASE_NAMES, type SteamPhase, isShadedPhase, steamPhases } from "./steam-phases.js";
 
 /** One curve of a record, as the management interface draws it in its own chart. */
@@ -86,11 +87,11 @@ const QUARTER_HOUR_MS = 900_000;
  * that its `profileFrame` indexes, as Streamline names it; in Preheat the
  * frame is left over from before the Shot.
  */
-export function shotSamples(measurements: unknown, profile?: unknown): Sample<ShotCurve>[] {
-  const steps = record(profile)?.steps;
+export function shotSamples(measurements: unknown, profile: Profile | null = null): Sample<ShotCurve>[] {
+  const steps = profile?.steps ?? [];
   return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale, preheat) => ({
     shade: preheat ? "Preheat" : null,
-    step: preheat ? null : profileStep(machine?.profileFrame, Array.isArray(steps) ? steps : []),
+    step: preheat ? null : profileStep(machine?.profileFrame, steps),
     substate: text(record(machine?.state)?.substate),
     values: {
       pressure: number(machine?.pressure),
@@ -202,10 +203,10 @@ function timedSamples<C extends string>(
  * The step a `profileFrame` indexes among a Profile's steps, by its name, or
  * "Step N", counting from 1, for a step with none or a frame past the last.
  */
-export function profileStep(frame: unknown, steps: unknown[]): Step | null {
+export function profileStep(frame: unknown, steps: readonly ProfileStep[]): Step | null {
   if (typeof frame !== "number" || !Number.isInteger(frame) || frame < 0) return null;
-  const name = record(steps[frame])?.name;
-  return { frame, name: typeof name === "string" && name.trim() !== "" ? name.trim() : `Step ${frame + 1}` };
+  const name = steps[frame]?.name.trim();
+  return { frame, name: name ? name : `Step ${frame + 1}` };
 }
 
 /** A step a Shot ran, from its first sample's seconds to the next step's first sample's, or to the Shot's last sample. */

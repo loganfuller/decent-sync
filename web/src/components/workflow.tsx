@@ -1,3 +1,4 @@
+import { profileOf, profileTextOf } from "@decent-sync/protocol";
 // Reading the parts of Decaid records the management interface shows. Any part
 // may be missing, or sent differently by another supported Decaid version.
 
@@ -21,17 +22,17 @@ export interface WorkflowParts {
 
 /** A Workflow's parts, read from it as Decaid sends it. */
 export function workflowParts(workflow: Record<string, unknown>): WorkflowParts {
-  const profile = record(workflow.profile);
+  // Its title read whatever its steps hold; its brew temperature only from steps Decaid would read.
+  const profile = profileOf(workflow.profile);
   const context = record(workflow.context);
   const steam = record(workflow.steamSettings);
   const hotWater = record(workflow.hotWaterData);
   const rinse = record(workflow.rinseData);
   // Decaid's Workflow has no brew temperature: Streamline's Brew tile shows
   // and sets the profile's first step's, moving every other step with it.
-  const firstStep = Array.isArray(profile?.steps) ? record(profile.steps[0]) : undefined;
   return {
-    profile: text(profile?.title),
-    brewTemperature: amount(firstStep?.temperature, "°C"),
+    profile: text(profileTextOf(workflow.profile).title),
+    brewTemperature: amount(profile?.steps[0]?.temperature, "°C"),
     dose: amount(context?.targetDoseWeight, "g"),
     yield: amount(context?.targetYield, "g"),
     bean: text(context?.coffeeName),
