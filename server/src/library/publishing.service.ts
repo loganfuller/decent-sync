@@ -30,11 +30,13 @@ import { recipeEditValues } from "./recipe-edits.service.js";
 // an earlier version is the same change between two Profiles the Library has
 // already, and creates nothing.
 //
-// Locks, in the order a tablet's report of new profiles takes them
-// (profiles.ts): PROFILE_JOINING_LOCK, so no tablet adds the same Profile
+// Locks: first the Draft's row, which a save or discard of it alone takes;
+// then, in the order a tablet's report of new profiles takes them
+// (profiles.ts), PROFILE_JOINING_LOCK, so no tablet adds the same Profile
 // meanwhile; then each Location's, in order; then PROFILE_TITLE_LOCK, as a
-// title edit takes it, so no title is taken meanwhile; then the Recipes'
-// rows, as a Recipe's edit takes its row after its Location's.
+// title edit takes it, so no title is taken meanwhile; then the source
+// Profile's row FOR KEY SHARE, which a title edit's update of it never waits on; then the
+// Recipes' rows, as a Recipe's edit takes its row after its Location's.
 
 /** A Location, as what publishing did names it. */
 export interface PlaceRef {
@@ -67,7 +69,7 @@ export interface PublishedView {
   forked: NewerVersion[];
 }
 
-/** Where a Draft is published, or a version returned to (`readPublishAsk`): the Locations to show it at, the Recipes to move to it, and for a Draft the count of saves it was read at. */
+/** Where a Draft is published, or a version returned to (`readPublishAsk`): the Locations to show it at, and the Recipes to move to it. */
 export interface PublishAsk {
   locations: string[];
   recipes: string[];
@@ -143,11 +145,14 @@ export class PublishingService {
       });
       if (checks.blocking.length > 0) throw refusal(checks.blocking);
 
-      const sourceId = version ? row.startedFromId : null;
+      // Saved from the Profile it started from, while the Library has it: one deleted since leaves nothing to save it from or replace.
       const [source] =
-        sourceId === null ? [] : await tx.$queryRaw<{ id: string; title: string | null; bundled: boolean }[]>`
-          SELECT id, content -> 'profile' ->> 'title' AS title, bundled FROM profiles WHERE id = ${sourceId} FOR KEY SHARE`;
+        !version || row.startedFromId === null
+          ? []
+          : await tx.$queryRaw<{ id: string; title: string | null; bundled: boolean }[]>`
+          SELECT id, content -> 'profile' ->> 'title' AS title, bundled FROM profiles WHERE id = ${row.startedFromId} FOR KEY SHARE`;
       if (source?.bundled) throw new ConflictException(`"${source.title ?? source.id}" is one of Decaid's bundled Profiles, which a Draft can only publish as a separate Profile from`);
+      const sourceId = source?.id ?? null;
       const forked = sourceId === null ? [] : await newerVersions(tx, sourceId, row.createdAt);
 
       // A record as Decaid creates one, but for its id, times and visibility, which are each tablet's (`profileContent`).

@@ -41,10 +41,15 @@ export type PublishTarget =
       from: Profile;
     };
 
+/** The Draft's source while the Library has it, which it reads with a bundled of null once deleted. */
+function sourceOf(draft: Draft): string | null {
+  return draft.startedFrom && draft.startedFrom.bundled !== null ? draft.startedFrom.id : null;
+}
+
 /** The Profile a target replaces, if any: a new version's source, or the later version returned from. */
 function replacedId(target: PublishTarget): string | null {
   if (target.kind === "return") return target.from.id;
-  return target.draft.publishesAs === "version" ? (target.draft.startedFrom?.id ?? null) : null;
+  return target.draft.publishesAs === "version" ? sourceOf(target.draft) : null;
 }
 
 export function PublishDialog({
@@ -78,9 +83,9 @@ export function PublishDialog({
   const [error, setError] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
 
-  const draftNewer = target.kind === "draft" ? target.draft.newer : undefined;
+  const draftId = target.kind === "draft" ? target.draft.id : undefined;
   const returnTo = target.kind === "return" ? target.to.id : undefined;
-  const comparedTo = target.kind === "draft" && !replaces ? (target.draft.startedFrom?.id ?? null) : null;
+  const comparedTo = target.kind === "draft" && !replaces ? sourceOf(target.draft) : null;
   useEffect(() => {
     if (!open) return;
     let current = true;
@@ -104,17 +109,19 @@ export function PublishDialog({
     // Only to compare: a source since Archived or gone leaves nothing to compare, and publishing is not held up for it.
     if (comparedTo) api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(comparedTo)}`).then(({ profile }) => current && setStartedFrom(profile), () => undefined);
     if (returnTo) api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(returnTo)}`).then(({ profile }) => current && setTo(definitionOf(profile)), failed);
-    if (draftNewer && draftNewer.length > 0) {
-      Promise.all(draftNewer.map((version) => api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(version.id)}`).then(({ profile }) => ({ ...version, profile: definitionOf(profile) })))).then(
-        (read) => current && setNewer(read),
-        failed,
-      );
+    // The newer versions as the Draft is read now, not as the page read it: one may have been saved on a tablet since.
+    if (draftId) {
+      api<{ draft: Draft }>("GET", `/drafts/${encodeURIComponent(draftId)}`)
+        .then(({ draft }) =>
+          Promise.all(draft.newer.map((version) => api<{ profile: Profile }>("GET", `/profiles/${encodeURIComponent(version.id)}`).then(({ profile }) => ({ ...version, profile: definitionOf(profile) })))),
+        )
+        .then((read) => current && setNewer(read), failed);
     }
     return () => {
       current = false;
     };
     // mayChangeAt is a new function each render; the account's Locations don't change while the dialog is open.
-  }, [open, replaces, returnTo, comparedTo, draftNewer]);
+  }, [open, replaces, returnTo, comparedTo, draftId]);
 
   const reset = () => {
     setReplaced(undefined);
@@ -181,7 +188,7 @@ export function PublishDialog({
       <>
         {target.to.name} is shown again at the Locations you choose, in place of {name(target.from)}, with the Recipes you choose. Nothing new is created.
       </>
-    ) : target.draft.publishesAs === "version" && target.draft.startedFrom ? (
+    ) : target.draft.publishesAs === "version" && sourceOf(target.draft) && target.draft.startedFrom ? (
       <>
         As a new version of {target.draft.startedFrom.title ?? "the Profile it started from"}, shown at the Locations you choose in its place, with the Recipes you choose. Tablets
         there get it as they get any Profile, whether or not they are online now.

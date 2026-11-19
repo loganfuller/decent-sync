@@ -2657,14 +2657,16 @@ Locations' tablets as any Profile, parents first.
   edit), which keeps its Reference Shot and reaches the Machines that have
   it loaded; and the old version is hidden there, but where a Recipe not
   moved, not Archived, still names it, which keeps it shown. A Location not
-  chosen is left as it is.
+  chosen is left as it is. Where the Library no longer has the Profile it
+  started from, deleted since, it is saved from none and replaces nothing.
 - **As a separate Profile**, its `parentId` is none, so it starts a chain of
   its own (a Duplicate of one Profile is not its version), and it moves no
   Recipes and hides nothing.
 - **Refused** (409, with the checks) for what its checks stop
   (`checkProfile`): among them steps a Library Profile has, naming it, and a
   title a Profile shown at one of the Locations chosen has, compared as
-  Streamline compares titles, but the versions a new version replaces; at a
+  Streamline compares titles, but those of the versions in a new version's
+  chain, other than a bundled Profile the chain was saved from; at a
   Location where a Machine can't run it (`refuseUnrunnableAt`, #588); and
   when the Draft was saved since the person read it, as they would publish
   what they have not seen (`saves`, the count of saves read).
@@ -2672,7 +2674,8 @@ Locations' tablets as any Profile, parents first.
   from the Profile it started from that the Library gained after it began,
   from a tablet or another Draft. Publishing it then saves it from the
   version it started from all the same, forking the chain, and says so
-  (`forked`); the dialog warns first, with how each differs from the Draft.
+  (`forked`); the dialog, reading the Draft again as it opens, warns first,
+  with how each differs from the Draft.
 - **Returning to an earlier version** (`returnTo`) is the same change
   between two Profiles the Library has: the earlier version, one of the
   later one's versions and not Archived, shown at the Locations chosen, the
@@ -2683,7 +2686,8 @@ Locations' tablets as any Profile, parents first.
 - Locks are taken in the order a tablet's report of new profiles takes
   them: `PROFILE_JOINING_LOCK`, so no tablet adds the same Profile
   meanwhile; each Location's, in order of id; `PROFILE_TITLE_LOCK`, as a
-  title edit takes it; then the Recipes' rows.
+  title edit takes it; the source Profile's row, `FOR KEY SHARE`; then the
+  Recipes' rows.
 
 The dialog (`web/src/components/publish-profile.tsx`), opened from a
 Draft's page and from Return to it on a version, lists what changed

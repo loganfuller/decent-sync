@@ -341,6 +341,16 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect(versions.filter((version) => version.parentId === fourth).map((version) => version.id).sort()).toEqual([String(saved.id), published.profile.id].sort());
   });
 
+  it("publishes a new version whose source the Library deleted since as saved from none, replacing nothing", async () => {
+    const gone = await cafeTablet.addProfile(derivedProfile("Publish gone", 9.6));
+    await expect.poll(async () => (await api.call("GET", path(String(gone.id)))).status, { timeout: 15_000 }).toBe(200);
+    const draft = await save(await start({ profileId: String(gone.id), as: "version" }), soak("Publish gone", 5.9));
+    expect((await api.call("DELETE", path(String(gone.id)))).status).toBe(204);
+    const published = await publish(draft, { locations: [roastery.id] });
+    expect(published).toMatchObject({ replaced: null, hiddenAt: [], keptAt: [], moved: [], forked: [] });
+    expect((await profile(published.profile.id)).content.parentId).toBeNull();
+  });
+
   it("lets Staff publish to and return at their own Locations only, and a Viewer neither", async () => {
     const draft = await save(await start({ profileId: CLASSIC, as: "separate" }, staff), soak("Publish by Staff", 5.2), staff);
     expect((await refusal(staff, "POST", `/drafts/${draft.id}/publish`, { saves: draft.saves, locations: [cafe.id, roastery.id] }, 403)).message).toMatch(/only at the Locations they work at/);
