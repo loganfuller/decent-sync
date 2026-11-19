@@ -15,6 +15,7 @@ import {
   shotPuck,
   shotSamples,
   shotStopAt,
+  shotStopKnown,
   simulateProfile,
   sentStep,
   standardPuck,
@@ -262,6 +263,8 @@ describe("a step's target, exit and limiter", () => {
     expect(sentStep(step, "DE1")).toMatchObject({ flow: 4, exit: { value: 3 }, limiter: { value: 1.5, range: 0.625 } });
     expect(sentStep(step, "Bengle")).toMatchObject({ flow: 4, exit: { value: 3 }, limiter: { value: 1.5, range: 0.6 } });
     expect(sentStep(pressure("Hold", 8.6), "DE1")).toMatchObject({ pressure: 8.625 });
+    // Temperature goes in half degrees to either.
+    for (const model of MACHINE_MODELS) expect(sentStep(flow("Fill", 4, { temperature: 92.3 }), model).temperature).toBe(92.5);
   });
 
   it("run as sent: a flow too small for a DE1's byte pumps nothing", () => {
@@ -471,6 +474,15 @@ describe("a Shot's puck", () => {
     expect(shotPuck([], 18)).toBeNull();
   });
 
+  it("leaves out a cup's weight read before Decaid's tare at the profile's start landed", () => {
+    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: unknown };
+    const samples = shotSamples(record.measurements, profileOf(record.workflow.profile));
+    const first = samples.findIndex((sample) => sample.shade === null);
+    expect(samples[first + 1]!.values.weight).toBeLessThan(1);
+    const withCup = samples.map((sample, n) => (n === first ? { ...sample, values: { ...sample.values, weight: 120 } } : sample));
+    expect(shotPuck(withCup, 18)).toEqual(shotPuck(samples, 18));
+  });
+
   it("of one measured sample is its resistance there, not a mean with the fill's", () => {
     const values = { pressure: 9, flow: 1, weight: null, weightFlow: null, temperature: null };
     const targets = { pressure: null, flow: null, weight: null, weightFlow: null, temperature: null };
@@ -484,5 +496,15 @@ describe("a Shot's puck", () => {
     expect(shotStopAt(samples, "targetWeight")).toBe(last);
     expect(shotStopAt(samples, "appStop")).toBe(last);
     expect(shotStopAt(samples, "machineEnded")).toBeNull();
+  });
+
+  it("can't stop a run as the Shot stopped where its scale dropped out before a stop its machine didn't make", () => {
+    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: unknown };
+    const samples = shotSamples(record.measurements, profileOf(record.workflow.profile));
+    expect(shotStopKnown(samples, "appStop")).toBe(true);
+    const dropped = samples.map((sample) => (sample.shade === null && sample.seconds >= 12 ? { ...sample, values: { ...sample.values, weight: null } } : sample));
+    expect(shotStopKnown(dropped, "appStop")).toBe(false);
+    expect(shotStopKnown(dropped, "targetWeight")).toBe(false);
+    expect(shotStopKnown(dropped, "machineEnded")).toBe(true);
   });
 });

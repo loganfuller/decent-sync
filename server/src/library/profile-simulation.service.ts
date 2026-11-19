@@ -13,6 +13,7 @@ import {
   isRecordId,
   shotPuck,
   shotStopAt,
+  shotStopKnown,
   simulateProfile,
   standardPuck,
 } from "@decent-sync/protocol";
@@ -60,7 +61,8 @@ export interface ProfileSimulation {
    * On a Shot's puck, the Shot's own steps run on it, stopped as it stopped,
    * beside the Shot: each's duration, time to first drip, peak pressure and
    * each step's end. Null on the standard puck, and where Decaid would not
-   * read the Shot's own profile or it has more steps than a machine takes.
+   * read the Shot's own profile or it has more steps than a machine takes,
+   * and where its scale dropped out before it stopped (`shotStopKnown`).
    */
   fit: ShotFit | null;
 }
@@ -97,7 +99,8 @@ export class ProfileSimulationService {
     const puck = shotPuck(shot.samples, shot.dose);
     if (!puck) throw new ConflictException(`Shot ${ask.shotId} recorded no pressure and flow to work its puck out from`);
     const run = simulateProfile({ profile, puck, dose: ask.dose ?? puck.dose, stopAt, model: ask.model });
-    const fit = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: shotStopAt(shot.samples, shot.stopReason), model: shot.model }).fit : null;
+    const fittable = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS && shotStopKnown(shot.samples, shot.stopReason);
+    const fit = shot.profile && fittable ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: shotStopAt(shot.samples, shot.stopReason), model: shot.model }).fit : null;
     return { profile: of, model: ask.model, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks, fit };
   }
 }

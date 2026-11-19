@@ -72,7 +72,7 @@ function stepVolume(step: ProfileStep): number {
  * machine runs: its time (`stepSeconds`) and water (`stepVolume`), and its
  * target, exit and limiter each in one byte of the model's parts of a unit
  * (`ModelFigures.wireScale`), rounded, so a flow of 0.02 ml/s runs on a DE1
- * as none.
+ * as none, and its temperature in half degrees.
  */
 export function sentStep(step: ProfileStep, model: MachineModel = "DE1"): ProfileStep {
   const scale = MODEL_FIGURES[model].wireScale;
@@ -80,6 +80,8 @@ export function sentStep(step: ProfileStep, model: MachineModel = "DE1"): Profil
   const target = sent(stepTarget(step));
   return {
     ...step,
+    // In half degrees, to either model.
+    temperature: (Math.trunc(0.5 + step.temperature * 2) & 255) / 2,
     ...(step.pump === "pressure" ? { pressure: target } : { flow: target }),
     seconds: stepSeconds(step),
     volume: stepVolume(step),
@@ -241,7 +243,7 @@ export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | n
   }
   if (filling) return null;
   const resistance = monotoneInVolume(smoothed(points));
-  const firstDrip = timeToFirstDrip(shot);
+  const firstDrip = timeToFirstDrip(shot.slice(tareLanded(shot)));
   const last = lastRecordedWeight(shot);
   let holds = standardHolds;
   let yieldPerMl = 1;
@@ -255,6 +257,27 @@ export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | n
     holds = Math.max(0, through[at]! - firstWeight / yieldPerMl);
   }
   return { resistance, holds, yieldPerMl, dose: doseOf, measuredTo: pumped[pumped.length - 1]! };
+}
+
+/** The seconds from the start of its profile within which the tare Decaid sends then lands. */
+const TARE_LANDS = 2;
+
+/**
+ * The index of a Shot's first sample (`shotSamples`, after its Preheat) its
+ * scale read after the tare Decaid sends at the profile's start: past a cup's
+ * weight read before it landed, where the scale then reads under a gram
+ * within TARE_LANDS, as `timeToFirstDrip` counts that weight as recorded.
+ */
+function tareLanded(shot: readonly Sample<ShotCurve>[]): number {
+  let weighed = false;
+  let landed = 0;
+  for (let n = 0; n < shot.length && shot[n]!.seconds <= TARE_LANDS; n++) {
+    const weight = shot[n]!.values.weight;
+    if (weight === null) continue;
+    if (weight >= FIRST_DRIP_GRAMS) weighed = true;
+    else if (weighed) landed = n;
+  }
+  return landed;
 }
 
 /** Each resistance the median of it and its neighbours, two either side, which takes out a sample's spike. */
@@ -631,6 +654,22 @@ export function runFigures(run: SimulatedRun): RunFigures {
 export function shotStopAt(samples: readonly Sample<ShotCurve>[], stopReason: unknown): number | null {
   if (stopReason === "machineEnded") return null;
   return lastRecordedWeight(samples)?.weight ?? null;
+}
+
+/** How long before a Shot's last sample its scale's last weight may be and still be the weight it stopped at, s. */
+const SCALE_GAP = 1;
+
+/**
+ * Whether a run of a Shot's own steps can be stopped as it stopped
+ * (`shotStopAt`): not where its scale dropped out more than SCALE_GAP before
+ * a stop its machine didn't make, as the weight it stopped at is then
+ * unknown.
+ */
+export function shotStopKnown(samples: readonly Sample<ShotCurve>[], stopReason: unknown): boolean {
+  if (stopReason === "machineEnded") return true;
+  const shot = samples.filter((sample) => sample.shade === null);
+  const last = lastRecordedWeight(shot);
+  return !last || shot.length === 0 || shot[shot.length - 1]!.seconds - last.seconds <= SCALE_GAP;
 }
 
 /** A Shot's own steps run on its own puck, and how close the run comes to the Shot. */

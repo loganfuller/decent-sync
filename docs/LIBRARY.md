@@ -2382,8 +2382,9 @@ fit.
   from its samples after its Preheat: its resistance from its pressure and
   the flow through the puck at each sample where the pump was running and
   pressure had built, the water it took before its first drip, and the
-  grams that reached the cup for each ml through it after; none where no
-  sample shows its resistance. Another dose
+  grams that reached the cup for each ml through it after, past a cup's
+  weight read before Decaid's tare at the profile's start landed; none
+  where no sample shows its resistance. Another dose
   scales a puck's resistance in proportion and the water its coffee soaks
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
@@ -2465,7 +2466,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
   where Decaid would not read the Shot's own profile or it has more than 20
-  steps. 400 for a value out of range, or both `grind` and `shotId`; 404 for
+  steps, or where its scale dropped out more than a second before a stop its
+  Machine didn't make (`shotStopKnown`). 400 for a value out of range, or both `grind` and `shotId`; 404 for
   no such Profile or Shot; 409 for a Profile whose profile Decaid would not
   read or that has more than 20 steps, the most a machine takes, or a Shot
   whose samples show nothing of its puck's resistance: no pressure and flow
