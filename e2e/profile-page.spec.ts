@@ -88,7 +88,7 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await expect(graph.getByRole("radio", { name: "A standard puck" })).toBeChecked();
   await expect(graph.getByRole("radio", { name: "DE1" })).toBeChecked();
   await expect(graph.getByText("18 g in, stopping at 40 g, on a DE1")).toBeVisible();
-  const svg = graph.getByRole("img", { name: /^Simulated run of Lab Soak on a standard puck\./ });
+  const svg = graph.getByRole("figure", { name: /^Simulated run of Lab Soak on a standard puck\./ });
   await expect(svg).toHaveAccessibleName(/Fill: \d+\.\d s, pressure passed 4 bar\. Settle: Passed through at once\. Percolation: \d+\.\d s, the Shot stopped at 40 g\./);
   // Two bands, the step of no length none; the Fill's exit a threshold in the pressure lane; the Percolation's flow limit a band.
   await expect(svg.locator("[data-step-band]")).toHaveCount(2);
@@ -158,7 +158,7 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   const differs = page.getByRole("table", { name: "What differs between the versions" });
   await expect(rows(differs).first()).toHaveText("Percolation doesHolds 6.5 bar at once, flow limited to 1.5 ml/s, 2 °C coolerHolds 6 bar at once, flow limited to 1.5 ml/s, 2 °C cooler");
   await expect(differs).toContainText("Simulated on a standard puck, 18 g in, stopping at 40 g, on a DE1");
-  const both = page.getByRole("region", { name: "How each runs" }).getByRole("img");
+  const both = page.getByRole("region", { name: "How each runs" }).getByRole("figure");
   await expect(both).toHaveAccessibleName(/^Simulated run of Version 2/);
   await expect(both.locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
   await expect(both.locator("[data-compared-stop]")).toContainText("Version 1 stops");
@@ -183,14 +183,14 @@ test("a Profile simulated on a Shot's puck says how close the simulation comes, 
   await graph.getByRole("button", { name: "Lay a Shot over it" }).click();
   const picker = page.getByRole("dialog", { name: "Lay a Shot over the graph" });
   await picker.getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose the Shot of / }).click();
-  await expect(graph.getByRole("img").locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
+  await expect(graph.getByRole("figure").locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
   await expect(graph.getByText(/, with the Shot of .* on Puck lab group over it$/)).toBeVisible();
 
   // On its puck: its dose and the weight it stopped at, the table of how close a run of its own steps comes.
   await graph.getByRole("radio", { name: "A Shot's puck" }).click();
   await page.getByRole("dialog", { name: "Simulate on a Shot's puck" }).getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose / }).click();
   await expect(graph.getByRole("radio", { name: "A Shot's puck" })).toBeChecked();
-  await expect(graph.getByRole("img", { name: /^Simulated run of Classic Italian espresso on a Shot's puck\./ })).toBeVisible();
+  await expect(graph.getByRole("figure", { name: /^Simulated run of Classic Italian espresso on a Shot's puck\./ })).toBeVisible();
   const puck = graph.getByRole("complementary", { name: "The puck" });
   await expect(puck.getByRole("link", { name: "Classic Italian espresso on Puck lab group" })).toBeVisible();
   const fit = puck.getByRole("table", { name: "The simulation against the Shot" });
@@ -220,11 +220,15 @@ test("a Profile simulated on a Shot's puck says how close the simulation comes, 
   await expect(graph.getByLabel("Dose")).toHaveValue("19");
 
   // At the end of whichever ran longer, the other reads as stopped, not as its last values.
-  const overlaid = graph.getByRole("img", { name: /^Simulated run of Classic Italian espresso on a standard puck\./ });
-  await overlaid.focus();
+  // The graph's time slider takes the arrow keys, and says what the readout shows.
+  const overlaid = graph.getByRole("figure", { name: /^Simulated run of Classic Italian espresso on a standard puck\./ });
+  const moment = overlaid.getByRole("slider", { name: "A moment on the graph" });
+  await moment.focus();
   await page.keyboard.press("End");
   await expect(overlaid.locator("[data-readout]")).toContainText("Stopped");
-  await expect(graph.locator("[aria-live='polite']")).toContainText("Stopped");
+  await expect(moment).toHaveAttribute("aria-valuetext", /Stopped/);
+  await page.keyboard.press("Home");
+  await expect(moment).toHaveAttribute("aria-valuetext", /^0\.0 s.*: Pressure /);
 });
 
 test("a Profile asking for an outlandish pressure still draws", async ({ page }) => {
@@ -233,7 +237,7 @@ test("a Profile asking for an outlandish pressure still draws", async ({ page })
   const saved = await tablet.addProfile(soak("Outlandish Soak", { pressure: 1e20, temperature: 1e20 }));
   await waitForProfile(page, String(saved.id));
   await page.goto(profilePage(String(saved.id)));
-  const svg = page.getByRole("region", { name: "How it runs" }).getByRole("img", { name: /^Simulated run of Outlandish Soak/ });
+  const svg = page.getByRole("region", { name: "How it runs" }).getByRole("figure", { name: /^Simulated run of Outlandish Soak/ });
   await expect(svg).toBeVisible();
   await expect(svg.locator("[data-lane='pressure'] > g")).toHaveCount(6);
 });
@@ -245,16 +249,16 @@ test("a Profile's page fits a phone", async ({ page }) => {
   await waitForProfile(page, String(saved.id));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(profilePage(String(saved.id)));
-  const svg = page.getByRole("region", { name: "How it runs" }).getByRole("img", { name: /^Simulated run of Phone Soak/ });
+  const svg = page.getByRole("region", { name: "How it runs" }).getByRole("figure", { name: /^Simulated run of Phone Soak/ });
   await expect(svg).toBeVisible();
   // Pointing at its middle, where the readout fits neither side of the line, keeps the readout inside the graph.
   const graphBox = (await svg.boundingBox())!;
   await svg.hover({ position: { x: graphBox.width / 2, y: 120 } });
-  const readout = svg.locator("[data-readout] rect");
+  const readout = svg.locator("[data-readout]");
   await expect(readout).toBeVisible();
-  const [left, boxWidth] = [Number(await readout.getAttribute("x")), Number(await readout.getAttribute("width"))];
-  expect(left).toBeGreaterThanOrEqual(0);
-  expect(left + boxWidth).toBeLessThanOrEqual(graphBox.width);
+  const readoutBox = (await readout.boundingBox())!;
+  expect(readoutBox.x).toBeGreaterThanOrEqual(graphBox.x);
+  expect(readoutBox.x + readoutBox.width).toBeLessThanOrEqual(graphBox.x + graphBox.width);
   await expect(page.getByRole("table", { name: "Steps" })).toBeVisible();
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
   expect({ scrollWidth, clientWidth }).toEqual({ scrollWidth: 390, clientWidth: 390 });

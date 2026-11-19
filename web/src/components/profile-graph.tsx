@@ -1,5 +1,7 @@
 import { type Profile, type Sample, type ShotCurve, type SimulatedRun, sentStep } from "@decent-sync/protocol";
-import { type KeyboardEvent, type PointerEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, type RefObject, type SVGProps, useEffect, useId, useRef, useState } from "react";
+import { RECORD_CLASSES, RECORD_VARIABLES } from "@/components/record-colors";
+import { type GraphLayout, LANES, type Lane, type LaneLabel, type LaneRanges, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "@/lib/profile-graph-layout";
 import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/lib/profile-words";
 
 // A Profile's graph (#578): a simulated run of it in lanes of pressure, flow
@@ -10,7 +12,12 @@ import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/
 // the first drip and each 10 g in the cup. Drawn in the Shot page's colours:
 // blue for the run, orange for the Shot or version compared with it, dashed
 // grey for the plan. Pointing at a moment, or moving to it with the arrow
-// keys, reads the values there.
+// keys on the graph's time slider, reads the values there.
+//
+// Its layout (profile-graph-layout.ts) is apart from its drawing, the
+// drawing is hidden from screen readers, which read the graph in words from
+// its caption, and the readout has its own state, so pointing redraws only
+// the readout.
 
 /** A Shot, or another run, drawn over the run in orange. */
 export interface GraphCompared {
@@ -21,34 +28,9 @@ export interface GraphCompared {
   stop?: { seconds: number; label: string } | null;
 }
 
-const BLUE = "stroke-[#2a78d6] dark:stroke-[#3987e5]";
-const BLUE_FILL = "fill-[#2a78d6] dark:fill-[#3987e5]";
-const ORANGE = "stroke-[#eb6834] dark:stroke-[#d95926]";
-const ORANGE_FILL = "fill-[#eb6834] dark:fill-[#d95926]";
-
-type Lane = "pressure" | "flow" | "temperature";
-const LANES: { key: Lane; title: string; unit: string }[] = [
-  { key: "pressure", title: "Pressure", unit: "bar" },
-  { key: "flow", title: "Flow", unit: "ml/s" },
-  { key: "temperature", title: "Temperature", unit: "°C" },
-];
-
-/** The highest a pressure or flow lane reaches, bar or ml/s, past any a Machine runs at, so a Profile's outlandish value can't stretch it away. */
-const LANE_CEILING = 20;
-/** The range of temperatures, °C, the temperature lane may span. */
-const TEMPERATURE_FLOOR = 0;
-const TEMPERATURE_CEILING = 110;
-
-const TOP = 44;
-const LEFT = 36;
-const RIGHT = 8;
-const LANE_GAP = 22;
-const CUP_ROW = 30;
-const AXIS_ROW = 22;
-
 /** The graph's width as laid out, measured, so its text stays its size at any width. */
-function useWidth(): [RefObject<HTMLDivElement | null>, number] {
-  const ref = useRef<HTMLDivElement>(null);
+function useWidth(): [RefObject<HTMLElement | null>, number] {
+  const ref = useRef<HTMLElement>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const element = ref.current;
@@ -79,11 +61,6 @@ function sampleWithin<C extends string>(samples: readonly Sample<C>[], at: numbe
   return at > until + 0.05 ? undefined : sampleAt(samples, at);
 }
 
-/** A round top for an axis holding `value`, at least `least`, on a step of `step`. */
-function roundUp(value: number, least: number, step: number): number {
-  return Math.max(least, Math.ceil((value + 0.001) / step) * step);
-}
-
 /** An SVG path through points, broken where a point is null. */
 function pathOf(points: readonly ([number, number] | null)[]): string {
   let path = "";
@@ -97,6 +74,35 @@ function pathOf(points: readonly ([number, number] | null)[]): string {
     drawing = true;
   }
   return path;
+}
+
+let measuring: { context: CanvasRenderingContext2D | null; family: string } | undefined;
+
+/** How wide text is drawn, px, at `size` px and `weight`, in the page's font; an estimate where there is no canvas to measure with. */
+function textWidth(text: string, size: number, weight = 400): number {
+  measuring ??= typeof document === "undefined" ? { context: null, family: "" } : { context: document.createElement("canvas").getContext("2d"), family: getComputedStyle(document.body).fontFamily };
+  if (!measuring.context) return text.length * size * 0.56;
+  measuring.context.font = `${weight} ${size}px ${measuring.family}`;
+  return measuring.context.measureText(text).width;
+}
+
+/** Text cut to `width`, px, with an ellipsis where it doesn't fit whole. */
+function fitText(text: string, width: number, size: number, weight = 400): string {
+  if (textWidth(text, size, weight) <= width) return text;
+  let kept = text;
+  while (kept.length > 0 && textWidth(`${kept.trimEnd()}…`, size, weight) > width) kept = kept.slice(0, -1);
+  return kept.trim() === "" ? "" : `${kept.trimEnd()}…`;
+}
+
+/** Text drawn cut to fit, with the whole of it as its title where it was cut. */
+function FittedText({ text, width, size, weight = 400, ...props }: { text: string; width: number; size: number; weight?: number } & SVGProps<SVGTextElement>) {
+  const fitted = fitText(text, width, size, weight);
+  return (
+    <text {...props}>
+      {fitted !== text && <title>{text}</title>}
+      {fitted}
+    </text>
+  );
 }
 
 /** The plan beyond a run's stop: each step it did not finish, its target held for the time the machine would run it. */
@@ -118,13 +124,27 @@ function planBeyond(profile: Profile, run: SimulatedRun): { from: number; until:
   return plan;
 }
 
+/** A label in a lane: its text, the band it is in, and the lines it may sit above or below. */
+interface StepLabel {
+  key: string;
+  lane: Lane;
+  band: number;
+  x: number;
+  text: string;
+  /** Its text whole, where it was cut to fit its band. */
+  whole: string;
+  width: number;
+  top: number;
+  bottom: number;
+}
+
 export function ProfileGraph({
   profile,
   run,
   runLabel = "Simulated",
   compared,
   label,
-  compact = false,
+  ranges: pinned,
 }: {
   profile: Profile;
   run: SimulatedRun;
@@ -133,77 +153,74 @@ export function ProfileGraph({
   compared?: GraphCompared | null;
   /** The graph in words, for screen readers. */
   label: string;
-  /** Shorter lanes, as on a phone. */
-  compact?: boolean;
+  /** Lane ranges held as given, as while a target is dragged, rather than fitted to what is drawn. */
+  ranges?: Partial<LaneRanges>;
 }) {
   const [ref, width] = useWidth();
-  const [pointer, setPointer] = useState<number | null>(null);
   const clipId = useId();
-  const describedBy = useId();
+  const captionId = useId();
 
   const comparedSamples = (compared?.samples ?? []).filter((sample) => sample.seconds >= 0 && sample.shade === null);
   const comparedEnd = comparedSamples.at(-1)?.seconds ?? 0;
   const beyond = planBeyond(profile, run);
   const reached = Math.max(run.duration, comparedEnd);
-  const plannedEnd = beyond.at(-1)?.until ?? reached;
-  // The axis runs a little past the stop, so the plan beyond it shows without dwarfing the run.
-  const span = Math.min(Math.max(reached * 1.15, reached + 3), Math.max(plannedEnd, reached + 1));
-  const tick = span > 90 ? 20 : span > 40 ? 10 : 5;
-  const end = Math.max(tick, Math.ceil(span / tick) * tick);
-
-  // Shorter lanes on a narrow screen, as a phone's.
-  const short = compact || (width > 0 && width < 560);
-  const laneHeight = short ? 84 : 120;
-  const lanesTop = TOP;
-  const laneTop = (index: number) => lanesTop + index * (laneHeight + LANE_GAP);
-  const lanesBottom = laneTop(LANES.length - 1) + laneHeight;
-  const height = lanesBottom + CUP_ROW + AXIS_ROW;
-  const plotRight = Math.max(LEFT + 40, width - RIGHT);
-  const x = (at: number) => LEFT + (Math.min(Math.max(at, 0), end) / end) * (plotRight - LEFT);
-
-  // Each lane's range: what the run, the plan, the exits and limits and the compared record reach in it.
-  const temperatures = profile.steps.map((step) => step.temperature).filter((value) => value > 0);
-  const comparedTemperatures = comparedSamples.flatMap((sample) => (sample.values.temperature === null ? [] : [sample.values.temperature]));
-  const laneMax = (lane: "pressure" | "flow") => {
-    const values = [
-      ...run.samples.map((sample) => Math.max(sample.values[lane] ?? 0, sample.targets[lane] ?? 0)),
-      ...comparedSamples.map((sample) => sample.values[lane] ?? 0),
-      ...profile.steps.map((step) => (step.pump === lane ? (lane === "pressure" ? (step as { pressure: number }).pressure : (step as { flow: number }).flow) : 0)),
-      ...profile.steps.map((step) => (step.exit?.type === lane ? step.exit.value : 0)),
-      ...profile.steps.map((step) => (step.limiter && step.limiter.value > 0 && (step.pump === "pressure" ? "flow" : "pressure") === lane ? step.limiter.value : 0)),
-    ];
-    return roundUp(Math.min(LANE_CEILING, Math.max(0, ...values)), 4, 2);
-  };
-  const tempValues = [...temperatures, ...comparedTemperatures].map((value) => Math.min(TEMPERATURE_CEILING, Math.max(TEMPERATURE_FLOOR, value)));
-  const tempLow = tempValues.length > 0 ? Math.floor((Math.min(...tempValues) - 2) / 5) * 5 : 80;
-  const tempHigh = tempValues.length > 0 ? Math.max(tempLow + 10, Math.ceil((Math.max(...tempValues) + 2) / 5) * 5) : 100;
-  const ranges: Record<Lane, [number, number]> = { pressure: [0, laneMax("pressure")], flow: [0, laneMax("flow")], temperature: [tempLow, tempHigh] };
-  const y = (lane: Lane, value: number) => {
-    const index = LANES.findIndex((entry) => entry.key === lane);
-    const [low, high] = ranges[lane];
-    const share = (Math.min(Math.max(value, low), high) - low) / (high - low);
-    return laneTop(index) + laneHeight - share * laneHeight;
-  };
-  const yTicks = (lane: Lane): number[] => {
-    const [low, high] = ranges[lane];
-    const step = lane === "temperature" ? (high - low > 20 ? 10 : 5) : high > 12 ? 4 : 2;
-    const ticks: number[] = [];
-    for (let value = low; value <= high + 0.001; value += step) ticks.push(value);
-    return ticks;
-  };
+  const { end, tick } = timeAxis(reached, beyond.at(-1)?.until ?? reached);
+  const layout = graphLayout({ width, end, tick, ranges: { ...laneRanges(profile, run, comparedSamples), ...pinned } });
+  const { x, y, plot, lanes, height, short, cupY, ranges } = layout;
 
   // The plan in the lane of each sample's pump, a pump stopped as 0; null where the pump controls the other.
   const stepOf = (sample: Sample<ShotCurve>) => (sample.step ? profile.steps[sample.step.frame] : undefined);
-  const planPath = (lane: "pressure" | "flow") =>
-    pathOf(run.samples.map((sample) => (stepOf(sample)?.pump === lane ? [x(sample.seconds), y(lane, sample.targets[lane] ?? 0)] : null)));
-  const temperaturePlan = pathOf(run.samples.map((sample) => (sample.targets.temperature === null ? null : [x(sample.seconds), y("temperature", sample.targets.temperature)])));
-  const runPath = (lane: "pressure" | "flow") => pathOf(run.samples.map((sample) => (sample.values[lane] === null ? null : [x(sample.seconds), y(lane, sample.values[lane]!)])));
-  const comparedPath = (lane: Lane) =>
-    pathOf(comparedSamples.map((sample) => (sample.values[lane] === null || sample.values[lane] === undefined ? null : [x(sample.seconds), y(lane, sample.values[lane]!)])));
+  const planPoints = (lane: "pressure" | "flow") =>
+    run.samples.map((sample): [number, number] | null => (stepOf(sample)?.pump === lane ? [x(sample.seconds), y(lane, sample.targets[lane] ?? 0)] : null));
+  const temperaturePlan = run.samples.map((sample): [number, number] | null => (sample.targets.temperature === null ? null : [x(sample.seconds), y("temperature", sample.targets.temperature)]));
+  const runPoints = (lane: "pressure" | "flow") => run.samples.map((sample): [number, number] | null => (sample.values[lane] === null ? null : [x(sample.seconds), y(lane, sample.values[lane]!)]));
+  const comparedPoints = (lane: Lane) =>
+    comparedSamples.map((sample): [number, number] | null => (sample.values[lane] === null || sample.values[lane] === undefined ? null : [x(sample.seconds), y(lane, sample.values[lane]!)]));
+  const points: Record<Lane, { run: ([number, number] | null)[]; plan: ([number, number] | null)[]; compared: ([number, number] | null)[] }> = {
+    pressure: { run: runPoints("pressure"), plan: planPoints("pressure"), compared: comparedPoints("pressure") },
+    flow: { run: runPoints("flow"), plan: planPoints("flow"), compared: comparedPoints("flow") },
+    temperature: { run: [], plan: temperaturePlan, compared: comparedPoints("temperature") },
+  };
 
   const bands = run.steps.flatMap((ran) => (ran.start !== null && ran.end !== null && ran.end > ran.start ? [{ ...ran, start: ran.start, end: ran.end }] : []));
   const notReached = run.steps.some((ran) => ran.start === null);
   const preinfusionEnd = profile.target_volume_count_start > 0 ? run.steps[profile.target_volume_count_start - 1]?.end : null;
+  const showsPreinfusion = preinfusionEnd !== null && preinfusionEnd !== undefined && preinfusionEnd > 0;
+
+  // Each band's labels in the lanes: its limit, its exit and its temperature where it differs from the first step's.
+  const stepLabels: StepLabel[] = bands.flatMap((band) => {
+    const step = profile.steps[band.index];
+    if (!step) return [];
+    const room = Math.max(0, x(band.end) - x(band.start) - 8);
+    const labelled = (key: string, lane: Lane, whole: string, top: number, bottom: number): StepLabel => {
+      const text = fitText(whole, room, 11);
+      return { key, lane, band: band.index, x: x(band.start) + 4, text, whole, width: textWidth(text, 11), top, bottom };
+    };
+    const labels: StepLabel[] = [];
+    const limit = step.limiter && step.limiter.value > 0 ? step.limiter : null;
+    if (limit) {
+      const capped = step.pump === "pressure" ? "flow" : "pressure";
+      labels.push(labelled("limit", capped, `${capitalised(limitText(step) ?? "")}, easing over ${measure(limit.range)}`, y(capped, limit.value + limit.range), y(capped, limit.value)));
+    }
+    const exit = step.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null;
+    if (exit) labels.push(labelled("exit", exit.type, `Moves on ${exitText(exit)}`, y(exit.type, exit.value), y(exit.type, exit.value)));
+    if (band.index === 0 || step.temperature !== profile.steps[0]?.temperature || step.sensor !== profile.steps[0]?.sensor) {
+      const text = band.index === 0 ? `${measure(step.temperature)} °C at the ${step.sensor}` : `${signed(step.temperature - profile.steps[0]!.temperature)} °C, at the ${step.sensor}`;
+      labels.push(labelled("temperature", "temperature", text, y("temperature", step.temperature), y("temperature", step.temperature)));
+    }
+    return labels;
+  });
+  // Kept apart from each other, the lane's name, the preinfusion bar's and the curves, lane by lane.
+  const baselines = new Map<StepLabel, number>();
+  for (const lane of LANES) {
+    const here = stepLabels.filter((each) => each.lane === lane.key);
+    const title = `${lane.title} (${lane.unit})`;
+    const taken = [{ left: plot.right - 4 - textWidth(title, 12, 500), right: plot.right, top: lanes[lane.key].top, bottom: lanes[lane.key].top + 18 }];
+    if (lane.key === "pressure" && showsPreinfusion) taken.push({ left: plot.left, right: plot.left + 8 + textWidth("Preinfusion", 11), top: lanes.pressure.top, bottom: lanes.pressure.top + 20 });
+    const curves = [...points[lane.key].run, ...points[lane.key].plan, ...points[lane.key].compared].filter((point) => point !== null);
+    const placed = placeLabels(here.map((each): LaneLabel => ({ x: each.x, width: each.width, top: each.top, bottom: each.bottom })), lanes[lane.key].top, lanes[lane.key].bottom, curves, taken);
+    here.forEach((each, index) => baselines.set(each, placed[index]!));
+  }
 
   // The weight in the cup: its first drip, then each 10 g, as run.
   const cupMarks: { at: number; text: string }[] = [];
@@ -212,43 +229,23 @@ export function ProfileGraph({
     const crossing = run.samples.find((sample) => (sample.values.weight ?? 0) >= grams);
     if (crossing) cupMarks.push({ at: crossing.seconds, text: `${grams} g` });
   }
-  const cupY = lanesBottom + 18;
-
-  // Each record's values only while it runs: none for the run after it stopped, nor for the Shot after it did.
-  const runEnd = Math.max(run.duration, run.samples.at(-1)?.seconds ?? 0);
-  const pointed = pointer === null ? undefined : sampleWithin(run.samples, pointer, runEnd);
-  const pointedCompared = pointer === null ? undefined : sampleWithin(comparedSamples, pointer, comparedEnd);
-  const readout = pointer === null ? null : readoutRows(profile, runLabel, pointed, compared ? { label: compared.label, sample: pointedCompared } : undefined);
-  const onPointer = (event: PointerEvent<SVGSVGElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const at = ((event.clientX - box.left - LEFT) / (plotRight - LEFT)) * end;
-    setPointer(at < 0 || at > Math.max(run.duration, comparedEnd) ? null : at);
-  };
-  const onKey = (event: KeyboardEvent<SVGSVGElement>) => {
-    const by = event.shiftKey ? 5 : 0.5;
-    const last = Math.max(run.duration, comparedEnd);
-    if (event.key === "ArrowRight") setPointer((at) => Math.min(last, (at ?? -by) + by));
-    else if (event.key === "ArrowLeft") setPointer((at) => Math.max(0, (at ?? by) - by));
-    else if (event.key === "Home") setPointer(0);
-    else if (event.key === "End") setPointer(last);
-    else if (event.key === "Escape") setPointer(null);
-    else return;
-    event.preventDefault();
-  };
 
   return (
-    <div ref={ref} className="grid min-w-0 gap-3">
+    <figure ref={ref} aria-labelledby={captionId} style={RECORD_VARIABLES} className="m-0 grid min-w-0 gap-3">
+      <figcaption id={captionId} className="sr-only">
+        {label}
+      </figcaption>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-hidden>
         <span className="inline-flex items-center gap-1.5">
           <svg width="22" height="8">
-            <line x1="1" y1="4" x2="21" y2="4" className={BLUE} strokeWidth="2.5" strokeLinecap="round" />
+            <line x1="1" y1="4" x2="21" y2="4" className={RECORD_CLASSES.current.stroke} strokeWidth="2.5" strokeLinecap="round" />
           </svg>
           {runLabel}
         </span>
         {compared && (
           <span className="inline-flex items-center gap-1.5">
             <svg width="22" height="8">
-              <line x1="1" y1="4" x2="21" y2="4" className={ORANGE} strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="1" y1="4" x2="21" y2="4" className={RECORD_CLASSES.previous.stroke} strokeWidth="2.5" strokeLinecap="round" />
             </svg>
             {compared.label}
           </span>
@@ -273,236 +270,363 @@ export function ProfileGraph({
         </span>
       </div>
       {width > 0 && (
-        <svg
-          role="img"
-          aria-label={label}
-          aria-describedby={describedBy}
-          tabIndex={0}
-          width={width}
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-          className="block touch-pan-y text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onPointerMove={onPointer}
-          onPointerDown={onPointer}
-          onPointerLeave={(event) => event.pointerType === "mouse" && setPointer(null)}
-          onKeyDown={onKey}
-          data-graph-end={end}
-        >
-          <defs>
-            {bands.map((band) => (
-              <clipPath key={band.index} id={`${clipId}-band-${band.index}`}>
-                <rect x={x(band.start)} y={0} width={Math.max(0, x(band.end) - x(band.start) - 2)} height={height} />
-              </clipPath>
-            ))}
-          </defs>
+        <div className="relative" style={{ width, height }}>
+          {/* What the graph shows is its caption, in words; the drawing is left out of what screen readers read. */}
+          <svg role="none" width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block text-xs" data-graph-end={end}>
+            <defs>
+              {bands.map((band) => (
+                <clipPath key={band.index} id={`${clipId}-band-${band.index}`}>
+                  <rect x={x(band.start)} y={0} width={Math.max(0, x(band.end) - x(band.start) - 2)} height={height} />
+                </clipPath>
+              ))}
+            </defs>
+            <g aria-hidden="true">
+              {/* Each step a band, every other one shaded, named at the top with how long it ran and why it ended, cut to fit it. */}
+              {bands.map((band, order) => {
+                const room = Math.max(0, x(band.end) - x(band.start) - 8);
+                return (
+                  <g key={band.index} data-step-band={band.index}>
+                    {order % 2 === 0 && <rect x={x(band.start)} y={plot.top} width={x(band.end) - x(band.start)} height={plot.bottom - plot.top} className="fill-muted/60" />}
+                    <line x1={x(band.start)} x2={x(band.start)} y1={plot.top} y2={plot.bottom} className="stroke-border" />
+                    <g clipPath={`url(#${clipId}-band-${band.index})`}>
+                      <FittedText
+                        text={`${band.index + 1}  ${stepName(band, band.index)}`}
+                        width={room}
+                        size={13}
+                        weight={600}
+                        x={x(band.start) + 4}
+                        y={14}
+                        className="fill-foreground text-[13px] font-semibold"
+                      />
+                      <FittedText text={bandDetail(profile, run, band)} width={room} size={12} x={x(band.start) + 4} y={31} className="fill-muted-foreground" />
+                    </g>
+                  </g>
+                );
+              })}
 
-          {/* Each step a band, every other one shaded, named at the top with how long it ran and why it ended. */}
-          {bands.map((band, order) => (
-            <g key={band.index} data-step-band={band.index}>
-              {order % 2 === 0 && <rect x={x(band.start)} y={lanesTop} width={x(band.end) - x(band.start)} height={lanesBottom - lanesTop} className="fill-muted/60" />}
-              <line x1={x(band.start)} x2={x(band.start)} y1={lanesTop} y2={lanesBottom} className="stroke-border" />
-              <g clipPath={`url(#${clipId}-band-${band.index})`}>
-                <text x={x(band.start) + 4} y={14} className="fill-foreground text-[13px] font-semibold">
-                  {`${band.index + 1}  ${stepName(band, band.index)}`}
-                </text>
-                <text x={x(band.start) + 4} y={31} className="fill-muted-foreground">
-                  {bandDetail(profile, run, band)}
-                </text>
-              </g>
-            </g>
-          ))}
-
-          {/* Each lane's grid, values and name. */}
-          {LANES.map((lane, index) => (
-            <g key={lane.key} data-lane={lane.key}>
-              {yTicks(lane.key).map((value) => (
-                <g key={value}>
-                  <line x1={LEFT} x2={plotRight} y1={y(lane.key, value)} y2={y(lane.key, value)} className="stroke-border" strokeWidth={value === ranges[lane.key][0] ? 1 : 0.5} />
-                  <text x={LEFT - 6} y={y(lane.key, value) + 4} textAnchor="end" className="fill-muted-foreground">
-                    {value}
+              {/* Each lane's grid, values and name. */}
+              {LANES.map((lane) => (
+                <g key={lane.key} data-lane={lane.key}>
+                  {laneTicks(lane.key, ranges[lane.key]).map((value) => (
+                    <g key={value}>
+                      <line x1={plot.left} x2={plot.right} y1={y(lane.key, value)} y2={y(lane.key, value)} className="stroke-border" strokeWidth={value === ranges[lane.key][0] ? 1 : 0.5} />
+                      <text x={plot.left - 6} y={y(lane.key, value) + 4} textAnchor="end" className="fill-muted-foreground">
+                        {measure(value)}
+                      </text>
+                    </g>
+                  ))}
+                  <text x={plot.right - 4} y={lanes[lane.key].top + 14} textAnchor="end" className="fill-foreground font-medium">
+                    {`${lane.title} (${lane.unit})`}
                   </text>
                 </g>
               ))}
-              <text x={plotRight - 4} y={laneTop(index) + 14} textAnchor="end" className="fill-foreground font-medium">
-                {`${lane.title} (${lane.unit})`}
-              </text>
-            </g>
-          ))}
 
-          {preinfusionEnd !== null && preinfusionEnd !== undefined && preinfusionEnd > 0 && (
-            <g data-preinfusion>
-              <rect x={LEFT} y={lanesTop} width={x(preinfusionEnd) - LEFT} height={3} className="fill-muted-foreground/50" />
-              <text x={LEFT + 4} y={lanesTop + 16} className="fill-muted-foreground text-[11px]">
-                Preinfusion
-              </text>
-            </g>
-          )}
-
-          {/* Limits as bands in the lane each caps, and exits as thresholds in the lane each watches. */}
-          {bands.map((band) => {
-            const step = profile.steps[band.index];
-            if (!step) return null;
-            const limit = step.limiter && step.limiter.value > 0 ? step.limiter : null;
-            const capped = step.pump === "pressure" ? "flow" : "pressure";
-            const exit = step.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null;
-            return (
-              <g key={band.index}>
-                {limit && (
-                  <g data-limit={band.index}>
-                    <rect
-                      x={x(band.start)}
-                      width={x(band.end) - x(band.start)}
-                      y={y(capped, limit.value + limit.range)}
-                      height={Math.max(1, y(capped, limit.value) - y(capped, limit.value + limit.range))}
-                      className="fill-foreground/[0.07]"
-                    />
-                    <line x1={x(band.start)} x2={x(band.end)} y1={y(capped, limit.value)} y2={y(capped, limit.value)} className="stroke-foreground/40" />
-                    <text x={x(band.start) + 4} y={y(capped, limit.value + limit.range) - 4} clipPath={`url(#${clipId}-band-${band.index})`} className="fill-muted-foreground text-[11px]">
-                      {`${capitalised(limitText(step) ?? "")}, easing over ${measure(limit.range)}`}
-                    </text>
-                  </g>
-                )}
-                {exit && (
-                  <g data-exit={band.index}>
-                    <line
-                      x1={x(band.start)}
-                      x2={x(band.end)}
-                      y1={y(exit.type, exit.value)}
-                      y2={y(exit.type, exit.value)}
-                      className="stroke-foreground"
-                      strokeWidth={1.5}
-                      strokeDasharray="1 4"
-                      strokeLinecap="round"
-                    />
-                    <text x={x(band.start) + 4} y={y(exit.type, exit.value) - 5} clipPath={`url(#${clipId}-band-${band.index})`} className="fill-muted-foreground text-[11px]">
-                      {`Moves on ${exitText(exit)}`}
-                    </text>
-                  </g>
-                )}
-                {band.index === 0 || step.temperature !== profile.steps[0]?.temperature || step.sensor !== profile.steps[0]?.sensor ? (
-                  <text x={x(band.start) + 4} y={y("temperature", step.temperature) - 6} clipPath={`url(#${clipId}-band-${band.index})`} className="fill-muted-foreground text-[11px]">
-                    {band.index === 0
-                      ? `${measure(step.temperature)} °C at the ${step.sensor}`
-                      : `${signed(step.temperature - profile.steps[0]!.temperature)} °C, at the ${step.sensor}`}
+              {showsPreinfusion && (
+                <g data-preinfusion>
+                  <rect x={plot.left} y={plot.top} width={x(preinfusionEnd) - plot.left} height={3} className="fill-muted-foreground/50" />
+                  <text x={plot.left + 4} y={plot.top + 16} className="fill-muted-foreground text-[11px]">
+                    Preinfusion
                   </text>
-                ) : null}
+                </g>
+              )}
+
+              {/* Limits as bands in the lane each caps, and exits as thresholds in the lane each watches. */}
+              {bands.map((band) => {
+                const step = profile.steps[band.index];
+                if (!step) return null;
+                const limit = step.limiter && step.limiter.value > 0 ? step.limiter : null;
+                const capped = step.pump === "pressure" ? "flow" : "pressure";
+                const exit = step.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null;
+                return (
+                  <g key={band.index}>
+                    {limit && (
+                      <g data-limit={band.index}>
+                        <rect
+                          x={x(band.start)}
+                          width={x(band.end) - x(band.start)}
+                          y={y(capped, limit.value + limit.range)}
+                          height={Math.max(1, y(capped, limit.value) - y(capped, limit.value + limit.range))}
+                          className="fill-foreground/[0.07]"
+                        />
+                        <line x1={x(band.start)} x2={x(band.end)} y1={y(capped, limit.value)} y2={y(capped, limit.value)} className="stroke-foreground/40" />
+                        <StepLabelText labels={stepLabels} baselines={baselines} band={band.index} which="limit" />
+                      </g>
+                    )}
+                    {exit && (
+                      <g data-exit={band.index}>
+                        <line
+                          x1={x(band.start)}
+                          x2={x(band.end)}
+                          y1={y(exit.type, exit.value)}
+                          y2={y(exit.type, exit.value)}
+                          className="stroke-foreground"
+                          strokeWidth={1.5}
+                          strokeDasharray="1 4"
+                          strokeLinecap="round"
+                        />
+                        <StepLabelText labels={stepLabels} baselines={baselines} band={band.index} which="exit" />
+                      </g>
+                    )}
+                    <StepLabelText labels={stepLabels} baselines={baselines} band={band.index} which="temperature" />
+                  </g>
+                );
+              })}
+
+              {/* The plan, dashed behind the run, and faint beyond its stop. */}
+              <g className="stroke-muted-foreground" fill="none" strokeWidth={1.5} strokeDasharray="4 3" data-plan>
+                <path d={pathOf(points.pressure.plan)} />
+                <path d={pathOf(points.flow.plan)} />
+                <path d={pathOf(points.temperature.plan)} />
               </g>
-            );
-          })}
+              <g className="stroke-muted-foreground/40" fill="none" strokeWidth={1.5} strokeDasharray="4 3" data-plan-beyond>
+                {beyond.map((part, index) => (
+                  <line key={index} x1={x(part.from)} x2={x(Math.min(part.until, end))} y1={y(part.lane, part.target)} y2={y(part.lane, part.target)} />
+                ))}
+              </g>
+              {notReached && x(end) - x(run.stop.seconds) > 80 && (
+                <text x={(x(run.stop.seconds) + x(end)) / 2} y={(lanes.pressure.top + lanes.pressure.bottom) / 2} textAnchor="middle" className="fill-muted-foreground">
+                  Not reached
+                </text>
+              )}
 
-          {/* The plan, dashed behind the run, and faint beyond its stop. */}
-          <g className="stroke-muted-foreground" fill="none" strokeWidth={1.5} strokeDasharray="4 3" data-plan>
-            <path d={planPath("pressure")} />
-            <path d={planPath("flow")} />
-            <path d={temperaturePlan} />
-          </g>
-          <g className="stroke-muted-foreground/40" fill="none" strokeWidth={1.5} strokeDasharray="4 3" data-plan-beyond>
-            {beyond.map((part, index) => (
-              <line key={index} x1={x(part.from)} x2={x(Math.min(part.until, end))} y1={y(part.lane, part.target)} y2={y(part.lane, part.target)} />
-            ))}
-          </g>
-          {notReached && x(end) - x(run.stop.seconds) > 80 && (
-            <text x={(x(run.stop.seconds) + x(end)) / 2} y={laneTop(0) + laneHeight / 2} textAnchor="middle" className="fill-muted-foreground">
-              Not reached
-            </text>
-          )}
+              {compared && (
+                <g className={RECORD_CLASSES.previous.stroke} fill="none" strokeWidth={2} strokeLinejoin="round" data-compared>
+                  <path d={pathOf(points.pressure.compared)} />
+                  <path d={pathOf(points.flow.compared)} />
+                  <path d={pathOf(points.temperature.compared)} />
+                </g>
+              )}
+              <g className={RECORD_CLASSES.current.stroke} fill="none" strokeWidth={2.5} strokeLinejoin="round" data-run>
+                <path d={pathOf(points.pressure.run)} />
+                <path d={pathOf(points.flow.run)} />
+              </g>
 
-          {compared && (
-            <g className={ORANGE} fill="none" strokeWidth={2} strokeLinejoin="round" data-compared>
-              <path d={comparedPath("pressure")} />
-              <path d={comparedPath("flow")} />
-              <path d={comparedPath("temperature")} />
-            </g>
-          )}
-          <g className={BLUE} fill="none" strokeWidth={2.5} strokeLinejoin="round" data-run>
-            <path d={runPath("pressure")} />
-            <path d={runPath("flow")} />
-          </g>
+              {/* Where the compared record stopped, and where the run stops. */}
+              {compared?.stop && (
+                <g data-compared-stop>
+                  <line x1={x(compared.stop.seconds)} x2={x(compared.stop.seconds)} y1={plot.top} y2={plot.bottom} className={RECORD_CLASSES.previous.stroke} strokeDasharray="3 3" />
+                  {/* On the side away from the run's stop, so the two never cross. */}
+                  <text
+                    x={x(compared.stop.seconds) + (compared.stop.seconds > run.stop.seconds ? 4 : -4)}
+                    y={lanes.pressure.bottom - 6}
+                    textAnchor={compared.stop.seconds > run.stop.seconds ? "start" : "end"}
+                    className="fill-foreground text-[11px]"
+                  >
+                    {`${compared.stop.label}, ${seconds(compared.stop.seconds)}`}
+                  </text>
+                </g>
+              )}
+              <g data-stop>
+                <line x1={x(run.stop.seconds)} x2={x(run.stop.seconds)} y1={plot.top} y2={plot.bottom + 4} className="stroke-foreground" />
+                {/* Left of the line and a row lower where right of it would run into the lane's name. */}
+                <text
+                  x={x(run.stop.seconds) + (x(run.stop.seconds) > plot.right - 220 ? -6 : 6)}
+                  y={plot.top + (x(run.stop.seconds) > plot.right - 220 ? 32 : 16)}
+                  textAnchor={x(run.stop.seconds) > plot.right - 220 ? "end" : "start"}
+                  className="fill-foreground font-semibold"
+                >
+                  {`${run.stop.reason === "weight" ? "Stops" : "Ends"} at ${seconds(run.stop.seconds)}`}
+                </text>
+                {(["pressure", "flow"] as const).map((lane) => {
+                  const last = run.samples.at(-1)?.values[lane];
+                  return last === null || last === undefined ? null : (
+                    <circle key={lane} cx={x(run.stop.seconds)} cy={y(lane, last)} r={4} className={`${RECORD_CLASSES.current.fill} stroke-background`} strokeWidth={2} />
+                  );
+                })}
+              </g>
 
-          {/* Where the compared record stopped, and where the run stops. */}
-          {compared?.stop && (
-            <g data-compared-stop>
-              <line x1={x(compared.stop.seconds)} x2={x(compared.stop.seconds)} y1={lanesTop} y2={lanesBottom} className={ORANGE} strokeDasharray="3 3" />
-              {/* On the side away from the run's stop, so the two never cross. */}
-              <text
-                x={x(compared.stop.seconds) + (compared.stop.seconds > run.stop.seconds ? 4 : -4)}
-                y={laneTop(0) + laneHeight - 6}
-                textAnchor={compared.stop.seconds > run.stop.seconds ? "start" : "end"}
-                className="fill-foreground text-[11px]"
-              >
-                {`${compared.stop.label}, ${seconds(compared.stop.seconds)}`}
-              </text>
-            </g>
-          )}
-          <g data-stop>
-            <line x1={x(run.stop.seconds)} x2={x(run.stop.seconds)} y1={lanesTop} y2={lanesBottom + 4} className="stroke-foreground" />
-            {/* Left of the line and a row lower where right of it would run into the lane's name. */}
-            <text
-              x={x(run.stop.seconds) + (x(run.stop.seconds) > plotRight - 220 ? -6 : 6)}
-              y={lanesTop + (x(run.stop.seconds) > plotRight - 220 ? 32 : 16)}
-              textAnchor={x(run.stop.seconds) > plotRight - 220 ? "end" : "start"}
-              className="fill-foreground font-semibold"
-            >
-              {`${run.stop.reason === "weight" ? "Stops" : "Ends"} at ${seconds(run.stop.seconds)}`}
-            </text>
-            {(["pressure", "flow"] as const).map((lane) => {
-              const last = run.samples.at(-1)?.values[lane];
-              return last === null || last === undefined ? null : (
-                <circle key={lane} cx={x(run.stop.seconds)} cy={y(lane, last)} r={4} className={`${BLUE_FILL} stroke-background`} strokeWidth={2} />
-              );
-            })}
-          </g>
-
-          {/* The weight in the cup along the time axis. */}
-          <g data-cup>
-            <text x={4} y={cupY + 4} className="fill-muted-foreground text-[11px]">
-              {short ? "Cup" : "In the cup"}
-            </text>
-            {run.timeToFirstDrip !== null && <line x1={x(run.timeToFirstDrip)} x2={x(run.stop.seconds)} y1={cupY} y2={cupY} className="stroke-foreground" />}
-            {cupMarks.map((mark) => (
-              <g key={mark.text} data-cup-mark={mark.text}>
-                <line x1={x(mark.at)} x2={x(mark.at)} y1={cupY - 4} y2={cupY + 4} className="stroke-foreground" />
-                <text x={x(mark.at)} y={cupY - 8} textAnchor="middle" className="fill-muted-foreground text-[11px]">
-                  {short && mark.text === "First drip" ? "Drip" : mark.text}
+              {/* The weight in the cup along the time axis: the first drip's name left of its mark, so the next mark's never meets it. */}
+              <g data-cup>
+                <text x={4} y={cupY + 4} className="fill-muted-foreground text-[11px]">
+                  {short ? "Cup" : "In the cup"}
+                </text>
+                {run.timeToFirstDrip !== null && <line x1={x(run.timeToFirstDrip)} x2={x(run.stop.seconds)} y1={cupY} y2={cupY} className="stroke-foreground" />}
+                {cupMarks.map((mark) => {
+                  const drip = mark.text === "First drip";
+                  return (
+                    <g key={mark.text} data-cup-mark={mark.text}>
+                      <line x1={x(mark.at)} x2={x(mark.at)} y1={cupY - 4} y2={cupY + 4} className="stroke-foreground" />
+                      <text x={x(mark.at) + (drip ? 2 : 0)} y={cupY - 8} textAnchor={drip ? "end" : "middle"} className="fill-muted-foreground text-[11px]">
+                        {short && drip ? "Drip" : mark.text}
+                      </text>
+                    </g>
+                  );
+                })}
+                <text x={x(run.stop.seconds) + 6} y={cupY + 4} className="fill-foreground text-[11px] font-semibold">
+                  {`${measure(run.weight)} g`}
                 </text>
               </g>
-            ))}
-            <text x={x(run.stop.seconds) + 6} y={cupY + 4} className="fill-foreground text-[11px] font-semibold">
-              {`${measure(run.weight)} g`}
-            </text>
-          </g>
 
-          {/* The time axis. */}
-          {Array.from({ length: end / tick + 1 }, (_, index) => index * tick).map((at) => (
-            <text key={at} x={x(at)} y={height - 6} textAnchor={at === end ? "end" : "middle"} className="fill-muted-foreground">
-              {at === end ? `${at} s` : at}
-            </text>
-          ))}
+              {/* The time axis. */}
+              {layout.timeTicks().map((at) => (
+                <text key={at} x={x(at)} y={height - 6} textAnchor={at === end ? "end" : "middle"} className="fill-muted-foreground">
+                  {at === end ? `${at} s` : at}
+                </text>
+              ))}
+            </g>
+          </svg>
+          <GraphPointer layout={layout} profile={profile} run={run} runLabel={runLabel} compared={compared ? { label: compared.label, samples: comparedSamples, end: comparedEnd } : undefined} />
+        </div>
+      )}
+    </figure>
+  );
+}
 
-          {pointer !== null && readout && (pointed || pointedCompared) && (
-            <Readout
-              at={pointer}
-              x={x(pointer)}
-              top={lanesTop}
-              bottom={lanesBottom}
-              plotRight={plotRight}
-              y={y}
-              step={pointed?.step?.name}
-              rows={readout}
-              sample={pointed}
-              compared={pointedCompared}
-            />
-          )}
+/** One of a band's labels in a lane, where it was placed. */
+function StepLabelText({ labels, baselines, band, which }: { labels: StepLabel[]; baselines: Map<StepLabel, number>; band: number; which: string }) {
+  const label = labels.find((each) => each.band === band && each.key === which);
+  const baseline = label && baselines.get(label);
+  if (!label || baseline === undefined) return null;
+  return (
+    <text x={label.x} y={baseline} className="fill-muted-foreground text-[11px]">
+      {label.text !== label.whole && <title>{label.whole}</title>}
+      {label.text}
+    </text>
+  );
+}
+
+/** A row of the readout: what it names, its value, and the record it is of, which its mark shows. */
+interface ReadoutRow {
+  term: string;
+  value: string;
+  of: "run" | "plan" | "compared";
+}
+
+/** The values at the moment pointed at: the run's, against its plan, and the compared record's; "Stopped" for one that has. */
+function readoutRows(profile: Profile, runLabel: string, sample: Sample<ShotCurve> | undefined, compared: { label: string; sample: Sample<ShotCurve> | undefined } | undefined): ReadoutRow[] {
+  const rows: ReadoutRow[] = [];
+  if (sample) {
+    const step = sample.step ? profile.steps[sample.step.frame] : undefined;
+    const of = (lane: "pressure" | "flow") => (step?.pump === lane ? ` of ${measure(sample.targets[lane] ?? 0)}` : "");
+    rows.push(
+      { term: "Pressure", value: `${measure(sample.values.pressure ?? 0)} bar${of("pressure")}`, of: "run" },
+      { term: "Flow", value: `${measure(sample.values.flow ?? 0)} ml/s${of("flow")}`, of: "run" },
+      { term: "In the cup", value: `${measure(sample.values.weight ?? 0)} g`, of: "run" },
+    );
+    // Temperature is not simulated: the plan's.
+    if (sample.targets.temperature !== null && sample.targets.temperature !== undefined) rows.push({ term: "Temperature", value: `${measure(sample.targets.temperature)} °C planned`, of: "plan" });
+  } else rows.push({ term: runLabel, value: "Stopped", of: "run" });
+  if (compared) {
+    const values = compared.sample?.values;
+    const temperature = values?.temperature === null || values?.temperature === undefined ? "" : `, ${measure(values.temperature)} °C`;
+    rows.push({
+      term: compared.label,
+      value: !values ? "Stopped" : [values.pressure, values.flow].every((value) => value !== null) ? `${measure(values.pressure!)} bar, ${measure(values.flow!)} ml/s${temperature}` : "-",
+      of: "compared",
+    });
+  }
+  return rows;
+}
+
+/**
+ * The moment pointed at, or moved to with the arrow keys on the graph's time
+ * slider: a line there with each record's points on it, and the values in a
+ * tooltip over the graph, as the Shot page's charts give them. Its own state,
+ * so pointing redraws only this.
+ */
+function GraphPointer({
+  layout,
+  profile,
+  run,
+  runLabel,
+  compared,
+}: {
+  layout: GraphLayout;
+  profile: Profile;
+  run: SimulatedRun;
+  runLabel: string;
+  compared: { label: string; samples: Sample<ShotCurve>[]; end: number } | undefined;
+}) {
+  const [pointer, setPointer] = useState<number | null>(null);
+  // Each record's values only while it runs: none for the run after it stopped, nor for the Shot after it did.
+  const runEnd = Math.max(run.duration, run.samples.at(-1)?.seconds ?? 0);
+  const last = Math.max(run.duration, compared?.end ?? 0);
+  const pointed = pointer === null ? undefined : sampleWithin(run.samples, pointer, runEnd);
+  const pointedCompared = pointer === null || !compared ? undefined : sampleWithin(compared.samples, pointer, compared.end);
+  const showing = pointer !== null && (pointed !== undefined || pointedCompared !== undefined);
+  const rows = showing ? readoutRows(profile, runLabel, pointed, compared ? { label: compared.label, sample: pointedCompared } : undefined) : [];
+  const heading = showing ? `${seconds(pointer)}${pointed?.step ? ` · ${pointed.step.name}` : ""}` : "";
+
+  const onPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const at = layout.secondsAt(event.clientX - event.currentTarget.getBoundingClientRect().left);
+    setPointer(at < 0 || at > last ? null : at);
+  };
+  const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const by = event.shiftKey || event.key === "PageUp" || event.key === "PageDown" ? 5 : 0.5;
+    if (["ArrowRight", "ArrowUp", "PageUp"].includes(event.key)) setPointer((at) => Math.min(last, (at ?? -by) + by));
+    else if (["ArrowLeft", "ArrowDown", "PageDown"].includes(event.key)) setPointer((at) => Math.max(0, (at ?? by) - by));
+    else if (event.key === "Home") setPointer(0);
+    else if (event.key === "End") setPointer(last);
+    else if (event.key === "Escape") setPointer(null);
+    else return;
+    event.preventDefault();
+  };
+
+  const at = pointer ?? 0;
+  const px = layout.x(at);
+  // The tooltip on the side of the line with more room, as wide as that room allows, its text wrapping within it.
+  const onLeft = px > layout.width / 2;
+  const room = Math.max(96, (onLeft ? px : layout.width - px) - 18);
+  return (
+    <>
+      {showing && (
+        <svg aria-hidden className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height}>
+          <line x1={px} x2={px} y1={layout.plot.top} y2={layout.plot.bottom} className="stroke-foreground/50" />
+          {pointed &&
+            (["pressure", "flow"] as const).map((lane) =>
+              pointed.values[lane] === null ? null : (
+                <circle key={lane} cx={px} cy={layout.y(lane, pointed.values[lane]!)} r={4} className={`${RECORD_CLASSES.current.fill} stroke-background`} strokeWidth={2} />
+              ),
+            )}
+          {pointedCompared &&
+            (["pressure", "flow"] as const).map((lane) =>
+              pointedCompared.values[lane] === null || pointedCompared.values[lane] === undefined ? null : (
+                <circle key={`c-${lane}`} cx={px} cy={layout.y(lane, pointedCompared.values[lane]!)} r={4} className={`${RECORD_CLASSES.previous.fill} stroke-background`} strokeWidth={2} />
+              ),
+            )}
         </svg>
       )}
-      {/* The values at the moment moved to, for screen readers, as the readout draws them. */}
-      <p id={describedBy} className="sr-only">
-        Move along it with the arrow keys to read the values at a moment.
-      </p>
-      <p className="sr-only" aria-live="polite">
-        {pointer !== null && readout && (pointed || pointedCompared) ? `${seconds(pointer)}: ${readout.map(([term, value]) => `${term} ${value}`).join(", ")}` : ""}
-      </p>
-    </div>
+      {showing && (
+        <div
+          data-readout
+          aria-hidden
+          className="pointer-events-none absolute grid items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl"
+          style={{ top: layout.plot.top + 34, maxWidth: room, minWidth: Math.min(128, room), ...(onLeft ? { right: layout.width - px + 10 } : { left: px + 10 }) }}
+        >
+          <div className="font-medium">{heading}</div>
+          <div className="grid gap-1.5">
+            {rows.map((row) => (
+              <div key={row.term} className="flex w-full items-center gap-2">
+                <div
+                  className={`h-2.5 w-2.5 shrink-0 rounded-[2px] ${
+                    row.of === "run" ? RECORD_CLASSES.current.background : row.of === "compared" ? RECORD_CLASSES.previous.background : "border-[1.5px] border-dashed border-muted-foreground"
+                  }`}
+                />
+                <div className="flex flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 leading-tight">
+                  <span className="text-muted-foreground">{row.term}</span>
+                  <span className="font-mono font-medium text-foreground tabular-nums">{row.value}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="A moment on the graph"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(last * 10) / 10}
+        aria-valuenow={Math.round(at * 10) / 10}
+        aria-valuetext={showing ? `${heading}: ${rows.map((row) => `${row.term} ${row.value}`).join(", ")}` : "Move along the graph with the arrow keys to read its values"}
+        className="absolute inset-x-0 bottom-0 touch-pan-y rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ top: layout.plot.top }}
+        onPointerMove={onPointer}
+        onPointerDown={onPointer}
+        onPointerLeave={(event) => event.pointerType === "mouse" && setPointer(null)}
+        onKeyDown={onKey}
+      />
+    </>
   );
 }
 
@@ -523,89 +647,4 @@ function capitalised(text: string): string {
 
 function signed(value: number): string {
   return `${value < 0 ? "−" : "+"}${measure(Math.abs(value))}`;
-}
-
-/** The values at the moment pointed at: the run's, against its plan, and the compared record's; "Stopped" for one that has. */
-function readoutRows(profile: Profile, runLabel: string, sample: Sample<ShotCurve> | undefined, compared: { label: string; sample: Sample<ShotCurve> | undefined } | undefined): [string, string][] {
-  const rows: [string, string][] = [];
-  if (sample) {
-    const step = sample.step ? profile.steps[sample.step.frame] : undefined;
-    const of = (lane: "pressure" | "flow") => (step?.pump === lane ? ` of ${measure(sample.targets[lane] ?? 0)}` : "");
-    rows.push(
-      ["Pressure", `${measure(sample.values.pressure ?? 0)} bar${of("pressure")}`],
-      ["Flow", `${measure(sample.values.flow ?? 0)} ml/s${of("flow")}`],
-      ["In the cup", `${measure(sample.values.weight ?? 0)} g`],
-    );
-    // Temperature is not simulated: the plan's.
-    if (sample.targets.temperature !== null && sample.targets.temperature !== undefined) rows.push(["Temperature", `${measure(sample.targets.temperature)} °C planned`]);
-  } else rows.push([runLabel, "Stopped"]);
-  if (compared) {
-    const values = compared.sample?.values;
-    const temperature = values?.temperature === null || values?.temperature === undefined ? "" : `, ${measure(values.temperature)} °C`;
-    rows.push([
-      compared.label,
-      !values ? "Stopped" : [values.pressure, values.flow].every((value) => value !== null) ? `${measure(values.pressure!)} bar, ${measure(values.flow!)} ml/s${temperature}` : "-",
-    ]);
-  }
-  return rows;
-}
-
-/** The readout drawn at the moment pointed at: a line, each record's points on it, and the values in a box. */
-function Readout({
-  at,
-  x,
-  top,
-  bottom,
-  plotRight,
-  y,
-  step,
-  rows,
-  sample,
-  compared,
-}: {
-  at: number;
-  x: number;
-  top: number;
-  bottom: number;
-  plotRight: number;
-  y: (lane: Lane, value: number) => number;
-  /** The name of the step running then. */
-  step: string | undefined;
-  rows: [string, string][];
-  sample: Sample<ShotCurve> | undefined;
-  compared: Sample<ShotCurve> | undefined;
-}) {
-  // Within the plot, as on a phone, where the box fits neither side of the line: then across it.
-  const boxWidth = Math.min(rows.some(([term]) => term.length > 12) ? 280 : 200, plotRight - 2);
-  const boxHeight = 30 + rows.length * 18;
-  const left = Math.max(2, Math.min(plotRight - boxWidth, x + 10 + boxWidth > plotRight ? x - 10 - boxWidth : x + 10));
-  return (
-    <g pointerEvents="none" data-readout>
-      <line x1={x} x2={x} y1={top} y2={bottom} className="stroke-foreground/50" />
-      {sample &&
-        (["pressure", "flow"] as const).map((lane) =>
-          sample.values[lane] === null ? null : <circle key={lane} cx={x} cy={y(lane, sample.values[lane]!)} r={4} className={`${BLUE_FILL} stroke-background`} strokeWidth={2} />,
-        )}
-      {compared &&
-        (["pressure", "flow"] as const).map((lane) =>
-          compared.values[lane] === null || compared.values[lane] === undefined ? null : (
-            <circle key={`c-${lane}`} cx={x} cy={y(lane, compared.values[lane]!)} r={4} className={`${ORANGE_FILL} stroke-background`} strokeWidth={2} />
-          ),
-        )}
-      <rect x={left} y={top + 34} width={boxWidth} height={boxHeight} rx={8} className="fill-background stroke-border" />
-      <text x={left + 12} y={top + 54} className="fill-foreground font-semibold">
-        {`${seconds(at)}${step ? ` · ${step}` : ""}`}
-      </text>
-      {rows.map(([term, value], index) => (
-        <g key={term}>
-          <text x={left + 12} y={top + 74 + index * 18} className="fill-muted-foreground">
-            {term}
-          </text>
-          <text x={left + boxWidth - 12} y={top + 74 + index * 18} textAnchor="end" className="fill-foreground font-semibold">
-            {value}
-          </text>
-        </g>
-      ))}
-    </g>
-  );
 }

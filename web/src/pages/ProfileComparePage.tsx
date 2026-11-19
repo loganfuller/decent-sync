@@ -5,7 +5,7 @@ import { CardTitleWithInfo } from "@/components/info-tip";
 import { ProfileGraph } from "@/components/profile-graph";
 import { DoseFields, GrindControl, ModelChoice, type PuckAsk, startingAsk, unsimulatable } from "@/components/profile-simulation";
 import { profilePath, profileTitle } from "@/components/profiles";
-import { CurveMark } from "@/components/curves";
+import { CurveMark } from "@/components/record-colors";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";

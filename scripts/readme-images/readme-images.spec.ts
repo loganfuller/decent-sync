@@ -486,7 +486,7 @@ test("README screenshots", async ({ page }) => {
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);
       await page.reload();
-      await expect(runs.getByRole("img", { name: /^Simulated run of / })).toBeVisible();
+      await expect(runs.getByRole("figure", { name: /^Simulated run of / })).toBeVisible();
       await expect(page.getByRole("region", { name: "Recipes on this version" }).getByRole("listitem").first()).toBeVisible();
       await page.waitForTimeout(1500);
       await page.mouse.move(0, 0);

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { CollapsibleCard } from "@/components/collapsible-card";
-import { CurveMark } from "@/components/curves";
+import { CurveMark } from "@/components/record-colors";
 import { InfoTip } from "@/components/info-tip";
 import { OrNone, numberText, secondsText } from "@/components/records";
 import { RatingAndNote } from "@/components/shot-edits";
