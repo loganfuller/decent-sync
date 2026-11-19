@@ -114,7 +114,7 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
     { path: `/machines/${machineId}?tab=setup`, loaded: (page) => page.getByRole("region", { name: "Location" }).getByRole("definition").first() },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },
-    { path: "/library/bean-batches", loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(), staffHave: "button New batch" },
+    { path: "/library/bean-batches", loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(), staffHave: "button New Batch" },
     { path: `/library/bean-batches/${ids.batch}`, loaded: uptownRow, staffHave: "button Finish it at Uptown" },
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },
@@ -147,7 +147,12 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       filters: [/^button Hide History$/, /^button (Show|Hide) the (\d+ )?fields? not set$/],
     },
     // Every Location's Recipes (#547), with Archived ones on asking, which changes nothing.
-    { path: "/library/recipes", loaded: (page) => rows(page.getByRole("table", { name: "Recipes at Uptown" })).first(), filters: [/^checkbox Show archived/] },
+    {
+      path: "/library/recipes",
+      loaded: (page) => rows(page.getByRole("table", { name: "Recipes at Uptown" })).first(),
+      staffHave: "button New Recipe",
+      filters: [/^checkbox Show archived/],
+    },
   ];
 
   await asNew(page, browser, "staff", location.id, async (samsPage) => {

@@ -617,14 +617,14 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant={bean ? "outline" : "default"}>New batch</Button>
+        <Button variant={bean ? "outline" : "default"}>New Batch</Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>New batch{bean ? ` of ${bean.name ?? "Unnamed Bean"}` : ""}</DialogTitle>
+          <DialogTitle>New Batch{bean ? ` of ${bean.name ?? "Unnamed Bean"}` : ""}</DialogTitle>
           <DialogDescription>A roast of a Bean, written with its Bean to the tablets at each Location it is added at.</DialogDescription>
         </DialogHeader>
-        <form aria-label="New batch" className="grid gap-4" onSubmit={create}>
+        <form aria-label="New Batch" className="grid gap-4" onSubmit={create}>
           {error && <FormError error={error} />}
           {!bean && (
             <div className="grid gap-2">

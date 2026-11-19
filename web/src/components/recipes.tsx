@@ -659,6 +659,71 @@ function RecipeFormDialog({
   );
 }
 
+/**
+ * New Recipe on the Library's Recipes tab: the Location chosen first, of
+ * those the account may change, or the only one, then the form a Location's
+ * page creates one with.
+ */
+export function NewRecipeDialog({ places }: { places: { location: Location; recipes: Recipe[] }[] | undefined }) {
+  const navigate = useNavigate();
+  const mayChangeAt = useMayChangeAt();
+  const [open, setOpen] = useState(false);
+  const choosable = (places ?? []).filter(({ location }) => mayChangeAt(location.id));
+  const [locationId, setLocationId] = useState("");
+  const chosen = choosable.length === 1 ? choosable[0] : choosable.find(({ location }) => location.id === locationId);
+  const id = useId();
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setLocationId("");
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button>New Recipe</Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>New Recipe</DialogTitle>
+          <DialogDescription>
+            {chosen ? `A Recipe at ${chosen.location.name}, written to every tablet at ${chosen.location.name}.` : "A Recipe belongs to one Location, and is written to every tablet there."} A
+            Recipe carries no barista or drinker.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <Label htmlFor={`${id}-location`}>Location</Label>
+          <Select value={chosen?.location.id ?? ""} onValueChange={setLocationId}>
+            <SelectTrigger id={`${id}-location`} className="w-full">
+              <SelectValue placeholder="Choose its Location" />
+            </SelectTrigger>
+            <SelectContent>
+              {choosable.map(({ location }) => (
+                <SelectItem key={location.id} value={location.id}>
+                  {location.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {open && chosen && (
+          <RecipeForm
+            key={chosen.location.id}
+            location={chosen.location}
+            recipes={chosen.recipes}
+            label="New Recipe"
+            onSaved={async (recipeId) => {
+              setOpen(false);
+              setLocationId("");
+              void navigate(`${LIBRARY_KINDS.recipe.pages}/${recipeId}`);
+            }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RecipeForm({
   location,
   recipes,
