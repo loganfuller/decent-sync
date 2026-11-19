@@ -13,6 +13,7 @@ import { BeanBatchesPage } from "@/pages/BeanBatchesPage";
 import { BeanPage } from "@/pages/BeanPage";
 import { BeansPage } from "@/pages/BeansPage";
 import { ConflictsPage } from "@/pages/ConflictsPage";
+import { DraftPage } from "@/pages/DraftPage";
 import { GrinderPage } from "@/pages/GrinderPage";
 import { GrindersPage } from "@/pages/GrindersPage";
 import { InvitePage } from "@/pages/InvitePage";
@@ -20,6 +21,7 @@ import { LocationPage } from "@/pages/LocationPage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
+import { NewProfilePage } from "@/pages/NewProfilePage";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { ProfileComparePage } from "@/pages/ProfileComparePage";
 import { ProfilePage } from "@/pages/ProfilePage";
@@ -71,6 +73,8 @@ export function App() {
             <Route path="/library/grinders" element={<GrindersPage />} />
             <Route path="/library/grinders/:id" element={<GrinderPage />} />
             <Route path="/library/profiles" element={<ProfilesPage />} />
+            <Route path="/library/profiles/new" element={<NewProfilePage />} />
+            <Route path="/library/drafts/:id" element={<DraftPage />} />
             <Route path="/library/profiles/:id" element={<ProfilePage />} />
             <Route path="/library/profiles/:id/compare/:other" element={<ProfileComparePage />} />
             <Route path="/library/baskets" element={<BasketsPage />} />

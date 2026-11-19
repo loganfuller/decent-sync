@@ -674,7 +674,8 @@ const KEEPS_UP: Readonly<Record<MachineModel, string>> = {
   Bengle: `a Bengle's heater keeps up with about ${MODEL_FIGURES.Bengle.maxFlow} ml/s at most`,
 };
 
-function fieldLabel(profile: Profile, field: ProfileField): string {
+/** A profile's field named for a person, by its path: "Step 2, "Pour": its pressure", or "Tank temperature". */
+export function fieldLabel(profile: Profile, field: ProfileField): string {
   if (field.step === null) return FIELD_NAMES[field.path] ?? field.path;
   const name = FIELD_NAMES[field.path.replace(/^steps\.\d+\./, "")] ?? field.path;
   return `${stepLabel(profile, field.step)}: its ${name}`;

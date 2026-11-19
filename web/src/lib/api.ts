@@ -1,4 +1,4 @@
-import type { MachineModel, Profile as ProfileDefinition } from "@decent-sync/protocol";
+import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks } from "@decent-sync/protocol";
 import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
@@ -1121,6 +1121,50 @@ export interface Profile extends ProfileSummary {
    * it is one, otherwise a DE1. Absent from a server of the release before (ADR-0025).
    */
   machineModel?: MachineModel;
+}
+
+/** A Draft as the Library lists it (#579): a profile being written or changed here, on no tablet until it is published. */
+export interface DraftSummary {
+  id: string;
+  /** Its profile's title, empty for none yet. */
+  title: string;
+  /** The Library Profile it was started from, by Edit or Duplicate; its title and bundled null where the Library no longer has it. */
+  startedFrom: { id: string; title: string | null; bundled: boolean | null } | null;
+  /** The starting shape it was started from. */
+  shape: { key: string; title: string } | null;
+  /** A new version of the Profile it was started from, or a separate Profile. */
+  publishesAs: "version" | "separate";
+  /** Who saved it last. */
+  savedBy: EditSource;
+  savedAt: string;
+  /** How many times it has been saved: a save names the count it started from. */
+  saves: number;
+  createdAt: string;
+}
+
+/** A Draft with its profile and checks. */
+export interface Draft extends DraftSummary {
+  profile: ProfileDefinition;
+  /** The id Decaid would give its profile. */
+  profileId: string;
+  /** The models the account has Machines of: its values are held to the widest of their ranges. */
+  models: MachineModel[];
+  /** The model it is simulated as unless another is chosen. */
+  machineModel: MachineModel;
+  /** Its checks but those of a simulated run, which the page makes itself. */
+  checks: ProfileChecks;
+}
+
+/** A Draft started, with what of a file was held to the ranges. */
+export interface StartedDraft {
+  draft: Draft;
+  held: HeldValue[];
+}
+
+/** A Draft saved, and the saves made between the count it started from and this one, if any. */
+export interface SavedDraft {
+  draft: Draft;
+  between: { saves: number; savedBy: EditSource; savedAt: string } | null;
 }
 
 /** One of a Profile's Profile Versions: a Profile in the chain of Decaid's `parentId` links through it. */
