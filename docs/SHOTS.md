@@ -762,14 +762,9 @@ the tablet no longer holds the Shot (When two edits cross, below).
   one whose tablet connects and no longer holds the Shot is marked so,
   and waits no more.
 - **Releases (ADR-0025).** `shotEdit` and `shotEdited` came in wire
-  revision 3 (`SHOT_EDITS_WIRE_REVISION`; `AI_PROTOCOL_NOTES.md`, A Shot's
-  edits). The server sends an edit only to a plugin at it, so one for a
-  tablet on the previous release's plugin awaits that tablet until its
-  plugin is at it. The previous release's instance neither listens for
-  `shot_edits` nor knows the table, so a tablet it holds during a deploy is
-  sent nothing until it connects to an instance of this release, and a
-  `shotUpdated` reaching that instance is an ordinary Shot update. The
-  migration adds the table only.
+  revision 3 (`AI_PROTOCOL_NOTES.md`, A Shot's edits), which every plugin
+  the server accepts has had since the wire moved to revision 4 (#581), so
+  its checks are gone.
 - **Verified** through Seam 1 with the built plugin in simulated tablets,
   which carry out Decaid's Shot update as its source has it at v0.9.1 and
   v0.9.2 (`server/test/support/decaid-shots.ts`): that update was read,
@@ -785,7 +780,7 @@ the tablet no longer holds the Shot (When two edits cross, below).
   Shot reported by another tablet, whose first tablet's answer no
   longer counts, a Capture-only Machine's tablet, a mismatched connection,
   a Shot no tablet held until an index listed it, a Shot's newest hundred
-  edits listed, and a plugin behind the wire revision. `server/test/shot-edit-writes.test.ts`
+  edits listed. `server/test/shot-edit-writes.test.ts`
   runs the connection's writer on a clock the test moves: its order, a
   refusal, its retry, an answer that comes late, a look that fails. The mixed-versions suite
   leaves an edit awaiting a tablet on the previous release's plugin, and
@@ -876,9 +871,9 @@ Shot's rating and note). It is one call for any Shot, and two paths.
   credited under the Shot's lock, taking its Machine's row. Taken the
   other way round, an edit of a Shot credited to the asking Machine could
   wait on that delivery while it waited on the edit.
-- **Never queued.** While the plugin isn't connected, or its server is the
-  previous release's, the request is refused at once, as unreachable or
-  too old to ask, and nothing is kept: no edit is made later. An edit the
+- **Never queued.** While the plugin isn't connected, the request is
+  refused at once, as unreachable, and nothing is kept: no edit is made
+  later. An edit the
   plugin sent and has no answer to, as when its connection closes
   meanwhile, may have been made, as a choice may.
 - **At once, behind nothing.** The request waits for nothing the tablet has
@@ -892,11 +887,9 @@ Shot's rating and note). It is one call for any Shot, and two paths.
 - **Releases (ADR-0025).** The ask came in requests' wire revision, 3,
   before any release had requests, so it has no check of its own. The
   migration adds two nullable columns, with their indexes and keys, to a
-  table the previous release neither reads nor writes. A tablet the
-  previous release's instance holds during a deploy edits its own Shots as
-  before, as that needs no server, and is refused any other as too old to
-  ask. The previous release's plugin has no `shot` endpoint, so Decaid
-  answers a Skin 404 for it.
+  table the previous release neither reads nor writes. Every release a
+  plugin works with has had requests since the wire moved to revision 4
+  (#581), so a plugin no longer refuses one as too old to ask.
 - **Verified** through Seam 1 with the built plugin in simulated tablets,
   three at one Location and one at another
   (`server/test/skin-shot-edits.test.ts`): a rating edited on the other
@@ -917,9 +910,7 @@ Shot's rating and note). It is one call for any Shot, and two paths.
   refused and unchanged then, the edit crossing two instances on one
   database once asked again; and a Shot deleted on the tablet the server
   credits with it, edited from that tablet, kept as its Machine's with no
-  tablet to reach. The mixed-versions suite has a tablet the
-  previous release's instance holds edit its own Shot and be refused
-  another's as too old to ask. Nothing was run on a real tablet.
+  tablet to reach. Nothing was run on a real tablet.
 
 ### When two edits cross
 

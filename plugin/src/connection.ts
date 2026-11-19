@@ -509,7 +509,7 @@ export class SyncConnection {
             this.sendFailed(handle, "could not send a request");
             throw error;
           }
-        }, wireRevisionOf(message));
+        });
         tellConnection(this.host, this.log, true);
         // The server sends the Reference Shot copies the tablet is due once told which it holds.
         void this.references.welcomed(

@@ -5594,10 +5594,6 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   var MAX_ASKED_LENGTH = 2048;
   var REFUSALS = {
     unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
-    serverTooOld: {
-      status: 503,
-      message: "The Decent Sync server this tablet is connected to is a release too old to ask. It can be asked once it is upgraded."
-    },
     captureOnly: {
       status: 409,
       message: "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library."
@@ -5779,8 +5775,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       return this.connection !== void 0;
     }
     /** The server welcomed a connection, whose `send` sends a request on it. */
-    welcomed(send, serverRevision) {
-      this.connection = { send, serverRevision };
+    welcomed(send) {
+      this.connection = { send };
     }
     /** The connection closed: its requests have no answer to come. */
     disconnected() {
@@ -6480,7 +6476,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
               this.sendFailed(handle, "could not send a request");
               throw error;
             }
-          }, wireRevisionOf(message));
+          });
           tellConnection(this.host, this.log, true);
           void this.references.welcomed(
             async (held) => {

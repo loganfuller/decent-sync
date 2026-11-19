@@ -1,18 +1,19 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
-import { CardTitleWithInfo, PageTitleWithInfo } from "@/components/info-tip";
+import { CardTitleWithInfo, InfoTip, PageTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { api, type Location } from "@/lib/api";
 
 const TIME_ZONE_LIST = "time-zones";
 
-/** Locations: creating them, and renaming them or changing their time zone, each opening its page. Staff see which they work at. */
+/** Locations: creating them, and renaming them, changing their time zone or marking them for trying Drafts (#581), each opening its page. Staff see which they work at. */
 export function LocationsPage() {
   const isAdmin = useIsAdmin();
   const worksAt = useStaffLocationIds();
@@ -118,7 +119,10 @@ export function LocationsPage() {
                       </Link>
                       {worksAt.has(location.id) && <Badge variant="secondary">You work here</Badge>}
                     </span>
-                    <span className="text-sm text-muted-foreground">{location.timeZone}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {location.timeZone}
+                      {location.triesDrafts && " · Drafts may be tried here"}
+                    </span>
                   </div>
                   {isAdmin && (
                     <Button
@@ -143,6 +147,8 @@ export function LocationsPage() {
 interface LocationValues {
   name: string;
   timeZone: string;
+  /** Whether Drafts may be tried there (#581); left as it is where not given, as by the new-Location form. */
+  triesDrafts?: boolean;
 }
 
 /** A Location's name and time zone, suggesting time zones the server accepts. */
@@ -162,6 +168,8 @@ function LocationForm({
   const id = useId();
   const [name, setName] = useState(initial.name);
   const [timeZone, setTimeZone] = useState(initial.timeZone);
+  // Offered only for a Location that exists, whose setting the list gave.
+  const [triesDrafts, setTriesDrafts] = useState(initial.triesDrafts);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
@@ -170,7 +178,7 @@ function LocationForm({
     setSubmitting(true);
     setError(undefined);
     try {
-      await onSubmit({ name, timeZone });
+      await onSubmit({ name, timeZone, ...(triesDrafts !== undefined && { triesDrafts }) });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Something went wrong");
     } finally {
@@ -201,6 +209,18 @@ function LocationForm({
           required
         />
       </div>
+      {triesDrafts !== undefined && (
+        <div className="flex items-center gap-2">
+          <Switch id={`${id}-tries-drafts`} checked={triesDrafts} onCheckedChange={setTriesDrafts} />
+          <Label htmlFor={`${id}-tries-drafts`}>Drafts may be tried here</Label>
+          <InfoTip label="About trying Drafts">
+            <p>
+              A Machine here can follow a Draft of a Profile: the Draft&apos;s steps become what the Machine does next, and again each time the Draft is saved, so a Shot can be
+              pulled on them before the Draft is published. Meant for a lab or a training bar, not a cafe in service. Turning it off ends the following of every Machine here.
+            </p>
+          </InfoTip>
+        </div>
+      )}
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting}>
           {submitLabel}

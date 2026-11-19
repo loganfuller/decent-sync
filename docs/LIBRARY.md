@@ -547,8 +547,11 @@ editing a Profile's title, author and notes (`edit_profile`, #576),
 listing, reading, starting, changing, simulating, publishing and
 discarding Drafts (`list_drafts`, `get_draft`, `create_draft`, `edit_draft`,
 `simulate_draft`, `publish_draft` and `discard_draft`,
-`server/src/mcp/drafts.tools.ts`, #579, #580), and returning a Profile to an
-earlier version (`return_to_profile_version`, #580),
+`server/src/mcp/drafts.tools.ts`, #579, #580), returning a Profile to an
+earlier version (`return_to_profile_version`, #580), and having a Machine
+follow a Draft and stopping it (`follow_draft`, `stop_following_draft`,
+#581), `get_draft` saying whether one does and listing the Draft's Trial
+Shots, and `edit_location` marking a Location for trying Drafts,
 Archiving and restoring any item, showing and hiding Profiles, Baskets and
 Tools and adding and finishing batches at Locations, and using and
 dismissing Conflicts' values (`server/src/mcp/library-changes.tools.ts`,
@@ -908,8 +911,8 @@ Conflict names is kept, still refused, so history goes on naming it
     One whose connection was released first, as when it closed while the
     request waited its turn, is not made.
   - **Releases (ADR-0025).** The request came with requests' wire revision,
-    so a tablet the previous release's instance holds refuses the choice as
-    too old to ask, and nothing changes.
+    3, which every release a plugin works with now has, so it has no check
+    left.
   - `server/test/skin-reference-choices.test.ts` covers it through the
     built plugin in simulated tablets, with two instances on one database
     and with raw frames, `server/test/latest-release/mixed-versions.test.ts`
@@ -2713,6 +2716,79 @@ shows (Refused on tablets, above). The record its Decaid made stays on the
 tablet and joins the Library from its next report as a separate Profile, as
 the plugin's `writeProfile` says.
 
+## Following a Draft, and Trial Shots
+
+A Draft can be tried on a Machine before it is published (#581, ADR-0032;
+`server/src/library/draft-following.ts` and `draft-following.service.ts`).
+
+- **Where.** A Location has a setting, off by default, that an Admin turns
+  on: Drafts may be tried here (`locations.tries_drafts`, `triesDrafts` on
+  the Locations routes and `edit_location`). Only a Machine taking part at
+  such a Location is offered, so a Draft never reaches a cafe's Machine
+  unless an Admin marked the cafe. Staff choose only Machines at their
+  Locations.
+- **Following** is the server's record that a Machine should hold a Draft's
+  steps (`draft_followings`, one row for a Draft, and one Draft at a time
+  for a Machine, by a partial unique index). While it does, the Machine's
+  tablet is due a `write` of the kind `draft` whenever the profile it was
+  last written since following began differs from the Draft's
+  (`followedDraftDue`), in place of its Loaded Recipe's fields, through the
+  same writer as every write (Writing to tablets, above): planned again on
+  each `library_changes` notification, which starting to follow and each
+  save of the Draft's profile send, one at a time, held while a Shot runs,
+  and refused, with why, for a profile the Machine's model can't run
+  (`markUnrunnable`). The profile goes under a title of its own, the
+  Draft's with "(Draft)" after it (`followedDraftTitle`), as Streamline
+  finds a tablet's record of the Workflow's profile by its title.
+- **The plugin** sets it whole as the Workflow's profile through one `PUT
+  /workflow`, clearing the recipe the Workflow names with it, as DYE2 does
+  on a change of profile, so the Machine's Loaded Recipe ends; its dose,
+  yield, Bean Batch, Grinder and Basket stay. It never makes a record in
+  the tablet's profile list. Its answer carries the profile it wrote, which
+  the server keeps (`draft_trials`), timed by the tablet's clock.
+- **It ends** when the tablet reports a Workflow whose profile is no longer
+  the Draft's steps, compared as a Shot's are with a Profile's (below),
+  whatever changed it, a barista, a Recipe or Streamline's wake profile
+  (`followedWorkflowReported`, in the transaction storing the Workflow);
+  when a person stops it; when its Location stops trying Drafts or the
+  Machine moves, leaves or becomes capture-only (`endStrandedFollowings`);
+  and, its row gone with the Draft's, when the Draft is published or
+  discarded. A Workflow reported before the Machine was first written the
+  Draft ends nothing, and one holding steps the Draft was written there
+  with earlier doesn't either, as a report made before a save's write
+  landed holds those. Once ended, the server writes the Machine nothing of
+  the Draft until a person follows again, which replaces what it has
+  loaded. The row stays, so the Draft's page says when it ended, why, and
+  what the Machine's Workflow holds now.
+- **Which plugin.** The write came in wire revision 4
+  (`AI_PROTOCOL_NOTES.md`, Wire revision). The server records the revision
+  each accepted hello gave (`machines.wire_revision`), so any instance
+  lists a Machine whose plugin is behind it as needing its plugin updated,
+  and refuses to start following on it; one whose tablet has not connected
+  since the server recorded revisions can't be judged, and is refused too.
+- **A Trial Shot** is a Shot credited to a Machine the Draft was written
+  to, pulled, by the tablet's clock, from when it was written a profile
+  whose steps the Shot's Workflow's profile holds: the same steps as the
+  Library compares a Shot's with a Profile's (`sameStepsSql`, as
+  `shotPulledWithSql`), without each step's temperature and without the
+  target weight, so it still matches after the brew temperature or the
+  yield was changed on the tablet. It is tied to the latest such profile
+  written before it was pulled, and is on the current steps where those are
+  the Draft's as saved now, else on earlier ones. Nothing is stored for the
+  tie: it is read from `draft_trials` and the Shots (`trialShotsSql`),
+  through the Shots' index on their steps, so the ties go with the Draft,
+  and a Shot on the published steps is then the new Profile's by the
+  Library's ordinary rule.
+- **The Draft's page** (`web/src/components/draft-trying.tsx`) asks how it
+  is tried every five seconds. A card has the switch, the Machine, and
+  whether it has these steps and since when, or is waiting for them;
+  turning it on first says that the Machine's Loaded Recipe ends. Ended, it
+  says what the Machine has, with one control to follow again. The Trial
+  Shots are listed, the latest first; the latest on the current steps is
+  laid over the graph as it arrives, with the simulation moved to its puck
+  and the two sets of figures side by side, as for any Shot's puck (The
+  Profile page, above), and an earlier one opens against the steps it ran.
+
 ## REST API
 
 Every endpoint requires the account session; Staff read them as Admins do.
@@ -2850,6 +2926,35 @@ Every endpoint requires the account session; Staff read them as Admins do.
   its checks stop, with `checks`, a Draft saved since `saves`, a Recipe not
   naming the Profile replaced or Archived, or a Location where a Machine
   can't run it.
+- `GET /api/drafts/:id/trying` returns `{ trying }`, how the Draft is tried
+  (Following a Draft, and Trial Shots, above): `following`, null where it
+  never was followed, else `{ machine: { id, name, location }, startedAt,
+  state, since, waitingFor, ended, has, titleOnTablet }`, `state` one of
+  `current`, the Machine has the Draft's steps as saved, since `since`,
+  `waiting`, with `waitingFor` why where the server knows, as its tablet's
+  refusal, and `ended`, with `ended: { at, why }`, `why` one of `workflow`,
+  `stopped` and `location`, and `has` the title of the profile the
+  Machine's Workflow holds now; `machines`, those taking part at a Location
+  that tries Drafts, each `{ id, name, location, needsPluginUpdate,
+  canFollow, follows }`, `follows` another Draft it follows now; and
+  `trialShots`, the latest fifty, each `{ shot, trialId, steps }`, `shot`
+  as the Shots list gives one and `steps` `current` or `earlier`. 403 for a
+  Viewer, 404 for no such Draft.
+- `PUT /api/drafts/:id/following`, with `{ machineId }`, has that Machine
+  follow it, and `DELETE /api/drafts/:id/following` stops it; each returns
+  `{ trying }`. Following is refused with 403 for Staff working elsewhere
+  than at the Machine's Location; 404 for no such Draft or Machine; 409 for
+  a Capture-only Machine, a Location that doesn't try Drafts, a Machine
+  following another Draft, one that needs its plugin updated or whose
+  tablet has not connected yet, and a Draft with no steps or more than a
+  machine takes. Stopping is refused with 409 where no Machine follows it.
+- `GET /api/drafts/:id/trials/:trialId` returns `{ trial }`, a profile the
+  Draft was written to a following Machine with, which a Trial Shot ran:
+  `{ id, machine, writtenAt, profile }`, the profile under the Draft's own
+  title. 404 for none such.
+- `GET /api/locations` gives each Location's `triesDrafts`, and `PATCH
+  /api/locations/:id` takes it, Admins only. Turning it off ends the
+  following of each of the Location's Machines.
 - `POST /api/profiles/:id/return`, with `{ from, locations, recipes? }`,
   returns to the Profile, an earlier version of `from`, and returns `{
   published }` as publishing does, `forked` empty. 400 for returning to
@@ -3188,6 +3293,7 @@ the same Profiles.
 `server/test/profile-simulation.test.ts`,
 `server/test/drafts.test.ts`,
 `server/test/publishing.test.ts`,
+`server/test/draft-following.test.ts`,
 `server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,

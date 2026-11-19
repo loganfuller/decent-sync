@@ -31,10 +31,9 @@ export const SKIN_REQUEST_MS = 10_000;
 /**
  * Why a request has no answer: the server can't be reached (the plugin is
  * not connected, the connection closed before the answer came, or the answer
- * did not come in time), or the server the plugin is connected to is of the
- * release before requests, as during an upgrade (ADR-0025).
+ * did not come in time).
  */
-export type Unanswered = "unreachable" | "serverTooOld";
+export type Unanswered = "unreachable";
 
 /** What became of a request: the server's answer, or why there is none. */
 export type Asked = { answer: SkinAnswer } | { unanswered: Unanswered };
@@ -52,7 +51,7 @@ export type Asked = { answer: SkinAnswer } | { unanswered: Unanswered };
  */
 export class SkinRequests {
   /** The welcomed connection, with the wire revision its server's welcome gave. */
-  private connection?: { send(request: SkinRequest): Promise<void>; serverRevision: number };
+  private connection?: { send(request: SkinRequest): Promise<void> };
   /** The requests awaiting an answer, by id, each with what settles it. */
   private readonly pending = new Map<string, (asked: Asked) => void>();
 
@@ -64,8 +63,8 @@ export class SkinRequests {
   }
 
   /** The server welcomed a connection, whose `send` sends a request on it. */
-  welcomed(send: (request: SkinRequest) => Promise<void>, serverRevision: number): void {
-    this.connection = { send, serverRevision };
+  welcomed(send: (request: SkinRequest) => Promise<void>): void {
+    this.connection = { send };
   }
 
   /** The connection closed: its requests have no answer to come. */

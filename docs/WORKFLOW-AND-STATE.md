@@ -59,8 +59,11 @@ delivery says what the plugin knows (`cause`, `WORKFLOW_CAUSES` in
   `loadedRecipe` a write of the Loaded Recipe's parts the server sent,
   `clear` the server's unload of the Recipe, the clear of the recipe before a
   post of DYE2's recipes replaces its record, or the clear of the grinder,
-  batch and Basket a Location does not offer, and `steamOn` the Loaded
-  Recipe's steam temperature and time as steam is turned back on.
+  batch and Basket a Location does not offer, `steamOn` the Loaded
+  Recipe's steam temperature and time as steam is turned back on, and
+  `draft` the profile of the Draft the Machine follows (#581, `LIBRARY.md`,
+  Following a Draft, and Trial Shots), which the plugin names only to a
+  server at wire revision 4.
   `LoadedRecipes.ownWrite` names each, and tells `MachineEvents.wrote` once
   Decaid answers it with a Workflow.
 - **`other`**: every other delivery. That is a barista's change on

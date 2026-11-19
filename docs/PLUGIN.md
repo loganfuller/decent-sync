@@ -176,6 +176,14 @@ full detail.
   `extras`, keeping what other plugins store there.
 - It sets each batch's remaining weight to the weight at its Location.
 - It shows each Profile its Location shows.
+- It sets the profile of a Draft its Machine follows as the Workflow's
+  profile, where an Admin marked the Machine's Location for trying Drafts
+  and someone had the Machine follow one: under the Draft's title with
+  "(Draft)" after it, again each time the Draft is saved, and never as one
+  of the tablet's Profiles. That ends the Machine's Loaded Recipe; its dose,
+  yield, Bean Batch, Grinder and Basket stay. Any profile loaded on the
+  tablet afterwards stays loaded: the plugin sets the Draft again only once
+  someone has the Machine follow it again.
 
 What the Location no longer offers, such as a batch finished there or a
 Profile hidden there, is archived or hidden on the tablet, never deleted.
@@ -583,12 +591,12 @@ turns it into the Recipe's own id, which the record carries.
 - **The tablet's copy stands in while the server can't be asked.** The
   plugin keeps a copy for each Recipe in a Recipe Slot at its Location
   ([Reference Shot copies](#reference-shot-copies)). Where the request would
-  be refused as `unreachable` or `serverTooOld`, it answers 200 from that
+  be refused as `unreachable`, it answers 200 from that
   copy instead, with `source` `"tablet"`. That includes a copy saying the
   Recipe has none.
 - **No copy, no answer.** A Recipe in no slot has no copy, and neither has
   one whose Reference Shot is too large to keep (1 MiB). Those are refused as
-  `unreachable` or `serverTooOld` while the server can't be asked.
+  `unreachable` while the server can't be asked.
 - **A Reference Shot may be another Location's.** A tablet reads it whole
   through this endpoint all the same. Through [`shot`](#a-shot-whole) that
   Shot is still refused as `noSuchShot`.
@@ -636,7 +644,7 @@ interface at once.
   tablet has still to send, so the server has the Shot by the time it is
   asked.
 - **It is made now or not at all.** While the plugin isn't connected the
-  request is refused as `unreachable` at once, or as `serverTooOld`, without
+  request is refused as `unreachable` at once, without
   being sent, and nothing is kept to send later. The tablet's copy is no
   answer to a choice.
 - **A choice the plugin sent may have been made, whatever it answers.** The
@@ -702,8 +710,8 @@ only blanks, as [a Reference Shot's](#a-recipes-reference-shot) are.
   Reference Shot of one of the Location's Recipes that was pulled
   elsewhere, though the tablet can read that one.
 - **Another tablet's Shot is edited now or not at all.** While the plugin
-  isn't connected the request is refused as `unreachable` at once, or as
-  `serverTooOld`, without being sent, and nothing is kept to send later.
+  isn't connected the request is refused as `unreachable` at once, without
+  being sent, and nothing is kept to send later.
 - **An edit the plugin sent may have been made, whatever it answers.** As
   for [a choice](#choosing-a-recipes-reference-shot), the plugin also
   answers `unreachable` when it sent the request and has no answer. After
@@ -726,20 +734,17 @@ only blanks, as [a Reference Shot's](#a-recipes-reference-shot) are.
 - **Nothing is pushed** when a Shot is edited, but for [a Recipe's Reference
   Shot](#changes), whose copy on each tablet follows the edit. Read the
   list again to show an edit made elsewhere.
-- **Older releases.** A tablet whose plugin is connected to a 1.9.0 server,
-  as for a moment during an upgrade, edits its own Shots as above, and is
-  refused any other as `serverTooOld`.
 
 ### Refusals
 
 Every refusal is an HTTP status with a `code` to act on and a `message` to
-show. A Skin refused as `unreachable`, `serverTooOld`, `captureOnly` or
+show. A Skin refused as `unreachable`, `captureOnly` or
 `hardwareMismatch` shows its tablet's own Shots.
 
 | Code | Status | When |
 |---|---|---|
 | `unreachable` | 503 | The plugin isn't connected to the server, its connection closed before the answer came, or the server didn't answer within 10 seconds. |
-| `serverTooOld` | 503 | The plugin is connected to a server of the release before these endpoints, as for a moment during an upgrade. Treat it as `unreachable`. |
+| `serverTooOld` | 503 | Answered only by the plugins of 1.10.0 to 1.11.1, while connected to a 1.9.0 server during an upgrade; later plugins never answer it, as every server they work with has these endpoints. Treat it as `unreachable`. |
 | `captureOnly` | 409 | The Machine is a [Capture-only Machine](#capture-only-machines): at no Location, or with its sharing off. |
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
 | `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for, or to be edited. For a choice: the Shot is none this tablet can open. |
@@ -751,7 +756,7 @@ show. A Skin refused as `unreachable`, `serverTooOld`, `captureOnly` or
 | `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, `recipe` or, for a choice, `shotId`, or one longer than 2,048 characters, or, for an edit, a body that sets neither a rating nor a note, or sets one to a value it can't take, or sets anything else. The `message` says which. |
 
 The plugin answers some of these itself, at once, without asking the server:
-`unreachable` while it isn't connected, `serverTooOld`, `recipesUnread`,
+`unreachable` while it isn't connected, `recipesUnread`,
 `shotUnwritten`, `noSuchRecipe` for a record that carries no Recipe's id, and
 `invalidRequest` for a `limit`, a missing `id`, `recipe` or `shotId`, an
 `id`, `recipe`, `shotId` or `cursor` too long to be one, or an edit's body.

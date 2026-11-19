@@ -99,6 +99,7 @@ const PLUGIN_WRITES: Record<string, string> = {
   loadedRecipe: "Decent Sync, from an edit made elsewhere",
   clear: "Decent Sync, clearing what it unloaded or the Location doesn't offer",
   steamOn: "Decent Sync, turning steam back on",
+  draft: "Decent Sync, from the Draft the Machine follows",
 };
 
 /**

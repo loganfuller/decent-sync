@@ -65,10 +65,6 @@ export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe"
 
 const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }>> = {
   unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
-  serverTooOld: {
-    status: 503,
-    message: "The Decent Sync server this tablet is connected to is a release too old to ask. It can be asked once it is upgraded.",
-  },
   captureOnly: {
     status: 409,
     message: "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library.",

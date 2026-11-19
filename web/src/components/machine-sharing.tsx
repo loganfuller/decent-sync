@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useId, useState } from "react";
 import { ItemLink, itemPath } from "@/components/conflicts";
+import { draftPath } from "@/components/drafts";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
@@ -28,9 +29,10 @@ const REASONS: Record<CaptureOnlyReason, string> = {
   sharingOff: "An Admin turned its sharing off.",
 };
 
-/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the Workflow, or its Loaded Recipe. */
+/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the Workflow, its Loaded Recipe, or the Draft it follows. */
 function kindName(kind: TabletChange["kind"]): string {
   if (kind === "loadedRecipe") return "Loaded Recipe";
+  if (kind === "draft") return "Draft";
   return kind === "workflow" ? "Workflow" : LIBRARY_KINDS[kind].name;
 }
 
@@ -254,6 +256,15 @@ function ChangeDescription({ change }: { change: TabletChange }) {
       <>
         Its Workflow written, or cleared of, the Recipe{" "}
         <ItemLink path={itemPath("recipe", change.item.id)}>{change.item.name ?? "Unnamed Recipe"}</ItemLink>
+      </>
+    );
+  }
+  // Written the profile of the Draft it follows (#581), which is gone once published or discarded.
+  if (change.kind === "draft") {
+    if (!change.item) return <>Its Workflow written a Draft since published or discarded</>;
+    return (
+      <>
+        Its Workflow written the Draft <ItemLink path={draftPath(change.item.id)}>{change.item.name ?? "Untitled"}</ItemLink>, which it follows
       </>
     );
   }

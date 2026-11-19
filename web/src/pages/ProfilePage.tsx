@@ -375,6 +375,8 @@ export function HowItRuns({
   baseline,
   editing,
   runLabel,
+  trial,
+  onPuckShot,
 }: {
   /** The profile's title, as the graph's words name it. */
   title: string;
@@ -390,6 +392,10 @@ export function HowItRuns({
   editing?: GraphEditing | null;
   /** What the legend calls the run. */
   runLabel?: string;
+  /** A Trial Shot (#581) the simulation moves to the puck of, as it is given and whenever it changes or is asked for again: the Draft's latest on its steps as it arrives, or the one chosen. */
+  trial?: { shotId: string; asked: number } | null;
+  /** Told of the Shot whose puck the simulation is on, by its id, and of none. */
+  onPuckShot?(shotId: string | undefined): void;
 }) {
   const [puck, setPuck] = useState<"standard" | "shot">("standard");
   // Each puck keeps its own: the standard puck's as started or changed, a Shot's as that Shot ran.
@@ -464,8 +470,20 @@ export function HowItRuns({
     );
   };
 
+  // A Trial Shot moves the simulation to its puck, laid over the graph, as it arrives.
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+  const trialShotId = trial?.shotId;
+  const trialAsked = trial?.asked;
+  useEffect(() => {
+    if (trialShotId) chooseRef.current(trialShotId, "puck");
+  }, [trialShotId, trialAsked]);
+  const onPuck = puck === "shot" ? puckShot?.shot.id : undefined;
+  useEffect(() => onPuckShot?.(onPuck), [onPuck, onPuckShot]);
+  const onTrial = trialShotId != null && puckShot?.shot.id === trialShotId;
+
   const compared = puck === "shot" && puckShot ? puckShot : puck === "standard" ? overlay : undefined;
-  const comparedLabel = puck === "shot" ? "The Shot, as it ran" : "The Shot laid over it";
+  const comparedLabel = puck === "shot" ? (onTrial ? "The Trial Shot, as it ran" : "The Shot, as it ran") : "The Shot laid over it";
   const comparedSamples = compared?.simulation.samples ?? [];
   const run = result?.run;
   const words = run && definition ? graphWords(title, definition, run, puck === "shot") : "";
@@ -501,7 +519,7 @@ export function HowItRuns({
               }}
             >
               <SegmentedItem value="standard">A standard puck</SegmentedItem>
-              <SegmentedItem value="shot">A Shot&apos;s puck</SegmentedItem>
+              <SegmentedItem value="shot">{onTrial ? "The Trial Shot's puck" : "A Shot's puck"}</SegmentedItem>
             </Segmented>
           </div>
         )}

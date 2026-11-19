@@ -290,7 +290,7 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     draft = await save(draft, shaped("Taken back", 1));
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(draftWrites(tablet)).toHaveLength(sent);
-    expect((workflowProfile(tablet) as Fields).title).toBe("Classic Italian espresso");
+    expect(workflowProfile(tablet).title).toBe("Classic Italian espresso");
 
     // One press follows again, which replaces what the Machine has loaded.
     await followed(draft);
@@ -327,7 +327,7 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     // The other Machine, on the other instance, follows the second.
     await followed(two, secondMachine);
     expect(workflowProfile(second)).toEqual({ ...two.profile, title: "The other (Draft)" });
-    expect((workflowProfile(tablet) as Fields).title).toBe("One at a time (Draft)");
+    expect(workflowProfile(tablet).title).toBe("One at a time (Draft)");
 
     // The Location stops trying Drafts: both end, and nothing more is written.
     await api.send("PATCH", `/locations/${lab.id}`, { triesDrafts: false });
@@ -388,7 +388,7 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await api.send("DELETE", `/drafts/${discarded.id}`, undefined, 204);
     const next = await start(shaped("Next trial", 8));
     await followed(next);
-    expect((workflowProfile(tablet) as Fields).title).toBe("Next trial (Draft)");
+    expect(workflowProfile(tablet).title).toBe("Next trial (Draft)");
     await api.send("DELETE", `/drafts/${next.id}`, undefined, 204);
   });
 
@@ -397,7 +397,7 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     const { result: began } = await assistant.callWithinBudget<{ trying: Fields & { following: Fields; machines: Fields[] } }>("follow_draft", { id: draft.id, machineId: labMachine.machine.id });
     expect(began.trying.following).toMatchObject({ machine: { id: labMachine.machine.id }, ended: null, titleOnTablet: "Assisted trial (Draft)" });
     await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("current");
-    expect((workflowProfile(tablet) as Fields).title).toBe("Assisted trial (Draft)");
+    expect(workflowProfile(tablet).title).toBe("Assisted trial (Draft)");
     expect(await toolError(assistant, "follow_draft", { id: draft.id, machineId: cafeMachine.machine.id })).toMatch(/^Drafts are not tried at Trial cafe/);
     const { result: stopped } = await assistant.callWithinBudget<{ trying: { following: Fields } }>("stop_following_draft", { id: draft.id });
     expect(stopped.trying.following).toMatchObject({ state: "ended", ended: { why: "stopped" } });

@@ -142,6 +142,11 @@ export interface Location {
   name: string;
   /** An IANA time zone, such as America/Chicago. */
   timeZone: string;
+  /**
+   * Whether Drafts may be tried here (#581), as the Locations list gives it: only its Machines can follow a Draft.
+   * Absent where a Location is named beside something else, and from the previous release's answer during a deploy (ADR-0025).
+   */
+  triesDrafts?: boolean;
 }
 
 /** How a Machine's identity stands: decided at each connection, or by an Admin entering its hardware. */
@@ -214,9 +219,9 @@ export interface TabletChange {
    * A Library kind, `workflow` (its Workflow's grinder and batch) or
    * `loadedRecipe` (its Workflow's Loaded Recipe, named by the Recipe).
    */
-  kind: ItemKind | "workflow" | "loadedRecipe";
+  kind: ItemKind | "workflow" | "loadedRecipe" | "draft";
   /** The item, named as Conflicts name it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
-  item: { kind: ItemKind | "workflow" | "loadedRecipe"; id: string; name: string | null } | null;
+  item: { kind: ItemKind | "workflow" | "loadedRecipe" | "draft"; id: string; name: string | null } | null;
   /** Decaid's id for the tablet's record; null for a create, a Workflow or a Loaded Recipe. */
   localId: string | null;
 }
@@ -1162,6 +1167,60 @@ export interface Draft extends DraftSummary {
   checks: ProfileChecks;
   /** For a new version, the versions of the Profile it started from the Library gained since it began, the latest first: publishing it forks the chain beside them. */
   newer: { id: string; title: string | null; savedAt: string }[];
+}
+
+/** A Machine a Draft can be followed on (#581): one taking part at a Location that tries Drafts. */
+export interface FollowableMachine {
+  id: string;
+  name: string;
+  location: { id: string; name: string };
+  /** Its plugin is from before a Machine could follow a Draft. */
+  needsPluginUpdate: boolean;
+  /** Whether it can be followed on now: false too for one whose tablet has not connected since the server could ask it. */
+  canFollow: boolean;
+  /** Another Draft it follows now. */
+  follows: { id: string; title: string } | null;
+}
+
+/** Whether, and how, a Draft is followed on a Machine (#581). */
+export interface DraftFollowing {
+  machine: { id: string; name: string; location: { id: string; name: string } | null };
+  startedAt: string;
+  /** current: the Machine has the Draft's steps as saved, since `since`; waiting: it is still to be written them; ended: following ended. */
+  state: "current" | "waiting" | "ended";
+  since: string | null;
+  /** Why it is still to be written, where the server knows. */
+  waitingFor: string | null;
+  /** workflow: the Machine's Workflow came to hold another profile; stopped: someone turned it off; location: its Location stopped trying Drafts, or it left. */
+  ended: { at: string; why: "workflow" | "stopped" | "location" } | null;
+  /** The title of the profile the Machine's Workflow holds now. */
+  has: string | null;
+  titleOnTablet: string;
+}
+
+/** A Trial Shot of a Draft (#581): a Shot pulled with its steps on a Machine following it, and the steps it ran. */
+export interface TrialShot {
+  shot: ListedShot;
+  /** The profile the Draft was written to the Machine with that the Shot ran (`DraftTrial`). */
+  trialId: string;
+  /** Whether those are the Draft's steps as saved now, or earlier ones. */
+  steps: "current" | "earlier";
+}
+
+/** How a Draft is tried (#581). */
+export interface DraftTrying {
+  following: DraftFollowing | null;
+  machines: FollowableMachine[];
+  /** The latest first. */
+  trialShots: TrialShot[];
+}
+
+/** A profile a Draft was written to a following Machine with, which a Trial Shot ran. */
+export interface DraftTrial {
+  id: string;
+  machine: { id: string; name: string };
+  writtenAt: string;
+  profile: ProfileDefinition;
 }
 
 /** What publishing a Draft, or returning to an earlier version, did (#580). */
