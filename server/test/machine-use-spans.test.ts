@@ -61,9 +61,18 @@ describe("the days and hours of a Machine's use", () => {
     ]);
   });
 
-  it("goes by UTC before a Machine's first Location, and by each Location from when it was there", () => {
-    // 31 December in UTC, and its last 7 hours again in Denver, are one day.
+  it("goes by UTC before the day a Machine came to its first Location, by that Location for all of that day, and by each Location from when it was there", () => {
+    // It came to Denver at 17:00 on 31 December there: the 7 hours of UTC's 31st before it began in Denver, and all of
+    // Denver's 31st, are one day.
     expect(cut("2024-12-31T00:00:00Z", "2025-01-02T07:00:00Z", DENVER, "day")).toEqual({ buckets: [["2024-12-31", 31], ["2025-01-01", 24]], order: [0, 1] });
+    expect(cut("2024-12-30T00:00:00Z", "2024-12-31T07:00:00Z", DENVER, "day").buckets).toEqual([["2024-12-30", 24], ["2024-12-31", 7]]);
+    // Added in Chicago at 18:05 on 18 November there, 00:05 on the 19th in UTC (#587): the 18th is Chicago's from its
+    // start, so the minutes before it came, after midnight UTC, are no 19th.
+    const chicago: Stay[] = [{ from: ms("2026-11-19T00:05:00Z"), timeZone: "America/Chicago" }];
+    expect(cut("2026-11-17T00:00:00Z", "2026-11-19T00:30:00Z", chicago, "day").buckets).toEqual([["2026-11-17", 24], ["2026-11-18", 24.5]]);
+    const fortnight = useRange({ by: "day" }, chicago, ms("2026-11-19T00:30:00Z"));
+    expect(new Date(fortnight.from).toISOString()).toBe("2026-11-05T00:00:00.000Z");
+    expect(useSpans(fortnight, chicago, "day").buckets.at(-1)).toEqual({ date: "2026-11-18" });
     expect(cut("2024-12-31T00:00:00Z", "2025-01-02T00:00:00Z", [], "day").buckets).toEqual([["2024-12-31", 24], ["2025-01-01", 24]]);
     // A time zone this runtime doesn't know is read as UTC.
     expect(cut("2026-02-10T00:00:00Z", "2026-02-11T00:00:00Z", [{ from: 0, timeZone: "Mars/Olympus_Mons" }], "day").buckets).toEqual([["2026-02-10", 24]]);

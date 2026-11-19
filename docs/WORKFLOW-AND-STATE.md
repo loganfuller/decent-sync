@@ -983,9 +983,14 @@ paged routes above are as they were.
   `server/src/machines/machine-days.ts`, which both call): a date is that
   day at the Location the Machine was at at noon UTC that day, by its
   Location History, in its time zone, and UTC's while it was at none,
-  through its end for `to`. An end not given is open: since the first, or
-  until now. A range that ends at or before its start is refused with 400,
-  as is a time outside the years 1 to 9999.
+  through its end for `to`. The day it came to its first Location, by that
+  Location's clock, is that Location's from its start (`dayStays`), as for
+  a Machine added in the evening west of UTC, after noon UTC
+  ([#587](https://github.com/loganfuller/decent-sync/issues/587)), so the
+  On one day card's today holds what it did there that evening. An end
+  not given is open: since the first, or until now. A range that ends at
+  or before its start is refused with 400, as is a time outside the years
+  1 to 9999.
 - **The lists.** `kind`, given once or more, names the lists to give
   (`workflowChanges`, `loadedRecipes`, `machineStates`), all three if none,
   and `limit` and `offset` page each alike. `workflowChanges` is the dial-in
@@ -1033,10 +1038,11 @@ offset of the Location the Machine was at then.
 - **The range.** `from` and `to` are each a date, such as `2026-11-06`, or a
   time with its offset, read as `get_machine_activity` reads a range's
   bounds (`rangeBound` in `server/src/machines/machine-days.ts`): a date is
-  that day at the Location the Machine was at at noon UTC that day, through
-  its end for `to`. With no `to` the range runs until now; with no `from` it
-  starts with the day it ends in, by hour, or 13 days before that, by day, so
-  no bounds give the last 14 days. By day it is at most 31 days, and by hour
+  that day at the Location the Machine was at at noon UTC that day, the day
+  it came to its first Location being that one's, through its end for
+  `to`. With no `to` the range runs until now; with no `from` it starts
+  with the day it ends in, by hour, or 13 days before that, by day, so no
+  bounds give the last 14 days. By day it is at most 31 days, and by hour
   at most 25 hours, the longest a day is, as the clocks go back; a longer one
   is refused with 400, as is one whose `to` is at or before its start. On a
   day the Machine moved between time zones a date is still read by where it
@@ -1048,8 +1054,10 @@ offset of the Location the Machine was at then.
   one with no `to` that starts after now included, has no buckets, and its
   `to`, now, is before its `from`.
 - **Whose day.** Each moment belongs to the date, and hour, its wall clock
-  read at the Location the Machine was at then, by its Location History, and
-  UTC's before its first Location (`useSpans`). A day the clocks change in
+  read at the Location the Machine was at then, by its Location History,
+  the whole of the day it came to its first Location included, by that
+  Location's clock, and UTC's before that day (`useSpans`, `dayStays`), as
+  a date given for the range is read. A day the clocks change in
   is one bucket, 23 or 25 hours long, and an hour they repeat is one bucket
   two hours long. On a day the Machine moved between time zones each part
   goes by where it was, so the day it left may be short and the one it

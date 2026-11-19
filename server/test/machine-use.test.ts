@@ -294,7 +294,7 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     });
   });
 
-  it("goes by the Location the Machine was at then: the day of a move to another time zone in two parts, each by its own Location's clock, and UTC's days before its first Location", async () => {
+  it("goes by the Location the Machine was at then: the day of a move to another time zone in two parts, each by its own Location's clock, and UTC's days before the day it came to its first", async () => {
     // The 10th began at the Lab, where the Machine was at noon UTC, and the 11th ends at the Harbor. It left the Lab at
     // 13:00 on the 10th, which was 05:00 on the 11th at the Harbor: 13 hours of the 10th, and 19 of the 11th.
     expect(await use(mover, { from: "2026-02-10", to: "2026-02-11" })).toEqual({
@@ -312,14 +312,18 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     const moved = await use(mover, { from: "2026-02-10T19:00:00Z", to: "2026-02-10T21:00:00Z", by: "hour" });
     expect(moved.buckets.map((entry) => [entry.date, entry.hour, entry.shots])).toEqual([["2026-02-10", 12, 1], ["2026-02-11", 5, 0]]);
 
-    // At no Location until 2025, its days are UTC's: 31 December 2024 in UTC, and then the 7 hours left of that day
-    // at the Lab, are one day of 31 hours, all idle; 1 January is the Lab's.
+    // At no Location until it came to the Lab at 17:00 on 31 December 2024 there, 00:00 on 1 January in UTC. The
+    // 31st, the day it came, is the Lab's (#587), from 07:00 in UTC: 17 hours of UTC's 31st, before it came, and the 7
+    // left of the day at the Lab, all idle; 1 January is the Lab's.
     expect(await use(mover, { from: "2024-12-31", to: "2025-01-01" })).toEqual({
       by: "day",
-      from: "2024-12-31T00:00:00.000Z",
+      from: "2024-12-31T07:00:00.000Z",
       to: "2025-01-02T07:00:00.000Z",
-      buckets: [bucket("2024-12-31", { states: [time("idle", 111_600)] }), bucket("2025-01-01", { states: [time("idle", 86_400)] })],
+      buckets: [bucket("2024-12-31", { states: [time("idle", 86_400)] }), bucket("2025-01-01", { states: [time("idle", 86_400)] })],
     });
+    // A day before the one it came is UTC's.
+    const before = await use(mover, { from: "2024-12-30", to: "2024-12-30" });
+    expect([before.from, before.to, before.buckets.map((entry) => entry.date)]).toEqual(["2024-12-30T00:00:00.000Z", "2024-12-31T00:00:00.000Z", ["2024-12-30"]]);
   });
 
   it("gives the last 14 days by day, or today by hour, when no range is given, a Machine whose tablet reported nothing since counted as in its last state, until now", async () => {
