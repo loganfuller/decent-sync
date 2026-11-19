@@ -101,7 +101,7 @@ export class ProfileSimulationService {
     if (!puck) throw new ConflictException(`Shot ${ask.shotId} recorded no pressure and flow to work its puck out from`);
     const run = simulateProfile({ profile, puck, dose: ask.dose ?? puck.dose, stopAt, model: ask.model });
     const fittable = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS && shotStopKnown(shot.samples, shot.stopReason);
-    const fit = shot.profile && fittable ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: shotStopAt(shot.samples, shot.stopReason), model: shot.model }).fit : null;
+    const fit = shot.profile && fittable ? fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: shotStopAt(shot.samples, shot.stopReason, shot.model), model: shot.model }).fit : null;
     return { profile: of, model: ask.model, puck: { kind: "shot", shotId: ask.shotId, model: shot.model }, dose: run.dose, stopAt: run.stopAt, run, checks, fit };
   }
 }
@@ -116,7 +116,7 @@ export function readSimulationAsk(query: Record<string, unknown>): SimulationAsk
   const problems: string[] = [];
   const numberOf = (name: string, valid: (value: number) => boolean, rule: string): number | null => {
     const raw = query[name];
-    if (raw === undefined || raw === "") return null;
+    if (raw === undefined || (typeof raw === "string" && raw.trim() === "")) return null;
     const value = typeof raw === "string" ? Number(raw) : Number.NaN;
     if (!Number.isFinite(value) || !valid(value)) {
       problems.push(`${name} must be ${rule}`);

@@ -164,6 +164,9 @@ describe("A Library Profile simulated on a puck", () => {
     expect(await refused({ model: "Linea" })).toEqual({ status: 400, message: "model must be one of DE1, Bengle" });
     expect((await refused({ dose: "0" })).status).toBe(400);
     expect((await refused({ stopAt: "501" })).status).toBe(400);
+    // Blank is left out, as the Profile's stop-at weight; 0 runs the steps out.
+    expect((await simulate({ stopAt: " " })).stopAt).toBe((await simulate()).stopAt);
+    expect((await simulate({ stopAt: "0" })).stopAt).toBeNull();
     expect(await refused({}, "profile:00000000000000000000")).toEqual({ status: 404, message: "No such Profile" });
     expect(await refused({ shotId: "no-such-shot" })).toEqual({ status: 404, message: "Shot not found" });
     // A Shot of dismissed hardware, which no Shot read shows.

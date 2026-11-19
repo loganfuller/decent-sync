@@ -2389,7 +2389,10 @@ fit.
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
   profile, are run on that puck on its own Machine's model, stopped as it
-  stopped, at its last weight unless its Machine ended it (`shotStopAt`), and
+  stopped, at its last weight unless a DE1 ended it, where it runs its steps
+  out, and a Bengle's at that weight or with its last step, as a Bengle stops
+  at the Workflow's yield itself (`shotStopAt`); a Shot with no scale runs
+  with no step's weight, as Decaid checks none without one; and
   the answer gives the Shot's duration, time to first drip, peak pressure
   and each step's end beside the run's (`fitToShot`), to say how far to
   trust the simulation on that puck. On the Shots in

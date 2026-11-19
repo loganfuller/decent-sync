@@ -507,6 +507,27 @@ describe("a Shot's puck", () => {
     expect(shotStopAt(samples, "targetWeight")).toBe(last);
     expect(shotStopAt(samples, "appStop")).toBe(last);
     expect(shotStopAt(samples, "machineEnded")).toBeNull();
+    // A Bengle ends a Shot itself at the Workflow's yield, or with its last step.
+    expect(shotStopAt(samples, "machineEnded", "Bengle")).toBe(last);
+  });
+
+  it("of a Bengle that ended it at its yield, stops at that weight, not with the profile's last step", () => {
+    const steps = [flow("Fill", 6, { seconds: 8, exit: { type: "pressure", condition: "over", value: 3 } }), pressure("Extract", 9, { seconds: 60 })];
+    const shot = run(steps, { stopAt: 36, model: "Bengle" });
+    expect(shot.stop.reason).toBe("weight");
+    const stopAt = shotStopAt(shot.samples, "machineEnded", "Bengle");
+    expect(stopAt).toBe(shot.weight);
+    const { run: fitted } = fitToShot({ samples: shot.samples, profile: profile(steps), puck: standardPuck(), stopAt, model: "Bengle" });
+    expect(fitted.stop).toEqual(shot.stop);
+  });
+
+  it("of a Shot with no scale runs its steps with no weight, as Decaid checks none without one", () => {
+    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: Array<Record<string, unknown>> };
+    const unweighed = shotSamples(record.measurements.map(({ scale: _, ...rest }) => rest), profileOf(record.workflow.profile));
+    const weighs = profile([flow("Pour", 4, { seconds: 30, weight: 2 })]);
+    const { run: fitted } = fitToShot({ samples: unweighed, profile: weighs, puck: shotPuck(unweighed, 18)!, stopAt: null });
+    expect(fitted.steps[0]).toMatchObject({ end: 30, reason: "time" });
+    expect(simulateProfile({ profile: weighs, puck: shotPuck(unweighed, 18)!, stopAt: null }).steps[0]!.reason).toBe("weight");
   });
 
   it("can't stop a run as the Shot stopped where its scale dropped out before a stop its machine didn't make", () => {

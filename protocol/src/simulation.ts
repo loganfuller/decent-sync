@@ -645,14 +645,17 @@ export function runFigures(run: SimulatedRun): RunFigures {
 }
 
 /**
- * The weight a run of a Shot's own steps stops at: the scale's last weight
- * before the Shot stopped (`lastRecordedWeight`), as Decaid stops a Shot
- * before the weight it is set to, by what is still to land, or wherever a
- * person stopped it; none where its machine ended it, having run its last
- * step (Decaid's `machineEnded`), or where it recorded no weight.
+ * The weight a run of a Shot's own steps, on the model of its Machine, stops
+ * at: the scale's last weight before the Shot stopped (`lastRecordedWeight`),
+ * as Decaid stops a Shot before the weight it is set to, by what is still to
+ * land, or wherever a person stopped it; none where it recorded no weight,
+ * and none where a DE1 ended it, having run its last step (Decaid's
+ * `machineEnded`). A Bengle ends a Shot itself at the Workflow's yield as
+ * well (Decaid's `EndOfShotWeight`), so its run stops at that last weight or
+ * with its last step, whichever comes first, as the Shot did.
  */
-export function shotStopAt(samples: readonly Sample<ShotCurve>[], stopReason: unknown): number | null {
-  if (stopReason === "machineEnded") return null;
+export function shotStopAt(samples: readonly Sample<ShotCurve>[], stopReason: unknown, model: MachineModel = "DE1"): number | null {
+  if (stopReason === "machineEnded" && model !== "Bengle") return null;
   return lastRecordedWeight(samples)?.weight ?? null;
 }
 
@@ -682,9 +685,13 @@ export interface FittedShot {
 /**
  * Runs a Shot's own steps, its Workflow's profile, on its own puck
  * (`shotPuck`), stopped as it stopped (`shotStopAt`), and gives the Shot's
- * figures and the run's side by side.
+ * figures and the run's side by side. A Shot whose scale read nothing ran
+ * with no step's weight, as Decaid checks none without a scale, and so does
+ * its run.
  */
 export function fitToShot({ samples, profile, puck, stopAt, model }: { samples: readonly Sample<ShotCurve>[]; profile: Profile; puck: Puck; stopAt: number | null; model?: MachineModel }): FittedShot {
-  const run = simulateProfile({ profile, puck, stopAt, ...(model ? { model } : {}) });
+  const weighed = lastRecordedWeight(samples) !== null;
+  const ran = weighed ? profile : { ...profile, steps: profile.steps.map((step) => ({ ...step, weight: null })) };
+  const run = simulateProfile({ profile: ran, puck, stopAt, ...(model ? { model } : {}) });
   return { run, fit: { shot: shotFigures(samples), simulated: runFigures(run) } };
 }
