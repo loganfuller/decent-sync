@@ -61,9 +61,18 @@ export function useProfile(id: string, changes = 0): { profile: Profile | null |
   return { profile, error };
 }
 
-/** Its profile, as Decaid reads it, from its record where the server, of the release before, gives none (ADR-0025). */
+/** Each Profile's profile read from its record, so a read gives the same one each time, as the server's does. */
+const readDefinitions = new WeakMap<Profile, ProfileDefinition | null>();
+
+/**
+ * Its profile, as Decaid reads it, from its record where the server, of the
+ * release before, gives none (ADR-0025): the same object for the same
+ * Profile, so a page simulating it on each new one doesn't re-render forever.
+ */
 export function definitionOf(profile: Profile): ProfileDefinition | null {
-  return profile.profile === undefined ? profileOf(profile.content.profile) : profile.profile;
+  if (profile.profile !== undefined) return profile.profile;
+  if (!readDefinitions.has(profile)) readDefinitions.set(profile, profileOf(profile.content.profile));
+  return readDefinitions.get(profile)!;
 }
 
 function ProfileDetails({ id }: { id: string }) {
@@ -630,7 +639,11 @@ function VersionsCard({ profile, versions, names }: { profile: Profile; versions
         {versions === undefined ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : versions.length <= 1 ? (
-          <p className="text-sm text-muted-foreground">Its only version: no Profile in the Library was saved from it, and it was saved from none in the Library.</p>
+          <p className="text-sm text-muted-foreground">
+            {profile.bundled
+              ? "One of Decaid's own Profiles, so no version anyone saved: a Profile saved from it starts versions of its own, which name it as where the first was saved from."
+              : "Its only version: no Profile in the Library was saved from it, and it was saved from none in the Library."}
+          </p>
         ) : (
           <ul className="grid divide-y" aria-label="Versions">
             {versions.map((version) => {

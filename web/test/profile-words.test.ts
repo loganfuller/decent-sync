@@ -73,8 +73,8 @@ describe("a Profile's versions", () => {
     expect(versionNames([version("only", "2026-11-01T00:00:00Z", null)])).toEqual(new Map([["only", "Title only"]]));
   });
 
-  it("follows a version back to the first, not into another branch", () => {
-    expect(earlierVersions(chain, "c").map((each) => each.id)).toEqual(["a", "root"]);
+  it("follows a version back to the first, not into another branch, nor into the bundled Profile the first was saved from", () => {
+    expect(earlierVersions(chain, "c").map((each) => each.id)).toEqual(["a"]);
     expect(earlierVersions(chain, "root")).toEqual([]);
   });
 });
@@ -84,5 +84,13 @@ describe("differences", () => {
     const eased: Profile = { ...soak, steps: soak.steps.map((step, index) => (index === 2 ? { ...step, limiter: { value: 2.5, range: 0 } } : step)) };
     expect(differences(soak, eased)).toEqual([["Pour eases its limit", "Over 1 ml/s", "Over 0 ml/s"]]);
     expect(differences(soak, soak)).toEqual([]);
+  });
+
+  it("names a changed sensor and target volume, which give a new Profile though the words leave them out", () => {
+    const changed: Profile = { ...soak, target_volume: 36, steps: soak.steps.map((step, index) => (index === 2 ? { ...step, sensor: "coffee" } : step)) };
+    expect(differences(soak, changed)).toEqual([
+      ["Pour measures its temperature", "At the water", "At the coffee"],
+      ["Target volume", "None", "36 ml"],
+    ]);
   });
 });

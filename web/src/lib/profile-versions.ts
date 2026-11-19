@@ -16,7 +16,12 @@ export function versionNames(versions: readonly ProfileVersion[]): Map<string, s
   return names;
 }
 
-/** The versions a Profile was saved from, the nearest first, through each one's `parentId`. */
+/**
+ * The versions a Profile was saved from, the nearest first, through each
+ * one's `parentId`, up to a bundled Profile, which is Decaid's and no
+ * version anyone saved, so its Shots, pulled anywhere, are not counted as
+ * this Profile's earlier ones.
+ */
 export function earlierVersions(versions: readonly ProfileVersion[], id: string): ProfileVersion[] {
   const byId = new Map(versions.map((version) => [version.id, version]));
   const earlier: ProfileVersion[] = [];
@@ -24,7 +29,7 @@ export function earlierVersions(versions: readonly ProfileVersion[], id: string)
   let parentId = byId.get(id)?.parentId ?? null;
   while (parentId !== null && !seen.has(parentId)) {
     const parent = byId.get(parentId);
-    if (!parent) break;
+    if (!parent || parent.bundled) break;
     earlier.push(parent);
     seen.add(parentId);
     parentId = parent.parentId;

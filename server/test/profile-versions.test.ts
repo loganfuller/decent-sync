@@ -176,4 +176,23 @@ describe("A Profile's versions, the Recipes on it and the model it is simulated 
     expect(result.versions[0]).toMatchObject({ id: ids.third, parentId: ids.second, shots: 1, savedBy: { machine: { name: "Versions lab 1" } } });
     expect(result.recipes).toEqual([{ recipe: expect.objectContaining({ id: recipeId, name: "Versions Espresso", slot: 4 }), loadedOn: [{ id: machineId, name: "Versions lab 1" }] }]);
   });
+
+  // Last, as it makes the first a bundled Profile.
+  it("lists a bundled Profile the first was saved from, but not the others saved from it, which are no versions of each other", async () => {
+    const database = await server.connectDatabase();
+    try {
+      await database.query("UPDATE profiles SET bundled = true WHERE id = $1", [ids.first]);
+    } finally {
+      await database.end();
+    }
+    // The second and the fork were each saved from the bundled first, as at two Locations from one of Decaid's Profiles.
+    const second = await versions(ids.second);
+    expect(second.map((version) => version.id)).toEqual([ids.third, ids.second, ids.first]);
+    expect(Object.fromEntries(second.map((version) => [version.id, version.parentId]))).toEqual({ [ids.first]: null, [ids.second]: ids.first, [ids.third]: ids.second });
+    expect(second.find((version) => version.id === ids.first)!.bundled).toBe(true);
+    expect((await versions(ids.third)).map((version) => version.id)).toEqual(second.map((version) => version.id));
+    expect((await versions(ids.fork)).map((version) => version.id)).toEqual([ids.fork, ids.first]);
+    // A bundled Profile's own versions are itself alone.
+    expect((await versions(ids.first)).map((version) => version.id)).toEqual([ids.first]);
+  });
 });

@@ -141,6 +141,8 @@ export function differences(a: Profile, b: Profile): [string, string, string][] 
     const easingA = easing(stepA);
     const easingB = easing(stepB);
     if (easingA && easingB && easingA !== easingB) rows.push([`${name} eases its limit`, easingA, easingB]);
+    // Where its temperature is measured, which the words leave out too.
+    if (stepA.sensor !== stepB.sensor) rows.push([`${name} measures its temperature`, `At the ${stepA.sensor}`, `At the ${stepB.sensor}`]);
     const onA = stepMovesOn(stepA);
     const onB = stepMovesOn(stepB);
     if (onA !== onB) rows.push([`${name} moves on`, onA, onB]);
@@ -150,5 +152,7 @@ export function differences(a: Profile, b: Profile): [string, string, string][] 
     if (fact.text !== factsB[index]!.text) rows.push([fact.term, fact.text, factsB[index]!.text]);
   });
   if (a.beverage_type !== b.beverage_type) rows.push(["Kind of drink", a.beverage_type, b.beverage_type]);
+  const volume = (profile: Profile) => (profile.target_volume ? `${measure(profile.target_volume)} ml` : "None");
+  if (volume(a) !== volume(b)) rows.push(["Target volume", volume(a), volume(b)]);
   return rows;
 }

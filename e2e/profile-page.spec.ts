@@ -242,6 +242,40 @@ test("a Profile asking for an outlandish pressure still draws", async ({ page })
   await expect(svg.locator("[data-lane='pressure'] > g")).toHaveCount(6);
 });
 
+test("a Profile's page read from a server of the release before draws its graph once, without its versions or Recipes", async ({ page }) => {
+  const lab = await createLocation(page, "Before lab");
+  const tablet = await tabletAt(page, server, "Before lab group", lab, "57841", { ...tabletApi, "/profiles": [] });
+  const saved = await tablet.addProfile(soak("Before Soak", { pressure: 5.5 }));
+  const id = String(saved.id);
+  await waitForProfile(page, id);
+  // As v1.11.1 answers: a Profile without its read profile or model, and no versions or Recipes routes.
+  const base = `**/api/profiles/${encodeURIComponent(id)}`;
+  await page.route(base, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { profile: Fields };
+    delete body.profile.profile;
+    delete body.profile.machineModel;
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`${base}/versions`, (route) => route.fulfill({ status: 404, json: { message: "Cannot GET" } }));
+  await page.route(`${base}/recipes`, (route) => route.fulfill({ status: 404, json: { message: "Cannot GET" } }));
+
+  await page.goto(profilePage(id));
+  const graph = page.getByRole("region", { name: "How it runs" });
+  await expect(graph.getByRole("figure", { name: /^Simulated run of Before Soak/ })).toBeVisible();
+  await expect(graph.getByText("18 g in, stopping at 40 g, on a DE1")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Shots" })).toContainText("No Shots yet");
+  await expect(page.getByRole("region", { name: "Versions" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Recipes on this version" })).toHaveCount(0);
+  // Once drawn, it stays drawn, rather than simulating again on each render: the page's scripts all but idle.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  const scripting = async () => (await cdp.send("Performance.getMetrics")).metrics.find((metric) => metric.name === "ScriptDuration")!.value;
+  const before = await scripting();
+  await page.waitForTimeout(1500);
+  expect(await scripting() - before).toBeLessThan(0.3);
+});
+
 test("a Profile's page fits a phone", async ({ page }) => {
   const lab = await createLocation(page, "Phone lab");
   const tablet = await tabletAt(page, server, "Phone lab group", lab, "57821", { ...tabletApi, "/profiles": [] });

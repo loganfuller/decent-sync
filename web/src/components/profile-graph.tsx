@@ -1,5 +1,5 @@
 import { type Profile, type Sample, type ShotCurve, type SimulatedRun, sentStep } from "@decent-sync/protocol";
-import { type KeyboardEvent, type PointerEvent, type RefObject, type SVGProps, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject, type SVGProps, useEffect, useId, useRef, useState } from "react";
 import { RECORD_CLASSES, RECORD_VARIABLES } from "@/components/record-colors";
 import { type GraphLayout, LANES, type Lane, type LaneLabel, type LaneRanges, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "@/lib/profile-graph-layout";
 import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/lib/profile-words";
@@ -200,7 +200,9 @@ export function ProfileGraph({
     const limit = step.limiter && step.limiter.value > 0 ? step.limiter : null;
     if (limit) {
       const capped = step.pump === "pressure" ? "flow" : "pressure";
-      labels.push(labelled("limit", capped, `${capitalised(limitText(step) ?? "")}, easing over ${measure(limit.range)}`, y(capped, limit.value + limit.range), y(capped, limit.value)));
+      labels.push(
+        labelled("limit", capped, `${capitalised(limitText(step) ?? "")}, easing over ${measure(limit.range)} ${capped === "flow" ? "ml/s" : "bar"}`, y(capped, limit.value + limit.range), y(capped, limit.value)),
+      );
     }
     const exit = step.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null;
     if (exit) labels.push(labelled("exit", exit.type, `Moves on ${exitText(exit)}`, y(exit.type, exit.value), y(exit.type, exit.value)));
@@ -270,7 +272,7 @@ export function ProfileGraph({
         </span>
       </div>
       {width > 0 && (
-        <div className="relative" style={{ width, height }}>
+        <GraphPointer layout={layout} profile={profile} run={run} runLabel={runLabel} compared={compared ? { label: compared.label, samples: comparedSamples, end: comparedEnd } : undefined}>
           {/* What the graph shows is its caption, in words; the drawing is left out of what screen readers read. */}
           <svg role="none" width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block text-xs" data-graph-end={end}>
             <defs>
@@ -465,8 +467,7 @@ export function ProfileGraph({
               ))}
             </g>
           </svg>
-          <GraphPointer layout={layout} profile={profile} run={run} runLabel={runLabel} compared={compared ? { label: compared.label, samples: comparedSamples, end: comparedEnd } : undefined} />
-        </div>
+        </GraphPointer>
       )}
     </figure>
   );
@@ -519,10 +520,13 @@ function readoutRows(profile: Profile, runLabel: string, sample: Sample<ShotCurv
 }
 
 /**
- * The moment pointed at, or moved to with the arrow keys on the graph's time
- * slider: a line there with each record's points on it, and the values in a
- * tooltip over the graph, as the Shot page's charts give them. Its own state,
- * so pointing redraws only this.
+ * The graph, `children`, and the moment pointed at on it, or moved to with
+ * the arrow keys on its time slider: a line there with each record's points
+ * on it, and the values in a tooltip over the graph, as the Shot page's
+ * charts give them. Its own state, so pointing redraws only this, not the
+ * graph it is given. The pointer is read on the graph itself, in its own
+ * coordinates, as `layout`'s inverses take them, and reaches the graph's
+ * labels, whose titles show their whole text; the slider takes the keys.
  */
 function GraphPointer({
   layout,
@@ -530,12 +534,14 @@ function GraphPointer({
   run,
   runLabel,
   compared,
+  children,
 }: {
   layout: GraphLayout;
   profile: Profile;
   run: SimulatedRun;
   runLabel: string;
   compared: { label: string; samples: Sample<ShotCurve>[]; end: number } | undefined;
+  children: ReactNode;
 }) {
   const [pointer, setPointer] = useState<number | null>(null);
   // Each record's values only while it runs: none for the run after it stopped, nor for the Shot after it did.
@@ -568,7 +574,14 @@ function GraphPointer({
   const onLeft = px > layout.width / 2;
   const room = Math.max(96, (onLeft ? px : layout.width - px) - 18);
   return (
-    <>
+    <div
+      className="relative touch-pan-y"
+      style={{ width: layout.width, height: layout.height }}
+      onPointerMove={onPointer}
+      onPointerDown={onPointer}
+      onPointerLeave={(event) => event.pointerType === "mouse" && setPointer(null)}
+    >
+      {children}
       {showing && (
         <svg aria-hidden className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height}>
           <line x1={px} x2={px} y1={layout.plot.top} y2={layout.plot.bottom} className="stroke-foreground/50" />
@@ -619,14 +632,11 @@ function GraphPointer({
         aria-valuemax={Math.round(last * 10) / 10}
         aria-valuenow={Math.round(at * 10) / 10}
         aria-valuetext={showing ? `${heading}: ${rows.map((row) => `${row.term} ${row.value}`).join(", ")}` : "Move along the graph with the arrow keys to read its values"}
-        className="absolute inset-x-0 bottom-0 touch-pan-y rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="pointer-events-none absolute inset-x-0 bottom-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
         style={{ top: layout.plot.top }}
-        onPointerMove={onPointer}
-        onPointerDown={onPointer}
-        onPointerLeave={(event) => event.pointerType === "mouse" && setPointer(null)}
         onKeyDown={onKey}
       />
-    </>
+    </div>
   );
 }
 

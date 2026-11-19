@@ -138,7 +138,7 @@ function Compared({ one, two }: { one: Side; two: Side }) {
   const runOne = useMemo(() => runOf(one.definition), [one.definition, ask]); // eslint-disable-line react-hooks/exhaustive-deps
   const runTwo = useMemo(() => runOf(two.definition), [two.definition, ask]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = one.definition && two.definition ? differences(one.definition, two.definition) : [];
-  const figures = runOne && runTwo ? figureRows(one.definition!, runOne, runTwo) : [];
+  const figures = runOne && runTwo ? figureRows(one.definition!, two.definition!, runOne, runTwo) : [];
 
   return (
     <>
@@ -247,7 +247,7 @@ function withPlannedTemperature(samples: SimulatedRun["samples"]): SimulatedRun[
 }
 
 /** Two runs' figures side by side: time, first drip, peak pressure, and how long each step lasted. */
-function figureRows(profile: ProfileDefinition, a: SimulatedRun, b: SimulatedRun): [string, string, string][] {
+function figureRows(one: ProfileDefinition, two: ProfileDefinition, a: SimulatedRun, b: SimulatedRun): [string, string, string][] {
   const lasted = (run: SimulatedRun, index: number) => {
     const step = run.steps[index];
     if (!step || step.start === null || step.end === null) return "Not reached";
@@ -257,6 +257,11 @@ function figureRows(profile: ProfileDefinition, a: SimulatedRun, b: SimulatedRun
     ["Time", seconds(a.duration), seconds(b.duration)],
     ["First drip", a.timeToFirstDrip === null ? "None" : seconds(a.timeToFirstDrip), b.timeToFirstDrip === null ? "None" : seconds(b.timeToFirstDrip)],
     ["Peak pressure", `${measure(a.peakPressure)} bar`, `${measure(b.peakPressure)} bar`],
-    ...profile.steps.map((step, index): [string, string, string] => [`${stepName(step, index)} lasts`, lasted(a, index), lasted(b, index)]),
+    // Each step either version has, named as the first names it where it has the step.
+    ...Array.from({ length: Math.max(one.steps.length, two.steps.length) }, (_, index): [string, string, string] => [
+      `${stepName((one.steps[index] ?? two.steps[index])!, index)} lasts`,
+      lasted(a, index),
+      lasted(b, index),
+    ]),
   ];
 }

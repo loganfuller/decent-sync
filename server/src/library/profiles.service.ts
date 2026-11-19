@@ -123,25 +123,37 @@ export class ProfilesService {
   /**
    * Its Profile Versions (ADR-0032): every Profile in the chain of `parentId`
    * links through it, up to the first, whose link names no Profile in the
-   * Library, and down through every Profile saved from one in the chain, so
-   * a fork's branches both; the latest saved first. 404 for no such Profile.
+   * Library or one of Decaid's bundled Profiles, and down through every
+   * Profile saved from one in the chain, so a fork's branches both; the
+   * latest saved first. A bundled Profile the first was saved from is listed
+   * as where it was, but not walked down through, so Profiles saved from it
+   * apart, as at two Locations, are not each other's versions; and a bundled
+   * Profile's own are itself alone. 404 for no such Profile.
    */
   async versions(id: string, scope: Scope): Promise<ProfileVersionView[]> {
-    if (!(await this.prisma.profile.count({ where: { id } }))) throw profileNotFound();
-    // UNION, not UNION ALL, so a loop of links, which Decaid's hash makes all but impossible, ends.
-    const chain = await this.prisma.$queryRaw<{ id: string }[]>`
+    const found = await this.prisma.profile.findUnique({ where: { id }, select: { bundled: true } });
+    if (!found) throw profileNotFound();
+    // UNION ALL to a depth, so a loop of links, which Decaid's hash makes all but impossible, ends; then UNION in the walk down.
+    const chain = found.bundled
+      ? [{ id }]
+      : await this.prisma.$queryRaw<{ id: string }[]>`
       WITH RECURSIVE up AS (
-        SELECT id, content ->> 'parentId' AS parent FROM profiles WHERE id = ${id}
-        UNION
-        SELECT p.id, p.content ->> 'parentId' FROM profiles p JOIN up ON p.id = up.parent
+        SELECT id, content ->> 'parentId' AS parent, bundled, 0 AS depth FROM profiles WHERE id = ${id}
+        UNION ALL
+        SELECT p.id, p.content ->> 'parentId', p.bundled, up.depth + 1 FROM profiles p JOIN up ON p.id = up.parent
+        WHERE NOT up.bundled AND up.depth < ${MAX_PROFILE_VERSIONS}
+      ), top AS (
+        SELECT id, bundled, depth FROM up ORDER BY depth DESC LIMIT 1
       ), first AS (
-        SELECT coalesce((SELECT up.id FROM up WHERE up.parent IS NULL OR NOT EXISTS (SELECT 1 FROM profiles WHERE profiles.id = up.parent) LIMIT 1), ${id}) AS id
+        SELECT coalesce((SELECT up.id FROM up, top WHERE top.bundled AND up.depth = top.depth - 1 LIMIT 1), (SELECT id FROM top)) AS id
       ), down AS (
         SELECT id FROM first
         UNION
-        SELECT p.id FROM profiles p JOIN down ON p.content ->> 'parentId' = down.id
+        SELECT p.id FROM profiles p JOIN down ON p.content ->> 'parentId' = down.id WHERE NOT p.bundled
       )
-      SELECT id FROM down LIMIT ${MAX_PROFILE_VERSIONS}`;
+      SELECT id FROM (SELECT id FROM down LIMIT ${MAX_PROFILE_VERSIONS}) AS saved
+      UNION
+      SELECT id FROM top WHERE bundled`;
     const ids = chain.map((row) => row.id);
     const [profiles, firsts, shots] = await Promise.all([
       this.prisma.profile.findMany({ where: { id: { in: ids } }, include: withPlaces }),

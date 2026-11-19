@@ -2529,10 +2529,15 @@ Every endpoint requires the account session; Staff read them as Admins do.
   it. The id goes in the path as it is or percent-encoded.
 - `GET /api/profiles/:id/versions` returns `{ versions }`, its Profile
   Versions: every Profile in the chain of `parentId` links through it, up to
-  the first, whose link names no Profile in the Library, and down through
-  each saved from one in the chain, so both branches of a fork, at most 200,
-  the latest saved first. Each is `{ id, title, bundled, archived, parentId,
-  savedAt, savedBy, shownAt, shots }`: `parentId` null for the first;
+  the first, whose link names no Profile in the Library or one of Decaid's
+  bundled Profiles, and down through each saved from one in the chain, so
+  both branches of a fork, at most 200, the latest saved first. A bundled
+  Profile the first was saved from is listed, but not walked down through,
+  so Profiles saved from it apart, as at two Locations, are not each other's
+  versions; a bundled Profile's own versions are itself alone. Each is
+  `{ id, title, bundled, archived, parentId, savedAt, savedBy, shownAt,
+  shots }`: `parentId` the Profile it was saved from where that is listed,
+  else null;
   `savedAt` its history's first version's time, the record its first tablet
   sent, else when it joined the Library; `savedBy` that version's source, as
   a history's (a Machine, or an account named to Admins only), or null;
