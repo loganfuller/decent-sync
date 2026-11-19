@@ -49,45 +49,49 @@ function shape(title: string, steps: Profile["steps"], stopAt: number, preinfusi
 /** The fill every shape but the blank one starts with: 4 ml/s until the puck pushes back, for at most 20 s. */
 const fill = (over: number) => flow("Fill", 4, 20, { exit: { type: "pressure", condition: "over", value: over } });
 
-/** The starting shapes, in the order New Profile offers them. */
-export const STARTING_SHAPES: readonly StartingShape[] = [
-  {
-    key: "classic",
-    title: "Classic 9 bar",
-    description: "A short preinfusion, then a flat 9 bar. For a traditional espresso from a darker roast.",
-    profile: shape("Classic 9 bar", [fill(4), pressure("Pour", 9, 60)], 36, 1),
-  },
-  {
-    key: "lever",
-    title: "Declining lever",
-    description: "Rises to a peak, then eases off as a spring lever does. A softer, sweeter finish.",
-    profile: shape("Declining lever", [fill(3), pressure("Peak", 9, 4), pressure("Decline", 6, 9, { transition: "smooth" }), pressure("Finish", 6, 30)], 36, 1),
-  },
-  {
-    key: "steady-flow",
-    title: "Steady flow",
-    description: "Holds the flow and lets pressure follow the puck. Forgiving when the grind is a little off.",
-    profile: shape("Steady flow", [fill(3), flow("Pour", 2, 60, { limiter: { value: 9, range: 0.6 } })], 36, 1),
-  },
-  {
-    key: "blooming",
-    title: "Blooming",
-    description: "Wets the puck, pauses, then extracts. For light roasts that need time to open up.",
-    profile: shape("Blooming", [fill(3), flow("Bloom", 0, 15), pressure("Extract", 8, 60, { limiter: { value: 3, range: 0.6 } })], 36, 2),
-  },
-  {
-    key: "long",
-    title: "Long and gentle",
-    description: "Low pressure and a longer run. For a bigger, lighter cup.",
-    profile: shape("Long and gentle", [fill(2), pressure("Pour", 6, 60)], 54, 1),
-  },
-  {
-    key: "blank",
-    title: "Blank",
-    description: "Three plain steps, to shape yourself.",
-    profile: shape("New Profile", [flow("Step 1", 4, 10), pressure("Step 2", 6, 10), pressure("Step 3", 6, 30)], 36, 1),
-  },
-];
+/** The starting shapes, in the order New Profile offers them; built by a call marked pure, so the plugin's bundle, which uses none, leaves them out. */
+export const STARTING_SHAPES: readonly StartingShape[] = /* @__PURE__ */ shapes();
+
+function shapes(): readonly StartingShape[] {
+  return [
+    {
+      key: "classic",
+      title: "Classic 9 bar",
+      description: "A short preinfusion, then a flat 9 bar. For a traditional espresso from a darker roast.",
+      profile: shape("Classic 9 bar", [fill(4), pressure("Pour", 9, 60)], 36, 1),
+    },
+    {
+      key: "lever",
+      title: "Declining lever",
+      description: "Rises to a peak, then eases off as a spring lever does. A softer, sweeter finish.",
+      profile: shape("Declining lever", [fill(3), pressure("Peak", 9, 4), pressure("Decline", 6, 9, { transition: "smooth" }), pressure("Finish", 6, 30)], 36, 1),
+    },
+    {
+      key: "steady-flow",
+      title: "Steady flow",
+      description: "Holds the flow and lets pressure follow the puck. Forgiving when the grind is a little off.",
+      profile: shape("Steady flow", [fill(3), flow("Pour", 2, 60, { limiter: { value: 9, range: 0.6 } })], 36, 1),
+    },
+    {
+      key: "blooming",
+      title: "Blooming",
+      description: "Wets the puck, pauses, then extracts. For light roasts that need time to open up.",
+      profile: shape("Blooming", [fill(3), flow("Bloom", 0, 15), pressure("Extract", 8, 60, { limiter: { value: 3, range: 0.6 } })], 36, 2),
+    },
+    {
+      key: "long",
+      title: "Long and gentle",
+      description: "Low pressure and a longer run. For a bigger, lighter cup.",
+      profile: shape("Long and gentle", [fill(2), pressure("Pour", 6, 60)], 54, 1),
+    },
+    {
+      key: "blank",
+      title: "Blank",
+      description: "Three plain steps, to shape yourself.",
+      profile: shape("New Profile", [flow("Step 1", 4, 10), pressure("Step 2", 6, 10), pressure("Step 3", 6, 30)], 36, 1),
+    },
+  ];
+}
 
 /** The starting shape of the key, or undefined for none. */
 export function startingShape(key: string): StartingShape | undefined {
