@@ -686,7 +686,7 @@ the tablet no longer holds the Shot (When two edits cross, below).
   newest first, by that number: a Shot has a handful, and each may hold a
   note as long as a request. An edit made on a Machine's tablet (#515)
   names that Machine and tablet (`machine_id`, `tablet_id`) and no account,
-  as a version of a Library item made on a tablet does; each is set to
+  as a history entry of a Library item made on a tablet does; each is set to
   null if its Machine or tablet is deleted.
 - **Which tablet.** The tablet that holds a Shot is the one that last
   reported it (`shots.tablet_id`): the one whose report of the Shot's

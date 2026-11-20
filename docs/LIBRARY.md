@@ -13,8 +13,8 @@ each shown or hidden at each Location, and ticket
 belonging to one Location. Ticket
 [#84](https://github.com/loganfuller/decent-sync/issues/84) has an edit of
 an item's content on any tablet reach every tablet that holds it, merged per
-field with the latest edit winning, keeping each accepted edit as a version
-and each that lost as a Conflict (Edits, below), and ticket
+field with the latest edit winning, keeping each accepted edit as a history
+entry and each that lost as a Conflict (Edits, below), and ticket
 [#85](https://github.com/loganfuller/decent-sync/issues/85) shows the
 Conflicts and each item's history in the management interface, where a
 Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
@@ -256,9 +256,10 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   written back to that tablet, and the edit kept as a Conflict. One that
   applies over another tablet's decision it had not seen, which it changes,
   keeps that decision as a Conflict instead, as neither saw the other
-  (ADR-0020). Each that applies is a version (`item_versions`, below), whose
-  id the field keeps (`presence_version_id`, `remaining_weight_version_id`),
-  so a Conflict it becomes knows where it came from. One that applies is the
+  (ADR-0020). Each that applies is a history entry (`item_versions`,
+  below), whose id the field keeps (`presence_version_id`,
+  `remaining_weight_version_id`), so a Conflict it becomes knows where it
+  came from. One that applies is the
   field's latest edit
   even when it leaves the batch where it was: it is added or finished there
   again, so an earlier edit that arrives later cannot undo it. It is never
@@ -289,9 +290,9 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   delete, which Decaid does not time, by PostgreSQL's clock, but never earlier
   than the record the tablet was last known to have. And when it was decided,
   by PostgreSQL's clock, as again by an edit that applied but left it shown or
-  hidden as it was, the tablet whose edit decided it, and that edit's version
-  (`version_id`). A Location with no row for a Profile has decided nothing of
-  it, and does not show it.
+  hidden as it was, the tablet whose edit decided it, and that edit's history
+  entry (`version_id`). A Location with no row for a Profile has decided
+  nothing of it, and does not show it.
 - `tablet_beans`, `tablet_bean_batches`, `tablet_grinders` and
   `tablet_profiles`: the map, per tablet id (ticket #79): each item's local
   id on that tablet, which is a Profile's own, and the record as the tablet
@@ -363,7 +364,7 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   tabletId, versionId }`: when it was made, never earlier than the edit
   before it; when it was decided, by PostgreSQL's clock, after every edit of
   the item decided before it; the tablet that made it, if one did; and its
-  version.
+  history entry.
 - `item_versions`: each accepted edit of an item (ADR-0020), with the fields
   it set and their values, the Machine and tablet or the account it came
   from, when it was made (`edited_at`, timed as the edit was) and when the
@@ -371,19 +372,19 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   item's content has no Location; one of a Location's state of it names that
   Location, and only those fields: `atLocation` and `remainingWeight` for a
   batch, `shown` for a Profile. Joining the Library is an item's first
-  version. Each names its item by kind and id (`kind`, `item_id`), and goes
-  with it. Versions taken in together keep the order they were taken in
-  (`seq`), and so do Conflicts.
-- `versioned_items`: every item that keeps versions and Conflicts, each
-  Library item, by kind and id, which versions
+  history entry. Each names its item by kind and id (`kind`, `item_id`), and
+  goes with it. History entries taken in together keep the order they were
+  taken in (`seq`), and so do Conflicts.
+- `versioned_items`: every item that keeps a history and Conflicts, each
+  Library item, by kind and id, which history entries
   and Conflicts reference, so a new kind needs no column of its own in them.
   Triggers on each kind's table keep it, as its migration created them
   (`versioned_item_added`, `versioned_item_renamed`,
   `versioned_item_removed` and `versioned_items_truncated`, each given the
   kind): a row is added as an item is, follows a change of its id, and is
   deleted as the item is, or with every row of the kind as its table is
-  truncated, taking its versions and Conflicts with it, as a foreign key to
-  the item would.
+  truncated, taking its history entries and Conflicts with it, as a
+  foreign key to the item would.
 - `deleted_items` and `tablet_deletions`: the global id of each item an
   Admin hard-deleted, and each tablet's records of it still to be deleted
   there, by their ids there, a Profile's by Decaid's id, with its steps,
@@ -403,10 +404,10 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   PostgreSQL's clock (Sharing status, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
-  the field), where it came from and when it was made, as a version keeps
-  them, its Location for a Location's state, when it became a Conflict, and
-  whether it is open, its value used or dismissed (Resolving Conflicts,
-  below).
+  the field), where it came from and when it was made, as a history entry
+  keeps them, its Location for a Location's state, when it became a
+  Conflict, and whether it is open, its value used or dismissed (Resolving
+  Conflicts, below).
 
 ## Edits
 
@@ -426,7 +427,7 @@ written, and the management interface refuses to edit them too.
 
 - **What an edit is.** A record the tablet's map holds that it reports anew,
   or that Decaid returned for one of the server's writes, is compared with
-  the record known, the version that tablet last had: each field of its
+  the record known, the record as that tablet last had it: each field of its
   content that differs, a field the record leaves out being null, as Decaid
   leaves out a field it holds no value for, was edited on the tablet. The edit
   is timed by the record's `updatedAt`, placed in UTC by the plugin. The
@@ -456,9 +457,10 @@ written, and the management interface refuses to edit them too.
   names one edit's Bean beside another's batch, as when a batch of another
   Bean picked on one Machine reaches the server after the Bean's next bag
   picked on another (ADR-0020; `together` in `kinds.ts`, #570). Each edit that decides a field is
-  kept as a version, with the fields it decided. A Bean whose roaster or name
-  is edited keeps its match key to them, so another Bean of the same roaster
-  and name lists it as a likely duplicate; they are not merged (ADR-0018).
+  kept in the item's history, with the fields it decided. A Bean whose
+  roaster or name is edited keeps its match key to them, so another Bean of
+  the same roaster and name lists it as a likely duplicate; they are not
+  merged (ADR-0018).
 - **Linking.** A record linked to a Library item, a new bean by its roaster
   and name, or a user's Profile the tablet holds by Decaid's id, takes the
   item's content: each field where the record held another value is kept as
@@ -473,7 +475,7 @@ written, and the management interface refuses to edit them too.
 - **Per-Location state.** Whether a batch is at a Location, its remaining
   weight there and whether a Profile is shown there are each a field of
   their own, merged as `batch_locations` and `profile_locations` describe,
-  with versions and Conflicts as content's are.
+  with history entries and Conflicts as content's are.
 
 Times decide only between edits made without seeing each other, so a tablet
 whose clock runs behind another's can lose such an edit, a tablet clock error
@@ -492,12 +494,13 @@ Grinder's other content only at their own Locations, as a Grinder belongs to one
 any instance, so it is used or dismissed once; a tablet's report never locks
 a Conflict, so neither waits on the other in turn.
 
-- **Using its value** makes it the field's latest edit, a version from the
-  account, timed by PostgreSQL's clock (ADR-0016), as its `received_at` is.
-  The request names the version that set the field's value now as the
-  Conflict showed it (`seen`), and the value is used only while that version
-  still set it, read under the locks below: an edit decided since, as by a
-  tablet that had seen the value now, which then made no Conflict, is
+- **Using its value** makes it the field's latest edit, a history entry
+  from the account, timed by PostgreSQL's clock (ADR-0016), as its
+  `received_at` is. The request names the history entry that set the
+  field's value now as the Conflict showed it (`seen`), and the value is
+  used only while that entry still set it, read under the locks below: an
+  edit decided since, as by a tablet that had seen the value now, which
+  then made no Conflict, is
   refused with 409 rather than replaced unseen (ADR-0020), and the account
   looks again. So the account chose it over the field's value now, and the
   edit decides the field whatever the times of the edits before it, and
@@ -520,8 +523,8 @@ a Conflict, so neither waits on the other in turn.
   `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
   Location, is written it; a tablet's edit made before it that arrives later,
   as from one that was offline, loses to it and is kept as a Conflict.
-- **Dismissing it** closes it with nothing else changed: no version, and
-  nothing written.
+- **Dismissing it** closes it with nothing else changed: no history entry,
+  and nothing written.
 
 ## Editing in the management interface
 
@@ -568,7 +571,7 @@ in words (`contentFields`), and a value those readers refuse is refused with
 their message. It is an edit in the item's history from the account
 through its Connected App (`Editor` in `history.ts`), as is a Conflict
 keeping a value of it that a later edit replaced; dismissing a Conflict records no one, in the
-management interface either. A lapsed Connected App that a version or
+management interface either. A lapsed Connected App that a history entry or
 Conflict names is kept, still refused, so history goes on naming it
 (`server/src/connected-apps/cleanup.ts`).
 
@@ -772,9 +775,10 @@ Conflict names is kept, still refused, so history goes on naming it
   release that dropped it fixed what 1.6.0 left once, in its migration
   (`20261029000000_recipes_shown_by_slot`), an exception to migrations
   changing the schema only that the owner approved on 2026-10-29: a Recipe
-  in a slot whose `showOnDashboard` was false left its slot, a version from
-  the server, the field left every Recipe's content and latest edits, and
-  each open Conflict over it was dismissed; past versions keep it as made.
+  in a slot whose `showOnDashboard` was false left its slot, a history
+  entry from the server, the field left every Recipe's content and latest
+  edits, and each open Conflict over it was dismissed; past history entries
+  keep it as made.
   While 1.6.0 still served beside it during the deploy, a hide 1.6.0 took
   in, or its page's switch, was undone, as this release writes a record
   shown exactly while its Recipe is in a slot, and a `showOnDashboard` 1.6.0
@@ -800,7 +804,7 @@ Conflict names is kept, still refused, so history goes on naming it
   lowest free of the nine wherever it is asked. It is
   created in a slot chosen, the lowest one free (`next`), no Recipe's, its
   own included, or none, as for `next` where every slot holds a Recipe; and
-  moved to another, or taken out of its slot, each a version of its own
+  moved to another, or taken out of its slot, each a history entry of its own
   setting `slot` at the Location, as a tablet's move is. A Recipe in the
   slot chosen takes the moved one's old slot, or none for a new one or one
   that had none; moving one to `next` where every slot holds a Recipe is
@@ -837,11 +841,11 @@ Conflict names is kept, still refused, so history goes on naming it
   Recipe there taken out of it and kept there, or the lowest free one, or
   none, as where every slot there holds a Recipe, under that Location's
   lock, as a new Recipe does. Its history starts with the copy: its first
-  version names the Recipe it was copied from and that Recipe's Location
-  then (`copied_from_id` and `copied_from_location_id` on `item_versions`),
-  the Recipe by its id alone, so the note outlives its hard delete. It
-  starts with the Recipe's Reference Shot, a version of its own, and chooses
-  its own from then on.
+  history entry names the Recipe it was copied from and that Recipe's
+  Location then (`copied_from_id` and `copied_from_location_id` on
+  `item_versions`), the Recipe by its id alone, so the note outlives its
+  hard delete. It starts with the Recipe's Reference Shot, a history entry
+  of its own, and chooses its own from then on.
 - **A Recipe's Reference Shot** (#472, ADR-0029). The one Shot chosen to
   show how a Recipe's Shots should go: any Shot the Shots list lists when it
   is chosen, from any Machine, Location or Profile, pulled with the Recipe
@@ -850,7 +854,7 @@ Conflict names is kept, still refused, so history goes on naming it
   Shot's id with no foreign key, as Shots are never deleted, and is not its
   content: it is no part of DYE2's recipe record, and makes no Conflict.
   It reaches tablets as a copy of the Shot, below, so choosing or clearing
-  one announces the Recipe's Location (`library_changes`). Each change of it is a version of its own, `referenceShotId`
+  one announces the Recipe's Location (`library_changes`). Each change of it is a history entry of its own, `referenceShotId`
   set to the Shot's id or null, with no Location, as Archiving is, timed
   and attributed as every edit is. It stays through edits to the Recipe's
   content and slot until someone chooses another or clears it, so a
@@ -875,8 +879,9 @@ Conflict names is kept, still refused, so history goes on naming it
     connection's Machine served at a Location and has
     `RecipeEditsService.chooseReferenceShotOnTablet` make the choice in the
     same transaction: the Location's lock and then the Recipe's row, the
-    update, the version and the `library_changes` announcement are those of
-    `setReferenceShot`, which the REST route and `set_reference_shot` call.
+    update, the history entry and the `library_changes` announcement are
+    those of `setReferenceShot`, which the REST route and
+    `set_reference_shot` call.
     The transaction holds the Machine's row first, as a tablet's report
     does (`lockHeldMachine`), which a hello, a move and a sharing switch
     take too: a choice is made only by the connection holding a Machine
@@ -884,7 +889,7 @@ Conflict names is kept, still refused, so history goes on naming it
     So the other tablets' copies are replaced and their Skins pushed, and
     the Recipe's REST read, `get_library_item` and the management interface
     show it at once.
-  - **No person.** The version names the Machine and the tablet and no
+  - **No person.** The history entry names the Machine and the tablet and no
     account, as a dial-in change saved from a tablet does (`tabletSource`),
     timed by PostgreSQL's clock. The Recipe's history shows the Machine.
   - **Which Recipe.** One of the Location the Machine is served at. Another
@@ -964,8 +969,9 @@ Conflict names is kept, still refused, so history goes on naming it
   with each Location's state of it, so restoring it offers it again where it
   was. A Bean is Archived or restored under the lock new beans are matched
   under, so a tablet never links a new bean to a Bean Archived at once. Each
-  is a version of the item (`archived`). A Grinder's Archived state is a field
-  of its content, merged as a tablet's archiving is. An Archived Profile is
+  is a history entry of the item (`archived`). A Grinder's Archived state
+  is a field of its content, merged as a tablet's archiving is. An Archived
+  Profile is
   shown nowhere and hidden on every tablet that holds it, but keeps each
   Location's state of it, which can still be changed, so restoring it shows
   it again where it is shown. An Archived Basket or Tool is the same, but
@@ -989,7 +995,7 @@ Conflict names is kept, still refused, so history goes on naming it
 An Admin hard-deletes a Bean, Bean Batch, Grinder, Profile, Basket, Tool or
 Recipe no Shot names (ADR-0003, `hard-deletes.ts`), and a Basket or Tool
 only where no Recipe names it either (ticket #147): it is gone from the
-Library at once, with its versions, Conflicts and each Location's state of
+Library at once, with its history, Conflicts and each Location's state of
 it, and from every tablet that holds it, the one thing the server deletes
 from tablets. A Bean goes with its batches, as Decaid refuses to delete a
 bean that has any. Decaid's bundled Profiles are never deleted (409): every
@@ -1155,9 +1161,10 @@ order reported:
    space at either end (`beanMatchKey`), unless one of the tablet's other
    records already is that Bean: it then takes the Bean's content, each field
    it held otherwise kept as a Conflict (ADR-0018). Otherwise it joins the
-   Library, created at the tablet's Location, its content its first version.
-   Either way, unless it is archived on the tablet, the Bean is offered at the
-   tablet's Location, as an origin, while none of its batches is there.
+   Library, created at the tablet's Location, its content its first
+   history entry. Either way, unless it is archived on the tablet, the Bean
+   is offered at the tablet's Location, as an origin, while none of its
+   batches is there.
 
 Last:
 
@@ -1577,7 +1584,7 @@ are never matched (ADR-0018).
   Recipe is still in the slot the record known was in, so one made on a
   tablet that had not seen a move made elsewhere, as in the management
   interface, is not, and the Recipe's slot is written back. Each slot a
-  move changes is a version of its own, from the tablet, timed as the
+  move changes is a history entry of its own, from the tablet, timed as the
   record moved, and slots left are emptied first, so no two Recipes are
   ever in one.
 - **A recipe named before its record arrives.** Once the tablet's map holds
@@ -1591,7 +1598,7 @@ are never matched (ADR-0018).
   was removed on the tablet, which neither DYE2 nor Streamline does today:
   its Recipe is taken out of the slot the record known was in, at the
   tablet's Location, if it is still in it there, and kept (ADR-0019), a
-  version of its own, `{ slot: null }` at that Location, timed when the
+  history entry of its own, `{ slot: null }` at that Location, timed when the
   server learns of it. A record the server's write created that no report
   listed before it went was lost to another app's rewrite, and is written
   again.
@@ -2861,8 +2868,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ id, title, bundled, archived, parentId, savedAt, savedBy, shownAt,
   shots }`: `parentId` the Profile it was saved from where that is listed,
   else null;
-  `savedAt` its history's first version's time, the record its first tablet
-  sent, else when it joined the Library; `savedBy` that version's source, as
+  `savedAt` its history's first entry's time, the record its first tablet
+  sent, else when it joined the Library; `savedBy` that entry's source, as
   a history's (a Machine, or an account named to Admins only), or null;
   `shots`, how many Shots the Shots list's `profileId` filter counts. 404
   for no such Profile.
@@ -3069,9 +3076,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   lists of Recipes that show its duration; before, only a Recipe's own
   read did. `GET /api/recipes/:id` returns `{ recipe }`, the same; or 404. Each route changing a Recipe
   returns it so. `GET /api/recipes/:id/history` and `GET
-  /api/recipes/:id/conflicts` are an item's (below); a version that moved
-  it sets `slot` at its Location, null out of any, and one that chose or
-  cleared its Reference Shot sets `referenceShotId`, with no Location.
+  /api/recipes/:id/conflicts` are an item's (below); a history entry that
+  moved it sets `slot` at its Location, null out of any, and one that chose
+  or cleared its Reference Shot sets `referenceShotId`, with no Location.
   Staff read them as Admins do.
 - `POST /api/recipes`, with `{ locationId, slot, content }`, creates a
   Recipe at the Location under a new record id, in `slot`, a whole number
@@ -3099,9 +3106,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   or Location; 403 for Staff at a Location they do not work at.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
-  `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
-  each `{ id, fields, location, source, editedAt, receivedAt }`: the fields
-  it set, with their values, of the item's content, or of its state at
+  `{ versions }`, the item's history entries (ADR-0020), the latest taken
+  in first, each `{ id, fields, location, source, editedAt, receivedAt }`:
+  the fields it set, with their values, of the item's content, or of its
+  state at
   `location` (`atLocation`, `remainingWeight`, `shown`), null for its
   content; where it came from, `source`, `{ machine, tabletId, account,
   connectedApp }`, the Machine `{ id, name }` whose tablet made it, if one
@@ -3115,10 +3123,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   record's `updatedAt` in UTC, a delete on a tablet when the server learned
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. `?field=` names a field, of its content or
-  of a Location's state of it, to list only the versions that set it, to a
-  value or cleared, the first among them where it set it (#442); 400 for
-  one given twice, empty or over 200 characters. 404 if the Library does not
-  have the item.
+  of a Location's state of it, to list only the history entries that set
+  it, to a value or cleared, the first among them where it set it (#442);
+  400 for one given twice, empty or over 200 characters. 404 if the Library
+  does not have the item.
 - Each item's Shots are the Shots list's, filtered by it: `GET
   /api/shots?beanId=`, `beanBatchId=`, `grinderId=`, `profileId=`,
   `recipeId=` or `basketId=` (`SHOTS.md`). A Tool lists none, as Shots are
@@ -3133,10 +3141,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   content has none; the field and the
   losing value, null where the edit cleared it; the Location whose state the
   field is, null for content; where and when the losing edit was made, as a
-  version's; when it became a Conflict; `open`, `used` or `dismissed`; the
+  history entry's; when it became a Conflict; `open`, `used` or `dismissed`; the
   field's value now, `{ value, source, editedAt, versionId }`, with where
-  and when the edit that set it was made, and its version, each null if that
-  is not known, as for a field
+  and when the edit that set it was made, and its history entry, each null
+  if that is not known, as for a field
   nothing set; a batch never added at the Location is not there, and a
   Profile its Location never decided not shown; and whether the signed-in
   account may use its value or dismiss it (Resolving Conflicts, above).
@@ -3148,9 +3156,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   the Conflict was shown with, uses an open Conflict's value, and `POST
   /api/conflicts/:id/dismiss` dismisses it (Resolving Conflicts, above). Each
   returns `{ conflict }`, closed, with the field's value now; 400 if `seen`
-  is not a version's id or null, 404 if there is no such Conflict, 403 if the
-  account may not resolve it, and 409 if it was used or dismissed already, or
-  the field was decided since the version `seen`.
+  is not a history entry's id or null, 404 if there is no such Conflict,
+  403 if the account may not resolve it, and 409 if it was used or
+  dismissed already, or the field was decided since the history entry
+  `seen`.
 - `PUT /api/machines/:id/sharing`, with `{ sharing }`, turns the Machine's
   sharing on or off, off making it a Capture-only Machine, and returns the
   same: Admins only. 400 without a boolean, 404 for no such Machine.
@@ -3223,7 +3232,7 @@ with Decaid.
 ## Adding a Library kind
 
 Each kind of Library item is described once on each side, and what treats
-every kind alike reads that description: its versions and Conflicts, edits
+every kind alike reads that description: its history and Conflicts, edits
 of its content, what a tablet is due and holds, the writer's waits and the
 gateway's answers, joining, hard deletes and sharing status on the server;
 the lists the plugin reports and how it writes, deletes and sets aside
@@ -3254,7 +3263,7 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    and `field_edits` as the other kinds have them; each tablet's map of its
    records; a Location's state of it, if it has one; and its table's four
    triggers keeping `versioned_items` (Storage, above), without which its
-   items can have no versions or Conflicts.
+   items can have no history or Conflicts.
 4. **The server** (`server/src/library/kinds.ts`): an entry in `KINDS`
    (`LibraryKindDescription`): its name, table, id type and map; its content
    as edits merge it, from the Library's content and from a tablet's

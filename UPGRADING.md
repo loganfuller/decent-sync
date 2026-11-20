@@ -22,7 +22,7 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.12.0
 
 ### Check every tablet runs the 1.10.0 plugin or later before deploying
 
@@ -43,6 +43,20 @@ whose tablet is still on the previous release's is listed on the Draft's
 page as needing its plugin updated, and can't be chosen until Decaid updates
 it. Nothing else is needed, and nothing changes at a Location that is not
 marked.
+
+### A Profile a Machine can't run is no longer written to it
+
+Each Profile is now held to the ranges of the Machine models that run it: a
+DE1's are Streamline's (pressure up to 12 bar, flow up to 15 ml/s, a flow
+limit up to 8 ml/s, a step up to 127 s, among others), and a Bengle's are
+the same but for flow targets, limits and exits up to 20 ml/s. A Profile with a value outside them, such as one
+imported from elsewhere with a 9 ml/s flow limit, is no longer written to a
+Machine that can't run it, as a DE1 would read some such values as others.
+Its write is listed as refused on the Machine's page, with why, and showing
+it at that Machine's Location, or naming it in a Recipe there, is refused
+(docs/LIBRARY.md). None of Decaid's bundled Profiles is affected. Nothing is
+needed beyond looking for such refusals on each Machine's page after the
+deploy.
 
 ## 1.11.1
 
