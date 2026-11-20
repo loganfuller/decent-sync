@@ -498,7 +498,7 @@ for how to turn assistants off.
 
 ## Status
 
-Milestones 1 to 8 are released. See [all releases](https://github.com/loganfuller/decent-sync/releases).
+Milestones 1 to 9 are released. See [all releases](https://github.com/loganfuller/decent-sync/releases).
 
 | Milestone | What it adds | Spec | Released |
 |---|---|---|---|
@@ -510,9 +510,10 @@ Milestones 1 to 8 are released. See [all releases](https://github.com/loganfulle
 | 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App, then answers sized for them, with more of each Machine and Shot. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0), [v1.8.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.8.0) |
 | 7. [Analytics](https://github.com/loganfuller/decent-sync/milestone/7) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) | [v1.9.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.9.0) |
 | 8. [Tablets](https://github.com/loganfuller/decent-sync/milestone/8) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) |
-| 9. Monitoring | Noticing lost Shots, low water and dropped scale or Machine connections, with alerts. | | Planned |
-| 10. Calibration | Checks of stop-at-weight, flow and temperature. | | Planned |
-| 11. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |
+| 9. [Profiles](https://github.com/loganfuller/decent-sync/milestone/12) | Each Profile read on a graph of how it runs, simulated on a standard puck or a Shot's; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) |
+| 10. Monitoring | Noticing lost Shots, low water and dropped scale or Machine connections, with alerts. | | Planned |
+| 11. Calibration | Checks of stop-at-weight, flow and temperature. | | Planned |
+| 12. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |
 
 ## Documentation
 
