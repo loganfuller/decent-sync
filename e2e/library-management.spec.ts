@@ -27,8 +27,8 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Country")).toHaveText("Panama");
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Nowhere");
 
-  await page.getByRole("button", { name: "New batch" }).click();
-  const newBatch = page.getByRole("dialog", { name: "New batch of Uptown Gesha" });
+  await page.getByRole("button", { name: "New Batch" }).click();
+  const newBatch = page.getByRole("dialog", { name: "New Batch of Uptown Gesha" });
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-10-03");
   await newBatch.getByLabel("Weight (g)", { exact: true }).fill("1000");
   await newBatch.getByLabel("Uptown", { exact: true }).check();

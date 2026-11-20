@@ -3193,7 +3193,10 @@ Profile, dose and yield, Grinder and setting, its Reference Shot's
 duration, linked to that Shot, or "No reference", linked to its rated
 Shots, and what needs attention; Archived Recipes show once Show archived
 is ticked, which the address keeps as `archived`. It reads each Location's
-list, and no route was added for it.
+list, and no route was added for it. Its New Recipe (`NewRecipeDialog` in
+`web/src/components/recipes.tsx`) asks for the Location first, of those the
+account may change, choosing it when there is only one, then opens the
+Recipe form a Location's Recipes card creates one with.
 Each item's page notes its open Conflicts, if it has any, and shows how
 many Shots it has, with a link that opens them in the Shots list
 (`web/src/components/item-shots.tsx`), and its history, and the
@@ -3206,8 +3209,8 @@ Machine's page says whether it shares the Library at its Location or is capture-
 switch an Admin turns its sharing off and on with, once they confirm, and
 its sharing status, loaded as often as its own status: the changes waiting
 for its tablet, the last it applied, and those it refused, with Decaid's
-answer (`web/src/components/machine-sharing.tsx`). The Beans, Bean Batches and
-Grinders lists create them, and each item's page edits it, Archives or
+answer (`web/src/components/machine-sharing.tsx`). The Beans, Bean Batches,
+Grinders, Baskets and Tools lists create them, and each item's page edits it, Archives or
 restores it, and, for an Admin, deletes it; a batch's page adds it at each
 Location and finishes it there, and sets its remaining weight there
 (`web/src/components/library-forms.tsx`). A Bean refused as one the Library

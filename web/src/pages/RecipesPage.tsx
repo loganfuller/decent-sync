@@ -1,8 +1,9 @@
 import { useCallback, useId } from "react";
 import { Link, useSearchParams } from "react-router";
+import { useMayChange } from "@/auth";
 import { LibraryNav } from "@/components/bean-batches";
 import { PageTitleWithInfo } from "@/components/info-tip";
-import { RecipesTable } from "@/components/recipes";
+import { NewRecipeDialog, RecipesTable } from "@/components/recipes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -13,10 +14,12 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
  * The Library's Recipes (#547): every Location's, a table for each
  * Location, in Recipe Slot order with those in no slot after, each with its
  * Reference Shot's duration. Archived Recipes show on asking, which the
- * address keeps as `archived`. A Recipe is created on its Location's page.
+ * address keeps as `archived`. New Recipe creates one at a Location chosen,
+ * as its Location's page does.
  */
 export function RecipesPage() {
   const id = useId();
+  const mayChange = useMayChange();
   const [params, setParams] = useSearchParams();
   const archived = params.has("archived");
   const showArchived = (shown: boolean) =>
@@ -41,7 +44,7 @@ export function RecipesPage() {
         <PageTitleWithInfo title="Recipes">
           <p>
             Every Location's Recipes: its Recipe Slots, 1 to 9, shared by its Machines, then the Recipes kept there in no slot. A Recipe belongs to
-            one Location, and is created on that Location's page, or on a tablet there.
+            one Location, and is created here, on that Location's page, or on a tablet there.
           </p>
           <p>
             A Reference Shot is the one Shot chosen to show how a Recipe's Shots should go: its duration opens it, and "No reference" opens the
@@ -49,6 +52,11 @@ export function RecipesPage() {
           </p>
         </PageTitleWithInfo>
         <LibraryNav />
+        {mayChange && (
+          <div className="mt-2">
+            <NewRecipeDialog places={data} />
+          </div>
+        )}
         <div className="mt-2 flex items-center gap-2">
           <Checkbox id={`${id}-archived`} checked={archived} onCheckedChange={(checked) => showArchived(checked === true)} />
           <Label htmlFor={`${id}-archived`}>Show archived{hidden > 0 && <span className="font-normal text-muted-foreground tabular-nums"> ({hidden})</span>}</Label>

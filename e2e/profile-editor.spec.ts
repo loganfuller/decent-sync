@@ -225,6 +225,10 @@ test("New Profile starts a Draft from a starting shape, a duplicate of a bundled
   await page.getByRole("link", { name: "New Profile" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("New Profile");
   await expect(page.getByRole("button", { name: /^Start from / })).toHaveText([/^Classic 9 bar/, /^Declining lever/, /^Steady flow/, /^Blooming/, /^Long and gentle/, /^Blank/]);
+  // Each says it can be pressed, as every enabled button does; Duplicate, until a Profile is chosen, does not.
+  await expect(page.getByRole("button", { name: "Start from Blooming" })).toHaveCSS("cursor", "pointer");
+  await expect(page.getByRole("button", { name: "Choose a file" })).toHaveCSS("cursor", "pointer");
+  await expect(page.getByRole("button", { name: "Duplicate", exact: true })).not.toHaveCSS("cursor", "pointer");
   await page.getByRole("button", { name: "Start from Blooming" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blooming Draft");
   await expect(page.getByText("Will publish as a new Profile, from Blooming")).toBeVisible();

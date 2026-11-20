@@ -135,4 +135,9 @@
   html {
     @apply font-sans;
     }
+  /* Tailwind v4 leaves buttons the default cursor; a pointer says they can be pressed, as v3's did. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }

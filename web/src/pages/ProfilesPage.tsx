@@ -25,22 +25,22 @@ export function ProfilesPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <PageTitleWithInfo title="Profiles">
-            <p>
-              The programs the machines follow, each shown or hidden at each Location. A Profile created on a tablet joins the
-              Library shown at that tablet's Location only, and is written to every tablet there. Hiding, deleting or changing
-              its steps on a tablet hides it at that tablet's Location only; new steps make a new Profile. A Profile is written
-              here as a Draft, which is on no tablet until it is published.
-            </p>
-          </PageTitleWithInfo>
-          {mayChange && (
+        <PageTitleWithInfo title="Profiles">
+          <p>
+            The programs the machines follow, each shown or hidden at each Location. A Profile created on a tablet joins the
+            Library shown at that tablet's Location only, and is written to every tablet there. Hiding, deleting or changing
+            its steps on a tablet hides it at that tablet's Location only; new steps make a new Profile. A Profile is written
+            here as a Draft, which is on no tablet until it is published.
+          </p>
+        </PageTitleWithInfo>
+        <LibraryNav />
+        {mayChange && (
+          <div className="mt-2">
             <Button asChild>
               <Link to="/library/profiles/new">New Profile</Link>
             </Button>
-          )}
-        </div>
-        <LibraryNav />
+          </div>
+        )}
       </div>
 
       {mayChange && <DraftsCard />}

@@ -222,6 +222,41 @@ test("with every slot holding a Recipe, a new Recipe's next free slot says so an
   await expect(page.getByRole("option")).toHaveText(["A slot of my choosing"]);
 });
 
+test("New Recipe on the Library's Recipes tab creates one at the Location chosen, in its next free slot, or Staff's only Location without asking", async ({ page, browser }) => {
+  const north = await createLocation(page, "Tab north");
+  const south = await createLocation(page, "Tab south");
+  await createRecipe(page, south, 1, { name: "South 1" });
+
+  // An Admin chooses the Location first; the form then offers that Location's next free slot.
+  await page.goto("/library/recipes");
+  await page.getByRole("button", { name: "New Recipe" }).click();
+  const dialog = page.getByRole("dialog", { name: "New Recipe" });
+  await expect(dialog.getByRole("form", { name: "New Recipe" })).toHaveCount(0);
+  await dialog.getByLabel("Location", { exact: true }).click();
+  await page.getByRole("option", { name: "Tab south" }).click();
+  const form = dialog.getByRole("form", { name: "New Recipe" });
+  await expect(form.getByLabel("Recipe Slot")).toHaveText("The next free slot (2)");
+  await form.getByLabel("Name", { exact: true }).fill("South 2");
+  await form.getByRole("button", { name: "Create" }).click();
+  await expectSlot(page, 2, "Tab south");
+
+  // Staff working at one Location have it chosen for them.
+  const sam = await staffAt(page, browser, "tab-sam@example.com", north);
+  try {
+    const samsPage = await sam.newPage();
+    await samsPage.goto("/library/recipes");
+    await samsPage.getByRole("button", { name: "New Recipe" }).click();
+    const samsDialog = samsPage.getByRole("dialog", { name: "New Recipe" });
+    await expect(samsDialog.getByLabel("Location", { exact: true })).toHaveText("Tab north");
+    const samsForm = samsDialog.getByRole("form", { name: "New Recipe" });
+    await samsForm.getByLabel("Name", { exact: true }).fill("North 1");
+    await samsForm.getByRole("button", { name: "Create" }).click();
+    await expectSlot(samsPage, 1, "Tab north");
+  } finally {
+    await sam.close();
+  }
+});
+
 test("a Recipe is put in slot 7 from its page, swapping with the one there, a new one's next free slot is 6 where 1 to 5 hold a Recipe, and each tablet holds them there", async ({ page }) => {
   const lab = await createLocation(page, "Seven lab");
   const tablet = await tabletAt(page, server, "Seven lab 1", lab, "45591", tabletApi);
