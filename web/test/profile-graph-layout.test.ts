@@ -29,7 +29,7 @@ describe("timeAxis", () => {
     expect(timeAxis(100, 200)).toEqual({ end: 120, tick: 20 });
   });
 
-  it("keeps to a dozen labels at most, however long the run", () => {
+  it("keeps to a dozen intervals at most, however long the run", () => {
     expect(timeAxis(200, 400)).toEqual({ end: 240, tick: 20 });
     expect(timeAxis(500, 1000)).toEqual({ end: 600, tick: 60 });
     expect(timeAxis(1000, 2000)).toEqual({ end: 1200, tick: 120 });

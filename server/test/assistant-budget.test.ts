@@ -834,16 +834,15 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       });
 
       it("simulates the longest-running bundled Profile run out, and a Profile on a Shot's puck, with every curve, its steps whole", async () => {
-        // Gagné's Adaptive Shot, which Decaid bundles, has 20 steps, as many as a profile may, and runs over a minute run out.
+        // Gagné's Adaptive Allongé, which Decaid bundles, has 20 steps, as many as a profile may, and runs the longest of them run out, on the coarsest puck.
         const bundled = (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: { profile: Fields }[] }).bundled;
-        await tablet.addProfile(bundled.find((record) => record.profile.title === "Gagné/Adaptive Shot 92C v1.0")!.profile);
+        await tablet.addProfile(bundled.find((record) => record.profile.title === "Gagné/Adaptive Allongé 94C v1.0")!.profile);
         const titled = async (title: string) => (await api.get<{ profiles: { id: string; title: string }[] }>("/profiles")).profiles.find((profile) => profile.title === title);
-        await expect.poll(() => titled("Gagné/Adaptive Shot 92C v1.0")).toBeTruthy();
-        const gagne = (await titled("Gagné/Adaptive Shot 92C v1.0"))!;
+        await expect.poll(() => titled("Gagné/Adaptive Allongé 94C v1.0")).toBeTruthy();
+        const gagne = (await titled("Gagné/Adaptive Allongé 94C v1.0"))!;
         const long = await assistant.callWithinBudget<{ steps: unknown[]; duration: number; curves: Record<string, { values: unknown[] }> }>("simulate_profile", {
           profileId: gagne.id,
           stopAt: 0,
-          // Its longest run, on the coarsest puck.
           grind: 1,
           curves: true,
         });

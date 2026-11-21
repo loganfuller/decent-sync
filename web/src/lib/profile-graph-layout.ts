@@ -39,7 +39,7 @@ function roundUp(value: number, least: number, step: number): number {
 /**
  * The time axis, s: its end, a little past what was reached so the plan
  * beyond a stop shows without dwarfing the run, but no further than the plan
- * runs, and its tick, so that the axis has a dozen labels at most past
+ * runs, and its tick, so that the axis has a dozen intervals at most past
  * 40 s, however long a run, as a fine or coarse puck runs for minutes.
  */
 export function timeAxis(reached: number, plannedEnd: number): { end: number; tick: number } {
