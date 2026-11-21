@@ -42,8 +42,8 @@ export interface SimulationAsk {
 /** The most coffee a dose may be, g: more than any basket holds. */
 export const MAX_DOSE = 50;
 
-/** A simulation's puck: the standard one at a grind, or a Shot's, with the model of the Machine it was pulled on. */
-export type SimulatedPuck = { kind: "standard"; grind: number } | { kind: "shot"; shotId: string; model: MachineModel };
+/** A simulation's puck: the standard one at a grind, or a Shot's, with the model of the Machine it was pulled on, null where its record names none. */
+export type SimulatedPuck = { kind: "standard"; grind: number } | { kind: "shot"; shotId: string; model: MachineModel | null };
 
 /** A Library Profile's simulation, as the REST API returns it. */
 export interface ProfileSimulation {

@@ -6,6 +6,7 @@
 - [Tests](#tests)
 - [The committed plugin](#the-committed-plugin)
 - [README images](#readme-images)
+- [The simulation's scorecard](#the-simulations-scorecard)
 - [Releasing](#releasing)
 
 ## Layout
@@ -62,6 +63,7 @@ variable, and the paths the server serves.
 | `npm run check:plugin-build` | Fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | Write the release ZIP of the committed plugin to `dist/` |
 | `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([README images](#readme-images)) |
+| `npm run simulation-scorecard` | Print how close the simulation of a Profile comes to recorded Shots ([The simulation's scorecard](#the-simulations-scorecard)) |
 | `docker compose up --build` | Build the server image from this checkout and run it with PostgreSQL |
 
 ## Tests
@@ -94,6 +96,56 @@ PostgreSQL (`TEST_DATABASE_URL`), a current build and ffmpeg, and takes about
 over those a change redraws.
 [scripts/readme-images/README.md](../scripts/readme-images/README.md) has its
 options, what each image shows and how it is made.
+
+## The simulation's scorecard
+
+`npm run simulation-scorecard` prints how close the simulation on a Profile's
+page comes to recorded Shots (#599). It runs each Shot's own steps on its own
+puck, ended as it ended, and prints, for each Machine model and each kind of
+Profile:
+
+- the share within the margin: the run's duration within 5% of the Shot's or
+  1 s, whichever is more, and its peak pressure within 0.5 bar; a Shot with no
+  fit counts as outside;
+- the median and the 90th percentile of the error in duration, time to first
+  drip and peak pressure;
+- the share whose every step ended within 1 s of the Shot's;
+- the median root mean square distance of the pressure, flow and weight curves.
+
+Tea, Shots run under manual control and Shots whose record names no model
+count toward no share. Where Shots are marked as one set, the same coffee,
+grind and dose, it also runs each one's puck with each other's steps, and
+prints how close that comes for the same steps and for different ones.
+
+The kind of Profile is read from its steps and the step the Shot spent
+longest in, its main step: `bloom` where a step after the first asks for no
+flow, or 0.5 bar or less, for 10 s or more; otherwise `fast flow` or `flow`
+where its main step's pump controls flow, above 4 ml/s or not; `declining`
+where it asks at least 1 bar less than an earlier step; `low pressure` under
+7 bar; and `pressure`.
+
+With no folder named, it scores the committed corpus,
+[scripts/simulation/corpus/](../scripts/simulation/corpus/README.md): about
+150 scrubbed Shots, which a test holds at its recorded share within the
+margin for each model. A pull request that changes the simulation reports the
+scorecard before and after, and raises `corpus/levels.json` where the share
+rose.
+
+To score your own Shots, pull a spread of them read-only from any Decent Sync
+instance into a folder outside the repo, then score it. A spread is up to 30
+Shots of each Machine and profile, 3 of a tea profile, evenly over time:
+
+```sh
+DECENT_SYNC_URL=https://sync.example.com DECENT_SYNC_EMAIL=you@example.com DECENT_SYNC_PASSWORD=... \
+  node scripts/simulation/pull.mjs ~/decent-shots [--per 30] [--tea 3] [--since 2026-08-25]
+npm run simulation-scorecard -- ~/decent-shots [--shots] [--json]
+```
+
+The puller signs in, makes only `GET` requests and signs out, also when
+stopped, and refuses a folder inside the repo: what it saves holds everything
+the instance keeps of each Shot. `--shots` adds a line for each Shot, with
+its kind and errors or why it has no fit. `node scripts/simulation/scrub.mjs`
+turns pulled Shots into corpus Shots; the corpus README says how to add some.
 
 ## Releasing
 

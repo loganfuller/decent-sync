@@ -15,12 +15,15 @@ import {
   shotSamples,
   shotFigures,
   shotFitStop,
+  simulateOnShot,
   simulateProfile,
+  simulationShotOf,
   sentStep,
   standardPuck,
   stepSeconds,
   stepSpans,
   timeToFirstDrip,
+  underManualControl,
 } from "../src/index.js";
 
 // The simulation of a profile on a puck (#577): driven through what the
@@ -604,5 +607,78 @@ describe("a Shot's puck", () => {
     // Scale noise under a gram is no weight reached.
     const noisy = samples.map((sample) => ({ ...sample, values: { ...sample.values, weight: sample.values.weight === null ? null : 0.2 } }));
     expect(shotFitStop(noisy, "appStop", "DE1", shotProfile)).toBeNull();
+  });
+});
+
+describe("a Shot run under manual control (#599)", () => {
+  const fixture = (name: string) =>
+    JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/simulated-shots-v0.9.2/${name}.json`, import.meta.url), "utf8")) as {
+      workflow: { profile: unknown; machine: Record<string, unknown> };
+      measurements: Array<{ machine: Record<string, unknown> }>;
+    };
+  /** A sample of a test step: its readings and the targets its Machine reported. */
+  const sample = (seconds: number, frame: number, values: { pressure?: number; flow?: number }, targets: { pressure?: number; flow?: number }) => ({
+    seconds,
+    shade: null,
+    step: { frame, name: `Step ${frame + 1}` },
+    values: { pressure: values.pressure ?? 0, flow: values.flow ?? 0, weight: null, weightFlow: null, temperature: null },
+    targets: { pressure: targets.pressure ?? null, flow: targets.flow ?? null, weight: null, weightFlow: null, temperature: null },
+  });
+  const tenSeconds = (make: (seconds: number) => ReturnType<typeof sample>) => Array.from({ length: 41 }, (_, n) => make(n / 4));
+
+  it("is not a Shot whose Machine followed its steps: each Shot Decaid's simulated machine recorded", () => {
+    for (const name of SHOT_FIXTURES) {
+      const record = fixture(name);
+      const shotProfile = profileOf(record.workflow.profile)!;
+      expect(underManualControl(shotSamples(record.measurements, shotProfile), shotProfile, "DE1")).toBe(false);
+    }
+  });
+
+  it("is one whose Machine reported, for more than half its time, targets its steps never asked for; it has a puck and no fit", () => {
+    const record = fixture("classic-italian");
+    // From its first pressure step on, as a Bengle under its group-head control reports what the lever asks.
+    const steered = record.measurements.map((measurement) =>
+      (measurement.machine.profileFrame as number) >= 2 ? { ...measurement, machine: { ...measurement.machine, targetPressure: 2.5 } } : measurement,
+    );
+    const shotProfile = profileOf(record.workflow.profile)!;
+    expect(underManualControl(shotSamples(steered, shotProfile), shotProfile, "DE1")).toBe(true);
+    const shot = simulationShotOf(record, steered);
+    const onIt = simulateOnShot({ profile: shotProfile, shot, stopAt: 36, model: "DE1" })!;
+    expect(onIt.puck.resistance.length).toBeGreaterThan(10);
+    expect(onIt.fit).toBeNull();
+    expect(simulateOnShot({ profile: shotProfile, shot: simulationShotOf(record, record.measurements), stopAt: 36, model: "DE1" })!.fit).not.toBeNull();
+  });
+
+  it("is not a smooth step's ramp from where its pump's quantity began, nor a lower target while a limiter holds the other quantity", () => {
+    const ramp = profile([pressure("Ramp", 9, { transition: "smooth", seconds: 10 })]);
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 1 + 0.8 * t }, { pressure: 1 + 0.8 * t })), ramp, "DE1")).toBe(false);
+    // The target at the step's own value from its start is not the ramp it asked for.
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 1 }, { pressure: 9 })), ramp, "DE1")).toBe(true);
+    const limited = profile([flow("Limited", 4, { limiter: { value: 6, range: 1 } })]);
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 6.2, flow: 0.4 }, { flow: 0.5 })), limited, "Bengle")).toBe(false);
+    // A target as low with the pressure far under the limiter's is none the step asked for.
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 1, flow: 0.4 }, { flow: 0.5 })), limited, "Bengle")).toBe(true);
+    // Nor does a limiter raise a target.
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 6.2, flow: 0.4 }, { flow: 8 })), limited, "Bengle")).toBe(true);
+    // A sample with no target counts as following its step.
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 1 }, {})), ramp, "DE1")).toBe(false);
+  });
+});
+
+describe("a Shot whose record names no Machine model (#599)", () => {
+  it("has no model, and a puck but no fit, as from Decaid before v0.9.2 or where its capture of the Machine failed", () => {
+    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json", import.meta.url), "utf8")) as {
+      workflow: Record<string, unknown> & { profile: unknown };
+      measurements: unknown;
+    };
+    const shotProfile = profileOf(record.workflow.profile)!;
+    expect(simulationShotOf(record, record.measurements).model).toBe("DE1");
+    for (const machine of [{ provenanceStatus: "unavailable" }, { flowCalibration: 1.1 }, undefined]) {
+      const shot = simulationShotOf({ ...record, workflow: { ...record.workflow, machine } }, record.measurements);
+      expect(shot.model).toBeNull();
+      const onIt = simulateOnShot({ profile: shotProfile, shot, stopAt: 36, model: "Bengle" })!;
+      expect(onIt.run.model).toBe("Bengle");
+      expect(onIt.fit).toBeNull();
+    }
   });
 });

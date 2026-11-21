@@ -26,6 +26,8 @@ const CLASSIC = "profile:39e939592679fb194706";
 const SHOT = "simulated-classic-578";
 /** The same Shot as recorded with no pressure, so its puck can't be worked out. */
 const FLAT = "flat-classic-578";
+/** The same Shot with its Machine reporting a pressure target its steps never asked for, as under a Bengle's lever (#599). */
+const LEVER = "lever-classic-599";
 
 /** A soak Profile: a fast fill that moves on over 4 bar, a step of no length, then 6 bar with the flow held back, with `changes` to its third step. */
 function soak(title: string, percolation: Fields = {}): Fields {
@@ -210,6 +212,22 @@ test("a Profile simulated on a Shot's puck says how close the simulation comes, 
   await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Flat lab group$/ }).click();
   await expect(graph.getByText("That Shot recorded no pressure and flow to work its puck out from.")).toBeVisible();
   await graph.getByRole("button", { name: "Choose another Shot" }).click();
+  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
+  await expect(fit).toBeVisible();
+
+  // A Shot run under manual control has a puck but no fit, its steps not what its Machine followed (#599).
+  const lever = await tabletAt(page, server, "Lever lab group", lab, "57813", { ...tabletApi, "/profiles": [classic] });
+  const steered = (recorded.measurements as Array<{ machine: Fields }>).map((measurement) =>
+    (measurement.machine.profileFrame as number) >= 2 ? { ...measurement, machine: { ...measurement.machine, targetPressure: 2.5 } } : measurement,
+  );
+  lever.pullShot({ ...recorded, id: LEVER, measurements: steered, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57813" } } });
+  await expect.poll(async () => (await page.request.get(`/api/shots/${LEVER}`)).status()).toBe(200);
+  await puck.getByRole("button", { name: "Choose another Shot" }).click();
+  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Lever lab group$/ }).click();
+  await expect(puck.getByRole("link", { name: "Classic Italian espresso on Lever lab group" })).toBeVisible();
+  await expect(puck.getByText(/^Not worked out for this Shot: .* it ran under manual control, /)).toBeVisible();
+  await expect(fit).toBeHidden();
+  await puck.getByRole("button", { name: "Choose another Shot" }).click();
   await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
   await expect(fit).toBeVisible();
 

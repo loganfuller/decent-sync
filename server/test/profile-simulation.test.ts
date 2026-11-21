@@ -41,6 +41,9 @@ const FLOWLESS = "simulated-classic-flowless";
 /** Classic Italian espresso's steps repeated to 21, one more than a machine takes, under a made-up id; and a Shot recorded on that profile. */
 const LONG = "profile:0000000000000005770a";
 const LONG_SHOT = "simulated-classic-long-profile";
+/** The Shot again, its Machine reporting a pressure target its steps never asked for from its first pressure step on, as under a Bengle's group-head control; and as recorded where Decaid's capture of the Machine failed, naming no model. */
+const MANUAL = "simulated-classic-manual";
+const NO_MODEL = "simulated-classic-no-model";
 /** The Shot again, as recorded on hardware no Machine has, 57709, which an Admin then dismisses. */
 const DISMISSED = "simulated-classic-dismissed";
 
@@ -86,7 +89,14 @@ describe("A Library Profile simulated on a puck", () => {
     const flowless = (recorded.measurements as Array<{ machine: Fields }>).map(({ machine: { flow: _, ...machine }, ...rest }) => ({ ...rest, machine }));
     tablet.pullShot({ ...recorded, id: FLOWLESS, measurements: flowless, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
     tablet.pullShot({ ...recorded, id: LONG_SHOT, workflow: { ...workflow, profile: longProfile, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
+    const steered = (recorded.measurements as Array<{ machine: Fields }>).map((measurement) =>
+      (measurement.machine.profileFrame as number) >= 2 ? { ...measurement, machine: { ...measurement.machine, targetPressure: 2.5 } } : measurement,
+    );
+    tablet.pullShot({ ...recorded, id: MANUAL, measurements: steered, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57701" } } });
+    tablet.pullShot({ ...recorded, id: NO_MODEL, workflow: { ...workflow, machine: { provenanceStatus: "unavailable" } } });
     await answers(api, `/shots/${SHOT}`);
+    await answers(api, `/shots/${MANUAL}`);
+    await answers(api, `/shots/${NO_MODEL}`);
     await answers(api, `/shots/${FLOWLESS}`);
     await answers(api, `/shots/${LONG_SHOT}`);
     tablet.pullShot({ ...recorded, id: DISMISSED, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57709" } } });
@@ -182,6 +192,13 @@ describe("A Library Profile simulated on a puck", () => {
     expect(simulation.run.steps.map((step) => step.index)).toEqual([0, 1, 2, 3]);
   });
 
+  it("runs on the puck of a Shot run under manual control, or naming no Machine model, with no fit (#599)", async () => {
+    expect(await simulate({ shotId: MANUAL })).toMatchObject({ puck: { kind: "shot", shotId: MANUAL, model: "DE1" }, fit: null });
+    const unnamed = await simulate({ shotId: NO_MODEL });
+    expect(unnamed).toMatchObject({ model: "DE1", puck: { kind: "shot", shotId: NO_MODEL, model: null }, fit: null });
+    expect(unnamed.run).toEqual((await simulate({ shotId: SHOT })).run);
+  });
+
   it("is read by Staff away from the Profile's Locations, and by a Viewer", async () => {
     const away = await api.createLocation("Simulation cafe", "America/Chicago");
     const { link } = await api.invite("sim-staff@example.com", "staff", [away.id]);
@@ -242,6 +259,13 @@ describe("A Library Profile simulated on a puck", () => {
       const bare = await assistant.call<Simulated>("simulate_profile", { profileId: CLASSIC, curves: false });
       expect(bare).not.toHaveProperty("curves");
       expect(bare).toMatchObject({ puck: { kind: "standard", grind: 0 }, model: "DE1" });
+    });
+
+    it("gives no fit on the puck of a Shot run under manual control, or naming no Machine model, as the REST API does (#599)", async () => {
+      const manual = await assistant.call<Simulated>("simulate_profile", { profileId: CLASSIC, shotId: MANUAL, curves: false });
+      expect(manual).toMatchObject({ puck: { kind: "shot", shotId: MANUAL, model: "DE1" }, fit: null });
+      const unnamed = await assistant.call<Simulated>("simulate_profile", { profileId: CLASSIC, shotId: NO_MODEL, curves: false });
+      expect(unnamed).toMatchObject({ puck: { kind: "shot", shotId: NO_MODEL, model: null }, fit: null });
     });
 
     it("refuses what the REST API refuses", async () => {

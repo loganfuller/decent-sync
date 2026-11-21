@@ -25,6 +25,7 @@
     "db:up": "docker compose up -d --wait db",
     "db:test": "node scripts/db-test.mjs",
     "readme-images": "node scripts/readme-images/run.mjs",
+    "simulation-scorecard": "npm run build -w protocol --silent && node scripts/simulation/score.mjs",
     "start": "npm run build && npm run start -w server",
     "dev:server": "npm run build -w protocol && npm run dev -w server",
     "dev:web": "npm run dev -w web"
