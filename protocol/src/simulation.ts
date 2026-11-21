@@ -412,8 +412,8 @@ const FIT_STEPS_AGAIN = 40;
  * over each of FIT_OPENS, whichever starts closest, and then again from what that finds with a wider reach.
  * The water it holds is sought only where its scale showed a first drip.
  *
- * Where its own steps can't be run as it ran (its profile unread or of more
- * steps than a machine takes, its record naming no model, under manual
+ * Where its own steps can't be run as it ran (its profile unread, or of no
+ * steps or more than a machine takes, its record naming no model, under manual
  * control, or no run able to end as it did: `shotFit`'s conditions), what
  * its samples show. Null where no sample shows the puck's resistance.
  */
@@ -1039,7 +1039,7 @@ export interface ShotPuckRun {
   /**
    * The Shot's own steps run on its puck, stopped as it stopped, beside the
    * Shot (`fitToShot`); null where Decaid would not read its own profile or
-   * it has more steps than a machine takes, and where a run can't end as the
+   * it has no steps or more than a machine takes, and where a run can't end as the
    * Shot did (`shotFitStop`), where its record names no Machine model, and
    * where it ran under manual control (`underManualControl`).
    */
