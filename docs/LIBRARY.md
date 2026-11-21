@@ -2429,10 +2429,11 @@ fit.
   its step's, and it has no temperature of its own.
 - **Steps.** A step ends at its maximum time, its exit, the water it may pump
   or its weight in the cup, judged a second ahead at its rate as Decaid
-  judges it, whichever comes first; its weight ends it 0.4 s after the cup
-  holds that, as the scale's reading and the rate Decaid works out from it
-  trail the cup and its skip takes a moment to reach the machine, which a
-  Bengle's recorded Shots show; a step under 0.05 s, which
+  judges it, whichever comes first; on a Bengle its weight ends it 0.4 s
+  after that (`stepWeightLag`), an effective figure fitted on step ends: its
+  recorded Shots leave such a step about 0.1 s after their own weights meet
+  Decaid's rule, yet its runs left it about 0.4 s before the Shots did,
+  while a DE1's Shots move at no lag; a step under 0.05 s, which
   Decaid sends as none, is passed through at once, whatever its exit. A
   step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
   tenth of a second below 12.75 s and to a whole second from there, up to
@@ -2445,7 +2446,8 @@ fit.
   Shot stops when the weight in the cup, judged a second ahead at its rate,
   reaches the stop-at weight, as Decaid stops one, so the cup holds a few
   grams less at the stop (what lands after it isn't modelled), or when its
-  last step ends. A Bengle stops itself at that weight, by its firmware's
+  last step ends, with no lag: the corpus fits stop on the weight reached,
+  so a lag at the stop is untested. A Bengle stops itself at that weight, by its firmware's
   judgement, which Decaid's sources don't show; it is modelled the same
   way. A step that gets to its target over the whole step ramps from what
   the run measured as it began, not from the step before's target, as
@@ -2474,10 +2476,14 @@ fit.
   over (`flowLimiterReach`), so under a limit of 1.5 ml/s with a range of
   2.5, a flow that would be 3.4 settles near 2.9, where its Shots hold
   about 3 and the easing gives 2.6. A Bengle holds a flow step's pressure
-  at its limiter's value, whatever the range (`pressureLimiterReach`, 0):
-  about 6 bar under a limit of 6 with a range of 0.6, where the easing
-  gives 6.5. A DE1's pressure limiter and a Bengle's flow limiter ease as
-  Decaid's.
+  at its limiter's value (`pressureLimiterReach`, 0), at every range its
+  Shots show: about 6 bar under a limit of 6 with a range of 0.6, where the
+  easing gives 6.5, and under a limit of 2 with a range of 2 about 1.65,
+  where the easing lets the run reach 2.85. None shows a wider range, so a
+  wider one is held the same: a limit of 2 with a range of 5, as two of
+  Decaid's bundled Profiles have, runs at 2 bar on a Bengle where the easing
+  let it reach about 7. A DE1's pressure limiter and a Bengle's flow
+  limiter ease as Decaid's.
   Pressure builds in the group as the pump gives more than passes the puck
   and falls as it drains, over seconds. Each figure stays only where it
   brings more of the corpus within the margin; what was tried and left

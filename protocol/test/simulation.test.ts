@@ -164,18 +164,22 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
     expect(pumped).toBeLessThan(10 + 4 * SIMULATION_TICK + 1e-9);
   });
 
-  it("at its weight, judged a second ahead at its rate, as Decaid judges it, four tenths of a second after the cup holds that", () => {
-    const result = run([flow("Weighs", 4, { seconds: 60, weight: 5 }), after]);
-    const step = result.steps[0]!;
-    expect(step.reason).toBe("weight");
-    const ahead = (seconds: number) => {
-      const at = result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values;
-      return at.weight! + at.weightFlow! * 1;
-    };
-    // The scale's reading, the rate Decaid works out from it and its skip take that long to end the step.
-    expect(ahead(step.end! - 0.4)).toBeGreaterThanOrEqual(5);
-    expect(ahead(step.end! - 0.5)).toBeLessThan(5);
-    expect(result.samples.find((sample) => sample.seconds === step.end)!.values.weight!).toBeLessThan(5);
+  it("at its weight, judged a second ahead at its rate, as Decaid judges it, on a DE1 at once and on a Bengle four tenths of a second later", () => {
+    expect(MODEL_FIGURES.DE1).not.toHaveProperty("stepWeightLag");
+    expect(MODEL_FIGURES.Bengle.stepWeightLag).toBe(0.4);
+    for (const model of MACHINE_MODELS) {
+      const lag = model === "Bengle" ? MODEL_FIGURES.Bengle.stepWeightLag : 0;
+      const result = run([flow("Weighs", 4, { seconds: 60, weight: 5 }), after], { model });
+      const step = result.steps[0]!;
+      expect(step.reason).toBe("weight");
+      const ahead = (seconds: number) => {
+        const at = result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values;
+        return at.weight! + at.weightFlow! * 1;
+      };
+      expect(ahead(step.end! - lag)).toBeGreaterThanOrEqual(5);
+      expect(ahead(step.end! - lag - 0.1)).toBeLessThan(5);
+      expect(result.samples.find((sample) => sample.seconds === step.end)!.values.weight!).toBeLessThan(5);
+    }
   });
 
   it("whichever comes first", () => {
@@ -369,12 +373,14 @@ describe("a limit", () => {
     expect(bengle.peakFlow).toBeCloseTo(eased(MODEL_FIGURES.Bengle.maxFlow, { value: 1.5, range: 2.5 }), 2);
   });
 
-  it("on a Bengle's pressure holds it at the limit's value, whatever its range, where a DE1's eases over it", () => {
-    const steps = (model: "DE1" | "Bengle") => run([flow("Push", 6, { seconds: 25, limiter: { value: 3, range: 1 } })], { grind: -0.5, model });
+  it("on a Bengle's pressure holds it at the limit's value, at every range its Shots show and wider, where a DE1's eases over it", () => {
     expect(MODEL_FIGURES.Bengle.pressureLimiterReach).toBe(0);
-    expect(steps("Bengle").peakPressure).toBeLessThan(3.2);
-    expect(steps("Bengle").peakPressure).toBeGreaterThan(2.8);
-    expect(steps("DE1").peakPressure).toBeGreaterThan(3.3);
+    for (const range of [0.6, 2, 5]) {
+      const steps = (model: "DE1" | "Bengle") => run([flow("Push", 6, { seconds: 25, limiter: { value: 3, range } })], { grind: -0.5, model });
+      expect(steps("Bengle").peakPressure).toBeLessThan(3.2);
+      expect(steps("Bengle").peakPressure).toBeGreaterThan(2.8);
+      expect(steps("DE1").peakPressure).toBeGreaterThan(3.2);
+    }
   });
 
   it("caps the pressure of a step whose pump controls flow, easing over its range", () => {
@@ -572,6 +578,9 @@ describe("a Shot's puck", () => {
       const margin = Math.max(MARGIN_SECONDS, MARGIN_SHARE * fit.shot.duration);
       expect(fitted.stop.reason).toBe("weight");
       expect(fit.simulated.steps.map((step) => step.index)).toEqual(fit.shot.steps.map((step) => step.index));
+      // Outside the margin, still near the Shot: within a fifth of its duration and 1.5 bar of its peak.
+      expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(0.2 * fit.shot.duration);
+      expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(1.5);
       if (!WITHIN_MARGIN.includes(name)) return;
       expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(margin);
       expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(margin);

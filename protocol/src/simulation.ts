@@ -100,15 +100,6 @@ export function sentStep(step: ProfileStep, model: MachineModel = "DE1"): Profil
  */
 const WEIGHT_LOOKAHEAD = 1;
 
-/**
- * How long a step's weight takes to end it once the cup holds what Decaid's
- * rule asks, s: the scale's reading and the rate Decaid works out from it
- * trail the cup, and its skip takes a moment to reach the machine. A
- * Bengle's recorded Shots leave a step with a weight about this long after
- * a run with no such lag does.
- */
-const WEIGHT_LAG = 0.4;
-
 /** The least resistance a puck has, where water fills the space above it and meets none. */
 const LEAST_RESISTANCE = 0.001;
 
@@ -425,7 +416,8 @@ export interface Simulation {
 /**
  * Runs a profile on a puck, as a Machine of the model would with a scale
  * under the cup. Each step ends at its time, its exit, its water pumped or
- * the weight in the cup reaching its weight, WEIGHT_LAG after it does,
+ * the weight in the cup reaching its weight, the model's stepWeightLag
+ * after it does (the stop-at weight has none),
  * whichever comes first, a step of no length at once, whatever its exit,
  * and none longer than the machine runs one (127 s, PROFILE_LIMITS); the
  * Shot stops when the weight in the cup reaches the stop-at weight, or when
@@ -443,8 +435,8 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
   const followsPressure = 1 - Math.exp(-SIMULATION_TICK / PUMP_RESPONSE);
   const followsFlow = 1 - Math.exp(-SIMULATION_TICK / figures.flowResponse);
   const holds = (target: number, pressure: number, resistance: number) => holding(target, pressure, resistance, figures.pressureResponse);
-  // The weight a step is judged on, a second ahead at its rate, at each tick, as it reaches the step WEIGHT_LAG later.
-  const lagTicks = Math.round(WEIGHT_LAG / SIMULATION_TICK);
+  // The weight a step is judged on, a second ahead at its rate, at each tick, as it reaches the step the model's stepWeightLag later.
+  const lagTicks = Math.round((figures.stepWeightLag ?? 0) / SIMULATION_TICK);
   const judged: number[] = [];
 
   let time = 0;

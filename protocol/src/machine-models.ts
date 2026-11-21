@@ -37,11 +37,21 @@ export interface ModelFigures {
   /**
    * How far over a limiter's value it lets the pressure settle on a step
    * whose pump controls flow, as a share of the limiter's range (`limited`):
-   * 0 holds it at the value, as a Bengle's recorded Shots hold 6 bar under a
-   * limiter of 6 with a range of 0.6, where Decaid's easing gives 6.5. Where
-   * none, Decaid's easing (`eased`).
+   * 0 holds it at the value. A Bengle's recorded Shots hold it there at every
+   * range they show: 5.8 to 5.95 bar under a limit of 6 with a range of 0.6,
+   * where Decaid's easing gives 6.5, and under 2 with a range of 2 at 1.65,
+   * where the easing lets its run reach 2.85. None shows a wider range, so a
+   * wider one is held the same. Where none, Decaid's easing (`eased`).
    */
   pressureLimiterReach?: number;
+  /**
+   * How long after Decaid's rule is met a step's weight ends it, s: an
+   * effective figure, fitted on step ends, for what makes a run leave such a
+   * step early. A Bengle's recorded Shots leave one about 0.1 s after their
+   * own recorded weights meet the rule, yet its runs leave it about 0.4 s
+   * before the Shots do. Where none, at once; a DE1's Shots move at no lag.
+   */
+  stepWeightLag?: number;
   /** How quickly its flow follows a target on a step whose pump controls flow: the time constant, s. */
   flowResponse: number;
   /** How quickly its pump brings the pressure to a target on a step whose pump controls pressure: the time constant, s. */
@@ -65,10 +75,11 @@ export interface ModelFigures {
  * gives less on a step whose pump controls pressure, and lets more flow
  * past such a step's limiter than Decaid's simulated machine does; a Bengle
  * follows its targets about as fast as the machine reads them, its Shots
- * show no such step giving it less, and it holds a flow step's pressure at
- * its limiter's value. Decent Sync can't tell a Bengle's power version,
- * so one Bengle's figures stand for every Bengle, and its maxFlow is
- * Decent's, as no recorded Shot reaches it (#588).
+ * show no such step giving it less, it holds a flow step's pressure at its
+ * limiter's value, and it leaves a step on its weight a moment later than a
+ * run otherwise would. Decent Sync can't tell a Bengle's power version, so
+ * one Bengle's figures stand for every Bengle, and its maxFlow is Decent's,
+ * as no recorded Shot reaches it (#588).
  */
 export const MODEL_FIGURES = {
   DE1: {
@@ -83,7 +94,7 @@ export const MODEL_FIGURES = {
     pressureResponse: 1.5,
     wireScale: 16,
   },
-  Bengle: { maxFlow: 15, maxPressure: 12, pressureLimiterReach: 0, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 },
+  Bengle: { maxFlow: 15, maxPressure: 12, pressureLimiterReach: 0, stepWeightLag: 0.4, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 },
 } as const satisfies Record<string, ModelFigures>;
 
 /** A model a profile runs on: any DE1 model, or a Bengle. */
