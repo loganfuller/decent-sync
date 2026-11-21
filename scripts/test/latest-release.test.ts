@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildsToRemove, latestReleaseTag, releaseWireRevision, wireRevisionIn } from "../../server/test/support/latest-release.mjs";
+import { buildsToRemove, curvesRevisionIn, latestReleaseTag, releaseCurvesRevision, releaseWireRevision, wireRevisionIn } from "../../server/test/support/latest-release.mjs";
 
 // The latest release, which Seam 1 runs beside the change, read from a
 // scratch repository's tags.
@@ -78,6 +78,34 @@ describe("a release's wire revision", () => {
     expect(() => releaseWireRevision("v9.9.9", scratch)).toThrow();
     // Only a declaration on a line of its own counts.
     expect(wireRevisionIn("// export const WIRE_REVISION = 3;\nexport const WIRE_REVISION_NOTE = 4;\n")).toBeUndefined();
+  });
+});
+
+describe("a release's curves revision", () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-curves-revision-"));
+  afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+  it("is what its server's Shot extraction sets at its tag, and a tag whose source sets none throws", () => {
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", ...args], { cwd: scratch, encoding: "utf8", stdio: "pipe" });
+    git("init", "--quiet", "--initial-branch=main");
+    const release = (tag: string, source: string) => {
+      fs.mkdirSync(path.join(scratch, "server/src/shots"), { recursive: true });
+      fs.writeFileSync(path.join(scratch, "server/src/shots/extraction.ts"), source);
+      git("add", "--all");
+      git("commit", "--quiet", "-m", tag);
+      git("tag", tag);
+    };
+    release("v1.2.0", "export const SAMPLES = 1;\n");
+    release("v1.3.0", "/** The revision. */\nexport const CURVES_REVISION = 1;\n");
+    release("v1.12.1", "export const CURVES_REVISION = 3;\n");
+
+    expect(releaseCurvesRevision("v1.3.0", scratch)).toBe(1);
+    expect(releaseCurvesRevision("v1.12.1", scratch)).toBe(3);
+    expect(() => releaseCurvesRevision("v1.2.0", scratch)).toThrow(/sets no CURVES_REVISION/);
+    expect(() => releaseCurvesRevision("v9.9.9", scratch)).toThrow();
+    // Only a declaration on a line of its own counts.
+    expect(curvesRevisionIn("// export const CURVES_REVISION = 3;\nexport const STEAM_CURVES_REVISION = 1;\n")).toBeUndefined();
   });
 });
 

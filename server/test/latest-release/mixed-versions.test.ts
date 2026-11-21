@@ -10,7 +10,8 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
-import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
+import { CURVES_REVISION } from "../../src/shots/extraction.js";
+import { latestReleaseDir, latestReleaseTag, releaseCurvesRevision, releaseWireRevision } from "../support/latest-release.mjs";
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot, preheatShotFixture } from "../support/shot-fixtures.js";
@@ -761,11 +762,12 @@ describe("the latest release beside the change", () => {
     });
 
     // What a Shot's samples show of how it went (#467), of a Shot the latest release's server stored: that server works
-    // it out as it stores the Shot, or, where its curves revision is below the change's, the change's refresh does. Each
-    // is a real Shot with a Preheat under another id: the latest release reads its first drip at 7.945 s, where its scale
-    // first read 1 g, and the change at 6.235 s, where its rise to 1 g reached 0.3 g (#609), so only the change's refresh
-    // gives 6.235 s. Its profile ended in its Extraction step at 2.819 g/s.
+    // it out as it stores the Shot, and where its curves revision is below the change's, the change's refresh works it
+    // out again (CurvesRefresh); where the two are the same, the change reads what that server stored. Each is a real
+    // Shot with a Preheat under another id, whose first drip the change reads at 6.235 s, where its rise to 1 g reached
+    // 0.3 g (#609), and whose profile ended in its Extraction step at 2.819 g/s.
     it("gives what a Shot's samples show once the latest release's server has stored it, and keeps it through an edit that server stores", async () => {
+      const refreshed = releaseCurvesRevision(latestReleaseTag()) < CURVES_REVISION;
       const { tablet } = await connected("Measured, on the latest release", "latest release", "latest release");
       const shot: Record<string, unknown> = { ...preheatShotFixture(), id: "mixed-measured-shot" };
       tablet.pullShot(shot);
@@ -773,13 +775,17 @@ describe("the latest release beside the change", () => {
       interface Measured { id: string; timeToFirstDrip: number | null; flowAtStop?: number | null; lastStep: { frame: number; name: string } | null; enjoyment: number | null }
       const read = async () => (await apis.change.get<{ shot: Measured }>(`/shots/${shot.id}`)).shot;
       const row = async () => (await apis.change.get<{ shots: Measured[] }>("/shots?limit=100")).shots.find((listed) => listed.id === shot.id);
-      // Where the refresh is to work them out: the change's instance ran its own as it started, before the Shot was
-      // pulled, and next runs it within the hour; another instance of the change runs it as it starts.
-      const later = await startTestServer({ env, sharing: servers["latest release"] });
-      try {
-        await expect.poll(async () => (await read()).timeToFirstDrip).toBe(6.235);
-      } finally {
-        await later.stop();
+      if (refreshed) {
+        // The change's instance ran its refresh as it started, before the Shot was pulled, and next runs it within
+        // the hour; another instance of the change runs it as it starts.
+        const later = await startTestServer({ env, sharing: servers["latest release"] });
+        try {
+          await expect.poll(async () => (await read()).timeToFirstDrip).toBe(6.235);
+        } finally {
+          await later.stop();
+        }
+      } else {
+        expect((await apis["latest release"].get<{ shot: Measured }>(`/shots/${shot.id}`)).shot.timeToFirstDrip).toBe(6.235);
       }
       const measured = { timeToFirstDrip: 6.235, lastStep: { frame: 6, name: "Extraction" } };
       expect(await read()).toMatchObject({ ...measured, flowAtStop: 2.8189155419461156 });
