@@ -2429,7 +2429,10 @@ fit.
   its step's, and it has no temperature of its own.
 - **Steps.** A step ends at its maximum time, its exit, the water it may pump
   or its weight in the cup, judged a second ahead at its rate as Decaid
-  judges it, whichever comes first; a step under 0.05 s, which
+  judges it, whichever comes first; its weight ends it 0.4 s after the cup
+  holds that, as the scale's reading and the rate Decaid works out from it
+  trail the cup and its skip takes a moment to reach the machine, which a
+  Bengle's recorded Shots show; a step under 0.05 s, which
   Decaid sends as none, is passed through at once, whatever its exit. A
   step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
   tenth of a second below 12.75 s and to a whole second from there, up to

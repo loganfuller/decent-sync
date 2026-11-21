@@ -100,6 +100,15 @@ export function sentStep(step: ProfileStep, model: MachineModel = "DE1"): Profil
  */
 const WEIGHT_LOOKAHEAD = 1;
 
+/**
+ * How long a step's weight takes to end it once the cup holds what Decaid's
+ * rule asks, s: the scale's reading and the rate Decaid works out from it
+ * trail the cup, and its skip takes a moment to reach the machine. A
+ * Bengle's recorded Shots leave a step with a weight about this long after
+ * a run with no such lag does.
+ */
+const WEIGHT_LAG = 0.4;
+
 /** The least resistance a puck has, where water fills the space above it and meets none. */
 const LEAST_RESISTANCE = 0.001;
 
@@ -416,11 +425,11 @@ export interface Simulation {
 /**
  * Runs a profile on a puck, as a Machine of the model would with a scale
  * under the cup. Each step ends at its time, its exit, its water pumped or
- * the weight in the cup reaching its weight, whichever comes first, a step
- * of no length at once, whatever its exit, and none longer than the machine
- * runs one (127 s, PROFILE_LIMITS); the Shot stops when the weight in
- * the cup reaches the stop-at weight, or when its last step ends. A profile
- * of no steps runs for none.
+ * the weight in the cup reaching its weight, WEIGHT_LAG after it does,
+ * whichever comes first, a step of no length at once, whatever its exit,
+ * and none longer than the machine runs one (127 s, PROFILE_LIMITS); the
+ * Shot stops when the weight in the cup reaches the stop-at weight, or when
+ * its last step ends. A profile of no steps runs for none.
  */
 export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "ahead", model = "DE1" }: Simulation): SimulatedRun {
   const figures: ModelFigures = MODEL_FIGURES[model];
@@ -434,6 +443,9 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
   const followsPressure = 1 - Math.exp(-SIMULATION_TICK / PUMP_RESPONSE);
   const followsFlow = 1 - Math.exp(-SIMULATION_TICK / figures.flowResponse);
   const holds = (target: number, pressure: number, resistance: number) => holding(target, pressure, resistance, figures.pressureResponse);
+  // The weight a step is judged on, a second ahead at its rate, at each tick, as it reaches the step WEIGHT_LAG later.
+  const lagTicks = Math.round(WEIGHT_LAG / SIMULATION_TICK);
+  const judged: number[] = [];
 
   let time = 0;
   let pressure = 0;
@@ -536,12 +548,13 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     // Whether the step or the Shot ends now; the sample is then of the step that begins, as a Shot's sample is of the frame the machine is on.
     const ran = index;
     const ahead = weight + weightFlow * WEIGHT_LOOKAHEAD;
+    judged.push(ahead);
     if (stopWeight !== null && (stopOn === "ahead" ? ahead : weight) >= stopWeight) {
       steps[index]!.end = round(time);
       steps[index]!.reason = "stop";
       stop = { seconds: round(time), reason: "weight" };
     } else {
-      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: ahead });
+      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: judged[judged.length - 1 - lagTicks] ?? 0 });
       if (reason) {
         steps[index]!.end = round(time);
         steps[index]!.reason = reason;

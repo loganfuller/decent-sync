@@ -164,13 +164,18 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
     expect(pumped).toBeLessThan(10 + 4 * SIMULATION_TICK + 1e-9);
   });
 
-  it("at its weight, judged a second ahead at its rate, as Decaid judges it", () => {
+  it("at its weight, judged a second ahead at its rate, as Decaid judges it, four tenths of a second after the cup holds that", () => {
     const result = run([flow("Weighs", 4, { seconds: 60, weight: 5 }), after]);
     const step = result.steps[0]!;
     expect(step.reason).toBe("weight");
-    const at = result.samples.find((sample) => sample.seconds === step.end)!.values;
-    expect(at.weight!).toBeLessThan(5);
-    expect(at.weight! + at.weightFlow! * 1).toBeGreaterThanOrEqual(5);
+    const ahead = (seconds: number) => {
+      const at = result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values;
+      return at.weight! + at.weightFlow! * 1;
+    };
+    // The scale's reading, the rate Decaid works out from it and its skip take that long to end the step.
+    expect(ahead(step.end! - 0.4)).toBeGreaterThanOrEqual(5);
+    expect(ahead(step.end! - 0.5)).toBeLessThan(5);
+    expect(result.samples.find((sample) => sample.seconds === step.end)!.values.weight!).toBeLessThan(5);
   });
 
   it("whichever comes first", () => {
@@ -183,7 +188,7 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
   it("on one tick, by exit before time, and by the Shot's stop before the step's weight", () => {
     const both = run([flow("Tick", 4, { seconds: 0.1, exit: { type: "flow", condition: "over", value: 0.5 } }), after]);
     expect(both.steps[0]).toMatchObject({ end: 0.1, reason: "exit" });
-    // A step's weight, judged ahead, that first holds on the tick the stop-at weight is reached.
+    // A step's weight, judged ahead, that the cup first holds on the tick the stop-at weight is reached.
     const pours = run([flow("Pours", 4, { seconds: 60 }), after], { stopAt: 20 });
     const ahead = (sample: (typeof pours.samples)[number]) => sample.values.weight! + sample.values.weightFlow! * 1;
     const [before, at] = pours.samples.slice(-2) as [(typeof pours.samples)[number], (typeof pours.samples)[number]];
