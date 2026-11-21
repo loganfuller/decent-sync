@@ -36,6 +36,22 @@ export const MARGIN_BAR = 0.5;
 /** How close each step's end must come to the Shot's, s, for its steps to count as ending alike. */
 export const STEP_SECONDS = 1;
 
+/**
+ * A pour that met no coffee, as a flush through an empty portafilter or a
+ * Shot stopped at once: its pressure never reached NO_COFFEE_BAR and its
+ * scale never read NO_COFFEE_GRAMS. On the 944 recorded Shots measured for
+ * #599, the 27 such pours weighed under 2 g; the next lowest weight of a
+ * Shot under 1.5 bar was 32 g.
+ */
+export const NO_COFFEE_BAR = 1.5;
+export const NO_COFFEE_GRAMS = 5;
+
+/** Whether a Shot's samples after Preheat show a pour that met no coffee (NO_COFFEE_BAR, NO_COFFEE_GRAMS). */
+export function metNoCoffee(samples) {
+  const shot = samples.filter((sample) => sample.shade === null);
+  return shot.every((sample) => (sample.values.pressure ?? 0) < NO_COFFEE_BAR && (sample.values.weight ?? 0) < NO_COFFEE_GRAMS);
+}
+
 /** The kinds of Profile the scorecard reports apart (`profileKind`). */
 export const PROFILE_KINDS = ["pressure", "declining", "low pressure", "flow", "fast flow", "bloom"];
 
@@ -130,13 +146,15 @@ export function profileKind(profile, samples) {
 
 /**
  * One Shot scored: its model (null where its record names none), its kind
- * of Profile, whether it is tea or ran under manual control, and, where it
- * has a fit, how far the run lands from it. `noFit` says why it has none.
+ * of Profile (null where its profile can't be read or has no steps),
+ * whether it is tea, met no coffee (`metNoCoffee`) or ran under manual
+ * control, and, where it has a fit, how far the run lands from it. `noFit`
+ * says why it has none.
  */
 export function scoreShot(entry) {
   const shot = simulationShotOf(entry.record, entry.measurements);
-  const scored = { name: entry.name, model: shot.model, tea: entry.tea, set: entry.set, kind: null, manual: false, noFit: null, errors: null, within: false, stepsAlike: false, curves: null };
-  if (!shot.profile) return { ...scored, noFit: "its profile can't be read" };
+  const scored = { name: entry.name, model: shot.model, tea: entry.tea, set: entry.set, kind: null, noCoffee: metNoCoffee(shot.samples), manual: false, noFit: null, errors: null, within: false, stepsAlike: false, curves: null };
+  if (!shot.profile || shot.profile.steps.length === 0) return { ...scored, noFit: "its profile can't be read" };
   scored.kind = profileKind(shot.profile, shot.samples);
   scored.manual = shot.model !== null && underManualControl(shot.samples, shot.profile, shot.model);
   const puck = shotPuck(shot.samples, shot.dose);
@@ -221,14 +239,15 @@ function interpolate(xs, ys, x) {
  * For each set, each Shot's puck run with each other Shot's own steps and
  * dose, ended as that Shot ended, and held to it: `same` where the two ran
  * the same steps (temperatures and names aside), `different` otherwise.
- * Shots of no model, with no puck, or with no fit take no part.
+ * Shots of no model, that met no coffee, with no puck, or with no fit take
+ * no part.
  */
 export function setPairs(entries) {
   const sets = new Map();
   for (const entry of entries) {
     if (entry.set === null || entry.tea) continue;
     const shot = simulationShotOf(entry.record, entry.measurements);
-    if (!shot.profile || shot.model === null) continue;
+    if (!shot.profile || shot.model === null || metNoCoffee(shot.samples)) continue;
     const puck = shotPuck(shot.samples, shot.dose);
     if (!puck || !shotFit(shot, puck)) continue;
     const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, shot.profile);
@@ -257,13 +276,16 @@ export function setPairs(entries) {
 
 /**
  * The scorecard of a folder's Shots: for each model, all its coffee Shots and
- * each kind of Profile apart; tea, manual control and Shots naming no model
- * apart, counting toward no share; and the set pairs. A Shot that has no fit
- * for any other reason counts as outside the margin.
+ * each kind of Profile apart; tea, Shots with a profile that can't be read,
+ * naming no model, that met no coffee or under manual control apart,
+ * counting toward no share, each under the first of these it is; and the
+ * set pairs. A Shot that has no fit for any other reason counts as outside
+ * the margin.
  */
 export function scorecard(entries) {
   const shots = entries.map(scoreShot);
-  const coffee = shots.filter((shot) => !shot.tea && !shot.manual && shot.model !== null);
+  const apart = (shot) => (shot.tea ? "tea" : shot.kind === null ? "unreadable" : shot.model === null ? "noModel" : shot.noCoffee ? "noCoffee" : shot.manual ? "manual" : null);
+  const coffee = shots.filter((shot) => apart(shot) === null);
   const models = {};
   for (const model of ["DE1", "Bengle"]) {
     const ofModel = coffee.filter((shot) => shot.model === model);
@@ -278,9 +300,10 @@ export function scorecard(entries) {
     shots,
     models,
     tea: summary(shots.filter((shot) => shot.tea)),
-    manual: shots.filter((shot) => !shot.tea && shot.manual).length,
-    noModel: shots.filter((shot) => !shot.tea && shot.model === null).length,
-    unreadable: shots.filter((shot) => shot.kind === null).length,
+    unreadable: shots.filter((shot) => apart(shot) === "unreadable").length,
+    noModel: shots.filter((shot) => apart(shot) === "noModel").length,
+    noCoffee: shots.filter((shot) => apart(shot) === "noCoffee").length,
+    manual: shots.filter((shot) => apart(shot) === "manual").length,
     sets: { same: pairSummary(pairs.filter((pair) => pair.same)), different: pairSummary(pairs.filter((pair) => !pair.same)) },
   };
 }
@@ -357,7 +380,7 @@ export function formatScorecard(card) {
   for (const r of rows) lines.push(r.map((cell, n) => (n === 0 ? cell.padEnd(widths[n]) : cell.padStart(widths[n]))).join("  "));
   lines.push("");
   lines.push(`Within: duration within ${MARGIN_SHARE * 100}% or ${MARGIN_SECONDS} s and peak pressure within ${MARGIN_BAR} bar; a Shot with no fit counts as outside. Errors are medians and 90th percentiles of fitted Shots; Steps 1 s: share of fitted Shots whose every step ended within ${STEP_SECONDS} s.`);
-  lines.push(`Counted toward no share: ${card.manual} under manual control, ${card.noModel} naming no model, ${card.unreadable} with a profile that can't be read.`);
+  lines.push(`Counted toward no share: ${card.unreadable} with a profile that can't be read, ${card.noModel} naming no model, ${card.noCoffee} that met no coffee (under ${NO_COFFEE_BAR} bar and ${NO_COFFEE_GRAMS} g throughout), ${card.manual} under manual control.`);
   for (const [label, s] of [["same steps", card.sets.same], ["different steps", card.sets.different]]) {
     if (s.pairs === 0) continue;
     lines.push(`One Shot's puck on another of its set, ${label}: ${s.pairs} pairs, ${s.within} within (${percent(s.within / s.pairs)}), duration error median ${percent(s.duration.median)}, p90 ${percent(s.duration.worstTenth)}.`);

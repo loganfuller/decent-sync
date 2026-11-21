@@ -87,11 +87,13 @@ describe("The scorecard scripts on a real server's Shots", () => {
   });
 
   it("refuses to save Shots inside the repo, before signing in", () => {
+    // A server nothing listens on: a sign-in attempted first would fail there, not on the folder.
+    const NOWHERE = "http://127.0.0.1:9";
     expect(() =>
       execFileSync(process.execPath, [path.join(SCRIPTS, "pull.mjs"), path.join(SCRIPTS, "pulled")], {
         encoding: "utf8",
         stdio: "pipe",
-        env: { ...process.env, DECENT_SYNC_URL: server.url, DECENT_SYNC_EMAIL: admin.email, DECENT_SYNC_PASSWORD: admin.password },
+        env: { ...process.env, DECENT_SYNC_URL: NOWHERE, DECENT_SYNC_EMAIL: admin.email, DECENT_SYNC_PASSWORD: admin.password },
       }),
     ).toThrow(/inside the repo/);
     expect(fs.existsSync(path.join(SCRIPTS, "pulled"))).toBe(false);
@@ -104,7 +106,7 @@ describe("The scorecard scripts on a real server's Shots", () => {
         execFileSync(process.execPath, [path.join(SCRIPTS, "pull.mjs"), path.join(link, "pulled")], {
           encoding: "utf8",
           stdio: "pipe",
-          env: { ...process.env, DECENT_SYNC_URL: server.url, DECENT_SYNC_EMAIL: admin.email, DECENT_SYNC_PASSWORD: admin.password },
+          env: { ...process.env, DECENT_SYNC_URL: NOWHERE, DECENT_SYNC_EMAIL: admin.email, DECENT_SYNC_PASSWORD: admin.password },
         }),
       ).toThrow(/inside the repo/);
       expect(fs.existsSync(path.join(SCRIPTS, "pulled"))).toBe(false);

@@ -17,7 +17,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { isTea } from "./scorecard.mjs";
 
-const REPO = fs.realpathSync(path.resolve(import.meta.dirname, "..", ".."));
+// Real paths as the file system spells them (`native`), so a link or a path typed in another case on a
+// case-insensitive disk still compares as the repo.
+const REPO = fs.realpathSync.native(path.resolve(import.meta.dirname, "..", ".."));
 
 /** A path with its links resolved, as far as it exists: its nearest existing folder's real path, and the rest as named. */
 function realPath(at) {
@@ -27,7 +29,7 @@ function realPath(at) {
     rest.unshift(path.basename(existing));
     existing = path.dirname(existing);
   }
-  return path.join(fs.realpathSync(existing), ...rest);
+  return path.join(fs.realpathSync.native(existing), ...rest);
 }
 
 /** Up to `per` of each Machine's Shots of each profile title, `tea` of a tea profile's, spread evenly from its first to its last. */

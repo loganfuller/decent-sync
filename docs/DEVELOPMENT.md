@@ -112,8 +112,11 @@ Profile:
 - the share whose every step ended within 1 s of the Shot's;
 - the median root mean square distance of the pressure, flow and weight curves.
 
-Tea, Shots run under manual control and Shots whose record names no model
-count toward no share. Where Shots are marked as one set, the same coffee,
+Tea, Shots with a profile that can't be read, Shots whose record names no
+model, pours that met no coffee (under 1.5 bar and 5 g on the scale
+throughout, as a flush through an empty portafilter) and Shots run under
+manual control count toward no share; they take no part in set pairs
+either. Where Shots are marked as one set, the same coffee,
 grind and dose, it also runs each one's puck with each other's steps, and
 prints how close that comes for the same steps and for different ones.
 

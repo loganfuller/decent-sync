@@ -103,7 +103,7 @@ describe("the scorecard", () => {
     expect(formatScorecard(card)).toContain("DE1");
   });
 
-  it("counts tea, manual control and a record naming no model toward no share", () => {
+  it("counts tea, manual control, a record naming no model, a pour that met no coffee and an unreadable profile toward no share", () => {
     const tea = pulled("default", { profileTitle: "Tea portafilter/Sencha" });
     const steered = pulled("classic-italian");
     steered.measurements = steered.measurements.map((measurement) => {
@@ -112,11 +112,23 @@ describe("the scorecard", () => {
     });
     const unnamed = pulled("blooming");
     unnamed.shot.record = { ...unnamed.shot.record, workflow: { ...(unnamed.shot.record.workflow as Fields), machine: { provenanceStatus: "unavailable" } } };
-    const card = scorecard([shotEntry("tea", tea), shotEntry("steered", steered), shotEntry("unnamed", unnamed), shotEntry("default", pulled("default"))]);
+    // Water through an empty portafilter: never 1.5 bar, nothing on the scale.
+    const dry = pulled("default");
+    dry.measurements = dry.measurements.map((measurement) => {
+      const { machine, scale } = measurement as { machine: Fields; scale?: Fields };
+      return { ...(measurement as Fields), machine: { ...machine, pressure: Math.min(1.4, Number(machine.pressure ?? 0)) }, ...(scale ? { scale: { ...scale, weight: Math.min(4.9, Number(scale.weight ?? 0)) } } : {}) };
+    });
+    const stepless = pulled("default");
+    stepless.shot.record = { ...stepless.shot.record, workflow: { ...(stepless.shot.record.workflow as Fields), profile: { ...((stepless.shot.record.workflow as Fields).profile as Fields), steps: [] } } };
+    const entries = [shotEntry("tea", tea), shotEntry("steered", steered), shotEntry("unnamed", unnamed), shotEntry("dry", dry), shotEntry("stepless", stepless), shotEntry("default", pulled("default"))];
+    const card = scorecard(entries);
     expect(card.models.DE1!.all.shots).toBe(1);
     expect(card.tea.shots).toBe(1);
     expect(card.manual).toBe(1);
     expect(card.noModel).toBe(1);
+    expect(card.noCoffee).toBe(1);
+    expect(card.unreadable).toBe(1);
+    expect(formatScorecard(card)).toContain("1 with a profile that can't be read, 1 naming no model, 1 that met no coffee");
     expect(card.shots.find((shot) => shot.name === "steered")!.noFit).toBe("manual control");
   });
 
@@ -148,11 +160,12 @@ describe("pulling and sets", () => {
     const shot = (id: string, pulledAt: string, grinderSetting = "9") => {
       const { shot } = pulled("default");
       const record = shot.record as { workflow: Fields & { context: Fields } };
-      return { shot: { ...shot, id, pulledAt, machineId: "m1", record: { ...record, workflow: { ...record.workflow, context: { ...record.workflow.context, coffeeRoaster: "R", coffeeName: "C", grinderSetting } } } } };
+      return { shot: { ...shot, id, pulledAt, machineId: "m1", machine: { id: "m1", name: "Left" }, record: { ...record, workflow: { ...record.workflow, context: { ...record.workflow.context, coffeeRoaster: "R", coffeeName: "C", grinderSetting } } } } };
     };
     const files = [shot("a", "2026-11-09T08:00:00Z"), shot("b", "2026-11-09T09:00:00Z"), shot("c", "2026-11-09T20:00:00Z"), shot("d", "2026-11-09T09:30:00Z", "10")];
     expect(inferSets(files)).toEqual([["a", "b"]]);
-    expect(inferSets(files, [String((files[0]!.shot as { machine?: { name: string } }).machine?.name ?? "none")])).toEqual([["a", "b"]]);
+    expect(inferSets(files, ["Right"])).toEqual([["a", "b"]]);
+    expect(inferSets(files, ["Left"])).toEqual([]);
     // Two Pending Machines' Shots are of two Machines; a Shot naming neither joins no set.
     const pending = (file: (typeof files)[number], id: string | null) => ({ shot: { ...file.shot, machineId: null, pendingMachine: id ? { id, model: "DE1", serial: "57890" } : null } });
     expect(inferSets([pending(files[0]!, "p1"), pending(files[1]!, "p2")])).toEqual([]);

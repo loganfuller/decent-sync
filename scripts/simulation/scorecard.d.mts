@@ -27,6 +27,7 @@ export interface ScoredShot {
   tea: boolean;
   set: string | null;
   kind: string | null;
+  noCoffee: boolean;
   manual: boolean;
   noFit: string | null;
   errors: FigureErrors | null;
@@ -54,12 +55,16 @@ export interface Scorecard {
   shots: ScoredShot[];
   models: Partial<Record<"DE1" | "Bengle", { all: Summary; kinds: Record<string, Summary> }>>;
   tea: Summary;
-  manual: number;
-  noModel: number;
   unreadable: number;
+  noModel: number;
+  noCoffee: number;
+  manual: number;
   sets: { same: PairSummary; different: PairSummary };
 }
 
+export declare const NO_COFFEE_BAR: number;
+export declare const NO_COFFEE_GRAMS: number;
+export declare function metNoCoffee(samples: unknown[]): boolean;
 export declare function readShots(dir: string): ShotEntry[];
 export declare function shotEntry(name: string, file: unknown): ShotEntry;
 export declare function isTea(title: unknown): boolean;

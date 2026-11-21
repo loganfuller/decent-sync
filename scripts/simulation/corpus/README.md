@@ -24,9 +24,10 @@ lab DE1Pro's Shots join none, as the coffee recorded on it is not kept up to
 date.
 
 `levels.json` holds each model's share within the margin when the corpus was
-last scored, as Shots within it out of the Shots counted: 55 of 117 DE1 coffee
-Shots and 12 of 28 Bengle Shots, with v1.12.0's model of the machine and the
-puck.
+last scored, as Shots within it out of the Shots counted: 55 of 113 DE1 coffee
+Shots and 12 of 23 Bengle Shots, with v1.12.0's model of the machine and the
+puck. Nine corpus Shots are pours that met no coffee (four DE1, five
+Bengle), kept as recorded and counted toward no share.
 
 ## A corpus Shot
 
