@@ -2471,8 +2471,8 @@ fit.
   fill the group on such steps, where a run giving 15 came to the step's
   pressure about 3 s before its Shot did. A DE1's flow comes up
   over about 0.7 s and it brings pressure to a target over about 1.5 s; a
-  Bengle's flow follows within about 0.1 s and its pressure over about
-  0.7 s. Wherever a pressure sets the flow, a step's own, its limiter's or
+  Bengle's flow follows over about 0.2 s, as its Shots' curves rise, and
+  its pressure over about 0.7 s. Wherever a pressure sets the flow, a step's own, its limiter's or
   the most the machine reaches, 12 bar, the pump follows within a tick.
   Each model holds one kind of limiter as its Shots show, not as Decaid's
   simulated machine eases it (`limited`). A DE1 lets more flow past a
@@ -2492,8 +2492,8 @@ fit.
   Pressure builds in the group as the pump gives more than passes the puck
   and falls as it drains, over seconds. Each figure stays only where it
   brings more of the corpus within the margin, or, as a Bengle's flow on a
-  pressure step does, brings its runs' curves closer to their Shots' and
-  costs the margin nothing; what was tried and left out, a DE1's flow on a
+  pressure step and its flow response do, brings its runs' curves closer to
+  their Shots' and costs the corpus's margin nothing; what was tried and left out, a DE1's flow on a
   flow step falling as pressure builds, the pump already running as a Shot
   begins, a DE1's flow falling more slowly than it rises, a machine leaving
   a step a moment before the pressure it records passes its exit, and one

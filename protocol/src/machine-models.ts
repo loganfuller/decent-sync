@@ -63,7 +63,14 @@ export interface ModelFigures {
    * none moving at any lag tried.
    */
   stepWeightLag?: number;
-  /** How quickly its flow follows a target on a step whose pump controls flow: the time constant, s. */
+  /**
+   * How quickly its flow follows a target on a step whose pump controls
+   * flow: the time constant, s. A Bengle's recorded Shots bring their flow
+   * nine tenths of the way to a step's target in about 0.5 s, a time
+   * constant of about 0.2 s; at 0.1 s as many of them land within the
+   * margin, and the flow curve of their runs stands about twice as far
+   * from theirs.
+   */
   flowResponse: number;
   /** How quickly its pump brings the pressure to a target on a step whose pump controls pressure: the time constant, s. */
   pressureResponse: number;
@@ -82,12 +89,13 @@ export interface ModelFigures {
  * simulation's corpus of recorded Shots (scripts/simulation, #601): each
  * figure is the one that brings the most of its Shots within the margin on
  * their own puck, and each stays only where it does so by a clear step, but
- * a Bengle's pressureStepTargetFlow, which is there for the shape of its
- * runs' curves beside their Shots' and costs the margin nothing. A
+ * a Bengle's pressureStepTargetFlow and flowResponse, which are there for
+ * the shape of its runs' curves beside their Shots' and cost the corpus's
+ * margin nothing. A
  * DE1's pump is slow to bring up its flow and slower to build pressure,
  * gives less on a step whose pump controls pressure, and lets more flow
  * past such a step's limiter than Decaid's simulated machine does; a Bengle
- * follows its targets about as fast as the machine reads them, gives a
+ * follows its targets within a few tenths of a second, gives a
  * pressure step less the lower the pressure it asks for, holds a flow
  * step's pressure at its limiter's value, and leaves a step on its weight a
  * moment later than a run otherwise would. Decent Sync can't tell a Bengle's power version, so
@@ -116,7 +124,7 @@ export const MODEL_FIGURES = {
     maxPressure: 12,
     pressureLimiterReach: 0,
     stepWeightLag: 0.4,
-    flowResponse: 0.1,
+    flowResponse: 0.2,
     pressureResponse: 0.7,
     wireScale: 10,
   },

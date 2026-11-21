@@ -515,8 +515,12 @@ describe("a machine of a model", () => {
     // Most of the way, its time constant, by MODEL_FIGURES's flowResponse.
     expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeGreaterThan(0.55);
     expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeLessThan(0.7);
+    expect(at(bengle, MODEL_FIGURES.Bengle.flowResponse) / 8).toBeGreaterThan(0.55);
+    expect(at(bengle, MODEL_FIGURES.Bengle.flowResponse) / 8).toBeLessThan(0.7);
     expect(at(de1, 0.3)).toBeLessThan(4);
-    expect(at(bengle, 0.3)).toBeGreaterThan(7.5);
+    // Nine tenths of the way in about half a second, as a Bengle's recorded Shots rise.
+    expect(at(bengle, 0.5)).toBeGreaterThan(0.9 * 8);
+    expect(at(bengle, 0.3)).toBeLessThan(0.9 * 8);
   });
 
   it("brings pressure to a pressure step's target more slowly on a DE1 than on a Bengle", () => {

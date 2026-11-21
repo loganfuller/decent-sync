@@ -530,7 +530,7 @@ var __decentSync = (() => {
       maxPressure: 12,
       pressureLimiterReach: 0,
       stepWeightLag: 0.4,
-      flowResponse: 0.1,
+      flowResponse: 0.2,
       pressureResponse: 0.7,
       wireScale: 10
     }
