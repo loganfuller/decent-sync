@@ -76,7 +76,7 @@ export function ShotSummaryCard({
         <CardTitleWithInfo title="Summary">
           <p>
             How the Shots these filters find went, leaving out cleaning and calibration Shots, and Unfinished Shots, in which nothing poured: the
-            Machine never reached pouring and the scale never read 1 g.
+            Machine never reached pouring and the scale never showed 1 g in the cup.
           </p>
           <p>Each number is a median, with the range the middle half of the Shots fall in. Choose which to show with Numbers.</p>
           <p>Yield against target is the yield weighed less the Shot's own target, for Shots with both. The ratio is the yield weighed over the dose weighed.</p>

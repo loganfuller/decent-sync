@@ -13,7 +13,7 @@ import { repoDir } from "../support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
-import { derivedShot } from "../support/shot-fixtures.js";
+import { derivedShot, preheatShotFixture } from "../support/shot-fixtures.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
 import { PluginStorage, RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
@@ -762,11 +762,12 @@ describe("the latest release beside the change", () => {
 
     // What a Shot's samples show of how it went (#467), of a Shot the latest release's server stored: that server works
     // it out as it stores the Shot, or, where its curves revision is below the change's, the change's refresh does. Each
-    // is a real Shot of 4 samples under another id: its scale first read 1 g or more 21.45 s into its profile, which
-    // ended in its Pressure Decline step at 3.216 g/s.
+    // is a real Shot with a Preheat under another id: the latest release reads its first drip at 7.945 s, where its scale
+    // first read 1 g, and the change at 6.235 s, where its rise to 1 g reached 0.3 g (#609), so only the change's refresh
+    // gives 6.235 s. Its profile ended in its Extraction step at 2.819 g/s.
     it("gives what a Shot's samples show once the latest release's server has stored it, and keeps it through an edit that server stores", async () => {
       const { tablet } = await connected("Measured, on the latest release", "latest release", "latest release");
-      const shot = derivedShot("mixed-measured-shot");
+      const shot: Record<string, unknown> = { ...preheatShotFixture(), id: "mixed-measured-shot" };
       tablet.pullShot(shot);
       await expect.poll(async () => (await apis["latest release"].call("GET", `/shots/${shot.id}`)).status).toBe(200);
       interface Measured { id: string; timeToFirstDrip: number | null; flowAtStop?: number | null; lastStep: { frame: number; name: string } | null; enjoyment: number | null }
@@ -776,19 +777,19 @@ describe("the latest release beside the change", () => {
       // pulled, and next runs it within the hour; another instance of the change runs it as it starts.
       const later = await startTestServer({ env, sharing: servers["latest release"] });
       try {
-        await expect.poll(async () => (await read()).timeToFirstDrip).toBe(21.45);
+        await expect.poll(async () => (await read()).timeToFirstDrip).toBe(6.235);
       } finally {
         await later.stop();
       }
-      const measured = { timeToFirstDrip: 21.45, lastStep: { frame: 4, name: "Pressure Decline" } };
-      expect(await read()).toMatchObject({ ...measured, flowAtStop: 3.21596222288838 });
+      const measured = { timeToFirstDrip: 6.235, lastStep: { frame: 6, name: "Extraction" } };
+      expect(await read()).toMatchObject({ ...measured, flowAtStop: 2.8189155419461156 });
       expect(await row()).toMatchObject(measured);
 
       // An edit carries the Shot's metadata whole, without its measurements; the latest release's server stores it.
       const { measurements: _, ...metadata } = shot;
       tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt: "2026-11-01T12:00:00Z", annotations: { ...(metadata.annotations as object), enjoyment: 80 } } });
       await expect.poll(async () => (await read()).enjoyment).toBe(80);
-      expect(await read()).toMatchObject({ ...measured, flowAtStop: 3.21596222288838 });
+      expect(await read()).toMatchObject({ ...measured, flowAtStop: 2.8189155419461156 });
       expect(await row()).toMatchObject(measured);
     });
 

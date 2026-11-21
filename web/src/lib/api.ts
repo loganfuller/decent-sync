@@ -526,8 +526,8 @@ export interface ListedShot {
   peakPressure: number | null;
   peakFlow: number | null;
   /**
-   * In seconds, from the start of its profile to the scale's first reading of 1 g or more; null where none read that, as
-   * without a scale, and until the server has worked it out. Absent from the previous release's answer during a deploy
+   * In seconds, from the start of its profile to when its coffee first reached the cup, as its scale shows it; null where
+   * its scale never read 1 g, as without a scale, and until the server has worked it out. Absent from the previous release's answer during a deploy
    * (ADR-0025).
    */
   timeToFirstDrip?: number | null;
@@ -715,7 +715,7 @@ export interface SummaryNumbers {
   /** In %. */
   tds: SummaryNumber;
   extractionYield: SummaryNumber;
-  /** Seconds from the start of the profile to the scale's first reading of 1 g or more. */
+  /** Seconds from the start of the profile to when its coffee first reached the cup. */
   timeToFirstDrip: SummaryNumber;
   lastStep: LastSteps;
 }

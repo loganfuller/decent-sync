@@ -289,7 +289,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(Object.keys(result.curves)).toEqual(["shaded", "thinnedTo", "pressure", "flow", "weight", "weightFlow", "temperature"]);
       expect(result.steps).toHaveLength(5);
       expect(result.lastRecordedWeight).toMatchObject({ weight: 32.4 });
-      expect(result).toMatchObject({ timeToFirstDrip: 7.95, flowAtStop: 2.82 });
+      expect(result).toMatchObject({ timeToFirstDrip: 6.24, flowAtStop: 2.82 });
       const listed = await assistant.callWithinBudget<{ curves: Fields }>("get_shot", { id: "preheat", curves: ["weight", "weightFlow"] });
       expect(Object.keys(listed.result.curves)).toEqual(["shaded", "thinnedTo", "weight", "weightFlow"]);
       // Its widest window, the whole Shot: every reading of the Shot, and as many of the long one's as fit.

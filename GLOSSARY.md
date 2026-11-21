@@ -177,8 +177,11 @@ _Avoid_: Warmup, heater test
 The one shot chosen for a recipe to show how its shots should go, as a roaster chooses a reference roast for a roast profile: the recipe's other shots are compared with it. A recipe has at most one, and it can be any shot, pulled on any machine at any location, with the recipe's profile or another. It stays until someone chooses another or clears it, so changing the recipe's grind, yield, bean batch or profile leaves it in place. A copy of a recipe starts with the same one.
 _Avoid_: Golden shot, best shot, baseline, target shot (a shot's targets are its profile's)
 
+**Time to first drip**:
+How long after a shot's profile starts its coffee first reaches the cup, as its scale shows it. A shot with no scale has none, and neither does one in which nothing poured.
+
 **Unfinished Shot**:
-A shot in which nothing poured, as its machine and scale show it: its machine never reached pouring and its scale never read a gram, so it was stopped in its Preheat or early in its preinfusion. A shot that reached its yield while its profile was still in the steps it counts as preinfusion poured, though its machine never reported pouring. A shot summary counts unfinished shots apart and leaves them out of its numbers.
+A shot in which nothing poured, as its machine and scale show it: its machine never reached pouring and its scale never showed a gram in the cup, past a cup weighed before the shot's tare, so it was stopped in its Preheat or early in its preinfusion. A shot that reached its yield while its profile was still in the steps it counts as preinfusion poured, though its machine never reported pouring. A shot summary counts unfinished shots apart and leaves them out of its numbers.
 _Avoid_: Aborted shot, failed shot, sink shot
 
 **Shot Summary**:

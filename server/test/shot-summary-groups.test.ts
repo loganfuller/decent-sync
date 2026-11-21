@@ -148,7 +148,7 @@ const PREHEAT_OWN = {
   grindSetting: 6.5,
   tds: null,
   extractionYield: null,
-  timeToFirstDrip: 7.945,
+  timeToFirstDrip: 6.235,
   lastStep: { frame: 6, name: "Extraction" },
 };
 

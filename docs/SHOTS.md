@@ -316,17 +316,47 @@ it without the Shot's measurements. Each is a nullable column, and their
 seconds count from the start of its profile, its first sample after its
 Preheat:
 
-- `time_to_first_drip`: when the scale first read 1 g or more
-  (`timeToFirstDrip`), by the sample that carries the reading; null where
-  none read that, as on a Shot with no scale. No reading in Preheat counts:
-  Decaid records 0 for the scale there until it tares it as the profile
-  starts, or, in full gateway mode, the untared reading. Decaid sends that
-  tare at the profile's first sample without waiting for the scale
-  (`ShotSequencer._handleStateTransition` in
-  `decaid:lib/src/controllers/shot_sequencer.dart`), so a reading taken
-  before it lands, as of a cup put on the scale during Preheat, is recorded
-  as it is, and counts as a first drip a fraction of a second in. In full
-  gateway mode a cup on the scale reads so throughout.
+- `time_to_first_drip`: when the Shot's coffee first reached the cup, as
+  nearly as its scale shows it (`timeToFirstDrip`, #609), by the sample
+  that carries the reading; null where its scale never read 1 g, as on a
+  Shot with no scale. It is read from the samples after its Preheat,
+  passing over a sample with no scale reading. No reading in Preheat
+  counts: Decaid records 0 for the scale there until it tares it as the
+  profile starts, or, in full gateway mode, the untared reading.
+  1. A cup weighed before Decaid's tare landed is left out: a reading of
+     1 g or more in the first 2 s after which the scale reads under 1 g
+     there. The readings from the first under 1 g, where the tare landed,
+     count, so a rise that starts within the 2 s is read whole.
+     Decaid sends that tare at the profile's first sample without waiting
+     for the scale (`ShotSequencer._handleStateTransition` in
+     `decaid:lib/src/controllers/shot_sequencer.dart`), so a reading taken
+     before it lands, as of a cup put on the scale during Preheat, is
+     recorded as it is.
+  2. The scale's first reading of 1 g or more is the rise. A Shot with
+     none has no time to first drip.
+  3. From it, back to the scale's last reading of zero or less, or to the
+     first reading where there is none.
+  4. The time to first drip is the first reading of 0.2 g or more from
+     there.
+
+  So a reading that returns to zero is never the first drip: on 24 of 326
+  Shots measured for #609, a reading of 0.1 g came and went, typically 5
+  to 7 s before the real rise, and 0.2 g, two counts of the scales' 0.1 g,
+  did so on one. The rise must reach 1 g so that a small reading is
+  trusted, and it needs the whole Shot, which nothing that shows a time to
+  first drip lacks. Two known limits:
+  - A scale that settles a little under 1 g within the first second, as a
+    tare's residue does, reads as a first drip then. One of the 344 Shots
+    measured did (0.9 g from 0.4 s, held for 6 s).
+  - A scale that reads zero again partway through, as when it is tared
+    again, has its first drip in the rise after that zero, and the drops
+    before it are not counted. Three tea Shots of the 344 did.
+
+  In full gateway mode, where Decaid never tares, a cup on the scale reads
+  so throughout, and the first drip is its first reading. Until #609 it was
+  the scale's first reading of 1 g or more, a median 0.6 s later and 1 s or
+  more later on a quarter of Shots, with a cup weighed before the tare
+  counted as a first drip.
 - `last_step_frame` and `last_step_name`: the step of its Profile it ended
   in, as the Shot's read works it out (`stepSpans`), null when it stopped
   in its Preheat or its samples name no step. The frame is a float, as a
@@ -364,7 +394,8 @@ Preheat and peaks are.
 
 `curves_revision` names the revision of `extractCurves` those values were
 computed by (`CURVES_REVISION`): 1 added the Preheat and left it out of the
-peaks, and 2 what a Shot's samples show. A full record stores them at the
+peaks, 2 what a Shot's samples show, and 3 read the time to first drip as
+when coffee first reached the cup (#609). A full record stores them at the
 current one, and an edit leaves them as they are. `CurvesRefresh` computes
 those of an earlier revision again from their measurements, in batches of 20
 with their rows locked, skipping any another transaction holds, as the server
@@ -1163,16 +1194,18 @@ Machines and each Shot within spec or out of spec against three margins
   which Decaid reads as `espresso`, counts, as does any other type. Less,
   too, its Unfinished Shots (`GLOSSARY.md`, `UNFINISHED`), in which nothing
   poured: `poured` is false and `time_to_first_drip` null, so the Machine
-  never reported pouring and the scale never read 1 g after the Preheat.
+  never reported pouring and the scale never read 1 g after the Preheat,
+  past a cup weighed before Decaid's tare landed.
   Both are needed, as a Shot that reaches its yield while its profile is
   still in the steps it counts as preinfusion never reports pouring, though
   it ran whole (`poured`, above), as a fast Shot stopped on weight in a
   long preinfusion step does. A Shot with no scale is unfinished where it
   never reported pouring. The scale's reading is as `time_to_first_drip`
   takes it (above), so a Shot whose cup was put on the scale during its
-  Preheat, read before Decaid's tare landed, or any Shot with a cup on the
-  scale in full gateway mode, which never tares, counts as poured though
-  nothing poured. A
+  Preheat, read before Decaid's tare landed, is unfinished where nothing
+  poured (until #609 it counted as poured), while any Shot with a cup on
+  the scale in full gateway mode, which never tares, counts as poured
+  though nothing poured. A
   cleaning or calibration Shot that never poured is counted as cleaning or
   calibration.
   - `counts` gives four counts, read in one statement: `shots`, how many
@@ -2174,11 +2207,15 @@ through Seam 1, against values worked out by hand from the fixtures: a Shot
 with no scale, one whose scale never read 1 g, one stopped in its
 preinfusion and one in its Preheat, and an edit leaving them as they are.
 `server/test/shot-curves-refresh.test.ts` covers Shots of an earlier
-revision computed again, by two instances starting at once, and
-`server/test/latest-release/mixed-versions.test.ts` a Shot the previous
-release stores. `web/test/curves.test.ts` holds the module tests of the
-readers, and `server/test/shot-extraction.test.ts` checks that every
-fixture Shot poured.
+revision computed again, by two instances starting at once, among them a
+time to first drip read at 1 g and a cup weighed before the tare, which
+becomes Unfinished, and `server/test/latest-release/mixed-versions.test.ts`
+a Shot the previous release stores. `web/test/curves.test.ts` holds the
+module tests of the readers, `protocol/test/first-drip.test.ts` the time to
+first drip and Unfinished case by case, from
+`protocol/test/fixtures/first-drip-cases.json`, which the cafe skin's port
+of the rule tests too, and `server/test/shot-extraction.test.ts` checks
+that every fixture Shot poured.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record

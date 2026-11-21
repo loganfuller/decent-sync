@@ -97,7 +97,7 @@ export interface SummaryNumbers {
   /** Total dissolved solids and extraction yield, in %, where the tablet recorded a number. */
   tds: SummaryNumber;
   extractionYield: SummaryNumber;
-  /** Seconds from the start of its profile to the scale's first reading of 1 g or more, as the Shot keeps it (`timeToFirstDrip`). */
+  /** Seconds from the start of its profile to when its coffee first reached the cup, as the Shot keeps it (`timeToFirstDrip`). */
   timeToFirstDrip: SummaryNumber;
   /** The step of its Profile each Shot ended in, as the Shot keeps it. */
   lastStep: LastSteps;
@@ -304,15 +304,15 @@ export const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'pro
 /**
  * Whether the Shot of `shots` aliased `s` is an Unfinished Shot (GLOSSARY.md):
  * nothing poured, as its stored values show it. The Machine never reported
- * pouring (`poured`) and the scale never read 1 g or more after its Preheat
- * (`time_to_first_drip`), so it was stopped in its Preheat or early in its
+ * pouring (`poured`) and it has no time to first drip
+ * (`time_to_first_drip`), as its scale never read 1 g or more after its
+ * Preheat, past a cup weighed before Decaid's tare landed
+ * (`timeToFirstDrip`), so it was stopped in its Preheat or early in its
  * preinfusion. Both are needed: a Shot that reaches its yield while its
  * profile is still in the steps it counts as preinfusion, as a fast one
  * stopped on weight in a long preinfusion step, never reports pouring,
  * though it ran whole. A Shot with no scale is unfinished where it never
- * reported pouring. The scale's reading is the Shot's as `time_to_first_drip`
- * takes it, so a cup put on the scale during Preheat, read before Decaid's
- * tare lands, or a cup on a scale in full gateway mode, which is never
+ * reported pouring. A cup on a scale in full gateway mode, which is never
  * tared, reads as a first drip, and such a Shot counts as poured though
  * nothing poured. A Shot whose stored values aren't worked out yet
  * (`AWAITING`) counts as poured.

@@ -694,8 +694,8 @@ model Shot {
   /// What its samples show of how it went (measuredValues, #467), each null
   /// until a Shot of an earlier curves revision is computed again, and each
   /// but `poured` where its samples show none. Its time to first drip: the
-  /// seconds from the start of its profile to the scale's first reading of
-  /// 1 g or more.
+  /// seconds from the start of its profile to when its coffee first reached
+  /// the cup, as its scale shows it (timeToFirstDrip).
   timeToFirstDrip  Float?            @map("time_to_first_drip")
   /// The step of its Profile it ended in: its index among the Profile's
   /// steps, a float as a record may hold any whole number there, and its

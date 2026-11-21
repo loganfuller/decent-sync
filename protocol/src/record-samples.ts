@@ -310,24 +310,72 @@ function lastWeighed(samples: readonly Sample<ShotCurve>[]): Sample<ShotCurve> |
   return null;
 }
 
-/** The least the scale reads, in grams, once coffee has reached the cup: a Shot's first drip. */
-export const FIRST_DRIP_GRAMS = 1;
+/**
+ * The weight, in grams, a Shot's scale must reach for coffee to be in its
+ * cup: a reading under it may come and go, as a knock on the scale does, and
+ * a Shot whose scale never reads it has no first drip.
+ */
+export const IN_THE_CUP_GRAMS = 1;
 
 /**
- * A Shot's time to first drip: the seconds of the first of its samples
- * (`shotSamples`) after its Preheat at which the scale read 1 g or more
- * (FIRST_DRIP_GRAMS), so from the start of its profile; null where none read
- * that, as on a Shot with no scale. No reading in Preheat counts, as none
- * there is the Shot's weight (`lastRecordedWeight`). Decaid tares the scale
- * again at the profile's first sample without waiting for it, so a reading
- * taken before that tare lands, as of a cup put on during Preheat, counts
- * as it was recorded.
+ * The least reading, in grams, that is a Shot's first drip, within a rise to
+ * IN_THE_CUP_GRAMS: two counts of a scale that reads to 0.1 g, as one count
+ * comes and goes.
+ */
+export const FIRST_DRIP_GRAMS = 0.2;
+
+/** The seconds from the start of a Shot's profile within which the tare Decaid sends then lands. */
+const TARE_LANDS = 2;
+
+/**
+ * A Shot's time to first drip: when its coffee first reached the cup, as
+ * nearly as its scale shows it, in seconds from the start of its profile;
+ * null where its scale never read IN_THE_CUP_GRAMS, as on a Shot with no
+ * scale. It is read from its samples (`shotSamples`) after its Preheat,
+ * passing over a sample with no scale reading, as no reading in Preheat is
+ * the Shot's weight (`lastRecordedWeight`):
+ *
+ * 1. A cup weighed before Decaid's tare landed is left out: Decaid tares the
+ *    scale at the profile's first sample without waiting for it, so a
+ *    reading of IN_THE_CUP_GRAMS or more within TARE_LANDS after which the
+ *    scale reads under it there is the cup's, and is passed over to the
+ *    first lower reading, where the tare landed, so a rise that starts
+ *    within TARE_LANDS after it is read whole. A cup on the scale
+ *    throughout, in full gateway mode, where Decaid never tares, reads as it
+ *    was recorded.
+ * 2. The rise is the scale's first reading of IN_THE_CUP_GRAMS or more.
+ * 3. From it, back to the scale's last reading of zero or less, or to the
+ *    first reading where there is none.
+ * 4. The first drip is the first reading of FIRST_DRIP_GRAMS or more from
+ *    there, so a reading that returns to zero before the rise is never it.
+ *
+ * One rule wherever a time to first drip is worked out: a stored Shot's, a
+ * simulated run's (`simulateProfile`) and a Shot's puck (`shotPuck`).
  */
 export function timeToFirstDrip(samples: readonly Sample<ShotCurve>[]): number | null {
-  for (const { values, seconds, shade } of samples) {
-    if (shade === null && values.weight !== null && values.weight >= FIRST_DRIP_GRAMS) return seconds;
+  const weighed = samples.filter((sample) => sample.shade === null && sample.values.weight !== null);
+  const weightAt = (n: number) => weighed[n]!.values.weight!;
+  const from = tareLanded(weighed);
+  let rise = from;
+  while (rise < weighed.length && weightAt(rise) < IN_THE_CUP_GRAMS) rise++;
+  if (rise === weighed.length) return null;
+  let start = rise;
+  while (start > from && weightAt(start) > 0) start--;
+  while (weightAt(start) < FIRST_DRIP_GRAMS) start++;
+  return weighed[start]!.seconds;
+}
+
+/**
+ * The index among a Shot's scale readings after its Preheat of the first
+ * after the tare Decaid sends at the profile's start: 0, or past a cup's
+ * weight read before the tare landed, the first reading under
+ * IN_THE_CUP_GRAMS within TARE_LANDS that follows one of it or more.
+ */
+function tareLanded(weighed: readonly Sample<ShotCurve>[]): number {
+  for (let n = 1; n < weighed.length && weighed[n]!.seconds <= TARE_LANDS; n++) {
+    if (weighed[n]!.values.weight! < IN_THE_CUP_GRAMS && weighed[n - 1]!.values.weight! >= IN_THE_CUP_GRAMS) return n;
   }
-  return null;
+  return 0;
 }
 
 /**
@@ -336,7 +384,7 @@ export function timeToFirstDrip(samples: readonly Sample<ShotCurve>[]): number |
  * steps it counts as preinfusion. It is what the Machine reported, whatever
  * landed in the cup: a Shot stopped on weight within those steps didn't pour
  * by it, though it ran whole. So an Unfinished Shot is one that didn't, and
- * whose scale never read 1 g either (`timeToFirstDrip`).
+ * has no time to first drip either (`timeToFirstDrip`).
  */
 export function poured(samples: readonly Sample<ShotCurve>[]): boolean {
   return samples.some((sample) => sample.substate === "pouring");

@@ -115,7 +115,7 @@ for (const [width, phone] of WIDTHS) {
       // An Unfinished Shot and a cleaning Shot say what they are, and carry no mark.
       await shown.goto("/shots/left-house-unfinished");
       await expect(went.getByText("Unfinished Shot", { exact: true })).toBeVisible();
-      await expectTip(went, "Unfinished Shot", /^Nothing poured: its Machine never reached pouring and its scale never read a gram\./);
+      await expectTip(went, "Unfinished Shot", /^Nothing poured: its Machine never reached pouring and its scale never showed a gram in the cup\./);
       await expect(field(went, "Duration")).toHaveText(/^\d+\.\d s$/);
       await expect(mark(went)).toHaveCount(0);
       await expect(went.getByText(/reference/i)).toHaveCount(0);
@@ -153,7 +153,7 @@ for (const [width, phone] of WIDTHS) {
       for (const name of CHARTS) await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Reference Shot");
       // Under them, the two side by side, the Reference Shot linked.
       expect(await compared(curves, "Comparison with the Reference Shot", phone)).toEqual([
-        ["This Shot", "20.0 s", "35.9 g", "7.9 s", "8.01 bar", "6.50"],
+        ["This Shot", "20.0 s", "35.9 g", "6.2 s", "8.01 bar", "6.50"],
         ["Reference Shot", "23.5 s", "35.9 g", "21.4 s", "9 bar", "8"],
       ]);
       await expect(comparison(curves, "Comparison with the Reference Shot", phone).getByRole("link", { name: "Reference Shot" })).toHaveAttribute("href", "/shots/left-house-1");
@@ -164,8 +164,8 @@ for (const [width, phone] of WIDTHS) {
       for (const name of CHARTS) await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Previous Shot");
       await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Reference Shot");
       expect(await compared(curves, "Comparison with the previous Shot", phone)).toEqual([
-        ["This Shot", "20.0 s", "35.9 g", "7.9 s", "8.01 bar", "6.50"],
-        ["Previous Shot", "25.8 s", "34.7 g", "7.9 s", "8.01 bar", "6.50"],
+        ["This Shot", "20.0 s", "35.9 g", "6.2 s", "8.01 bar", "6.50"],
+        ["Previous Shot", "25.8 s", "34.7 g", "6.2 s", "8.01 bar", "6.50"],
       ]);
       await expect(comparison(curves, "Comparison with the previous Shot", phone).getByRole("link", { name: "Previous Shot" })).toHaveAttribute("href", "/shots/left-house-2");
       await expect(comparison(curves, "Comparison with the Reference Shot", phone)).toHaveCount(0);
@@ -272,7 +272,7 @@ for (const [width, phone] of WIDTHS) {
       await expect(field(details, "Burrs")).toHaveText("SSP MP");
       await expect(field(details, "Basket")).toHaveText("Decent 18g Ridgeless");
       await expect(field(details, "Barista")).toHaveText("-");
-      await expect(field(details, "Time to first drip")).toHaveText("7.9 s");
+      await expect(field(details, "Time to first drip")).toHaveText("6.2 s");
       await expect(field(details, "Flush")).toHaveText(/^\d+ °C, \d+ s$/);
       await expect(field(details, "Machine, as recorded")).toHaveText(`DE1Pro, serial ${LEFT}, firmware 1358, flow calibration 1.2`);
       // No tablet's id for an item, and none of Decaid's own names for what the interface names.

@@ -315,14 +315,14 @@ describe("lastRecordedWeight", () => {
 describe("timeToFirstDrip", () => {
   const scaled = measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> | null }[];
 
-  it("is the seconds, from the start of the Shot's profile, of the scale's first reading of 1 g or more", () => {
+  it("is the seconds, from the start of the Shot's profile, of the first reading of 0.2 g or more in the scale's rise to 1 g", () => {
     const samples = shotSamples(measurements);
-    // The scale read 0.6 g, then exactly 1 g at the Shot's 82nd sample, 7.945 s after its profile's first.
-    expect([80, 81].map((n) => samples[n]!.values.weight)).toEqual([0.6, 1]);
-    expect(timeToFirstDrip(samples)).toBe(7.945);
-    expect(timeToFirstDrip(samples)).toBe(samples[81]!.seconds);
-    // Derived: the real Shot stopped at that sample still has it, and stopped a sample earlier, its scale never read 1 g.
-    expect(timeToFirstDrip(shotSamples(measurements.slice(0, 82)))).toBe(7.945);
+    // The scale read 0 until 0.1 g at the Shot's 73rd sample, then 0.3 g, 6.235 s after its profile's first, and rose to exactly 1 g at its 82nd, 7.945 s.
+    expect([71, 72, 73, 74, 80, 81].map((n) => samples[n]!.values.weight)).toEqual([0, 0.1, 0.3, 0.2, 0.6, 1]);
+    expect(timeToFirstDrip(samples)).toBe(6.235);
+    expect(timeToFirstDrip(samples)).toBe(samples[73]!.seconds);
+    // Derived: the real Shot stopped when its scale first read 1 g still has it, and stopped a sample earlier, its scale never read 1 g, so it has none.
+    expect(timeToFirstDrip(shotSamples(measurements.slice(0, 82)))).toBe(6.235);
     expect(timeToFirstDrip(shotSamples(measurements.slice(0, 81)))).toBeNull();
   });
 
@@ -332,7 +332,7 @@ describe("timeToFirstDrip", () => {
     expect(timeToFirstDrip(shotSamples(measurements.slice(0, 43)))).toBeNull();
     // Derived: its Preheat's readings at 250 g, as a cup on a scale Decaid has not tared: the first drip is still the profile's.
     const cup = scaled.map((sample, n) => (n < 43 ? { ...sample, scale: { ...sample.scale, weight: 250 } } : sample));
-    expect(timeToFirstDrip(shotSamples(cup))).toBe(7.945);
+    expect(timeToFirstDrip(shotSamples(cup))).toBe(6.235);
     expect(timeToFirstDrip(shotSamples(cup.slice(0, 43)))).toBeNull();
     expect(timeToFirstDrip([])).toBeNull();
   });

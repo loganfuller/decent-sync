@@ -505,7 +505,7 @@ were pulled, a page at a time, with no filters.
 | `rating` | Its rating on Decaid's scale of 0 to 10, where 0 is unrated. |
 | `barista` | The Barista's name, as the tablet recorded it. |
 | `hasNote` | Whether it has a note. |
-| `unfinished` | Whether it is an Unfinished Shot, in which nothing poured: the Machine never reported pouring and the scale never read 1 g. A cleaning or calibration Shot is never one. |
+| `unfinished` | Whether it is an Unfinished Shot, in which nothing poured: the Machine never reported pouring and the scale never showed 1 g in the cup, past a cup weighed before the Shot's tare. A cleaning or calibration Shot is never one. |
 | `referenceOf` | The Recipes of this Location it is the Reference Shot of, each named as `recipe` is, by name. Empty for most Shots. An Archived Recipe is left out, and so is another Location's. |
 
 A value the Shot didn't record is null. `nextCursor` is null on the last

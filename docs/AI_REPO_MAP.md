@@ -58,6 +58,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/starting-shapes.ts`: the starting shapes a new Profile's Draft can begin from.
 - `src/record-samples.ts`, `src/steam-phases.ts`: samples and phases of Shots and Steam Records.
 - `test/`: module tests; `wire-revision.test.ts` needs the release tags.
+- `test/fixtures/first-drip-cases.json`: a Shot's time to first drip and whether it is Unfinished, case by case, which other ports of the rule test too.
 
 ### `server/`
 

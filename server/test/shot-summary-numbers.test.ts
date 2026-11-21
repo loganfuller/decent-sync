@@ -13,15 +13,15 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 //
 // What each of the three shows, worked out by hand from its record and its
 // samples after its Preheat (#466, #467): its yield weighed less its target,
-// its duration, its peaks, when its scale first read 1 g or more, and the
+// its duration, its peaks, its time to first drip (#609), and the
 // step it ended in. Each recorded `targetWeight` as its stop reason, and
 // each poured.
 //
 // | Fixture | Yield − target | Duration | Peak pressure | Peak flow | First drip | Last step |
 // |---|---|---|---|---|---|---|
 // | shot-espresso.json | 35.9 − 36 | 23.549 s | 9.004638671875 | 9.502197265625 | 21.45 s | 4, Pressure Decline |
-// | shot-preheat.json | 34.7 − 36 | 25.833 s | 8.01220703125 | 8.045166015625 | 7.945 s | 6, Extraction |
-// | shot-grinder-burrs.json | 30 − 36 | 4.095 s | 2.8093124168495587 | 7.999999987116978 | 0.594 s | 0, Free flow |
+// | shot-preheat.json | 34.7 − 36 | 25.833 s | 8.01220703125 | 8.045166015625 | 6.235 s | 6, Extraction |
+// | shot-grinder-burrs.json | 30 − 36 | 4.095 s | 2.8093124168495587 | 7.999999987116978 | 0.394 s | 0, Free flow |
 //
 // shot-espresso.json has four samples: one in Preheat, one in preinfusion
 // in its step 1, Fill, with the scale at 0 g, and two pouring in step 4 at
@@ -224,8 +224,8 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
       tds: number(2, 9.125, 8.9375, 9.3125),
       // 18.2 and 19.8.
       extractionYield: number(2, 19, 18.6, 19.4),
-      // 0.594, 7.945, and 21.45 four times: the 25th percentile a quarter of the way from 7.945 to 21.45.
-      timeToFirstDrip: number(6, 21.45, 11.32125, 21.45),
+      // 0.394, 6.235, and 21.45 four times: the 25th percentile a quarter of the way from 6.235 to 21.45.
+      timeToFirstDrip: number(6, 21.45, 10.03875, 21.45),
       // Four in Pressure Decline, then one in each of the others, by frame.
       lastStep: {
         shots: 6,
@@ -350,8 +350,8 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
         // 8.75, 9.5 and 12; 18.2, 19.8 and 25.
         tds: number(3, 9.5, 9.125, 10.75),
         extractionYield: number(3, 19.8, 19, 22.4),
-        // 0.594, 7.945, and 21.45 three times: neither awaiting Shot has one yet.
-        timeToFirstDrip: number(5, 21.45, 7.945, 21.45),
+        // 0.394, 6.235, and 21.45 three times: neither awaiting Shot has one yet.
+        timeToFirstDrip: number(5, 21.45, 6.235, 21.45),
         lastStep: {
           shots: 5,
           mostCommon: [

@@ -22,6 +22,25 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### The time to first drip reads earlier
+
+A Shot's time to first drip is now when its coffee first reached the cup, as
+nearly as its scale shows it: the first reading of 0.2 g or more in the
+scale's rise to 1 g, from its last reading of zero. Until now it was the
+scale's first reading of 1 g or more, a median 0.6 s later and 1 s or more
+later on a quarter of Shots. Nothing is needed. The REST API's and the MCP
+tools' `timeToFirstDrip` keeps its name and now reads earlier, and a Shot
+whose scale never read 1 g still has none. Stored Shots are computed again
+in the background, 20 at a time, as in 1.9.0, so lists, Shot Summaries and
+trends move together; while a deploy runs this release beside the previous
+one, a Shot an instance of the previous release stores, with the old time,
+is computed again within the hour. A Shot whose cup was put on the scale
+during its Preheat, weighed before Decaid's tare landed, now reads its first
+drip after the tare, and is an Unfinished Shot where nothing poured. The
+simulation on a Profile's page reads a run's first drip by the same rule.
+
 ## 1.12.0
 
 ### Check every tablet runs the 1.10.0 plugin or later before deploying

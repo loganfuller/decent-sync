@@ -247,9 +247,11 @@ export function elapsedMilliseconds(times: readonly number[]): number[] {
  * changes them, so that the Shots stored with an earlier revision's are
  * computed again (`CurvesRefresh`). Revision 1 adds Preheat and leaves it
  * out of the peaks. Revision 2 adds what a Shot's samples show of how it
- * went (`measuredValues`, #467).
+ * went (`measuredValues`, #467). Revision 3 reads the time to first drip as
+ * when coffee first reached the cup, not when the scale first read 1 g
+ * (`timeToFirstDrip`, #609).
  */
-export const CURVES_REVISION = 2;
+export const CURVES_REVISION = 3;
 
 /**
  * A Shot's duration as `shots.duration` keeps it: the whole recording, its
