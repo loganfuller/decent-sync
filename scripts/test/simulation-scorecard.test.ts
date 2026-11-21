@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PROFILE_KINDS, corpusRecord, formatScorecard, metNoCoffee, profileKind, readShots, scoreShot, scorecard, shotEntry, spread } from "../simulation/scorecard.mjs";
+import { PROFILE_KINDS, corpusRecord, formatScorecard, formatSetPairs, metNoCoffee, profileKind, readShots, scoreShot, scorecard, shotEntry, spread } from "../simulation/scorecard.mjs";
 import { corpusProblems, inferSets, scrubShot } from "../simulation/scrub.mjs";
 import { spreadOut } from "../simulation/pull.mjs";
 
@@ -41,12 +41,14 @@ describe("the corpus", () => {
     }
   });
 
-  it("covers each kind of Profile for each model, with a few tea Shots and sets, in no more than about 150 Shots", () => {
+  it("covers each kind of Profile for each model, with a few tea Shots and sets, a designed session's among them, in no more than 160 Shots", () => {
     expect(card.shots.length).toBeLessThanOrEqual(160);
     for (const model of ["DE1", "Bengle"] as const) expect(Object.keys(card.models[model]!.kinds).sort()).toEqual([...PROFILE_KINDS].sort());
     expect(card.tea.shots).toBeGreaterThanOrEqual(2);
     expect(card.sets.same.pairs).toBeGreaterThan(0);
     expect(card.sets.different.pairs).toBeGreaterThan(0);
+    // The designed session (#600): one coffee, two Shots each of five Profiles, so each Shot's puck on its twin's steps and on eight others'.
+    expect(card.sets.bySet.s14).toMatchObject({ model: "DE1", shots: 10, same: { pairs: 10 }, different: { pairs: 80 } });
     expect(card.unreadable).toBe(0);
   });
 });
@@ -147,6 +149,40 @@ describe("the scorecard", () => {
     expect(kind([step("flow", 8, { seconds: 5 }), step("flow", 2.5)])).toBe("flow");
     expect(kind([step("flow", 8, { seconds: 5 }), step("flow", 6)])).toBe("fast flow");
     expect(kind([step("flow", 8, { seconds: 5 }), step("flow", 0, { seconds: 20 }), step("pressure", 9)])).toBe("bloom");
+  });
+
+  it("gives each set's figures apart, and a set's table of each Shot's puck against each other Shot", () => {
+    // A designed session in small: one set, two Shots of one Profile and one each of two others.
+    const entries = [
+      shotEntry("a", { ...pulled("classic-italian"), set: "s2" }),
+      shotEntry("b", { ...pulled("classic-italian"), set: "s2" }),
+      shotEntry("c", { ...pulled("blooming"), set: "s2" }),
+      shotEntry("d", { ...pulled("gentle-and-sweet"), set: "s2" }),
+      shotEntry("alone", pulled("default")),
+    ];
+    const card = scorecard(entries);
+    expect(card.sets.bySet).toEqual({ s2: { model: "DE1", shots: 4, same: expect.objectContaining({ pairs: 2 }), different: expect.objectContaining({ pairs: 10 }) } });
+    expect(card.sets.same.pairs + card.sets.different.pairs).toBe(card.sets.pairs.length);
+    // One recording twice: each one's puck on the other's steps runs as its own puck does on its own.
+    const twin = card.sets.pairs.find((pair) => pair.from === "a" && pair.to === "b")!;
+    const own = card.shots.find((shot) => shot.name === "b")!;
+    expect(twin.same).toBe(true);
+    expect(twin.errors.durationShare).toBeCloseTo(own.errors!.durationShare!, 3);
+    expect(twin.errors.peakPressure).toBeCloseTo(own.errors!.peakPressure, 2);
+    expect(card.sets.bySet.s2!.different.within).toBe(card.sets.pairs.filter((pair) => !pair.same && pair.within).length);
+    expect(formatScorecard(card)).toMatch(/s2, 4 DE1 Shots: same steps 2 pairs, \d+ within, .*; different steps 10 pairs, \d+ within/);
+
+    const table = formatSetPairs(card, "s2")!.split("\n");
+    expect(table).toHaveLength(6);
+    // A row for each Shot's puck, lettered by the steps it ran: the two Classic Italian Shots share one.
+    expect(table.slice(2).map((row) => row.split(/\s{2,}/)[0])).toEqual(["1 A a", "2 A b", "3 B c", "4 C d"]);
+    const cells = (row: string) => row.split(/\s{2,}/).slice(1);
+    expect(cells(table[2]!)[0]).toBe("-");
+    expect(cells(table[2]!)[1]).toBe(`${twin.errors.durationShare! >= 0 ? "+" : ""}${(twin.errors.durationShare! * 100).toFixed(1)}%${twin.within ? "*" : ""}`);
+    // A pair within the margin is starred.
+    const within = card.sets.pairs.find((pair) => pair.within)!;
+    expect(cells(table[2 + ["a", "b", "c", "d"].indexOf(within.from)]!)[["a", "b", "c", "d"].indexOf(within.to)]).toMatch(/\*$/);
+    expect(formatSetPairs(card, "s9")).toBeNull();
   });
 
   it("gives the median and the 90th percentile", () => {

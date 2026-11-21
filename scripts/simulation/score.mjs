@@ -1,19 +1,21 @@
 // Prints the simulation's scorecard (scorecard.mjs) for a folder of Shots,
 // the committed corpus where none is named.
 //
-// Usage: npm run simulation-scorecard -- [<folder>] [--json] [--shots]
+// Usage: npm run simulation-scorecard -- [<folder>] [--json] [--shots] [--set <label>]...
 //   <folder>  Shots as pull.mjs saves them, or corpus Shots; corpus/shots by default.
-//   --json    the scorecard as JSON instead of a table.
+//   --json    the scorecard as JSON instead of a table, with each Shot and each set pair under --shots.
 //   --shots   each Shot's own line too: its kind, model and errors, or why it has no fit.
+//   --set     a set's table too: each Shot's puck against each other Shot of it, as a designed session's.
 
 import path from "node:path";
-import { formatScorecard, readShots, scorecard } from "./scorecard.mjs";
+import { formatScorecard, formatSetPairs, readShots, scorecard } from "./scorecard.mjs";
 
 const args = process.argv.slice(2);
-const folder = args.find((arg) => !arg.startsWith("--")) ?? path.join(import.meta.dirname, "corpus", "shots");
+const sets = args.flatMap((arg, n) => (args[n - 1] === "--set" ? [arg] : []));
+const folder = args.find((arg, n) => !arg.startsWith("--") && args[n - 1] !== "--set") ?? path.join(import.meta.dirname, "corpus", "shots");
 const card = scorecard(readShots(folder));
 if (args.includes("--json")) {
-  console.log(JSON.stringify(args.includes("--shots") ? card : { ...card, shots: undefined }, null, 2));
+  console.log(JSON.stringify(args.includes("--shots") ? card : { ...card, shots: undefined, sets: { ...card.sets, pairs: undefined } }, null, 2));
 } else {
   if (args.includes("--shots")) {
     for (const shot of card.shots) {
@@ -24,4 +26,5 @@ if (args.includes("--json")) {
     console.log("");
   }
   console.log(formatScorecard(card));
+  for (const set of sets) console.log(`\n${formatSetPairs(card, set) ?? `Set ${set} has no pairs.`}`);
 }

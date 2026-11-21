@@ -2544,9 +2544,10 @@ fit.
   1 s, whichever is more, and its peak pressure within 0.5 bar. On the
   corpus of real Shots in `scripts/simulation/corpus/` (#599), its share
   within that margin is held by a test at the level recorded in
-  `corpus/levels.json`: 85 of 113 DE1 coffee Shots and 17 of 23 Bengle
-  Shots with the machine fitted to it (#601), from 55 and 12 when it was
-  committed. `npm run simulation-scorecard` prints how close
+  `corpus/levels.json`: 92 of 123 DE1 coffee Shots and 17 of 23 Bengle
+  Shots with the machine fitted to it (#601), from 55 of 113 and 12 when it
+  was committed; the designed session's ten Shots (#600) brought the DE1's
+  from 85 of 113. `npm run simulation-scorecard` prints how close
   it comes, by model and kind of Profile ([DEVELOPMENT.md](DEVELOPMENT.md#the-simulations-scorecard)).
 
 `GET /api/profiles/:id/simulation` (REST API, below) and the

@@ -8,25 +8,34 @@ when a file here holds anything outside the scrubbed shape.
 
 ## What is here
 
-`shots/` holds 150 Shots, committed on 2026-11-20 with their owners' consent:
+`shots/` holds 160 Shots, committed on 2026-11-20 and 2026-11-21 with their
+owners' consent:
 
 - 92 from two DE1XXL at a cafe and 28 from a DE1Pro in a lab, the project
   owner's, up to a few of each kind of Profile they had pulled, three of them
   tea;
 - 30 from a Bengle whose owner agreed to share them, from its Shots recorded
   since late August 2026, whose records name their model; two of them ran
-  under its manual modes, and have no fit.
+  under its manual modes, and have no fit;
+- 10 from the lab's DE1Pro in a designed session (#600), `de1pro-029` to
+  `de1pro-038`, set `s14`: one washed coffee, one grind, 18 g in one Basket,
+  two Shots each of five contrasting Profiles, a flat 9 bar, a flat 6 bar, a
+  fast fill with a pump-off soak, a low-pressure soak with a lever's decline
+  and a 30 s bloom, each run to its target weight. The second bloom Shot's
+  coffee, and 1 g of the first's, was the same coffee roasted a week
+  earlier; the second flat 9 bar Shot sprayed, as a channel does.
 
 They were chosen by Machine and kind of Profile, spread over time, and by
 set, without looking at how well the simulation fits them. Sets were
 inferred from the cafe's and the Bengle's Shots (`scrub.mjs --sets`). The
-lab DE1Pro's Shots join none, as the coffee recorded on it is not kept up to
-date.
+lab DE1Pro's other Shots join none, as the coffee recorded on it is not kept
+up to date; the designed session's were marked as one (`scrub.mjs --set`).
 
 `levels.json` holds each model's share within the margin when the corpus was
-last scored, as Shots within it out of the Shots counted: 85 of 113 DE1 coffee
+last scored, as Shots within it out of the Shots counted: 92 of 123 DE1 coffee
 Shots and 17 of 23 Bengle Shots, with the machine fitted to the corpus (#601)
-and v1.12.0's puck (55 of 113 and 12 of 23 with v1.12.0's machine). Nine corpus Shots are pours that met no coffee (four DE1, five
+and v1.12.0's puck (55 of 113 and 12 of 23 with v1.12.0's machine, before the
+designed session's ten). Nine corpus Shots are pours that met no coffee (four DE1, five
 Bengle), kept as recorded and counted toward no share.
 
 ## A corpus Shot

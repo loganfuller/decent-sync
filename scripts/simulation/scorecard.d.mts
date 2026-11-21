@@ -50,6 +50,22 @@ export interface PairSummary {
   pairs: number;
   within: number;
   duration: Spread;
+  peakPressure: Spread;
+}
+export interface SetPair {
+  set: string;
+  from: string;
+  to: string;
+  model: "DE1" | "Bengle";
+  same: boolean;
+  errors: FigureErrors;
+  within: boolean;
+}
+export interface SetSummary {
+  model: "DE1" | "Bengle";
+  shots: number;
+  same: PairSummary;
+  different: PairSummary;
 }
 export interface Scorecard {
   shots: ScoredShot[];
@@ -59,7 +75,7 @@ export interface Scorecard {
   noModel: number;
   noCoffee: number;
   manual: number;
-  sets: { same: PairSummary; different: PairSummary };
+  sets: { same: PairSummary; different: PairSummary; bySet: Record<string, SetSummary>; pairs: SetPair[] };
 }
 
 export declare const NO_COFFEE_BAR: number;
@@ -73,4 +89,6 @@ export declare function profileKind(profile: unknown, samples: unknown[]): strin
 export declare function scoreShot(entry: ShotEntry): ScoredShot;
 export declare function scorecard(entries: ShotEntry[]): Scorecard;
 export declare function formatScorecard(card: Scorecard): string;
+export declare function formatSetPairs(card: Scorecard, set: string): string | null;
+export declare function setPairs(entries: ShotEntry[]): SetPair[];
 export declare function spread(values: number[]): Spread;

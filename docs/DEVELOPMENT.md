@@ -118,7 +118,10 @@ reported, 5 g throughout, as a flush through an empty portafilter) and Shots run
 manual control count toward no share; they take no part in set pairs
 either. Where Shots are marked as one set, the same coffee,
 grind and dose, it also runs each one's puck with each other's steps, and
-prints how close that comes for the same steps and for different ones.
+prints how close that comes for the same steps and for different ones, over
+all sets and for each set apart. `--set <label>` adds a set's table: a row
+for each Shot's puck, a column for each Shot whose steps it ran, each cell
+the run's duration error, as for the designed session's set (#600).
 
 The kind of Profile is read from its steps and the step the Shot spent
 longest in, its main step: `bloom` where a step after the first asks for no
@@ -129,7 +132,7 @@ where it asks at least 1 bar less than an earlier step; `low pressure` under
 
 With no folder named, it scores the committed corpus,
 [scripts/simulation/corpus/](../scripts/simulation/corpus/README.md): about
-150 scrubbed Shots, which a test holds at its recorded share within the
+160 scrubbed Shots, which a test holds at its recorded share within the
 margin for each model. A pull request that changes the simulation reports the
 scorecard before and after, and raises `corpus/levels.json` where the share
 rose.
@@ -141,7 +144,7 @@ Shots of each Machine and profile, 3 of a tea profile, evenly over time:
 ```sh
 DECENT_SYNC_URL=https://sync.example.com DECENT_SYNC_EMAIL=you@example.com DECENT_SYNC_PASSWORD=... \
   node scripts/simulation/pull.mjs ~/decent-shots [--per 30] [--tea 3] [--since 2026-08-25]
-npm run simulation-scorecard -- ~/decent-shots [--shots] [--json]
+npm run simulation-scorecard -- ~/decent-shots [--shots] [--json] [--set <label>]
 ```
 
 The puller signs in, makes only `GET` requests and signs out, also when

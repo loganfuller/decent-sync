@@ -305,8 +305,31 @@ export function scorecard(entries) {
     noModel: shots.filter((shot) => apart(shot) === "noModel").length,
     noCoffee: shots.filter((shot) => apart(shot) === "noCoffee").length,
     manual: shots.filter((shot) => apart(shot) === "manual").length,
-    sets: { same: pairSummary(pairs.filter((pair) => pair.same)), different: pairSummary(pairs.filter((pair) => !pair.same)) },
+    sets: { ...pairSummaries(pairs), bySet: setSummaries(pairs), pairs },
   };
+}
+
+/** Pairs summed up as the same steps and different ones. */
+function pairSummaries(pairs) {
+  return { same: pairSummary(pairs.filter((pair) => pair.same)), different: pairSummary(pairs.filter((pair) => !pair.same)) };
+}
+
+/** Each set's pairs apart, by its label in number order: its model, how many of its Shots take part, and its same and different steps. */
+function setSummaries(pairs) {
+  const sets = new Map();
+  for (const pair of pairs) {
+    if (!sets.has(pair.set)) sets.set(pair.set, []);
+    sets.get(pair.set).push(pair);
+  }
+  const number = (label) => Number(label.replace(/\D/g, "")) || 0;
+  return Object.fromEntries(
+    [...sets.keys()]
+      .sort((a, b) => number(a) - number(b) || a.localeCompare(b))
+      .map((set) => {
+        const ofSet = sets.get(set);
+        return [set, { model: ofSet[0].model, shots: new Set(ofSet.map((pair) => pair.to)).size, ...pairSummaries(ofSet) }];
+      }),
+  );
 }
 
 function summary(shots) {
@@ -330,7 +353,12 @@ function summary(shots) {
 }
 
 function pairSummary(pairs) {
-  return { pairs: pairs.length, within: pairs.filter((pair) => pair.within).length, duration: spread(pairs.map((pair) => Math.abs(pair.errors.durationShare ?? 0))) };
+  return {
+    pairs: pairs.length,
+    within: pairs.filter((pair) => pair.within).length,
+    duration: spread(pairs.map((pair) => Math.abs(pair.errors.durationShare ?? 0))),
+    peakPressure: spread(pairs.map((pair) => Math.abs(pair.errors.peakPressure))),
+  };
 }
 
 /** The median and the worst tenth's lower bound (the 90th percentile, nearest rank) of some values; nulls where there are none. */
@@ -384,7 +412,48 @@ export function formatScorecard(card) {
   lines.push(`Counted toward no share: ${card.unreadable} with a profile that can't be read, ${card.noModel} naming no model, ${card.noCoffee} that met no coffee (under ${NO_COFFEE_BAR} bar and ${NO_COFFEE_GRAMS} g throughout), ${card.manual} under manual control.`);
   for (const [label, s] of [["same steps", card.sets.same], ["different steps", card.sets.different]]) {
     if (s.pairs === 0) continue;
-    lines.push(`One Shot's puck on another of its set, ${label}: ${s.pairs} pairs, ${s.within} within (${percent(s.within / s.pairs)}), duration error median ${percent(s.duration.median)}, p90 ${percent(s.duration.worstTenth)}.`);
+    lines.push(`One Shot's puck on another of its set, ${label}: ${s.pairs} pairs, ${s.within} within (${percent(s.within / s.pairs)}), duration error median ${percent(s.duration.median)}, p90 ${percent(s.duration.worstTenth)}, peak pressure error median ${fixed(s.peakPressure.median, 2)} bar.`);
   }
+  const sets = Object.entries(card.sets.bySet);
+  if (sets.length > 0) {
+    lines.push("Each set:");
+    for (const [set, { model, shots, same, different }] of sets) {
+      const part = (label, s) => (s.pairs === 0 ? null : `${label} ${s.pairs} pairs, ${s.within} within, duration error median ${percent(s.duration.median)}, peak pressure error median ${fixed(s.peakPressure.median, 2)} bar`);
+      lines.push(`  ${set}, ${shots} ${model} Shots: ${[part("same steps", same), part("different steps", different)].filter(Boolean).join("; ")}.`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * One set's pairs as a table: a row for each Shot's puck, a column for each
+ * Shot it ran the steps of, each cell the run's duration error, marked `*`
+ * where within the margin. Shots that ran the same steps share a letter, so
+ * a cell whose row and column share one is a same-steps pair. Null where the
+ * set has no pairs.
+ */
+export function formatSetPairs(card, set) {
+  const pairs = card.sets.pairs.filter((pair) => pair.set === set);
+  if (pairs.length === 0) return null;
+  const names = [...new Set(pairs.flatMap((pair) => [pair.from, pair.to]))].sort();
+  const letters = new Map();
+  for (const name of names) {
+    if (letters.has(name)) continue;
+    const letter = String.fromCharCode(65 + new Set(letters.values()).size);
+    letters.set(name, letter);
+    for (const other of names) if (!letters.has(other) && pairs.some((pair) => pair.from === name && pair.to === other && pair.same)) letters.set(other, letter);
+  }
+  const cell = (from, to) => {
+    if (from === to) return "-";
+    const pair = pairs.find((p) => p.from === from && p.to === to);
+    if (!pair || pair.errors.durationShare === null) return "?";
+    const share = pair.errors.durationShare * 100;
+    return `${share >= 0 ? "+" : ""}${share.toFixed(1)}%${pair.within ? "*" : " "}`;
+  };
+  const header = ["Puck of \\ steps of", ...names.map((_, n) => `${n + 1} ${letters.get(names[n])}`)];
+  const rows = [header, ...names.map((from, n) => [`${n + 1} ${letters.get(from)} ${from}`, ...names.map((to) => cell(from, to))])];
+  const widths = header.map((_, n) => Math.max(...rows.map((r) => r[n].length)));
+  const lines = [`Set ${set}: each Shot's puck run with each other Shot's steps, the run's duration error against the Shot it ran; * within the margin; Shots sharing a letter ran the same steps.`];
+  for (const r of rows) lines.push(r.map((text, n) => (n === 0 ? text.padEnd(widths[n]) : text.padStart(widths[n]))).join("  ").trimEnd());
   return lines.join("\n");
 }
