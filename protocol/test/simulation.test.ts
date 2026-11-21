@@ -658,6 +658,10 @@ describe("a Shot run under manual control (#599)", () => {
     expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 6.2, flow: 0.4 }, { flow: 0.5 })), limited, "Bengle")).toBe(false);
     // A target as low with the pressure far under the limiter's is none the step asked for.
     expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 1, flow: 0.4 }, { flow: 0.5 })), limited, "Bengle")).toBe(true);
+    // However wide a limiter's range, a reading far under its value is not the limiter holding.
+    const wide = profile([pressure("Wide", 9, { limiter: { value: 2.5, range: 3.5 } })]);
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 2.4, flow: 0.4 }, { pressure: 2.5 })), wide, "Bengle")).toBe(true);
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 2.4, flow: 2.3 }, { pressure: 2.5 })), wide, "Bengle")).toBe(false);
     // Nor does a limiter raise a target.
     expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 6.2, flow: 0.4 }, { flow: 8 })), limited, "Bengle")).toBe(true);
     // A sample with no target counts as following its step.

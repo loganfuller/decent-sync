@@ -83,6 +83,8 @@ describe("the scrubbed shape", () => {
     expect(corpusProblems({ ...scrubbed, model: "Belmont" })[0]).toMatch(/^model must be one of/);
     expect(corpusProblems({ ...scrubbed, set: "monday" })).toEqual(["set must be s and a number"]);
     expect(corpusProblems({ ...scrubbed, samples: { ...scrubbed.samples, note: [] } })).toContain("samples.note is outside the scrubbed shape");
+    const idle = { ...scrubbed, profile: { ...scrubbed.profile, steps: scrubbed.profile.steps.map((step, n) => (n === 0 ? { ...step, [step.pump === "pressure" ? "flow" : "pressure"]: "a note" } : step)) } };
+    expect(corpusProblems(idle)).toEqual([`profile.steps[0].${scrubbed.profile.steps[0]!.pump === "pressure" ? "flow" : "pressure"} is outside the scrubbed shape for a ${scrubbed.profile.steps[0]!.pump} step`]);
   });
 
   it("is none for a record naming no Machine model, as Decaid's before v0.9.2", () => {

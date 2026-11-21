@@ -118,6 +118,8 @@ export function corpusProblems(shot) {
         for (const key of ["volume", "seconds", "temperature"]) number(step[key], `${where}.${key}`);
         number(step.weight, `${where}.weight`, true);
         number(step[step.pump], `${where}.${step.pump}`);
+        const idle = step.pump === "pressure" ? "flow" : step.pump === "flow" ? "pressure" : null;
+        if (idle && idle in step) problems.push(`${where}.${idle} is outside the scrubbed shape for a ${step.pump} step`);
         if (step.exit !== null && only(step.exit, ["type", "condition", "value"], `${where}.exit`)) {
           oneOf(step.exit.type, ["pressure", "flow"], `${where}.exit.type`);
           oneOf(step.exit.condition, ["over", "under"], `${where}.exit.condition`);

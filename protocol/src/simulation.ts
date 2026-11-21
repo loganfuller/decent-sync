@@ -838,8 +838,9 @@ const MANUAL_STRAY_SHARE = 0.25;
  * a target for what its step's pump controls further than MANUAL_STRAY from
  * what the step asks, as sent to the model (`sentStep`). A smooth step asks
  * for a ramp over its time from its pump's quantity as it began. While a
- * step's limiter holds the other quantity near its value, a lower target is
- * the limiter's doing. A sample with no such target counts as following its
+ * step's limiter holds the other quantity near its value (within
+ * MANUAL_STRAY of it, or MANUAL_STRAY_SHARE of it, whichever is more, however
+ * wide the limiter's range), a lower target is the limiter's doing. A sample with no such target counts as following its
  * step. On 944 recorded Shots (#599), the seven that strayed for more than
  * half their time were the Bengle's manual modes and two others whose own
  * steps ran 33% and 78% off their duration; no other strayed for more than
@@ -867,7 +868,7 @@ export function underManualControl(samples: readonly Sample<ShotCurve>[], profil
     const ramped = step.transition === "smooth" && step.seconds > 0 ? from + (asked - from) * Math.min(1, (sample.seconds - began) / step.seconds) : asked;
     // A limiter lowers the target a Bengle reports while it holds the other quantity back near its value, and never raises it.
     const limited = step.pump === "pressure" ? sample.values.flow : sample.values.pressure;
-    const holding = step.limiter !== null && step.limiter.value > 0 && limited !== null && limited >= step.limiter.value - Math.max(step.limiter.range, MANUAL_STRAY);
+    const holding = step.limiter !== null && step.limiter.value > 0 && limited !== null && limited >= step.limiter.value - Math.max(MANUAL_STRAY, MANUAL_STRAY_SHARE * step.limiter.value);
     const off = holding ? target - ramped : Math.abs(target - ramped);
     if (off > Math.max(MANUAL_STRAY, MANUAL_STRAY_SHARE * Math.max(asked, ramped))) strayed += shot[n + 1]!.seconds - sample.seconds;
   }

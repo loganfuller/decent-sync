@@ -2492,7 +2492,8 @@ fit.
   1 bar or ml/s, or a quarter of what the step asks, from what the step
   asks, a smooth step asking for a ramp over its time from where its pump's
   quantity began, and a lower target counting as asked while the step's
-  limiter holds the other quantity within its range of its value.
+  limiter holds the other quantity within 1 bar or ml/s, or a quarter, of
+  its value, however wide the limiter's range.
   The margin a run is held to is its duration within 5% of the Shot's or
   1 s, whichever is more, and its peak pressure within 0.5 bar. On the
   corpus of real Shots in `scripts/simulation/corpus/` (#599), its share
