@@ -351,14 +351,15 @@ describe("the checks of a simulated run", () => {
 
   it("advise of a ramp the Shot stops before it gets to its target", () => {
     const [fill, pour] = steps();
-    // A decline to 3 bar over 60 s, stopped at 36 g long before it gets there.
-    const cut = { ...plain(), steps: [fill, { ...pour, pressure: 3, limiter: null, seconds: 60 } as ProfileStep] };
+    // A decline to 2 bar over 60 s, stopped at 36 g long before it gets there.
+    const cut = { ...plain(), steps: [fill, { ...pour, pressure: 2, limiter: null, seconds: 60 } as ProfileStep] };
     expect(checkProfile(cut, { run: run(cut) }).advice.map((check) => [check.code, check.step, check.message.endsWith("before the Shot stops.")])).toEqual([["targetNotReached", 1, true]]);
   });
 
   it("leave a step alone that ended at its exit, its water or its weight, and one the run never came to", () => {
-    const [fill, pour] = steps();
-    // The fill exits over 4 bar, the next pumps its 3 ml, and the Shot stops at 10 g in the third, before the fourth.
+    const [plainFill, pour] = steps();
+    // The fill exits over 3 bar, the next pumps its 3 ml, and the Shot stops at 10 g in the third, before the fourth.
+    const fill = { ...plainFill, exit: { type: "pressure", condition: "over", value: 3 } } as ProfileStep;
     const ended = {
       ...plain(),
       target_weight: 10,

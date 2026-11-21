@@ -43,8 +43,8 @@ export const SIMULATION_TICK = 0.1;
  * puck as it falls, so pressure falls over seconds, not at once, when the
  * pump stops. Fitted to the corpus (#602): with these a pump-off soak that
  * ends as pressure falls under a figure lasts within a second of its Shot's
- * on 23 of the 26 that have one, where 0.5 ml/bar and no air left them a
- * median 1.1 s short.
+ * on 21 of the 26 that have one, where 0.5 ml/bar and no air left them a
+ * median 1.4 s short.
  */
 const GROUP_GIVE = 0.9;
 const TRAPPED_AIR = 9;
@@ -74,7 +74,7 @@ const RESISTANCE_AT = 9;
  * one coffee, grind and dose passed about 2.2 to 2.6 ml/s late in the Shot at
  * 0.6, 5.3 and 9 bar alike; with the square root of the pressure (a power of
  * 0 here) one Shot's puck run with another Profile's steps lands a median
- * 14.8% off that Shot's duration on the corpus, and with this 7.5% (#602).
+ * 13.8% off that Shot's duration on the corpus, and with this 7.9% (#602).
  */
 const TIGHTENS = 0.7;
 
@@ -722,7 +722,10 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     // The pump follows, and the group fills or drains through the puck.
     flow += (asked - flow) * (byPressure ? followsPressure : followsFlow);
     const next = groupPressure(pressure, flow, resistance);
-    const puckFlow = flowThrough(next, resistance);
+    // What passed the puck is what the group held and the pump gave, less what the group holds now, so no water is made or
+    // lost: near no pressure the halving leaves a trace of pressure through which the puck's flow, as pressure to a small
+    // power, would be far from none.
+    const puckFlow = Math.max(0, groupHolds(pressure) + flow * SIMULATION_TICK - groupHolds(next)) / SIMULATION_TICK;
     pressure = next;
     pumped += flow * SIMULATION_TICK;
     through += puckFlow * SIMULATION_TICK;

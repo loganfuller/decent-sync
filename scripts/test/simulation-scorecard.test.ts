@@ -40,7 +40,7 @@ describe("the corpus", () => {
     expect(pairs).toBeGreaterThanOrEqual(80);
     expect(duration.median!, `a median ${(duration.median! * 100).toFixed(1)}% off, recorded ${LEVELS.differentSteps.durationError * 100}%`).toBeLessThanOrEqual(LEVELS.differentSteps.durationError);
     // The designed session's, where a bloom's puck ran 32 to 57% short of every other Profile before the puck opened and tightened.
-    expect(card.sets.bySet.s14!.different.duration.median!).toBeLessThanOrEqual(0.08);
+    expect(card.sets.bySet.s14!.different.duration.median!).toBeLessThanOrEqual(0.085);
     expect(card.sets.bySet.s14!.different.duration.worstTenth!).toBeLessThanOrEqual(0.2);
   });
 

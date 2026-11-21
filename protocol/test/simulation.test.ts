@@ -536,6 +536,17 @@ describe("the puck (#602)", () => {
     expect(result.samples.find((sample) => sample.seconds === result.steps[1]!.end)!.values.pressure!).toBeLessThan(0.3);
     expect(Math.max(...during(result, 2).map((sample) => sample.values.pressure!))).toBeLessThan(2);
   });
+
+  it("passes no more water than was pumped: once a bloom has drained, the cup stops filling", () => {
+    const drained = [flow("Fill", 6, { seconds: 10 }), flow("Bloom", 0, { seconds: 30 })];
+    for (const grind of [0, 0.5]) {
+      const result = run(drained, { grind });
+      const puck = standardPuck(grind);
+      expect(result.weight).toBeLessThanOrEqual((result.water - puck.holds) * puck.yieldPerMl + 1e-6);
+      const weights = result.samples.filter((sample) => sample.seconds >= 30).map((sample) => sample.values.weight!);
+      expect(weights.at(-1)! - weights[0]!).toBeLessThan(0.05);
+    }
+  });
 });
 
 describe("a machine of a model", () => {
@@ -657,6 +668,12 @@ const WITHIN_MARGIN = ["classic-italian", "default", "gentle-and-sweet"];
 const MARGIN_SHARE = 0.05;
 const MARGIN_SECONDS = 1;
 const MARGIN_BAR = 0.5;
+/**
+ * Its first drip, which the margin leaves out and a fit counts for little
+ * (`shotMiss`), within this many seconds of the Shot's: about the corpus's
+ * 90th percentile on a DE1.
+ */
+const FIRST_DRIP_SECONDS = 1.5;
 
 type Fixture = { workflow: { profile: unknown; context: { targetDoseWeight: number }; machine: Record<string, unknown> }; measurements: Array<{ machine: Record<string, unknown> } & Record<string, unknown>>; stopReason: string };
 const fixtureShot = (name: string) => JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/simulated-shots-v0.9.2/${name}.json`, import.meta.url), "utf8")) as Fixture;
@@ -683,7 +700,7 @@ describe("a Shot's puck", () => {
       expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(1.5);
       if (!WITHIN_MARGIN.includes(name)) return;
       expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(margin);
-      expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(margin);
+      expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(FIRST_DRIP_SECONDS);
       expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(MARGIN_BAR);
     });
   }

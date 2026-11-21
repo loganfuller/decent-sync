@@ -2532,17 +2532,17 @@ fit.
     gives its square root. One coffee, grind and dose passed 2.2 to
     2.6 ml/s late in its Shots at 0.6 bar after a bloom, at 5.3 bar and at
     9 bar; with the square root, one Shot's puck run with another
-    Profile's steps lands a median 14.8% off that Shot's duration on the
-    corpus, and with this 7.0%. So a step whose pump controls flow asks
+    Profile's steps lands a median 13.8% off that Shot's duration on the
+    corpus, and with this 7.9%. So a step whose pump controls flow asks
     very different pressures of pucks a little apart, as its Shots do.
   - **The group above it** holds 0.9 ml for each bar in its own give and
     9 ml of trapped air, which pressure squeezes (`groupHolds`): about 5 ml
     for a bar gained near none and about 1 at 9 bar. It fills as pressure
     builds and drains through the puck as it falls. With these a pump-off
     soak that ends as pressure falls under a figure lasts within a second
-    of its Shot's on 22 of the corpus's 26, at a median 0.46 s off; with
+    of its Shot's on 21 of the corpus's 26, at a median 0.46 s off; with
     the 0.5 ml for each bar and no air it had, the same puck leaves them a
-    median 1.1 s short.
+    median 1.4 s short.
   - **The standard puck** (`standardPuck`) is 18 g at the middle of its
     control, from the corpus's pucks as fitted: it holds the median of
     them all before its first drip, 35 ml; its open resistance, 1, is the
@@ -2624,9 +2624,9 @@ fit.
   were outside before: five miss on the peak pressure of a step whose pump
   controls flow, and one stopped as no run can. The same file holds two
   more levels for #602: one Shot's puck run with another Profile's steps on
-  the same coffee lands a median 7.0% off that Shot's duration (9.4% with
+  the same coffee lands a median 7.9% off that Shot's duration (9.4% with
   the replayed resistance, where a bloom's puck ran every other Profile 32
-  to 57% short), and 22 of the 26 pump-off soaks that end as pressure falls
+  to 57% short), and 21 of the 26 pump-off soaks that end as pressure falls
   last within a second of their Shots' (5 before). `npm run simulation-scorecard` prints how close
   it comes, by model and kind of Profile ([DEVELOPMENT.md](DEVELOPMENT.md#the-simulations-scorecard)).
 
