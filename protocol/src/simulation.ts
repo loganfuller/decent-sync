@@ -840,8 +840,9 @@ const MANUAL_STRAY_SHARE = 0.25;
  * for a ramp over its time from its pump's quantity as it began. While a
  * step's limiter holds the other quantity near its value (within
  * MANUAL_STRAY of it, or MANUAL_STRAY_SHARE of it, whichever is more, however
- * wide the limiter's range), a lower target is the limiter's doing. A sample with no such target counts as following its
- * step. On 944 recorded Shots (#599), the seven that strayed for more than
+ * wide the limiter's range), a lower target is the limiter's doing. A
+ * pressure step's sample with no pressure target reported a target of 0; a
+ * flow step's with no flow target counts as following its step. On 944 recorded Shots (#599), the seven that strayed for more than
  * half their time were the Bengle's manual modes and two others whose own
  * steps ran 33% and 78% off their duration; no other strayed for more than
  * two fifths of its time.
@@ -861,7 +862,10 @@ export function underManualControl(samples: readonly Sample<ShotCurve>[], profil
       from = sample.values[step.pump] ?? 0;
       began = sample.seconds;
     }
-    const target = sample.targets[step.pump];
+    // Decaid reports both targets in every sample and shotSamples reads a zero as none, so a pressure step's missing
+    // pressure target is a reported 0, as with a lever held closed. A flow step's is none: a Bengle reports a flow
+    // step's target as a pressure, with a flow target of 0.
+    const target = sample.targets[step.pump] ?? (step.pump === "pressure" ? 0 : null);
     if (target === null) continue;
     const asked = stepTarget(step);
     // A smooth step ramps its target over its time from its pump's quantity as it began, as the Machine reports it.

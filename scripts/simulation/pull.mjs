@@ -17,7 +17,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { isTea } from "./scorecard.mjs";
 
-const REPO = path.resolve(import.meta.dirname, "..", "..");
+const REPO = fs.realpathSync(path.resolve(import.meta.dirname, "..", ".."));
+
+/** A path with its links resolved, as far as it exists: its nearest existing folder's real path, and the rest as named. */
+function realPath(at) {
+  const rest = [];
+  let existing = path.resolve(at);
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) {
+    rest.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+  return path.join(fs.realpathSync(existing), ...rest);
+}
 
 /** Up to `per` of each Machine's Shots of each profile title, `tea` of a tea profile's, spread evenly from its first to its last. */
 export function spreadOut(listed, per, tea) {
@@ -38,7 +49,7 @@ export function spreadOut(listed, per, tea) {
 
 /** Signs in to `base`, saves a spread of its Shots (`spreadOut`) into `out`, and signs out; returns how many it listed, chose and fetched. */
 export async function pull({ base, email, password, out, per = 30, tea = 3, since = null }) {
-  const resolved = path.resolve(out);
+  const resolved = realPath(out);
   if (resolved === REPO || resolved.startsWith(`${REPO}${path.sep}`)) throw new Error(`${out} is inside the repo; pulled Shots hold everything the instance keeps of them, so save them outside it`);
   let cookie = "";
   const api = async (method, route, body) => {

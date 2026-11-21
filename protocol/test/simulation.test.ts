@@ -664,8 +664,12 @@ describe("a Shot run under manual control (#599)", () => {
     expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 2.4, flow: 2.3 }, { pressure: 2.5 })), wide, "Bengle")).toBe(false);
     // Nor does a limiter raise a target.
     expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 6.2, flow: 0.4 }, { flow: 8 })), limited, "Bengle")).toBe(true);
-    // A sample with no target counts as following its step.
-    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 1 }, {})), ramp, "DE1")).toBe(false);
+    // A flow step's sample with no flow target counts as following its step, as a Bengle reports a flow step's target as a pressure.
+    const flowing = profile([flow("Flowing", 4, { seconds: 10 })]);
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 3, flow: 4 }, { pressure: 3.2 })), flowing, "Bengle")).toBe(false);
+    // A pressure step's sample with none reported a target of 0, as with a lever held closed.
+    const held = profile([pressure("Held", 9, { seconds: 10 })]);
+    expect(underManualControl(tenSeconds((t) => sample(t, 0, { pressure: 0.2 }, {})), held, "Bengle")).toBe(true);
   });
 });
 

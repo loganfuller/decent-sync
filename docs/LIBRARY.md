@@ -2493,7 +2493,10 @@ fit.
   asks, a smooth step asking for a ramp over its time from where its pump's
   quantity began, and a lower target counting as asked while the step's
   limiter holds the other quantity within 1 bar or ml/s, or a quarter, of
-  its value, however wide the limiter's range.
+  its value, however wide the limiter's range. A pressure step's sample
+  reporting a pressure target of 0 strays from it too; a flow step's
+  reporting a flow target of 0 counts as following it, as a Bengle reports
+  a flow step's target as a pressure.
   The margin a run is held to is its duration within 5% of the Shot's or
   1 s, whichever is more, and its peak pressure within 0.5 bar. On the
   corpus of real Shots in `scripts/simulation/corpus/` (#599), its share

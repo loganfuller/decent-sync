@@ -95,5 +95,21 @@ describe("The scorecard scripts on a real server's Shots", () => {
       }),
     ).toThrow(/inside the repo/);
     expect(fs.existsSync(path.join(SCRIPTS, "pulled"))).toBe(false);
+    // Nor through a link outside it to a folder inside it: the guard reads where the Shots would land.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pulled-"));
+    const link = path.join(outside, "scripts");
+    fs.symlinkSync(SCRIPTS, link);
+    try {
+      expect(() =>
+        execFileSync(process.execPath, [path.join(SCRIPTS, "pull.mjs"), path.join(link, "pulled")], {
+          encoding: "utf8",
+          stdio: "pipe",
+          env: { ...process.env, DECENT_SYNC_URL: server.url, DECENT_SYNC_EMAIL: admin.email, DECENT_SYNC_PASSWORD: admin.password },
+        }),
+      ).toThrow(/inside the repo/);
+      expect(fs.existsSync(path.join(SCRIPTS, "pulled"))).toBe(false);
+    } finally {
+      fs.rmSync(outside, { recursive: true });
+    }
   });
 });
