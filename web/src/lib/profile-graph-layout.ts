@@ -49,6 +49,17 @@ export function timeAxis(reached: number, plannedEnd: number): { end: number; ti
 }
 
 /**
+ * The grams between marks of the weight in the cup: 10 g, or the next of
+ * 20, 50, 100 and so on that keeps to ten marks at most, as a pour-over or a
+ * long run on a coarse puck puts hundreds of grams or more in the cup.
+ */
+export function cupStep(weight: number): number {
+  for (let step = 10; ; step *= 10) {
+    for (const each of [step, step * 2, step * 5]) if (weight / each <= 10) return each;
+  }
+}
+
+/**
  * Each lane's range: what the run, its plan, the steps' targets, exits and
  * limits, and the compared record reach in it, pressure and flow from 0 to
  * at most `LANE_CEILING`, temperature within `TEMPERATURE_FLOOR` and

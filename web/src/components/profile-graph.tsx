@@ -1,7 +1,7 @@
 import { type Profile, type ProfileLimits, type Range, type Sample, type ShotCurve, type SimulatedRun, sentStep, stepTarget } from "@decent-sync/protocol";
 import { type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject, type SVGProps, useEffect, useId, useRef, useState } from "react";
 import { RECORD_CLASSES, RECORD_VARIABLES } from "@/components/record-colors";
-import { type GraphLayout, LANES, type Lane, type LaneLabel, type LaneRanges, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "@/lib/profile-graph-layout";
+import { type GraphLayout, LANES, type Lane, type LaneLabel, type LaneRanges, cupStep, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "@/lib/profile-graph-layout";
 import { exitRange, held, targetRange } from "@/lib/profile-edits";
 import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/lib/profile-words";
 
@@ -270,12 +270,17 @@ export function ProfileGraph({
     here.forEach((each, index) => baselines.set(each, placed[index]!));
   }
 
-  // The weight in the cup: its first drip, then each 10 g, as run.
+  // The weight in the cup: its first drip, then each 10 g, or a larger round step on a heavier run (`cupStep`), as run.
   const cupMarks: { at: number; text: string }[] = [];
   if (run.timeToFirstDrip !== null) cupMarks.push({ at: run.timeToFirstDrip, text: "First drip" });
-  for (let grams = 10; grams < run.weight; grams += 10) {
-    const crossing = run.samples.find((sample) => (sample.values.weight ?? 0) >= grams);
-    if (crossing) cupMarks.push({ at: crossing.seconds, text: `${grams} g` });
+  const gramStep = cupStep(run.weight);
+  let grams = gramStep;
+  for (const sample of run.samples) {
+    if (grams >= run.weight) break;
+    while (grams < run.weight && (sample.values.weight ?? 0) >= grams) {
+      cupMarks.push({ at: sample.seconds, text: `${grams} g` });
+      grams += gramStep;
+    }
   }
 
   return (
