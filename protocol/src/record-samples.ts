@@ -301,9 +301,11 @@ const TARE_LANDS = 2;
  * 1. A cup weighed before Decaid's tare landed is left out: Decaid tares the
  *    scale at the profile's first sample without waiting for it, so a
  *    reading of IN_THE_CUP_GRAMS or more within TARE_LANDS after which the
- *    scale reads under it there is the cup's, and is passed over to that
- *    lower reading. A cup on the scale throughout, in full gateway mode,
- *    where Decaid never tares, reads as it was recorded.
+ *    scale reads under it there is the cup's, and is passed over to the
+ *    first lower reading, where the tare landed, so a rise that starts
+ *    within TARE_LANDS after it is read whole. A cup on the scale
+ *    throughout, in full gateway mode, where Decaid never tares, reads as it
+ *    was recorded.
  * 2. The rise is the scale's first reading of IN_THE_CUP_GRAMS or more.
  * 3. From it, back to the scale's last reading of zero or less, or to the
  *    first reading where there is none.
@@ -329,17 +331,14 @@ export function timeToFirstDrip(samples: readonly Sample<ShotCurve>[]): number |
 /**
  * The index among a Shot's scale readings after its Preheat of the first
  * after the tare Decaid sends at the profile's start: 0, or past a cup's
- * weight read before the tare landed, the last reading under
+ * weight read before the tare landed, the first reading under
  * IN_THE_CUP_GRAMS within TARE_LANDS that follows one of it or more.
  */
 function tareLanded(weighed: readonly Sample<ShotCurve>[]): number {
-  let cup = false;
-  let landed = 0;
-  for (let n = 0; n < weighed.length && weighed[n]!.seconds <= TARE_LANDS; n++) {
-    if (weighed[n]!.values.weight! >= IN_THE_CUP_GRAMS) cup = true;
-    else if (cup) landed = n;
+  for (let n = 1; n < weighed.length && weighed[n]!.seconds <= TARE_LANDS; n++) {
+    if (weighed[n]!.values.weight! < IN_THE_CUP_GRAMS && weighed[n - 1]!.values.weight! >= IN_THE_CUP_GRAMS) return n;
   }
-  return landed;
+  return 0;
 }
 
 /**

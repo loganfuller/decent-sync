@@ -324,7 +324,9 @@ Preheat:
   counts: Decaid records 0 for the scale there until it tares it as the
   profile starts, or, in full gateway mode, the untared reading.
   1. A cup weighed before Decaid's tare landed is left out: a reading of
-     1 g or more in the first 2 s after which the scale reads under 1 g.
+     1 g or more in the first 2 s after which the scale reads under 1 g
+     there. The readings from the first under 1 g, where the tare landed,
+     count, so a rise that starts within the 2 s is read whole.
      Decaid sends that tare at the profile's first sample without waiting
      for the scale (`ShotSequencer._handleStateTransition` in
      `decaid:lib/src/controllers/shot_sequencer.dart`), so a reading taken
