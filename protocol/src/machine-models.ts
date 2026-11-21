@@ -88,19 +88,19 @@ export interface ModelFigures {
  * Each model's figures, one typical machine of each, fitted to the
  * simulation's corpus of recorded Shots (scripts/simulation, #601): each
  * figure is the one that brings the most of its Shots within the margin on
- * their own puck, and each stays only where it does so by a clear step, but
- * a Bengle's pressureStepTargetFlow and flowResponse, which are there for
- * the shape of its runs' curves beside their Shots' and cost the corpus's
- * margin nothing. A
- * DE1's pump is slow to bring up its flow and slower to build pressure,
- * gives less on a step whose pump controls pressure, and lets more flow
- * past such a step's limiter than Decaid's simulated machine does; a Bengle
- * follows its targets within a few tenths of a second, gives a
- * pressure step less the lower the pressure it asks for, holds a flow
- * step's pressure at its limiter's value, and leaves a step on its weight a
- * moment later than a run otherwise would. Decent Sync can't tell a Bengle's power version, so
- * one Bengle's figures stand for every Bengle, and its maxFlow is Decent's,
- * as no recorded Shot reaches it (#588).
+ * their own puck, and each stays only where it does so by a clear step,
+ * but for a Bengle's pressureStepTargetFlow and flowResponse, which are
+ * there for the shape of its runs' curves beside its Shots' and cost the
+ * corpus's margin nothing. A DE1's pump is slow to bring up its flow and
+ * slower to build pressure, gives less on a step whose pump controls
+ * pressure, and lets more flow past such a step's limiter than Decaid's
+ * simulated machine does; a Bengle follows its targets within a few tenths
+ * of a second, gives a pressure step less the lower the pressure it asks
+ * for, holds a flow step's pressure at its limiter's value, and leaves a
+ * step on its weight a moment later than a run otherwise would. Decent Sync
+ * can't tell a Bengle's power version, so one Bengle's figures stand for
+ * every Bengle, and its maxFlow is Decent's, as no recorded Shot reaches it
+ * (#588).
  */
 export const MODEL_FIGURES = {
   DE1: {
