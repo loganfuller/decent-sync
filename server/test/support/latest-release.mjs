@@ -121,3 +121,30 @@ export function releaseWireRevision(tag, root = repoDir) {
   });
   return wireRevisionIn(source) ?? 1;
 }
+
+/**
+ * The curves revision `source` sets (`CURVES_REVISION`), the revision of the
+ * values the server works out from a Shot's samples, or undefined if it sets
+ * none.
+ */
+export function curvesRevisionIn(source) {
+  const match = /^export const CURVES_REVISION = (\d+);$/m.exec(source);
+  return match ? Number(match[1]) : undefined;
+}
+
+/**
+ * The curves revision of the release with this tag, read from its server's
+ * source at the tag, so it needs no build. Every release since v1.3.0 sets
+ * one, so it throws for a tag whose source sets none.
+ */
+export function releaseCurvesRevision(tag, root = repoDir) {
+  const source = execFileSync("git", ["show", `${tag}:server/src/shots/extraction.ts`], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const revision = curvesRevisionIn(source);
+  if (revision === undefined) throw new Error(`${tag}'s server/src/shots/extraction.ts sets no CURVES_REVISION`);
+  return revision;
+}

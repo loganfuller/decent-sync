@@ -9,3 +9,5 @@ export declare function buildsToRemove(entries: readonly string[], built: string
 export declare function compareVersions(a: string, b: string): number;
 export declare function wireRevisionIn(source: string): number | undefined;
 export declare function releaseWireRevision(tag: string, root?: string): number;
+export declare function curvesRevisionIn(source: string): number | undefined;
+export declare function releaseCurvesRevision(tag: string, root?: string): number;
