@@ -74,7 +74,7 @@ export function shotSamplesOf(measurements: unknown): ShotSamples {
 }
 
 function frameOf(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function fields(value: unknown): Record<string, unknown> {

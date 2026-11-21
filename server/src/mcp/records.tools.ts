@@ -251,7 +251,7 @@ const getShotSamplesOutput = z.object({
   id,
   ...pageOutput,
   total: z.number().int().describe("How many samples it has."),
-  profile: z.record(z.string(), z.unknown()).nullable().optional().describe("First page only: the profile it ran, as its Workflow held it, whole; null where it held none."),
+  profile: z.record(z.string(), z.unknown()).nullable().optional().describe("First page only: the profile it ran, as its Workflow held it, whole but for its free text, such as its notes, which may be cut; null where it held none."),
   stopReason: z.string().nullable().optional().describe("First page only."),
   machineModel: z.string().nullable().optional().describe("First page only: the Machine's model, as Decaid named it."),
   targetDose: z.number().nullable().optional().describe("First page only, in grams."),
@@ -671,7 +671,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot_samples",
     title: "Get a Shot's samples",
-    description: `Reads every sample of one Shot at full resolution, as columns, a page at a time, for analysis a thinned curve can't support, such as fitting a simulation to a Shot, comparing pucks across Shots, or studying the moments around a step change or the stop. It is not the way to read a Shot: get_shot, with its curves, or a window of a few seconds for every reading there, answers nearly every question at a fraction of the size. Use this only when every reading of a whole Shot is needed. ${SAMPLE_COLUMNS} The first page, at offset 0, also gives profile, the profile it ran, as its Workflow held it, whole: its steps and targets as run, which may differ from the Library's Profile; stopReason; machineModel, as Decaid named the Machine's model, such as DE1Pro or Bengle; and its doses and yields in grams, targets as set and actuals as weighed. ${STOP_REASONS} Each page gives total, how many samples it has, offset and more before its columns, and holds as many samples as fit the response, or limit if fewer: the next page's offset is this one's plus its columns' length. A Shot of a minute takes about one page.`,
+    description: `Reads every sample of one Shot at full resolution, as columns, a page at a time, for analysis a thinned curve can't support, such as fitting a simulation to a Shot, comparing pucks across Shots, or studying the moments around a step change or the stop. It is not the way to read a Shot: get_shot, with its curves, or a window of a few seconds for every reading there, answers nearly every question at a fraction of the size. Use this only when every reading of a whole Shot is needed. ${SAMPLE_COLUMNS} The first page, at offset 0, also gives profile, the profile it ran, as its Workflow held it, whole but for its free text, such as its notes, which may be cut: its steps and targets as run, which may differ from the Library's Profile; stopReason; machineModel, as Decaid named the Machine's model, such as DE1Pro or Bengle; and its doses and yields in grams, targets as set and actuals as weighed. ${STOP_REASONS} Each page gives total, how many samples it has, offset and more before its columns, and holds as many samples as fit the response, or limit if fewer: the next page's offset is this one's plus its columns' length. A page holds about 290 samples, a little under a minute of a Shot, its Preheat included.`,
     inputSchema: getShotSamplesInput,
     outputSchema: getShotSamplesOutput,
     annotations: { readOnlyHint: true },
