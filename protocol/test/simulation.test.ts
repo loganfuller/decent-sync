@@ -435,7 +435,8 @@ describe("the standard puck", () => {
     expect(at(-0.5)).toBeGreaterThan(at(0));
     expect(at(0)).toBeGreaterThan(at(0.5));
     expect(at(0.5)).toBeGreaterThan(at(1));
-    expect(at(-1) / at(0)).toBeCloseTo(4, 6);
+    expect(at(-1) / at(0)).toBeCloseTo(50, 6);
+    expect(at(0) / at(1)).toBeCloseTo(50, 6);
     expect(standardPuck(3)).toEqual(standardPuck(1));
     expect(standardPuck(-3)).toEqual(standardPuck(-1));
   });
@@ -475,8 +476,10 @@ describe("a machine of a model", () => {
 
   it("on a step whose pump controls pressure, gives a DE1 ever less as pressure builds, so a coarse puck stalls short of 9 bar where a Bengle reaches it", () => {
     const steps = [pressure("Nine", 9, { seconds: 30 })];
-    const de1 = run(steps, { grind: 1, model: "DE1" });
-    const bengle = run(steps, { grind: 1, model: "Bengle" });
+    // A quarter of the medium puck's resistance.
+    const coarse = Math.log(4) / Math.log(50);
+    const de1 = run(steps, { grind: coarse, model: "DE1" });
+    const bengle = run(steps, { grind: coarse, model: "Bengle" });
     expect(de1.peakPressure).toBeLessThan(7);
     expect(de1.peakPressure).toBeGreaterThan(4.5);
     expect(bengle.peakPressure).toBeGreaterThan(8.9);

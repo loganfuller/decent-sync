@@ -143,8 +143,15 @@ const STANDARD_HEADSPACE = 18;
 /** The standard puck's resistance at its peak, at a medium grind: about 2 ml/s at 9 bar. */
 const STANDARD_PEAK = 2.2;
 
-/** Each end of the grind takes this many times the middle's resistance, or a part of it. */
-const GRIND_RANGE = 4;
+/**
+ * Each end of the grind takes this many times the middle's resistance, or a
+ * part of it: recorded coffee Shots' pucks span from about a 150th of the
+ * standard puck's resistance, a coarse grind on a Bengle, to some twenty
+ * times it, a fine one on a DE1, all but the coarsest few within a
+ * fiftieth, so the ends reach a turbo or filter grind and one finer than
+ * any recorded.
+ */
+const GRIND_RANGE = 50;
 
 /**
  * The standard puck's resistance, as a part of its peak, against the water
@@ -172,8 +179,8 @@ const STANDARD_CURVE: ReadonlyArray<readonly [number, number]> = [
 /**
  * The standard puck: a fixed resistance through the Shot, for 18 g of coffee,
  * scaled by `grind`, from -1, the finest, to 1, the coarsest, where 0 is a
- * medium grind and each end takes four times its resistance or a quarter of
- * it, so half or twice its flow at one pressure.
+ * medium grind and each end takes fifty times its resistance or a fiftieth
+ * of it, so about a seventh or seven times its flow at one pressure.
  */
 export function standardPuck(grind = 0): Puck {
   const scale = GRIND_RANGE ** -Math.min(1, Math.max(-1, grind));
