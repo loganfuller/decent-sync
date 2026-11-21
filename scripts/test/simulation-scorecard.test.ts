@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { shotFigures, shotFitStop, simulateProfile, simulationShotOf, standardPuck } from "@decent-sync/protocol";
 import { PROFILE_KINDS, corpusRecord, formatScorecard, formatSetPairs, metNoCoffee, profileKind, readShots, scoreShot, scorecard, shotEntry, spread } from "../simulation/scorecard.mjs";
 import { corpusProblems, inferSets, scrubShot } from "../simulation/scrub.mjs";
 import { spreadOut } from "../simulation/pull.mjs";
@@ -14,7 +15,7 @@ type Fields = Record<string, unknown>;
 
 const CORPUS = new URL("../simulation/corpus/", import.meta.url).pathname;
 const SHOTS = path.join(CORPUS, "shots");
-const LEVELS = JSON.parse(fs.readFileSync(path.join(CORPUS, "levels.json"), "utf8")) as Record<"DE1" | "Bengle", { within: number; of: number }>;
+const LEVELS = JSON.parse(fs.readFileSync(path.join(CORPUS, "levels.json"), "utf8")) as Record<"DE1" | "Bengle", { within: number; of: number }> & { differentSteps: { durationError: number }; soaks: { within: number; of: number } };
 const FIXTURES = new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/", import.meta.url).pathname;
 
 /** A fixture Shot as the REST API gives one: `{ shot, measurements }`, the record under `shot` with the measurements taken out. */
@@ -32,6 +33,52 @@ describe("the corpus", () => {
       const now = card.models[model]!.all;
       expect(now.within / now.shots, `${model}: ${now.within} of ${now.shots} within the margin, recorded ${level.within} of ${level.of}`).toBeGreaterThanOrEqual(level.within / level.of);
     }
+  });
+
+  it("holds one Shot's puck, run with another Profile's steps on the same coffee, at the median duration error recorded (#602)", () => {
+    const { pairs, duration } = card.sets.different;
+    expect(pairs).toBeGreaterThanOrEqual(80);
+    expect(duration.median!, `a median ${(duration.median! * 100).toFixed(1)}% off, recorded ${LEVELS.differentSteps.durationError * 100}%`).toBeLessThanOrEqual(LEVELS.differentSteps.durationError);
+    // The designed session's, where a bloom's puck ran 32 to 57% short of every other Profile before the puck opened and tightened.
+    expect(card.sets.bySet.s14!.different.duration.median!).toBeLessThanOrEqual(0.085);
+    expect(card.sets.bySet.s14!.different.duration.worstTenth!).toBeLessThanOrEqual(0.2);
+  });
+
+  it("holds its pump-off soaks that end as pressure falls within a second of their Shots', as many as recorded (#602)", () => {
+    expect(card.soaks.steps).toBe(LEVELS.soaks.of);
+    expect(card.soaks.within, `${card.soaks.within} of ${card.soaks.steps} within a second, recorded ${LEVELS.soaks.within}`).toBeGreaterThanOrEqual(LEVELS.soaks.within);
+    expect(card.soaks.error.median!).toBeLessThan(0.75);
+    expect(formatScorecard(card)).toContain(`Pump-off soaks that end as pressure falls: ${card.soaks.steps}, ${card.soaks.within} within 1 s`);
+  });
+
+  it("is what the standard puck is taken from: its middle a flat 9 bar Profile's typical puck, its ends past the coarsest and finest (#602)", () => {
+    const fitted = card.shots.filter((shot) => shot.errors !== null && shot.within && !shot.tea && shot.puck !== null);
+    const at18 = (shot: (typeof fitted)[number]) => (shot.puck!.resistance * 18) / shot.puck!.dose;
+    const median = (values: number[]) => [...values].sort((a, b) => a - b)[values.length >> 1]!;
+    // The water before the first drip: the median of the corpus's pucks.
+    expect(Math.abs(median(fitted.map((shot) => shot.puck!.holds)) - standardPuck(0).holds)).toBeLessThan(2);
+    // Its steps, run on the standard puck at the Shot's own dose and to its own weight, last what the Shot lasted, at the median of the corpus's flat 9 bar Shots.
+    const entries = new Map(readShots(SHOTS).map((entry) => [entry.name, entry]));
+    const flat = fitted.filter((shot) => {
+      const { profile } = simulationShotOf(entries.get(shot.name)!.record, entries.get(shot.name)!.measurements);
+      return shot.kind === "pressure" && profile!.steps.every((step) => step.pump === "flow" || step.pressure < 4.5 || Math.abs(step.pressure - 9) < 0.6);
+    });
+    expect(flat.length).toBeGreaterThanOrEqual(4);
+    const off = flat.map((scored) => {
+      const shot = simulationShotOf(entries.get(scored.name)!.record, entries.get(scored.name)!.measurements);
+      const stop = shotFitStop(shot.samples, shot.stopReason, shot.model!, shot.profile!)!;
+      const run = simulateProfile({ profile: shot.profile!, puck: standardPuck(0), dose: shot.dose, stopAt: stop.stopAt, stopOn: "reached", model: shot.model! });
+      return run.duration / shotFigures(shot.samples).duration - 1;
+    });
+    expect(Math.abs(median(off))).toBeLessThan(0.1);
+    expect(Math.abs(Math.log(median(flat.map(at18)) / standardPuck(0).resistance))).toBeLessThan(Math.log(1.25));
+    // The control's ends pass every puck recorded, the corpus's turbo Shots sitting about halfway to the coarse end.
+    const all = fitted.map(at18);
+    expect(Math.min(...all)).toBeGreaterThan(standardPuck(1).resistance * 1.5);
+    expect(Math.max(...all)).toBeLessThan(standardPuck(-1).resistance / 1.5);
+    const turbo = median(fitted.filter((shot) => shot.kind === "fast flow").map(at18));
+    expect(turbo).toBeLessThan(standardPuck(0.4).resistance);
+    expect(turbo).toBeGreaterThan(standardPuck(0.7).resistance);
   });
 
   it("holds each file in the scrubbed shape and nothing else", () => {
@@ -71,8 +118,10 @@ describe("the scrubbed shape", () => {
     const from = scorecard([shotEntry("pulled", pulled("classic-italian"))]).shots[0]!;
     const corpus = scorecard([shotEntry("scrubbed", JSON.parse(JSON.stringify(scrubbed)))]).shots[0]!;
     expect(corpus).toMatchObject({ model: from.model, kind: from.kind, within: from.within, noFit: null });
-    expect(corpus.errors!.duration).toBeCloseTo(from.errors!.duration, 1);
-    expect(corpus.errors!.peakPressure).toBeCloseTo(from.errors!.peakPressure, 2);
+    // Its puck is sought by running its steps, so the rounding of a scrubbed Shot's samples moves where the search lands a little.
+    expect(Math.abs(corpus.errors!.duration - from.errors!.duration)).toBeLessThan(0.5);
+    expect(Math.abs(corpus.errors!.peakPressure - from.errors!.peakPressure)).toBeLessThan(0.5);
+    expect(Math.abs(Math.log(corpus.puck!.resistance / from.puck!.resistance))).toBeLessThan(Math.log(1.5));
     expect(corpusRecord(scrubbed).measurements.length).toBe(scrubbed.samples.seconds.length);
   });
 
@@ -99,9 +148,10 @@ describe("the scrubbed shape", () => {
 describe("the scorecard", () => {
   it("scores Shots as the REST API gives them, by model and kind of Profile, those of Decaid's simulated machine that hold it within the margin", () => {
     const card = scorecard(["classic-italian", "blooming", "default", "gentle-and-sweet"].map((name) => shotEntry(name, pulled(name))));
-    // Classic Italian and the default run long on a DE1 that, as the corpus shows, builds pressure more slowly than the mock (WITHIN_MARGIN in protocol/test/simulation.test.ts).
-    expect(card.models.DE1!.all).toMatchObject({ shots: 4, fitted: 4, within: 2, share: 0.5 });
-    expect(card.shots.filter((shot) => shot.within).map((shot) => shot.name)).toEqual(["blooming", "gentle-and-sweet"]);
+    // The mock's blooming fill passes 4 bar sooner than a puck of the simulation's kind lets it (WITHIN_MARGIN in protocol/test/simulation.test.ts).
+    expect(card.models.DE1!.all).toMatchObject({ shots: 4, fitted: 4, within: 3, share: 0.75 });
+    expect(card.shots.filter((shot) => shot.within).map((shot) => shot.name)).toEqual(["classic-italian", "default", "gentle-and-sweet"]);
+    expect(card.soaks).toMatchObject({ steps: 0, within: 0 });
     expect(card.models.Bengle).toBeUndefined();
     expect(card.shots.map((shot) => shot.kind)).toEqual(["pressure", "bloom", "declining", "low pressure"]);
     expect(formatScorecard(card)).toContain("DE1");

@@ -4,6 +4,7 @@ import {
   type Profile,
   type ProfileStep,
   type SimulatedRun,
+  type SimulationShot,
   MACHINE_MODELS,
   MODEL_FIGURES,
   SIMULATION_TICK,
@@ -12,9 +13,11 @@ import {
   limited,
   machineModelOf,
   profileOf,
+  readPuck,
   shotPuck,
   shotSamples,
   shotFigures,
+  shotFit,
   shotFitStop,
   simulateOnShot,
   simulateProfile,
@@ -72,7 +75,9 @@ describe("a run", () => {
   const result = run(classic, { stopAt: 36 });
 
   it("holds pressure, flow and the weight in the cup over time, one sample each tick from 0 s", () => {
-    expect(result.samples[0]).toMatchObject({ seconds: 0, values: { pressure: 0, flow: 0, weight: 0 } });
+    // A DE1's pump is already running as its profile begins.
+    expect(result.samples[0]).toMatchObject({ seconds: 0, values: { pressure: 0, flow: MODEL_FIGURES.DE1.startFlow, weight: 0 } });
+    expect(run(classic, { model: "Bengle" }).samples[0]).toMatchObject({ seconds: 0, values: { pressure: 0, flow: 0, weight: 0 } });
     result.samples.forEach((sample, n) => {
       expect(sample.seconds).toBeCloseTo(n * SIMULATION_TICK, 6);
       expect(sample.shade).toBeNull();
@@ -111,7 +116,8 @@ describe("a run", () => {
 
   it("holds the time to first drip and the peaks", () => {
     expect(result.timeToFirstDrip).toBe(timeToFirstDrip(result.samples));
-    expect(result.timeToFirstDrip).toBeGreaterThan(fill(result));
+    expect(result.timeToFirstDrip).toBeGreaterThan(0);
+    expect(result.timeToFirstDrip).toBeLessThan(result.duration);
     expect(result.peakPressure).toBe(Math.max(...result.samples.map((sample) => sample.values.pressure!)));
     expect(result.peakFlow).toBe(Math.max(...result.samples.map((sample) => sample.values.flow!)));
     expect(result.peakPressure).toBeGreaterThan(8);
@@ -125,10 +131,6 @@ describe("a run", () => {
     expect(empty.steps).toEqual([]);
   });
 });
-
-function fill(result: SimulatedRun): number {
-  return result.steps[0]!.end!;
-}
 
 describe("a step ends at its time, its exit, its water pumped or its weight, whichever comes first", () => {
   const after = flow("After", 2, { seconds: 5 });
@@ -320,7 +322,7 @@ describe("a step longer than the machine runs one", () => {
 
 describe("a step that gets to its target over the whole step", () => {
   it("ramps from the simulated value as it begins, not from the target of the step before", () => {
-    // The fill asks for 8 ml/s but a limit of 1 bar holds the flow far below it.
+    // The fill asks for 8 ml/s but a limit of 1 bar holds the flow far below it, below the 1 ml/s the ramp ends at.
     const result = run([flow("Held", 8, { seconds: 8, limiter: { value: 1, range: 0 } }), flow("Ramp", 1, { seconds: 10, transition: "smooth" })]);
     const start = result.steps[1]!.start!;
     const measured = result.samples.find((sample) => sample.seconds === start)!.values.flow!;
@@ -328,12 +330,13 @@ describe("a step that gets to its target over the whole step", () => {
     const first = during(result, 1)[0]!;
     expect(first.targets.flow).toBeCloseTo(measured + (1 - measured) * (SIMULATION_TICK / 10), 6);
     const targets = during(result, 1).map((sample) => sample.targets.flow!);
-    expect(targets.every((target, n) => n === 0 || target <= targets[n - 1]!)).toBe(true);
+    expect(measured).toBeLessThan(1);
+    expect(targets.every((target, n) => n === 0 || target >= targets[n - 1]!)).toBe(true);
     expect(targets[targets.length - 1]).toBeCloseTo(1, 6);
   });
 
   it("a pressure ramp starts from the pressure measured, after a step that controlled flow", () => {
-    const result = run([flow("Fill", 3, { seconds: 10 }), pressure("Rise", 9, { seconds: 6, transition: "smooth" })]);
+    const result = run([flow("Fill", 5, { seconds: 10 }), pressure("Rise", 9, { seconds: 6, transition: "smooth" })]);
     const start = result.steps[1]!.start!;
     const measured = result.samples.find((sample) => sample.seconds === start)!.values.pressure!;
     expect(measured).toBeGreaterThan(0.5);
@@ -348,23 +351,25 @@ describe("a step that gets to its target over the whole step", () => {
 
 describe("a limit", () => {
   const fill = (limiter: { value: number; range: number } | null) => run([pressure("Fill", 9, { seconds: 8, limiter })]);
+  /** The most flow a run gives once its pump has settled from what it was giving as the profile began. */
+  const settled = (result: SimulatedRun) => Math.max(...result.samples.filter((sample) => sample.seconds >= 2).map((sample) => sample.values.flow!));
 
   it("caps the flow of a step whose pump controls pressure, easing over its range", () => {
     const free = fill(null);
     expect(free.peakFlow).toBeCloseTo(MODEL_FIGURES.DE1.pressureStepFlow[0][1], 1);
     const hard = fill({ value: 2, range: 0 });
-    expect(hard.peakFlow).toBeLessThanOrEqual(2 + 1e-9);
-    expect(hard.peakFlow).toBeGreaterThan(1.9);
+    expect(settled(hard)).toBeLessThanOrEqual(2 + 1e-6);
+    expect(settled(hard)).toBeGreaterThan(1.9);
     const soft = fill({ value: 2, range: 1 });
-    expect(soft.peakFlow).toBeGreaterThan(2.2);
-    expect(soft.peakFlow).toBeLessThan(3);
+    expect(settled(soft)).toBeGreaterThan(2.2);
+    expect(settled(soft)).toBeLessThan(3);
   });
 
   it("on a DE1's flow lets through what recorded Shots show: pushed hard, its reach of the range over the limit, and short of that, more than Decaid's easing", () => {
     // Filling toward 9 bar, the pump would give far more than a limit of 1.5 ml/s with a range of 2.5.
     const reach = MODEL_FIGURES.DE1.flowLimiterReach;
     const wide = { value: 1.5, range: 2.5 };
-    expect(fill(wide).peakFlow).toBeCloseTo(1.5 + reach * 2.5, 2);
+    expect(settled(fill(wide))).toBeCloseTo(1.5 + reach * 2.5, 2);
     // Where the pump would give 3.4 ml/s, recorded Shots settle near 3: the easing gives 2.6.
     expect(limited(3.4, wide, reach)).toBeGreaterThan(eased(3.4, wide) + 0.25);
     expect(limited(3.4, wide, reach)).toBeLessThan(3.1);
@@ -430,7 +435,7 @@ describe("a limit", () => {
 
 describe("the standard puck", () => {
   it("takes one value from finer to coarser, its resistance falling as it goes coarser, and held to -1 and 1", () => {
-    const at = (grind: number) => Math.max(...standardPuck(grind).resistance.map(([, resistance]) => resistance));
+    const at = (grind: number) => standardPuck(grind).resistance;
     expect(at(-1)).toBeGreaterThan(at(-0.5));
     expect(at(-0.5)).toBeGreaterThan(at(0));
     expect(at(0)).toBeGreaterThan(at(0.5));
@@ -439,6 +444,24 @@ describe("the standard puck", () => {
     expect(at(0) / at(1)).toBeCloseTo(50, 6);
     expect(standardPuck(3)).toEqual(standardPuck(1));
     expect(standardPuck(-3)).toEqual(standardPuck(-1));
+    // The grind moves nothing else of it.
+    const { resistance: _, ...rest } = standardPuck(0);
+    for (const grind of [-1, 0.4, 1]) expect(standardPuck(grind)).toMatchObject(rest);
+    expect(rest).toMatchObject({ dose: 18, yieldPerMl: 1 });
+  });
+
+  it("at its middle runs a flat 9 bar profile in about the time recorded Shots of one took, 26 to 33 s to 36 g", () => {
+    const nine = [flow("Fill", 8, { seconds: 8, exit: { type: "pressure", condition: "over", value: 4 } }), pressure("Extract", 9, { seconds: 60 })];
+    const result = run(nine, { stopAt: 36 });
+    expect(result.duration).toBeGreaterThan(22);
+    expect(result.duration).toBeLessThan(33);
+    expect(result.timeToFirstDrip!).toBeGreaterThan(4);
+    expect(result.timeToFirstDrip!).toBeLessThan(9);
+    // At its ends: a grind that chokes the Shot, and one water runs straight through.
+    expect(run(nine, { stopAt: 36, grind: -1 }).stop.reason).toBe("lastStep");
+    const turbo = run(nine, { stopAt: 36, grind: 1 });
+    expect(turbo.duration).toBeLessThan(12);
+    expect(turbo.peakPressure).toBeLessThan(4);
   });
 
   it("moved changes which exits fire, on a profile built to show it", () => {
@@ -464,6 +487,66 @@ describe("the standard puck", () => {
     expect(large.timeToFirstDrip!).toBeGreaterThan(small.timeToFirstDrip!);
     expect(large.duration).toBeGreaterThan(small.duration);
     expect(large.dose).toBe(21);
+    // The space above it is smaller, so pressure builds sooner, and the first drip moves less than the fill does.
+    const builds = (result: SimulatedRun) => result.samples.find((sample) => sample.values.pressure! >= 1)!.seconds;
+    expect(builds(large)).toBeLessThan(builds(small) - 0.5);
+    expect(large.timeToFirstDrip! - small.timeToFirstDrip!).toBeLessThan(builds(small) - builds(large));
+  });
+});
+
+describe("the puck (#602)", () => {
+  /** The flow late in a long hold at a pressure, on a Bengle, which gives a pressure step all the flow it asks. */
+  const lateFlow = (bar: number) => run([pressure("Hold", bar, { seconds: 60 })], { model: "Bengle" }).samples.at(-1)!.values.flow!;
+
+  it("tightens under pressure, so its flow rises little with it: by under a quarter from 3 bar to 12, where a square root would double it", () => {
+    expect(lateFlow(6)).toBeGreaterThan(lateFlow(3));
+    expect(lateFlow(12)).toBeGreaterThan(lateFlow(9));
+    expect(lateFlow(12) / lateFlow(3)).toBeLessThan(1.25);
+    expect(lateFlow(9) / lateFlow(6)).toBeLessThan(1.08);
+  });
+
+  it("opens as water passes through it: at one pressure its flow climbs through the pour, from a small share just after the first drip", () => {
+    const result = run([pressure("Hold", 9, { seconds: 60 })], { model: "Bengle" });
+    const flowAt = (seconds: number) => result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values.flow!;
+    const drip = result.timeToFirstDrip!;
+    expect(flowAt(Math.round((drip + 3) * 10) / 10)).toBeLessThan(0.3 * lateFlow(9));
+    const through = [drip + 3, drip + 8, drip + 13, drip + 18].map((seconds) => flowAt(Math.round(seconds * 10) / 10));
+    expect(through.every((value, n) => n === 0 || value > through[n - 1]!)).toBe(true);
+  });
+
+  it("seals as it fills, and the group holds water and trapped air, so a pump-off soak holds pressure for seconds, not a tick", () => {
+    const soak = [flow("Fill", 8, { seconds: 15, exit: { type: "pressure", condition: "over", value: 4 } }), flow("Soak", 0, { seconds: 30, exit: { type: "pressure", condition: "under", value: 2 } }), pressure("Pour", 6, { seconds: 60 })];
+    const result = run(soak, { stopAt: 36 });
+    const [, soaked] = result.steps;
+    expect(soaked!.reason).toBe("exit");
+    expect(soaked!.end! - soaked!.start!).toBeGreaterThan(2);
+    expect(soaked!.end! - soaked!.start!).toBeLessThan(15);
+    // Its pressure falls from a second and a half in, once the pump's flow has died away, to the end.
+    const pressures = during(result, 1).map((sample) => sample.values.pressure!);
+    expect(pressures.slice(31).every((value, n) => value <= pressures[n + 30]!)).toBe(true);
+    // A coarser puck lets it go sooner.
+    const coarser = run(soak, { stopAt: 36, grind: 0.5 }).steps[1]!;
+    expect(coarser.end! - coarser.start!).toBeLessThan(soaked!.end! - soaked!.start! - 2);
+  });
+
+  it("drains into the cup through a bloom, and asks little pressure of a gentle flow after it", () => {
+    const bloom = [flow("Fill", 4, { seconds: 25, exit: { type: "pressure", condition: "over", value: 4 } }), flow("Bloom", 0, { seconds: 30 }), flow("Pour", 2.2, { seconds: 40 })];
+    const result = run(bloom, { stopAt: 36 });
+    const weightAt = (seconds: number) => result.samples.find((sample) => sample.seconds === seconds)!.values.weight!;
+    expect(weightAt(result.steps[1]!.end!)).toBeGreaterThan(weightAt(result.steps[1]!.start!) + 3);
+    expect(result.samples.find((sample) => sample.seconds === result.steps[1]!.end)!.values.pressure!).toBeLessThan(0.3);
+    expect(Math.max(...during(result, 2).map((sample) => sample.values.pressure!))).toBeLessThan(2);
+  });
+
+  it("passes no more water than was pumped: once a bloom has drained, the cup stops filling", () => {
+    const drained = [flow("Fill", 6, { seconds: 10 }), flow("Bloom", 0, { seconds: 30 })];
+    for (const grind of [0, 0.5]) {
+      const result = run(drained, { grind });
+      const puck = standardPuck(grind);
+      expect(result.weight).toBeLessThanOrEqual((result.water - puck.holds) * puck.yieldPerMl + 1e-6);
+      const weights = result.samples.filter((sample) => sample.seconds >= 30).map((sample) => sample.values.weight!);
+      expect(weights.at(-1)! - weights[0]!).toBeLessThan(0.05);
+    }
   });
 });
 
@@ -476,20 +559,21 @@ describe("a machine of a model", () => {
 
   it("on a step whose pump controls pressure, gives a DE1 ever less as pressure builds, so a coarse puck stalls short of 9 bar where a Bengle reaches it", () => {
     const steps = [pressure("Nine", 9, { seconds: 30 })];
-    // A quarter of the medium puck's resistance.
-    const coarse = Math.log(4) / Math.log(50);
+    // A seventh of the medium puck's resistance.
+    const coarse = 0.5;
     const de1 = run(steps, { grind: coarse, model: "DE1" });
     const bengle = run(steps, { grind: coarse, model: "Bengle" });
     expect(de1.peakPressure).toBeLessThan(7);
     expect(de1.peakPressure).toBeGreaterThan(4.5);
     expect(bengle.peakPressure).toBeGreaterThan(8.9);
-    // At its most below 2 bar, and stalled where the puck takes all it gives at that pressure, along the line to 6 bar.
+    // At its most below 2 bar, and stalled where the puck, once open, takes all it gives at that pressure, along the line to 6 bar.
     const [[low, most], [high, least]] = MODEL_FIGURES.DE1.pressureStepFlow;
     expect(de1.peakFlow).toBeCloseTo(most, 1);
     const gives = (bar: number) => most + ((least - most) * (Math.min(high, Math.max(low, bar)) - low)) / (high - low);
     const stalled = de1.samples[de1.samples.length - 1]!.values;
     expect(stalled.flow!).toBeCloseTo(gives(stalled.pressure!), 1);
-    expect(stalled.flow!).toBeLessThan(most - 1);
+    expect(stalled.pressure!).toBeLessThan(4);
+    expect(bengle.samples[bengle.samples.length - 1]!.values.pressure!).toBeGreaterThan(8.9);
     // On a medium puck it gets there.
     expect(run(steps, { model: "DE1" }).peakPressure).toBeGreaterThan(8.9);
   });
@@ -515,12 +599,16 @@ describe("a machine of a model", () => {
     const at = (result: SimulatedRun, seconds: number) => result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values.flow!;
     const de1 = run(steps, { model: "DE1" });
     const bengle = run(steps, { model: "Bengle" });
-    // Most of the way, its time constant, by MODEL_FIGURES's flowResponse.
-    expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeGreaterThan(0.55);
-    expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeLessThan(0.7);
+    // Most of the way, its time constant, by MODEL_FIGURES's flowResponse: a DE1 from what its pump was giving as the profile began.
+    const start = MODEL_FIGURES.DE1.startFlow;
+    expect(at(de1, 0)).toBe(start);
+    expect((at(de1, MODEL_FIGURES.DE1.flowResponse) - start) / (8 - start)).toBeGreaterThan(0.55);
+    expect((at(de1, MODEL_FIGURES.DE1.flowResponse) - start) / (8 - start)).toBeLessThan(0.7);
     expect(at(bengle, MODEL_FIGURES.Bengle.flowResponse) / 8).toBeGreaterThan(0.55);
     expect(at(bengle, MODEL_FIGURES.Bengle.flowResponse) / 8).toBeLessThan(0.7);
-    expect(at(de1, 0.3)).toBeLessThan(4);
+    expect((at(de1, 0.3) - start) / (8 - start)).toBeLessThan(0.4);
+    // A first step asking less than that begins at what it asks.
+    expect(run([flow("Slow", 2, { seconds: 4 })], { model: "DE1" }).peakFlow).toBeCloseTo(2, 6);
     // Nine tenths of the way in about half a second, as a Bengle's recorded Shots rise.
     expect(at(bengle, 0.5)).toBeGreaterThan(0.9 * 8);
     expect(at(bengle, 0.3)).toBeLessThan(0.9 * 8);
@@ -568,84 +656,133 @@ describe("a machine of a model", () => {
 
 // Shots Decaid v0.9.2's simulated machine recorded (server/test/fixtures/decaid/simulated-shots-v0.9.2/README.md).
 const SHOT_FIXTURES = ["classic-italian", "blooming", "default", "gentle-and-sweet"];
-// Those whose own steps on their puck still land within the margin, the corpus being the judge where Decaid's simulated
-// machine differs from the DE1s it holds (#601). The mock builds pressure on a pressure step as fast as its pump gives,
-// where those DE1s are held back as pressure builds, so Classic Italian's 9 bar and the default's 8.6 run long; and it
-// stops its pump at once for the blooming profile's pause, where a DE1's flow takes a second or more to fall, so the
-// run's first drip comes during the pause.
-const WITHIN_MARGIN = ["gentle-and-sweet"];
+// Those whose own steps on their puck land within the margin, the corpus being the judge where Decaid's simulated
+// machine differs from the DE1s it holds (#601, #602). The mock's puck is a curve through time, which lets its blooming
+// profile's fill pass 4 bar in under 7 s, where a puck of the simulation's kind takes the fill's whole time.
+const WITHIN_MARGIN = ["classic-italian", "default", "gentle-and-sweet"];
 
 /**
  * How close a Shot's own steps on its own puck land to the Shot: its
- * duration, time to first drip and each step's end within 5% of the Shot's
- * duration or 1 s, whichever is more, and its peak pressure within 0.5 bar.
+ * duration within 5% of the Shot's or 1 s, whichever is more, and its peak
+ * pressure within 0.5 bar.
  */
 const MARGIN_SHARE = 0.05;
 const MARGIN_SECONDS = 1;
 const MARGIN_BAR = 0.5;
+/**
+ * Its first drip, which the margin leaves out and a fit counts for little
+ * (`shotMiss`), within this many seconds of the Shot's: about the corpus's
+ * 90th percentile on a DE1.
+ */
+const FIRST_DRIP_SECONDS = 1.5;
+
+type Fixture = { workflow: { profile: unknown; context: { targetDoseWeight: number }; machine: Record<string, unknown> }; measurements: Array<{ machine: Record<string, unknown> } & Record<string, unknown>>; stopReason: string };
+const fixtureShot = (name: string) => JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/simulated-shots-v0.9.2/${name}.json`, import.meta.url), "utf8")) as Fixture;
+/** A Shot as a simulation on its puck reads it, from samples made for a test. */
+const shotOf = (samples: SimulationShot["samples"], shotProfile: Profile | null, fields: Partial<SimulationShot> = {}): SimulationShot => ({ samples, profile: shotProfile, dose: 18, stopReason: "targetWeight", model: "DE1", ...fields });
 
 describe("a Shot's puck", () => {
   for (const name of SHOT_FIXTURES) {
-    it(`is worked out from its samples, its own steps on it ${WITHIN_MARGIN.includes(name) ? "landing near it" : "coming to its steps"}: ${name}`, () => {
-      const record = JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/simulated-shots-v0.9.2/${name}.json`, import.meta.url), "utf8")) as {
-        workflow: { profile: unknown; context: { targetDoseWeight: number } };
-        measurements: unknown;
-        stopReason: string;
-      };
-      const shotProfile = profileOf(record.workflow.profile)!;
-      const samples = shotSamples(record.measurements, shotProfile);
-      const puck = shotPuck(samples, record.workflow.context.targetDoseWeight)!;
+    it(`is what its own steps need to come to it, ${WITHIN_MARGIN.includes(name) ? "landing near it" : "coming to its steps"}: ${name}`, () => {
+      const record = fixtureShot(name);
+      const shot = simulationShotOf(record, record.measurements);
+      const puck = shotPuck(shot)!;
       expect(puck.dose).toBe(18);
-      expect(puck.resistance.length).toBeGreaterThan(10);
-      const { run: fitted, fit } = fitToShot({ samples, profile: shotProfile, puck, stopAt: shotFitStop(samples, record.stopReason, "DE1", shotProfile)!.stopAt });
+      expect(puck.resistance).toBeGreaterThan(0);
+      expect(puck.opens).toBeGreaterThan(0);
+      // The same Shot gives the same puck, wherever it is worked out.
+      expect(shotPuck(shot)).toEqual(puck);
+      const { run: fitted, fit } = fitToShot({ samples: shot.samples, profile: shot.profile!, puck, stopAt: shotFitStop(shot.samples, record.stopReason, "DE1", shot.profile!)!.stopAt });
       const margin = Math.max(MARGIN_SECONDS, MARGIN_SHARE * fit.shot.duration);
       expect(fitted.stop.reason).toBe("weight");
       expect(fit.simulated.steps.map((step) => step.index)).toEqual(fit.shot.steps.map((step) => step.index));
-      // Outside the margin, still near the Shot: within a fifth of its duration and 1.5 bar of its peak.
-      expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(0.2 * fit.shot.duration);
+      // Outside the margin, still near the Shot: within a quarter of its duration and 1.5 bar of its peak.
+      expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(0.25 * fit.shot.duration);
       expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(1.5);
       if (!WITHIN_MARGIN.includes(name)) return;
       expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(margin);
-      expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(margin);
+      expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(FIRST_DRIP_SECONDS);
       expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(MARGIN_BAR);
-      fit.shot.steps.forEach((step, n) => expect(Math.abs(fit.simulated.steps[n]!.end - step.end)).toBeLessThanOrEqual(margin));
     });
   }
 
+  it("carries to another profile: read back from a run on a known puck, it is that puck, and runs other steps as that puck does", () => {
+    const nine = profile([flow("Fill", 6, { seconds: 8, exit: { type: "pressure", condition: "over", value: 3 } }), pressure("Extract", 9, { seconds: 60 })]);
+    const soak = profile([flow("Fill", 8, { seconds: 15, exit: { type: "pressure", condition: "over", value: 4 } }), flow("Soak", 0, { seconds: 4, exit: { type: "pressure", condition: "under", value: 2 } }), pressure("Pour", 6, { seconds: 90 })]);
+    const bloom = profile([flow("Fill", 4, { seconds: 25, exit: { type: "pressure", condition: "over", value: 4 } }), flow("Bloom", 0, { seconds: 30 }), flow("Pour", 2.2, { seconds: 40 })]);
+    for (const grind of [-0.2, 0, 0.3]) {
+      const known = { ...standardPuck(grind), opens: 16, holds: 38 };
+      const shot = simulateProfile({ profile: nine, puck: known, stopAt: 36, stopOn: "reached", model: "DE1" });
+      const puck = shotPuck(shotOf(shot.samples, nine))!;
+      expect(puck.resistance / known.resistance).toBeCloseTo(1, 1);
+      expect(puck.opens / known.opens).toBeCloseTo(1, 1);
+      expect(Math.abs(puck.holds - known.holds)).toBeLessThan(1);
+      for (const other of [soak, bloom]) {
+        const real = simulateProfile({ profile: other, puck: known, stopAt: 36, model: "DE1" });
+        const carried = simulateProfile({ profile: other, puck, stopAt: 36, model: "DE1" });
+        expect(Math.abs(carried.duration - real.duration)).toBeLessThanOrEqual(0.02 * real.duration);
+        expect(Math.abs(carried.peakPressure - real.peakPressure)).toBeLessThan(0.2);
+      }
+    }
+  });
+
   it("of a Shot with no scale holds what the standard puck holds", () => {
-    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: Array<Record<string, unknown>> };
+    const record = fixtureShot("default");
     const unweighed = record.measurements.map(({ scale: _, ...rest }) => rest);
-    const samples = shotSamples(unweighed, profileOf(record.workflow.profile));
-    expect(shotPuck(samples, 18)).toMatchObject({ holds: standardPuck().holds, yieldPerMl: 1 });
-    // Stopped on a weight it never read: no run can end as it did.
-    expect(shotFitStop(samples, "targetWeight", "DE1", profileOf(record.workflow.profile)!)).toBeNull();
+    const shotProfile = profileOf(record.workflow.profile);
+    const samples = shotSamples(unweighed, shotProfile);
+    expect(shotPuck(shotOf(samples, shotProfile))).toMatchObject({ holds: standardPuck().holds, yieldPerMl: 1 });
+    // Stopped on a weight it never read: no run can end as it did, so its puck is what its samples show.
+    expect(shotFitStop(samples, "targetWeight", "DE1", shotProfile!)).toBeNull();
+    expect(shotPuck(shotOf(samples, shotProfile))).toEqual(readPuck(samples, 18));
+  });
+
+  it("is what its samples show where its own steps can't be run as it ran: its profile unread or of no steps, its record naming no model", () => {
+    const record = fixtureShot("default");
+    const shotProfile = profileOf(record.workflow.profile);
+    const samples = shotSamples(record.measurements, shotProfile);
+    const read = readPuck(samples, 18)!;
+    expect(read).toMatchObject({ dose: 18, opens: standardPuck().opens });
+    expect(shotPuck(shotOf(samples, null))).toEqual(read);
+    expect(shotPuck(shotOf(samples, shotProfile, { model: null }))).toEqual(read);
+    // A profile of no steps: the puck its samples show, and no fit beside it, as a fit is of its own steps.
+    const stepless = { ...shotProfile!, steps: [] };
+    expect(shotPuck(shotOf(samples, stepless))).toEqual(read);
+    expect(shotFit(shotOf(samples, stepless), read)).toBeNull();
+    expect(shotPuck(shotOf(samples, shotProfile))).not.toEqual(read);
+    // With no dose recorded, the standard puck's.
+    expect(shotPuck(shotOf(samples, shotProfile, { dose: null }))!.dose).toBe(18);
   });
 
   it("is none where no sample shows its resistance: no flow recorded, or the pump never running against pressure", () => {
-    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: Array<{ machine: Record<string, unknown> }> };
+    const record = fixtureShot("default");
     const shotProfile = profileOf(record.workflow.profile);
     const without = (field: string) => shotSamples(record.measurements.map((measurement) => ({ ...measurement, machine: { ...measurement.machine, [field]: undefined } })), shotProfile);
-    expect(shotPuck(shotSamples(record.measurements, shotProfile), 18)).not.toBeNull();
-    expect(shotPuck(without("flow"), 18)).toBeNull();
-    expect(shotPuck(without("pressure"), 18)).toBeNull();
-    expect(shotPuck([], 18)).toBeNull();
+    expect(shotPuck(shotOf(shotSamples(record.measurements, shotProfile), shotProfile))).not.toBeNull();
+    expect(shotPuck(shotOf(without("flow"), shotProfile))).toBeNull();
+    expect(shotPuck(shotOf(without("pressure"), shotProfile))).toBeNull();
+    expect(shotPuck(shotOf([], shotProfile))).toBeNull();
   });
 
   it("leaves out a cup's weight read before Decaid's tare at the profile's start landed", () => {
-    const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: unknown };
-    const samples = shotSamples(record.measurements, profileOf(record.workflow.profile));
+    const record = fixtureShot("default");
+    const shotProfile = profileOf(record.workflow.profile);
+    const samples = shotSamples(record.measurements, shotProfile);
     const first = samples.findIndex((sample) => sample.shade === null);
     expect(samples[first + 1]!.values.weight).toBeLessThan(1);
     const withCup = samples.map((sample, n) => (n === first ? { ...sample, values: { ...sample.values, weight: 120 } } : sample));
-    expect(shotPuck(withCup, 18)).toEqual(shotPuck(samples, 18));
+    expect(shotPuck(shotOf(withCup, shotProfile))).toEqual(shotPuck(shotOf(samples, shotProfile)));
     expect(shotFigures(withCup).timeToFirstDrip).toBe(shotFigures(samples).timeToFirstDrip);
     expect(shotFigures(withCup).timeToFirstDrip).toBeGreaterThan(5);
   });
 
-  it("of one measured sample is its resistance there, not a mean with the fill's", () => {
-    const values = { pressure: 9, flow: 1, weight: null, weightFlow: null, temperature: null };
+  it("read from one measured sample has the resistance it shows there, stated at 9 bar", () => {
     const targets = { pressure: null, flow: null, weight: null, weightFlow: null, temperature: null };
-    expect(shotPuck([{ seconds: 0, shade: null, values, targets }], 18)!.resistance).toEqual([[0, 9]]);
+    const sample = (bar: number, flowing: number) => ({ seconds: 0, shade: null, step: null, substate: "pouring", values: { pressure: bar, flow: flowing, weight: null, weightFlow: null, temperature: null }, targets }) as SimulationShot["samples"][number];
+    expect(readPuck([sample(9, 1)], 18)!.resistance).toBeCloseTo(9, 9);
+    // The same flow at a third of the pressure is a puck not much less tight, as a puck's flow rises little with pressure.
+    expect(readPuck([sample(3, 1)], 18)!.resistance).toBeGreaterThan(6);
+    expect(readPuck([sample(3, 1)], 18)!.resistance).toBeLessThan(7);
   });
 
   it("ends a run as the Shot ended: at its last weight, or with its steps where a DE1 ended it in its last step", () => {
@@ -713,9 +850,9 @@ describe("a Shot's puck", () => {
     const record = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/simulated-shots-v0.9.2/default.json", import.meta.url), "utf8")) as { workflow: { profile: unknown }; measurements: Array<Record<string, unknown>> };
     const unweighed = shotSamples(record.measurements.map(({ scale: _, ...rest }) => rest), profileOf(record.workflow.profile));
     const weighs = profile([flow("Pour", 4, { seconds: 30, weight: 2 })]);
-    const { run: fitted } = fitToShot({ samples: unweighed, profile: weighs, puck: shotPuck(unweighed, 18)!, stopAt: null });
+    const { run: fitted } = fitToShot({ samples: unweighed, profile: weighs, puck: readPuck(unweighed, 18)!, stopAt: null });
     expect(fitted.steps[0]).toMatchObject({ end: 30, reason: "time" });
-    expect(simulateProfile({ profile: weighs, puck: shotPuck(unweighed, 18)!, stopAt: null }).steps[0]!.reason).toBe("weight");
+    expect(simulateProfile({ profile: weighs, puck: readPuck(unweighed, 18)!, stopAt: null }).steps[0]!.reason).toBe("weight");
   });
 
   it("can't end a run as the Shot ended where its scale dropped out, nor where it stopped on no weight", () => {
@@ -778,8 +915,12 @@ describe("a Shot run under manual control (#599)", () => {
     expect(underManualControl(shotSamples(steered, shotProfile), shotProfile, "DE1")).toBe(true);
     const shot = simulationShotOf(record, steered);
     const onIt = simulateOnShot({ profile: shotProfile, shot, stopAt: 36, model: "DE1" })!;
-    expect(onIt.puck.resistance.length).toBeGreaterThan(10);
+    // Its puck is what its samples show, as its own steps are not what it ran.
+    expect(onIt.puck).toEqual(readPuck(shot.samples, shot.dose));
     expect(onIt.fit).toBeNull();
+    // A puck its caller kept is the one run on.
+    const kept = { ...onIt.puck, resistance: onIt.puck.resistance * 2 };
+    expect(simulateOnShot({ profile: shotProfile, shot, puck: kept, stopAt: 36, model: "DE1" })!.puck).toBe(kept);
     expect(simulateOnShot({ profile: shotProfile, shot: simulationShotOf(record, record.measurements), stopAt: 36, model: "DE1" })!.fit).not.toBeNull();
   });
 

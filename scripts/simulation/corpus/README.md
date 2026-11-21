@@ -32,10 +32,13 @@ lab DE1Pro's other Shots join none, as the coffee recorded on it is not kept
 up to date; the designed session's were marked as one (`scrub.mjs --set`).
 
 `levels.json` holds each model's share within the margin when the corpus was
-last scored, as Shots within it out of the Shots counted: 92 of 123 DE1 coffee
-Shots and 17 of 23 Bengle Shots, with the machine fitted to the corpus (#601)
-and v1.12.0's puck (55 of 113 and 12 of 23 with v1.12.0's machine, before the
-designed session's ten). Nine corpus Shots are pours that met no coffee (four DE1, five
+last scored, as Shots within it out of the Shots counted: 115 of 123 DE1 coffee
+Shots and 17 of 23 Bengle Shots, with the puck of #602 (92 and 17 with the
+machine fitted to the corpus, #601, and v1.12.0's puck; 55 of 113 and 12 of 23
+with v1.12.0's machine, before the designed session's ten). It also holds, for
+#602, the median duration error of one Shot's puck run with another Profile's
+steps in its set (`differentSteps`, a ceiling), and how many pump-off soaks
+that end as pressure falls last within a second of their Shots' (`soaks`). Nine corpus Shots are pours that met no coffee (four DE1, five
 Bengle), kept as recorded and counted toward no share.
 
 ## A corpus Shot

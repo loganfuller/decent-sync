@@ -76,7 +76,8 @@ function shapes(): readonly StartingShape[] {
       key: "blooming",
       title: "Blooming",
       description: "Wets the puck, pauses, then extracts. For light roasts that need time to open up.",
-      profile: shape("Blooming", [fill(3), flow("Bloom", 0, 15), pressure("Extract", 8, 60, { limiter: { value: 3, range: 0.6 } })], 36, 2),
+      // Its pour asks for a flow, as a puck that has bloomed passes one with little pressure (#602).
+      profile: shape("Blooming", [fill(3), flow("Bloom", 0, 15), flow("Extract", 2.2, 60, { limiter: { value: 8.6, range: 0.6 } })], 36, 2),
     },
     {
       key: "long",

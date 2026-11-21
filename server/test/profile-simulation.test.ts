@@ -155,7 +155,7 @@ describe("A Library Profile simulated on a puck", () => {
     // The fit the simulation gives that Shot, as recorded; how close it comes is protocol/test/simulation.test.ts's and the scorecard's.
     const recorded = JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json", import.meta.url), "utf8")) as Fields;
     const own = simulationShotOf(recorded, recorded.measurements);
-    const expected = shotFit(own, shotPuck(own.samples, own.dose)!)!;
+    const expected = shotFit(own, shotPuck(own)!)!;
     expect(simulated.duration).toBeCloseTo(expected.simulated.duration, 6);
     expect(simulated.timeToFirstDrip).toBeCloseTo(expected.simulated.timeToFirstDrip!, 6);
     expect(simulated.peakPressure).toBeCloseTo(expected.simulated.peakPressure, 6);
@@ -199,7 +199,11 @@ describe("A Library Profile simulated on a puck", () => {
     expect(await simulate({ shotId: MANUAL })).toMatchObject({ puck: { kind: "shot", shotId: MANUAL, model: "DE1" }, fit: null });
     const unnamed = await simulate({ shotId: NO_MODEL });
     expect(unnamed).toMatchObject({ model: "DE1", puck: { kind: "shot", shotId: NO_MODEL, model: null }, fit: null });
-    expect(unnamed.run).toEqual((await simulate({ shotId: SHOT })).run);
+    // Its puck is what its samples show, as its own steps can't be run on a Machine of no model to find the puck that reproduces it (#602): a rough guide, so its run comes to the named Shot's steps and stop, not to its times.
+    const named = (await simulate({ shotId: SHOT })).run;
+    expect(unnamed.run.steps.map((step) => [step.index, step.reason])).toEqual(named.steps.map((step) => [step.index, step.reason]));
+    expect(unnamed.run.stop.reason).toBe(named.stop.reason);
+    expect(unnamed.run).not.toEqual(named);
   });
 
   it("is read by Staff away from the Profile's Locations, and by a Viewer", async () => {

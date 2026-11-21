@@ -1,4 +1,6 @@
 {
-  "DE1": { "within": 92, "of": 123 },
-  "Bengle": { "within": 17, "of": 23 }
+  "DE1": { "within": 115, "of": 123 },
+  "Bengle": { "within": 17, "of": 23 },
+  "differentSteps": { "durationError": 0.08 },
+  "soaks": { "within": 21, "of": 26 }
 }

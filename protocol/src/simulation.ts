@@ -11,9 +11,16 @@
 // recorded Shots show the model holds it (`limited`), and exits read from
 // what the machine measures. Unlike it, a step that gets to
 // its target over the whole step ramps from what was measured as it began,
-// not from the target of the step before, as recorded Shots show, and the
-// puck is a resistance through the water pumped, with water held in the group
-// as pressure builds, rather than a curve through time.
+// not from the target of the step before, as recorded Shots show.
+//
+// The puck is a few numbers, not a curve through time (#602): the water it
+// holds before its first drip, its resistance once settled, and the water
+// through it by which it has opened. It soaks, seals as it fills, and opens
+// as water passes through it; it tightens under pressure, so that its flow
+// rises little with pressure; and the group above it holds water and trapped
+// air, which fill as pressure builds and drain through the puck as it falls.
+// Each is what the simulation's corpus of recorded Shots shows
+// (scripts/simulation), and none is a published model of a puck.
 //
 // Temperature is not simulated: a run's samples carry the plan's temperature
 // as their target, and no temperature of their own.
@@ -30,12 +37,63 @@ import { type Sample, type ShotCurve, type StepSpan, IN_THE_CUP_GRAMS, lastRecor
 export const SIMULATION_TICK = 0.1;
 
 /**
- * The water the group holds for each bar of pressure, ml/bar: the give in the
- * group and the air above the puck, which fill as pressure builds and drain
- * through the puck as it falls, so pressure falls over seconds, not at once,
- * when the pump stops.
+ * The water the group holds for each bar of pressure in its own give, ml/bar,
+ * and the air trapped above the puck, ml at no pressure, which pressure
+ * squeezes: together what fills as pressure builds and drains through the
+ * puck as it falls, so pressure falls over seconds, not at once, when the
+ * pump stops. Fitted to the corpus (#602): with these a pump-off soak that
+ * ends as pressure falls under a figure lasts within a second of its Shot's
+ * on 21 of the 26 that have one, where 0.5 ml/bar and no air left them a
+ * median 1.4 s short.
  */
-export const GROUP_COMPLIANCE = 0.5;
+const GROUP_GIVE = 0.9;
+const TRAPPED_AIR = 9;
+
+/** An atmosphere, bar: the pressure the trapped air is at with none on the gauge. */
+const ATMOSPHERE = 1.013;
+
+/** The water the group holds at a pressure, ml: its own give, and what has taken the place of the trapped air squeezed by it. */
+function groupHolds(pressure: number): number {
+  const p = Math.max(0, pressure);
+  return GROUP_GIVE * p + (TRAPPED_AIR * p) / (p + ATMOSPHERE);
+}
+
+/** The water the group takes for each bar more at a pressure, ml/bar. */
+function groupGives(pressure: number): number {
+  const p = Math.max(0, pressure);
+  return GROUP_GIVE + (TRAPPED_AIR * ATMOSPHERE) / ((p + ATMOSPHERE) * (p + ATMOSPHERE));
+}
+
+/** The pressure a puck's resistance is stated at, bar. */
+const RESISTANCE_AT = 9;
+
+/**
+ * How a puck tightens under pressure: its resistance, as pressure over flow
+ * squared, goes as the pressure to this power, so its flow goes as the
+ * pressure to the power 0.15, rising little with pressure. Recorded Shots of
+ * one coffee, grind and dose passed about 2.2 to 2.6 ml/s late in the Shot at
+ * 0.6, 5.3 and 9 bar alike; with the square root of the pressure (a power of
+ * 0 here) one Shot's puck run with another Profile's steps lands a median
+ * 13.8% off that Shot's duration on the corpus, and with this 7.9% (#602).
+ */
+const TIGHTENS = 0.7;
+
+/** The flow through a puck of a resistance at a pressure, ml/s. */
+function flowThrough(pressure: number, resistance: number): number {
+  if (!(pressure > 0)) return 0;
+  return Math.sqrt(RESISTANCE_AT ** TIGHTENS / resistance) * pressure ** ((1 - TIGHTENS) / 2);
+}
+
+/** The pressure at which a flow passes a puck of a resistance, bar. */
+function pressureFor(flow: number, resistance: number): number {
+  if (!(flow > 0)) return 0;
+  return ((flow * flow * resistance) / RESISTANCE_AT ** TIGHTENS) ** (1 / (1 - TIGHTENS));
+}
+
+/** The resistance a puck shows, stated at RESISTANCE_AT, where a flow passes it at a pressure. */
+function resistanceShown(pressure: number, flow: number): number {
+  return (RESISTANCE_AT ** TIGHTENS * pressure ** (1 - TIGHTENS)) / (flow * flow);
+}
 
 /**
  * How quickly the pump's flow follows what it is asked for on a step whose
@@ -106,218 +164,362 @@ const LEAST_RESISTANCE = 0.001;
 // The puck ---------------------------------------------------------------------
 
 /**
- * A puck: its resistance through the Shot, as the pressure it takes for a
- * flow through it, in bar per (ml/s)², at each volume of water pumped, and
- * the water it takes before coffee drips into the cup.
+ * A puck: the few numbers the simulation needs of one to run a profile on
+ * it, so that it carries from one profile to another.
  */
 export interface Puck {
   /**
-   * [water pumped, ml; resistance, bar/(ml/s)²], in order of the water
-   * pumped: the resistance between two is read along the line between them,
-   * and beyond the last it stays the last's.
+   * Its resistance once it has opened, late in a Shot: the pressure it takes
+   * for a flow through it, in bar per (ml/s)², stated at RESISTANCE_AT, as it
+   * tightens under pressure (TIGHTENS).
    */
-  resistance: ReadonlyArray<readonly [number, number]>;
+  resistance: number;
+  /**
+   * The water through it after its first drip by which it has opened, ml at
+   * STANDARD_DOSE: from just after the first drip it passes a share of what
+   * it passes once open that grows with the water through it, to all of it
+   * here.
+   */
+  opens: number;
   /** The water the group and the puck take before coffee drips, ml: the space above the puck and what the coffee soaks up. */
   holds: number;
   /** Grams in the cup for each ml through the puck once it drips. */
   yieldPerMl: number;
-  /** The dose it is of, g. Simulated with another dose, its resistance and the water it soaks up are scaled to it. */
+  /** The dose it is of, g. Simulated with another dose, its resistance and the water it holds are scaled to it (`puckForDose`). */
   dose: number;
-  /** For a Shot's puck, the volume of water pumped beyond which the Shot measured nothing, ml; its resistance stays the last measured. */
-  measuredTo?: number;
 }
 
 /** The dose the standard puck is of, g. */
 export const STANDARD_DOSE = 18;
 
-/** The water ground coffee soaks up, ml for each gram. */
+/** The water ground coffee soaks up before it drips, ml for each gram. */
 const SOAKED_PER_GRAM = 1.1;
 
 /**
- * The water the space above the standard puck and the group take before the
- * coffee soaks any up, ml, as recorded Shots on a DE1 show from the start of
- * their profile: at 18 g their first drip (`timeToFirstDrip`) comes after 36
- * to 43 ml, the middle half of them, about 1 ml sooner than their scale's
- * first reading of 1 g, which this was first fitted to (#609).
+ * The space above the puck a gram of coffee takes up, ml: with more coffee
+ * the space is smaller by this and the coffee soaks up SOAKED_PER_GRAM more,
+ * so the water before the first drip falls a little as the dose rises and
+ * pressure builds sooner. Recorded Shots of 16, 18 and 20 g in one basket
+ * took a median 42, 44 to 46 and 41 ml before their first drip.
  */
-const STANDARD_HEADSPACE = 17;
+const SPACE_PER_GRAM = 1.3;
 
-/** The standard puck's resistance at its peak, at a medium grind: about 2 ml/s at 9 bar. */
-const STANDARD_PEAK = 2.2;
+/**
+ * The standard puck at the middle of its control, from the simulation's
+ * corpus of recorded coffee Shots (scripts/simulation, #602), as their pucks
+ * are fitted (`shotPuck`), at STANDARD_DOSE:
+ *
+ * - the water before its first drip, the space above the puck and what the
+ *   coffee soaks up, is the median of all of them, 35 ml;
+ * - its open resistance is the median of the corpus's Shots of a flat 9 bar
+ *   Profile, and it opens over the water with which their steps, run on it
+ *   at their own dose and stop-at weight, last what they lasted at the
+ *   median (26 to 33 s). The median puck of the whole corpus is coarser
+ *   (0.79, opening over 12 ml), as most of its Shots are of gentler
+ *   Profiles ground for them, and runs a flat 9 bar Profile in under 20 s.
+ */
+const STANDARD_HEADSPACE = 15;
+const STANDARD_RESISTANCE = 1;
+const STANDARD_OPENS = 20;
 
 /**
  * Each end of the grind takes this many times the middle's resistance, or a
- * part of it: recorded coffee Shots' pucks span from about a 150th of the
- * standard puck's resistance, a coarse grind on a Bengle, to some twenty
- * times it, a fine one on a DE1, all but the coarsest few within a
- * fiftieth, so the ends reach a turbo or filter grind and one finer than
- * any recorded.
+ * part of it: the corpus's coffee Shots' pucks span from about a thirtieth
+ * of the standard puck's resistance, a coarse grind for a fast, filter-like
+ * Profile, to twenty times it, a fine one, so the ends pass a turbo or
+ * filter grind and a grind finer than any recorded. As a puck's flow at one
+ * pressure goes as one over the square root of its resistance, each end
+ * passes about a seventh or seven times the middle's flow.
  */
 const GRIND_RANGE = 50;
 
-/**
- * The standard puck's resistance, as a part of its peak, against the water
- * pumped beyond what it holds before its first drip, ml: little while the
- * water fills the space above it, rising steeply as the coffee soaks through
- * to a peak about 13 ml after the first drip, then easing as the puck
- * erodes, as recorded Shots on a DE1 show.
- */
-const STANDARD_CURVE: ReadonlyArray<readonly [number, number]> = [
-  [-20, 0.02],
-  [-10, 0.05],
-  [-5, 0.07],
-  [0, 0.12],
-  [3, 0.2],
-  [6, 0.32],
-  [10, 0.85],
-  [13, 1],
-  [20, 0.75],
-  [30, 0.55],
-  [40, 0.48],
-  [50, 0.45],
-  [70, 0.42],
-];
-
-/**
- * The standard puck: a fixed resistance through the Shot, for 18 g of coffee,
- * scaled by `grind`, from -1, the finest, to 1, the coarsest, where 0 is a
- * medium grind and each end takes fifty times its resistance or a fiftieth
- * of it, so about a seventh or seven times its flow at one pressure.
- */
+/** The standard puck: 18 g of coffee, at `grind` from -1, the finest, to 1, the coarsest, where 0 is the corpus's typical puck. */
 export function standardPuck(grind = 0): Puck {
   const scale = GRIND_RANGE ** -Math.min(1, Math.max(-1, grind));
-  const holds = STANDARD_HEADSPACE + SOAKED_PER_GRAM * STANDARD_DOSE;
-  const resistance: Array<[number, number]> = [[0, LEAST_RESISTANCE]];
-  for (const [beyond, part] of STANDARD_CURVE) resistance.push([holds + beyond, STANDARD_PEAK * scale * part]);
-  return { resistance, holds, yieldPerMl: 1, dose: STANDARD_DOSE };
+  return { resistance: STANDARD_RESISTANCE * scale, opens: STANDARD_OPENS, holds: STANDARD_HEADSPACE + SOAKED_PER_GRAM * STANDARD_DOSE, yieldPerMl: 1, dose: STANDARD_DOSE };
 }
 
-/** A puck's resistance at a volume of water pumped, found by halving, as a Shot's puck has a point for each of its samples. */
-function resistanceAt(points: Puck["resistance"], volume: number): number {
-  if (points.length === 0) return LEAST_RESISTANCE;
-  if (volume <= points[0]![0]) return points[0]![1];
-  if (volume > points[points.length - 1]![0]) return points[points.length - 1]![1];
-  // The first point at or beyond the volume.
-  let low = 1;
-  let high = points.length - 1;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if (points[middle]![0] < volume) low = middle + 1;
-    else high = middle;
-  }
-  const [v0, r0] = points[low - 1]!;
-  const [v1, r1] = points[low]!;
-  return v1 === v0 ? r1 : r0 + ((r1 - r0) * (volume - v0)) / (v1 - v0);
+/**
+ * A puck's resistance at its first drip, as a part of what it is once open:
+ * soaked through, and not yet sealed.
+ */
+const AT_FIRST_DRIP = 0.4;
+
+/** A puck's resistance while it soaks, as a part of what it is at its first drip, against the share of what it soaks up that it has taken. */
+const SOAKING: ReadonlyArray<readonly [number, number]> = [
+  [0, 0.15],
+  [0.5, 0.4],
+  [0.75, 0.6],
+  [1, 1],
+];
+
+/** The water through a puck after its first drip by which it is at its tightest, ml at STANDARD_DOSE. */
+const SEALED_AT = 3;
+
+/** The least share of its open flow a puck passes, at its tightest. */
+const LEAST_OPEN = 0.08;
+
+/**
+ * A puck's resistance, stated at RESISTANCE_AT, once `into` ml of water has
+ * gone into the space above it and into it, as recorded Shots show one goes:
+ *
+ * - none to speak of while water fills the space above it;
+ * - rising as the coffee soaks (SOAKING) to AT_FIRST_DRIP of its open
+ *   resistance at the first drip;
+ * - sealing over the next SEALED_AT ml, as the wet coffee swells, to its
+ *   tightest, where it passes a small share of its open flow;
+ * - and opening from there as water passes through it, its flow a share of
+ *   its open flow that grows evenly with the water through it since the
+ *   first drip, to all of it at `opens`.
+ *
+ * So a pump-off soak holds its pressure against a sealing puck, and a Shot's
+ * flow at one pressure climbs through the pour.
+ */
+function resistanceOf(puck: Puck, into: number): number {
+  const soaks = Math.min(puck.holds, SOAKED_PER_GRAM * puck.dose);
+  const space = puck.holds - soaks;
+  const atDrip = puck.resistance * AT_FIRST_DRIP;
+  if (into <= space) return Math.max(LEAST_RESISTANCE, space > 0 ? (SOAKING[0]![1] * atDrip * into) / space : SOAKING[0]![1] * atDrip);
+  if (into <= puck.holds) return atDrip * pointsAt(SOAKING, soaks > 0 ? (into - space) / soaks : 1);
+  const since = ((into - puck.holds) * STANDARD_DOSE) / puck.dose;
+  const open = (water: number) => Math.min(1, Math.max(LEAST_OPEN, water / puck.opens));
+  if (since >= SEALED_AT) return puck.resistance / open(since) ** 2;
+  // Between the first drip and its tightest, evenly on a scale of ratios.
+  const tightest = puck.resistance / open(SEALED_AT) ** 2;
+  return atDrip * (tightest / atDrip) ** (since / SEALED_AT);
 }
 
 /** The least pressure and flow through the puck at which a Shot's sample shows its resistance. */
 const MEASURABLE_PRESSURE = 0.3;
 const MEASURABLE_FLOW = 0.3;
 
+/** The share of its last weight the cup holds from where a Shot's yield is read: the first of the pour comes while the coffee is still soaking, and reads low. */
+const YIELD_FROM = 1 / 3;
+
 /**
- * A Shot's puck, worked out from its samples (`shotSamples`) after its
- * Preheat: its resistance at each sample from its pressure and the flow
- * through the puck, which is the pump's flow less what went to fill the
- * group as pressure rose (GROUP_COMPLIANCE), against the water pumped by
- * then; the water it took before the first drip (`timeToFirstDrip`); and
- * the grams that reached the cup for each ml through it after that. A Shot
- * with no scale takes what the standard puck holds and yields. `dose` is
- * the Shot's, where it recorded one. Null where no sample shows the puck's
- * resistance, as where the Shot recorded no flow or its pump never ran
- * against pressure.
+ * A puck read straight from a Shot's samples (`shotSamples`) after its
+ * Preheat, with no run of its steps: the water it took before the first
+ * drip (`timeToFirstDrip`), which is what was pumped less what the group
+ * held at that pressure (`groupHolds`); the grams that reached the cup for
+ * each ml through it, over the later part of the pour (YIELD_FROM); and its
+ * open resistance, from each sample's pressure and the flow through the
+ * puck (the pump's flow less what went to fill the group as pressure rose),
+ * as the median of the later half of those after its tightest; and the
+ * water by which it opens, from the samples that show it part open, or as
+ * the standard puck opens where none does. A Shot with no scale takes what
+ * the standard puck holds and yields. `dose` is the Shot's, where it recorded one. Null where
+ * no sample shows the puck's resistance, as where the Shot recorded no flow
+ * or its pump never ran against pressure.
  */
-export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | null = null): Puck | null {
+export function readPuck(samples: readonly Sample<ShotCurve>[], dose: number | null = null): Puck | null {
   const shot = samples.filter((sample) => sample.shade === null);
   const doseOf = dose !== null && dose > 0 ? dose : STANDARD_DOSE;
-  const standardHolds = STANDARD_HEADSPACE + SOAKED_PER_GRAM * doseOf;
   const seconds = shot.map((sample) => sample.seconds);
   const pressure = shot.map((sample) => Math.max(0, sample.values.pressure ?? 0));
   const flow = shot.map((sample) => Math.max(0, sample.values.flow ?? 0));
   const pumped = [0];
   for (let n = 1; n < shot.length; n++) pumped.push(pumped[n - 1]! + ((flow[n - 1]! + flow[n]!) / 2) * (seconds[n]! - seconds[n - 1]!));
-  // The water through the puck by each sample: what was pumped, less what pressure holds in the group.
-  const through = pumped.map((volume, n) => volume - GROUP_COMPLIANCE * pressure[n]!);
-  const points: Array<[number, number]> = [];
-  let filling = true;
+  // The water into the space above the puck and the puck by each sample: what was pumped, less what pressure holds in the group.
+  const into = pumped.map((volume, n) => volume - groupHolds(pressure[n]!));
+  const shown: number[] = [];
+  const shownAt: number[] = [];
   for (let n = 0; n < shot.length; n++) {
     const before = Math.max(0, n - 1);
     const after = Math.min(shot.length - 1, n + 1);
     const span = seconds[after]! - seconds[before]!;
     const rising = span > 0 ? (pressure[after]! - pressure[before]!) / span : 0;
-    const puckFlow = flow[n]! - GROUP_COMPLIANCE * rising;
-    // While the pump rests, as through a soak, the group drains through the puck at a rate its resistance
-    // under flow doesn't describe, so those samples are left out and the resistance there read from either side.
-    if (pressure[n]! < MEASURABLE_PRESSURE || puckFlow < MEASURABLE_FLOW || flow[n]! < MEASURABLE_FLOW) {
-      // Before pressure first builds, water fills the space above the puck and meets no resistance.
-      if (filling) points.splice(0, points.length, [pumped[n]!, LEAST_RESISTANCE]);
-      continue;
-    }
-    if (filling) {
-      // The fill's point of least resistance, where it comes before this, the first measured.
-      if (points.length === 0) points.push([0, LEAST_RESISTANCE]);
-      if (points[0]![0] >= pumped[n]! - 1e-9) points.pop();
-    }
-    filling = false;
-    points.push([pumped[n]!, pressure[n]! / (puckFlow * puckFlow)]);
+    const puckFlow = flow[n]! - groupGives(pressure[n]!) * rising;
+    if (pressure[n]! < MEASURABLE_PRESSURE || puckFlow < MEASURABLE_FLOW || flow[n]! < MEASURABLE_FLOW) continue;
+    shown.push(resistanceShown(pressure[n]!, puckFlow));
+    shownAt.push(into[n]!);
   }
-  if (filling) return null;
-  const resistance = monotoneInVolume(smoothed(points));
+  if (shown.length === 0) return null;
+  // Each the median of it and its neighbours, two either side, which takes out a sample's spike.
+  const smooth = shown.map((_, n) => medianOf(shown.slice(Math.max(0, n - 2), n + 3)));
+  const tightest = smooth.reduce((best, value, n) => (value > smooth[best]! ? n : best), 0);
+  const after = smooth.slice(tightest);
+  const resistance = Math.min(RESISTANCE_MOST, Math.max(RESISTANCE_LEAST, medianOf(after.slice(after.length >> 1))));
+  const standard = standardPuck();
+  let holds = Math.max(0, standard.holds + (SOAKED_PER_GRAM - SPACE_PER_GRAM) * (doseOf - STANDARD_DOSE));
+  let yieldPerMl = standard.yieldPerMl;
   const firstDrip = timeToFirstDrip(shot);
   const last = lastRecordedWeight(shot);
-  let holds = standardHolds;
-  let yieldPerMl = 1;
   if (firstDrip !== null) {
     const at = shot.findIndex((sample) => sample.seconds === firstDrip);
     const lastAt = last ? shot.findIndex((sample) => sample.seconds === last.seconds) : -1;
     const firstWeight = shot[at]!.values.weight!;
-    if (last && lastAt > at && through[lastAt]! - through[at]! > 5) {
-      yieldPerMl = Math.min(1.5, Math.max(0.5, (last.weight - firstWeight) / (through[lastAt]! - through[at]!)));
+    if (last && lastAt > at && into[lastAt]! - into[at]! > 5) {
+      let from = at;
+      for (let n = at; n < lastAt; n++) {
+        const weight = shot[n]!.values.weight;
+        if (weight === null || weight < last.weight * YIELD_FROM) continue;
+        if (into[lastAt]! - into[n]! > 5) from = n;
+        break;
+      }
+      yieldPerMl = Math.min(1.5, Math.max(0.5, (last.weight - (shot[from]!.values.weight ?? firstWeight)) / (into[lastAt]! - into[from]!)));
     }
-    holds = Math.max(0, through[at]! - firstWeight / yieldPerMl);
+    holds = Math.max(0, into[at]! - firstWeight / yieldPerMl) + HOLDS_PAST_FIRST_DRIP;
   }
-  return { resistance, holds, yieldPerMl, dose: doseOf, measuredTo: pumped[pumped.length - 1]! };
+  // The water by which it opens: where a sample after its tightest shows it part open, the water through it since the
+  // first drip over the share of its open flow it passes there, as `resistanceOf` has it open; the median of those.
+  const opening: number[] = [];
+  for (let n = tightest; n < smooth.length; n++) {
+    const since = ((shownAt[n]! - holds) * STANDARD_DOSE) / doseOf;
+    const open = Math.sqrt(resistance / smooth[n]!);
+    if (since >= SEALED_AT && open > LEAST_OPEN && open < 0.8) opening.push(since / open / OPENS_AS_SHOWN);
+  }
+  const opens = opening.length > 0 ? Math.min(OPENS_MOST, Math.max(OPENS_LEAST, medianOf(opening))) : STANDARD_OPENS;
+  return { resistance, opens, holds, yieldPerMl, dose: doseOf };
 }
 
-/** Each resistance the median of it and its neighbours, two either side, which takes out a sample's spike. */
-function smoothed(points: Array<[number, number]>): Array<[number, number]> {
-  return points.map(([volume, resistance], n) => {
-    if (resistance === LEAST_RESISTANCE) return [volume, resistance];
-    const near = points.slice(Math.max(0, n - 2), n + 3).filter(([, r]) => r !== LEAST_RESISTANCE).map(([, r]) => r).sort((a, b) => a - b);
-    return [volume, near[Math.floor(near.length / 2)] ?? resistance];
+/**
+ * How what a Shot's samples show of its puck stands to the puck its own
+ * steps need, at the median of the corpus's fitted pucks: the first drops
+ * reach the cup this much water before the puck holds all it will, ml, and
+ * a puck read part open from a sample's flow opens over this many times the
+ * water it is fitted to open over.
+ */
+const HOLDS_PAST_FIRST_DRIP = 3.5;
+const OPENS_AS_SHOWN = 2;
+
+/** The bounds a Shot's puck keeps its open resistance within, and the water by which it opens, ml. */
+const RESISTANCE_LEAST = 0.005;
+const RESISTANCE_MOST = 500;
+const OPENS_LEAST = 1;
+const OPENS_MOST = 200;
+
+function medianOf(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+/** The water by which a puck opens that a fit starts from, ml: the median of the corpus's fitted pucks, three times it and a third of it. */
+const FIT_OPENS = [12, 36, 4];
+
+/** How many steps each of a fit's two searches takes (`leastOf`). */
+const FIT_STEPS = 60;
+const FIT_STEPS_AGAIN = 40;
+
+/**
+ * A Shot's puck: what the simulation needs of the Shot to reproduce it, so
+ * that it carries to another profile, where its resistance through its own
+ * Shot would not. Its yield is read from its samples (`readPuck`); its open
+ * resistance, the water by which it opens and the water it holds before its
+ * first drip are those with which a run of the Shot's own steps, on the
+ * model of its Machine and ended as it ended (`shotFitStop`), comes closest
+ * to the Shot (`shotMiss`), sought from what its samples show, opening
+ * over each of FIT_OPENS, whichever starts closest, and then again from what that finds with a wider reach.
+ * The water it holds is sought only where its scale showed a first drip.
+ *
+ * Where its own steps can't be run as it ran (its profile unread, or of no
+ * steps or more than a machine takes, its record naming no model, under manual
+ * control, or no run able to end as it did: `shotFit`'s conditions), what
+ * its samples show. Null where no sample shows the puck's resistance.
+ */
+export function shotPuck(shot: SimulationShot): Puck | null {
+  const read = readPuck(shot.samples, shot.dose);
+  if (!read) return null;
+  const own = shot.profile && shot.profile.steps.length > 0 && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
+  if (!own || shot.model === null || underManualControl(shot.samples, own, shot.model)) return read;
+  const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, own);
+  if (!stop) return read;
+  const model = shot.model;
+  const dripped = timeToFirstDrip(shot.samples.filter((sample) => sample.shade === null)) !== null;
+  // The numbers sought: the logarithms of its resistance and of the water by which it opens, and the water it holds more than its samples show,
+  // from the water at its first drip itself.
+  const of = ([resistance, opens, holds]: number[]): Puck => ({
+    ...read,
+    resistance: Math.min(RESISTANCE_MOST, Math.max(RESISTANCE_LEAST, Math.exp(resistance!))),
+    opens: Math.min(OPENS_MOST, Math.max(OPENS_LEAST, Math.exp(opens!))),
+    ...(dripped ? { holds: Math.max(0, read.holds + holds!) } : {}),
   });
+  const miss = (x: number[]) => shotMiss(shot.samples, fitToShot({ samples: shot.samples, profile: own, puck: of(x), stopAt: stop.stopAt, model }));
+  const starts = FIT_OPENS.map((opens) => [Math.log(read.resistance), Math.log(opens), ...(dripped ? [-HOLDS_PAST_FIRST_DRIP] : [])]);
+  const start = starts.map((x) => ({ x, y: miss(x) })).sort((a, b) => a.y - b.y)[0]!.x;
+  const first = leastOf(miss, start, dripped ? [0.5, 0.5, 3] : [0.5, 0.5], FIT_STEPS);
+  return of(leastOf(miss, first, dripped ? [-0.3, -0.3, 10] : [-0.3, -0.3], FIT_STEPS_AGAIN));
 }
 
-/** Points whose volumes only rise: those at one volume, as while the pump rests, are taken as their mean. */
-function monotoneInVolume(points: Array<[number, number]>): Array<[number, number]> {
-  const out: Array<[number, number, number]> = [];
-  for (const [volume, resistance] of points) {
-    const last = out[out.length - 1];
-    if (last && volume <= last[0] + 1e-9) {
-      last[1] = (last[1] * last[2] + resistance) / (last[2] + 1);
-      last[2] += 1;
-    } else out.push([volume, resistance, 1]);
+/** How much a second between a run's first drip and its Shot's counts in `shotMiss`, squared. */
+const FIRST_DRIP_COUNTS = 0.1;
+
+/**
+ * How far a run of a Shot's own steps is from the Shot, as one number a fit
+ * brings down, each part squared and summed: its duration's error as a
+ * share of the margin a fit is held to (5% or 1 s), its peak pressure's
+ * likewise (0.5 bar), the root mean square distance of its pressure (bar)
+ * and flow (ml/s) curves from the Shot's at the Shot's samples, and its
+ * first drip's error in seconds, counted for less (FIRST_DRIP_COUNTS).
+ */
+function shotMiss(samples: readonly Sample<ShotCurve>[], { run, fit }: FittedShot): number {
+  const duration = (fit.simulated.duration - fit.shot.duration) / Math.max(1, 0.05 * fit.shot.duration);
+  const peak = (fit.simulated.peakPressure - fit.shot.peakPressure) / 0.5;
+  const drip = fit.shot.timeToFirstDrip !== null && fit.simulated.timeToFirstDrip !== null ? fit.simulated.timeToFirstDrip - fit.shot.timeToFirstDrip : 0;
+  const shot = samples.filter((sample) => sample.shade === null);
+  const until = Math.min(shot.length > 0 ? shot[shot.length - 1]!.seconds : 0, run.duration);
+  let at = 0;
+  let pressure = 0;
+  let flow = 0;
+  let count = 0;
+  for (const sample of shot) {
+    if (sample.seconds > until) break;
+    while (at + 1 < run.samples.length && run.samples[at + 1]!.seconds <= sample.seconds) at++;
+    const ran = run.samples[at]!.values;
+    pressure += ((ran.pressure ?? 0) - (sample.values.pressure ?? 0)) ** 2;
+    flow += ((ran.flow ?? 0) - (sample.values.flow ?? 0)) ** 2;
+    count++;
   }
-  return out.map(([volume, resistance]) => [volume, resistance]);
+  return duration * duration + peak * peak + (count > 0 ? (pressure + flow) / count : 0) + FIRST_DRIP_COUNTS * drip * drip;
+}
+
+/**
+ * The point at which a function of a few numbers is least, sought from a
+ * start by Nelder and Mead's method over a fixed count of steps, so that
+ * the same start gives the same point wherever it runs. `spread` is how far
+ * from the start, in each number, the search first reaches.
+ */
+function leastOf(f: (x: number[]) => number, start: number[], spread: number[], steps: number): number[] {
+  let simplex = [start, ...start.map((_, n) => start.map((value, m) => (m === n ? value + spread[n]! : value)))].map((x) => ({ x, y: f(x) }));
+  for (let step = 0; step < steps; step++) {
+    simplex.sort((a, b) => a.y - b.y);
+    const worst = simplex[simplex.length - 1]!;
+    const centre = start.map((_, n) => simplex.slice(0, -1).reduce((sum, point) => sum + point.x[n]!, 0) / (simplex.length - 1));
+    const along = (t: number) => centre.map((c, n) => c + t * (worst.x[n]! - c));
+    const reflected = along(-1);
+    const yr = f(reflected);
+    if (yr < simplex[0]!.y) {
+      const expanded = along(-2);
+      const ye = f(expanded);
+      simplex[simplex.length - 1] = ye < yr ? { x: expanded, y: ye } : { x: reflected, y: yr };
+    } else if (yr < simplex[simplex.length - 2]!.y) simplex[simplex.length - 1] = { x: reflected, y: yr };
+    else {
+      const contracted = along(0.5);
+      const yc = f(contracted);
+      if (yc < worst.y) simplex[simplex.length - 1] = { x: contracted, y: yc };
+      else {
+        const best = simplex[0]!;
+        simplex = simplex.map((point, n) => {
+          if (n === 0) return point;
+          const x = point.x.map((value, m) => (value + best.x[m]!) / 2);
+          return { x, y: f(x) };
+        });
+      }
+    }
+  }
+  simplex.sort((a, b) => a.y - b.y);
+  return simplex[0]!.x;
 }
 
 /**
  * A puck scaled to another dose: its resistance in proportion, as the bed is
- * deeper, and the water the coffee soaks up with it, the resistance before
- * the first drip stretched over the water it then holds and the rest moved
- * along by the difference.
+ * deeper; the water the coffee soaks up with it (SOAKED_PER_GRAM), and the
+ * space above it smaller by what the coffee takes up (SPACE_PER_GRAM); and
+ * the water by which it opens in proportion, as `resistanceOf` reads it.
  */
 function puckForDose(puck: Puck, dose: number): Puck {
   if (!(dose > 0) || dose === puck.dose) return puck;
-  const ratio = dose / puck.dose;
-  const holds = Math.max(0, puck.holds + SOAKED_PER_GRAM * (dose - puck.dose));
-  const moved = (volume: number) => (volume <= puck.holds ? (puck.holds > 0 ? (volume * holds) / puck.holds : volume) : volume + holds - puck.holds);
-  return {
-    ...puck,
-    resistance: puck.resistance.map(([volume, resistance]) => [moved(volume), resistance === LEAST_RESISTANCE ? resistance : resistance * ratio] as const),
-    holds,
-    dose,
-    ...(puck.measuredTo === undefined ? {} : { measuredTo: moved(puck.measuredTo) }),
-  };
+  return { ...puck, resistance: (puck.resistance * dose) / puck.dose, holds: Math.max(0, puck.holds + (SOAKED_PER_GRAM - SPACE_PER_GRAM) * (dose - puck.dose)), dose };
 }
 
 // The run ----------------------------------------------------------------------
@@ -429,7 +631,9 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
 
   let time = 0;
   let pressure = 0;
-  let flow = 0;
+  // The pump as the profile begins: what it was giving through the Preheat, or what its first step of any length asks for where that is a flow and less.
+  const opening = sentSteps.find((step) => step.seconds > 0);
+  let flow = opening ? Math.min(figures.startFlow ?? 0, opening.pump === "flow" ? Math.max(0, stepTarget(opening)) : Infinity) : 0;
   let pumped = 0;
   let through = 0;
   let weight = 0;
@@ -489,7 +693,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     const elapsed = time + SIMULATION_TICK - stepStart;
     const goal = stepTarget(step);
     const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / step.seconds) : goal;
-    const resistance = Math.max(LEAST_RESISTANCE, resistanceAt(puck.resistance, pumped));
+    const resistance = Math.max(LEAST_RESISTANCE, resistanceOf(puck, through));
 
     // What the pump is asked for this tick, and whether a pressure sets it: the step's, its limiter's or the most the machine reaches.
     let asked: number;
@@ -504,7 +708,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
       asked = limited(Math.min(gives, asked), step.limiter, figures.flowLimiterReach);
     } else {
       asked = Math.min(figures.maxFlow, Math.max(0, target));
-      const wouldBe = resistance * asked * asked;
+      const wouldBe = pressureFor(asked, resistance);
       const allowed = limited(wouldBe, step.limiter, figures.pressureLimiterReach);
       if (allowed < wouldBe) {
         const held = holds(allowed, pressure, resistance);
@@ -518,7 +722,10 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     // The pump follows, and the group fills or drains through the puck.
     flow += (asked - flow) * (byPressure ? followsPressure : followsFlow);
     const next = groupPressure(pressure, flow, resistance);
-    const puckFlow = Math.sqrt(next / resistance);
+    // What passed the puck is what the group held and the pump gave, less what the group holds now, so no water is made or
+    // lost: near no pressure the halving leaves a trace of pressure through which the puck's flow, as pressure to a small
+    // power, would be far from none.
+    const puckFlow = Math.max(0, groupHolds(pressure) + flow * SIMULATION_TICK - groupHolds(next)) / SIMULATION_TICK;
     pressure = next;
     pumped += flow * SIMULATION_TICK;
     through += puckFlow * SIMULATION_TICK;
@@ -594,7 +801,7 @@ function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; f
  * drain as it falls.
  */
 function holding(target: number, pressure: number, resistance: number, response: number): number {
-  return Math.sqrt(Math.max(0, target) / resistance) + (GROUP_COMPLIANCE * (target - pressure)) / response;
+  return flowThrough(Math.max(0, target), resistance) + (groupHolds(target) - groupHolds(pressure)) / response;
 }
 
 /** A value read from [x, value] points in order of x, along the line between two, and level beyond either end. */
@@ -612,18 +819,23 @@ function pointsAt(points: ReadonlyArray<readonly [number, number]>, x: number): 
 
 /**
  * The group's pressure after a tick with the pump at `flow`: the water the
- * group holds for each bar (GROUP_COMPLIANCE) rises with what the pump gives
- * and falls with what passes the puck, the square root of the pressure over
- * the resistance, solved for the tick's end so it holds steady however small
- * the resistance.
+ * group holds (`groupHolds`) rises with what the pump gives and falls with
+ * what passes the puck at the pressure the tick ends at (`flowThrough`),
+ * found by halving so that it holds steady however small the resistance.
  */
 function groupPressure(pressure: number, flow: number, resistance: number): number {
-  const a = GROUP_COMPLIANCE / SIMULATION_TICK;
-  const b = 1 / Math.sqrt(resistance);
-  const c = a * pressure + flow;
-  // a·s² + b·s − c = 0, for s, the square root of the pressure, written so it stays exact when b is large.
-  const s = (2 * c) / (b + Math.sqrt(b * b + 4 * a * c));
-  return s * s;
+  const have = groupHolds(pressure) + flow * SIMULATION_TICK;
+  if (!(have > 0)) return 0;
+  const over = (p: number) => groupHolds(p) + flowThrough(p, resistance) * SIMULATION_TICK - have;
+  let low = 0;
+  let high = Math.max(1, pressure);
+  while (over(high) < 0 && high < 1e6) high *= 2;
+  for (let n = 0; n < 40 && high - low > 1e-5; n++) {
+    const middle = (low + high) / 2;
+    if (over(middle) < 0) low = middle;
+    else high = middle;
+  }
+  return (low + high) / 2;
 }
 
 /**
@@ -827,7 +1039,7 @@ export interface ShotPuckRun {
   /**
    * The Shot's own steps run on its puck, stopped as it stopped, beside the
    * Shot (`fitToShot`); null where Decaid would not read its own profile or
-   * it has more steps than a machine takes, and where a run can't end as the
+   * it has no steps or more than a machine takes, and where a run can't end as the
    * Shot did (`shotFitStop`), where its record names no Machine model, and
    * where it ran under manual control (`underManualControl`).
    */
@@ -835,13 +1047,16 @@ export interface ShotPuckRun {
 }
 
 /**
- * Simulates a profile on a Shot's puck (`shotPuck`): with `dose`, else the
- * Shot's, stopping at `stopAt`, on a Machine of `model`; and fits the Shot's
- * own steps to it, on the model of the Shot's Machine. Null for a Shot whose
- * samples show nothing of its puck's resistance.
+ * Simulates a profile on a Shot's puck: with `dose`, else the Shot's,
+ * stopping at `stopAt`, on a Machine of `model`; and fits the Shot's own
+ * steps to it, on the model of the Shot's Machine. `puck` is the Shot's
+ * (`shotPuck`), for a caller that keeps it from one run to the next, as
+ * working it out runs the Shot's steps some hundreds of times; worked out
+ * here where none is given. Null for a Shot whose samples show nothing of
+ * its puck's resistance.
  */
-export function simulateOnShot({ profile, shot, dose, stopAt, model }: { profile: Profile; shot: SimulationShot; dose?: number | null; stopAt: number | null; model: MachineModel }): ShotPuckRun | null {
-  const puck = shotPuck(shot.samples, shot.dose);
+export function simulateOnShot({ profile, shot, puck: given, dose, stopAt, model }: { profile: Profile; shot: SimulationShot; puck?: Puck | null; dose?: number | null; stopAt: number | null; model: MachineModel }): ShotPuckRun | null {
+  const puck = given ?? shotPuck(shot);
   if (!puck) return null;
   const run = simulateProfile({ profile, puck, dose: dose ?? puck.dose, stopAt, model });
   return { puck, run, fit: shotFit(shot, puck) };
@@ -850,13 +1065,13 @@ export function simulateOnShot({ profile, shot, dose, stopAt, model }: { profile
 /**
  * How close a run of a Shot's own steps on its puck comes to it
  * (`fitToShot`), ended as it ended (`shotFitStop`), on the model of its
- * Machine; null where Decaid would not read its own profile or it has more
- * steps than a machine takes, where its record names no Machine model,
+ * Machine; null where Decaid would not read its own profile or it has no
+ * steps or more than a machine takes, where its record names no Machine model,
  * where it ran under manual control (`underManualControl`), and where a run
  * can't end as it did.
  */
 export function shotFit(shot: SimulationShot, puck: Puck): ShotFit | null {
-  const own = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
+  const own = shot.profile && shot.profile.steps.length > 0 && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
   if (!own || shot.model === null || underManualControl(shot.samples, own, shot.model)) return null;
   const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, own);
   return stop ? fitToShot({ samples: shot.samples, profile: own, puck, stopAt: stop.stopAt, model: shot.model }).fit : null;

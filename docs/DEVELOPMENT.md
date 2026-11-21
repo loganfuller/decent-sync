@@ -112,6 +112,10 @@ Profile:
 - the share whose every step ended within 1 s of the Shot's;
 - the median root mean square distance of the pressure, flow and weight curves.
 
+It then counts the pump-off soaks that end as pressure falls (a step asking
+for no flow, with an exit on pressure under a figure), and how many last
+within a second of their Shot's (#602).
+
 Tea, Shots with a profile that can't be read, Shots whose record names no
 model, pours that met no coffee (under 1.5 bar and, on a scale that
 reported, 5 g throughout, as a flush through an empty portafilter) and Shots run under
@@ -134,9 +138,11 @@ where it asks at least 1 bar less than an earlier step; `low pressure` under
 With no folder named, it scores the committed corpus,
 [scripts/simulation/corpus/](../scripts/simulation/corpus/README.md): about
 160 scrubbed Shots, which a test holds at its recorded share within the
-margin for each model. A pull request that changes the simulation reports the
-scorecard before and after, and raises `corpus/levels.json` where the share
-rose.
+margin for each model, at the median duration error recorded for one Shot's
+puck on another Profile's steps, and at the count of soaks within a second. A
+pull request that changes the simulation reports the scorecard before and
+after, and moves `corpus/levels.json` to what it reaches where that is
+better.
 
 To score your own Shots, pull a spread of them read-only from any Decent Sync
 instance into a folder outside the repo, then score it. A spread is up to 30

@@ -340,8 +340,8 @@ describe("the checks of a simulated run", () => {
 
   it("advise of a step whose target the run never comes near, as when a limit holds it back, naming the step", () => {
     const [fill, pour] = steps();
-    // A flow limit of 0.8 ml/s holds a medium puck under 4 bar for the pour's whole 30 s, short of the 36 g it stops at.
-    const limited = { ...plain(), steps: [fill, { ...pour, limiter: { value: 0.8, range: 0.2 } } as ProfileStep] };
+    // A flow limit of 0.4 ml/s holds a medium puck under 5 bar for the pour's whole 30 s, short of the 36 g it stops at.
+    const limited = { ...plain(), steps: [fill, { ...pour, limiter: { value: 0.4, range: 0.1 } } as ProfileStep] };
     expect(checkProfile(limited, { run: run(limited) }).advice).toEqual([
       { code: "targetNotReached", step: 1, path: "steps.1.pressure", message: expect.stringMatching(/^Step 2, "pour" never reaches its 9 bar on the puck simulated: the nearest it comes is [\d.]+ bar, before its time is up\.$/) },
     ]);
@@ -351,14 +351,15 @@ describe("the checks of a simulated run", () => {
 
   it("advise of a ramp the Shot stops before it gets to its target", () => {
     const [fill, pour] = steps();
-    // A decline to 3 bar over 60 s, stopped at 36 g long before it gets there.
-    const cut = { ...plain(), steps: [fill, { ...pour, pressure: 3, limiter: null, seconds: 60 } as ProfileStep] };
+    // A decline to 2 bar over 60 s, stopped at 36 g long before it gets there.
+    const cut = { ...plain(), steps: [fill, { ...pour, pressure: 2, limiter: null, seconds: 60 } as ProfileStep] };
     expect(checkProfile(cut, { run: run(cut) }).advice.map((check) => [check.code, check.step, check.message.endsWith("before the Shot stops.")])).toEqual([["targetNotReached", 1, true]]);
   });
 
   it("leave a step alone that ended at its exit, its water or its weight, and one the run never came to", () => {
-    const [fill, pour] = steps();
-    // The fill exits over 4 bar, the next pumps its 3 ml, and the Shot stops at 10 g in the third, before the fourth.
+    const [plainFill, pour] = steps();
+    // The fill exits over 3 bar, the next pumps its 3 ml, and the Shot stops at 10 g in the third, before the fourth.
+    const fill = { ...plainFill, exit: { type: "pressure", condition: "over", value: 3 } } as ProfileStep;
     const ended = {
       ...plain(),
       target_weight: 10,

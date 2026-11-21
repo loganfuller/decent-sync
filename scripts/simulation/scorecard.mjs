@@ -4,7 +4,9 @@
 // the Shot: its duration within 5% or 1 s, whichever is more, and its peak
 // pressure within 0.5 bar, the margin docs/LIBRARY.md states. Where Shots
 // are marked as one set (the same coffee, grind and dose), each Shot's puck
-// is also run with each other Shot's steps and held to that Shot.
+// is also run with each other Shot's steps and held to that Shot. Each
+// pump-off soak that ends as pressure falls is timed against its Shot's
+// (#602).
 //
 // It reads a folder of Shots of either shape: as the REST API gives them,
 // `{ shot, measurements }` from `GET /api/shots/:id` and
@@ -35,6 +37,8 @@ export const MARGIN_SECONDS = 1;
 export const MARGIN_BAR = 0.5;
 /** How close each step's end must come to the Shot's, s, for its steps to count as ending alike. */
 export const STEP_SECONDS = 1;
+/** How close a pump-off soak's length must come to its Shot's, s. */
+export const SOAK_SECONDS = 1;
 
 /**
  * A pour that met no coffee, as a flush through an empty portafilter or a
@@ -154,17 +158,35 @@ export function profileKind(profile, samples) {
  */
 export function scoreShot(entry) {
   const shot = simulationShotOf(entry.record, entry.measurements);
-  const scored = { name: entry.name, model: shot.model, tea: entry.tea, set: entry.set, kind: null, noCoffee: metNoCoffee(shot.samples), manual: false, noFit: null, errors: null, within: false, stepsAlike: false, curves: null };
+  const scored = { name: entry.name, model: shot.model, tea: entry.tea, set: entry.set, kind: null, noCoffee: metNoCoffee(shot.samples), manual: false, noFit: null, puck: null, errors: null, within: false, stepsAlike: false, soaks: [], curves: null };
   if (!shot.profile || shot.profile.steps.length === 0) return { ...scored, noFit: "its profile can't be read" };
   scored.kind = profileKind(shot.profile, shot.samples);
   scored.manual = shot.model !== null && underManualControl(shot.samples, shot.profile, shot.model);
-  const puck = shotPuck(shot.samples, shot.dose);
+  const puck = shotPuck(shot);
   if (!puck) return { ...scored, noFit: "no sample shows its puck" };
+  scored.puck = puck;
   if (!shotFit(shot, puck)) return { ...scored, noFit: noFitReason(shot, scored.manual) };
   const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, shot.profile);
   const { run, fit } = fitToShot({ samples: shot.samples, profile: shot.profile, puck, stopAt: stop.stopAt, model: shot.model });
   const errors = figureErrors(fit.shot, fit.simulated);
-  return { ...scored, errors, within: withinMargin(fit.shot, fit.simulated), stepsAlike: stepsAlike(fit.shot, fit.simulated), curves: curveDistances(shot.samples, run) };
+  return { ...scored, errors, within: withinMargin(fit.shot, fit.simulated), stepsAlike: stepsAlike(fit.shot, fit.simulated), soaks: soakErrors(shot.profile, fit.shot, fit.simulated), curves: curveDistances(shot.samples, run) };
+}
+
+/**
+ * For each pump-off soak of a profile that ends as pressure falls (a step
+ * asking for no flow, with an exit on pressure under a figure) that both the
+ * Shot and its run came to: the run's time in it less the Shot's, s.
+ */
+export function soakErrors(profile, real, simulated) {
+  const length = (figures, index) => {
+    const at = figures.steps.findIndex((step) => step.index === index);
+    return at < 0 ? null : figures.steps[at].end - (at > 0 ? figures.steps[at - 1].end : 0);
+  };
+  return profile.steps.flatMap((step, index) => {
+    if (!(step.pump === "flow" && step.flow === 0 && step.exit && step.exit.type === "pressure" && step.exit.condition === "under" && step.exit.value > 0)) return [];
+    const [shot, run] = [length(real, index), length(simulated, index)];
+    return shot === null || run === null ? [] : [run - shot];
+  });
 }
 
 function noFitReason(shot, manual) {
@@ -249,7 +271,7 @@ export function setPairs(entries) {
     if (entry.set === null || entry.tea) continue;
     const shot = simulationShotOf(entry.record, entry.measurements);
     if (!shot.profile || shot.profile.steps.length === 0 || shot.model === null || metNoCoffee(shot.samples)) continue;
-    const puck = shotPuck(shot.samples, shot.dose);
+    const puck = shotPuck(shot);
     if (!puck || !shotFit(shot, puck)) continue;
     const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, shot.profile);
     const steps = JSON.stringify(shot.profile.steps.map(({ name: _name, temperature: _temperature, sensor: _sensor, ...step }) => step));
@@ -305,8 +327,14 @@ export function scorecard(entries) {
     noModel: shots.filter((shot) => apart(shot) === "noModel").length,
     noCoffee: shots.filter((shot) => apart(shot) === "noCoffee").length,
     manual: shots.filter((shot) => apart(shot) === "manual").length,
+    soaks: soakSummary(coffee.flatMap((shot) => shot.soaks)),
     sets: { ...pairSummaries(pairs), bySet: setSummaries(pairs), pairs },
   };
+}
+
+/** The pump-off soaks of the coffee Shots (`soakErrors`): how many, how many within SOAK_SECONDS of their Shot's length, and the spread of how far off. */
+function soakSummary(errors) {
+  return { steps: errors.length, within: errors.filter((error) => Math.abs(error) <= SOAK_SECONDS).length, error: spread(errors.map(Math.abs)) };
 }
 
 /** Pairs summed up as the same steps and different ones. */
@@ -410,6 +438,7 @@ export function formatScorecard(card) {
   lines.push("");
   lines.push(`Within: duration within ${MARGIN_SHARE * 100}% or ${MARGIN_SECONDS} s and peak pressure within ${MARGIN_BAR} bar; a Shot with no fit counts as outside. Errors are medians and 90th percentiles of fitted Shots; Steps 1 s: share of fitted Shots whose every step ended within ${STEP_SECONDS} s.`);
   lines.push(`Counted toward no share: ${card.unreadable} with a profile that can't be read, ${card.noModel} naming no model, ${card.noCoffee} that met no coffee (under ${NO_COFFEE_BAR} bar and ${NO_COFFEE_GRAMS} g throughout), ${card.manual} under manual control.`);
+  if (card.soaks.steps > 0) lines.push(`Pump-off soaks that end as pressure falls: ${card.soaks.steps}, ${card.soaks.within} within ${SOAK_SECONDS} s of their Shot's length, error median ${fixed(card.soaks.error.median, 2)} s, p90 ${fixed(card.soaks.error.worstTenth, 2)} s.`);
   for (const [label, s] of [["same steps", card.sets.same], ["different steps", card.sets.different]]) {
     if (s.pairs === 0) continue;
     lines.push(`One Shot's puck on another of its set, ${label}: ${s.pairs} pairs, ${s.within} within (${percent(s.within / s.pairs)}), duration error median ${percent(s.duration.median)}, p90 ${percent(s.duration.worstTenth)}, peak pressure error median ${fixed(s.peakPressure.median, 2)} bar.`);
