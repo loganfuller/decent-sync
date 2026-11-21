@@ -227,9 +227,9 @@ const STANDARD_OPENS = 20;
  * part of it: the corpus's coffee Shots' pucks span from about a thirtieth
  * of the standard puck's resistance, a coarse grind for a fast, filter-like
  * Profile, to twenty times it, a fine one, so the ends pass a turbo or
- * filter grind and a grind finer than any recorded. As a puck's flow goes
- * as the square root of its resistance, each end passes about a seventh or
- * seven times the middle's flow at one pressure.
+ * filter grind and a grind finer than any recorded. As a puck's flow at one
+ * pressure goes as one over the square root of its resistance, each end
+ * passes about a seventh or seven times the middle's flow.
  */
 const GRIND_RANGE = 50;
 
@@ -1065,13 +1065,13 @@ export function simulateOnShot({ profile, shot, puck: given, dose, stopAt, model
 /**
  * How close a run of a Shot's own steps on its puck comes to it
  * (`fitToShot`), ended as it ended (`shotFitStop`), on the model of its
- * Machine; null where Decaid would not read its own profile or it has more
- * steps than a machine takes, where its record names no Machine model,
+ * Machine; null where Decaid would not read its own profile or it has no
+ * steps or more than a machine takes, where its record names no Machine model,
  * where it ran under manual control (`underManualControl`), and where a run
  * can't end as it did.
  */
 export function shotFit(shot: SimulationShot, puck: Puck): ShotFit | null {
-  const own = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
+  const own = shot.profile && shot.profile.steps.length > 0 && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
   if (!own || shot.model === null || underManualControl(shot.samples, own, shot.model)) return null;
   const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, own);
   return stop ? fitToShot({ samples: shot.samples, profile: own, puck, stopAt: stop.stopAt, model: shot.model }).fit : null;

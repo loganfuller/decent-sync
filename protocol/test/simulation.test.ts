@@ -17,6 +17,7 @@ import {
   shotPuck,
   shotSamples,
   shotFigures,
+  shotFit,
   shotFitStop,
   simulateOnShot,
   simulateProfile,
@@ -736,7 +737,7 @@ describe("a Shot's puck", () => {
     expect(shotPuck(shotOf(samples, shotProfile))).toEqual(readPuck(samples, 18));
   });
 
-  it("is what its samples show where its own steps can't be run as it ran: its profile unread, its record naming no model", () => {
+  it("is what its samples show where its own steps can't be run as it ran: its profile unread or of no steps, its record naming no model", () => {
     const record = fixtureShot("default");
     const shotProfile = profileOf(record.workflow.profile);
     const samples = shotSamples(record.measurements, shotProfile);
@@ -744,6 +745,10 @@ describe("a Shot's puck", () => {
     expect(read).toMatchObject({ dose: 18, opens: standardPuck().opens });
     expect(shotPuck(shotOf(samples, null))).toEqual(read);
     expect(shotPuck(shotOf(samples, shotProfile, { model: null }))).toEqual(read);
+    // A profile of no steps: the puck its samples show, and no fit beside it, as a fit is of its own steps.
+    const stepless = { ...shotProfile!, steps: [] };
+    expect(shotPuck(shotOf(samples, stepless))).toEqual(read);
+    expect(shotFit(shotOf(samples, stepless), read)).toBeNull();
     expect(shotPuck(shotOf(samples, shotProfile))).not.toEqual(read);
     // With no dose recorded, the standard puck's.
     expect(shotPuck(shotOf(samples, shotProfile, { dose: null }))!.dose).toBe(18);
