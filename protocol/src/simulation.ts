@@ -508,7 +508,11 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     let byPressure = step.pump === "pressure";
     if (step.pump === "pressure") {
       asked = holds(target, pressure, resistance);
-      const gives = figures.pressureStepFlow ? pointsAt(figures.pressureStepFlow, pressure) : figures.maxFlow;
+      // The most the model gives here: against the pressure now, and against the pressure the step asks for.
+      const gives = Math.min(
+        figures.pressureStepFlow ? pointsAt(figures.pressureStepFlow, pressure) : figures.maxFlow,
+        figures.pressureStepTargetFlow ? pointsAt(figures.pressureStepTargetFlow, goal) : figures.maxFlow,
+      );
       asked = limited(Math.min(gives, asked), step.limiter, figures.flowLimiterReach);
     } else {
       asked = Math.min(figures.maxFlow, Math.max(0, target));

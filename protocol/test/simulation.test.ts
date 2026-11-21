@@ -491,6 +491,22 @@ describe("a machine of a model", () => {
     expect(run(steps, { model: "DE1" }).peakPressure).toBeGreaterThan(8.9);
   });
 
+  it("on a step whose pump controls pressure, gives a Bengle less the lower the pressure the step asks for, whatever the pressure is by then", () => {
+    const [[low, least], [high, most]] = MODEL_FIGURES.Bengle.pressureStepTargetFlow;
+    expect(most).toBe(MODEL_FIGURES.Bengle.maxFlow);
+    // Filling the group, the pump at its most for the step: at the least where it asks the low pressure or less, along the line between, and all it has from the high one.
+    const fills = (bar: number, model: "DE1" | "Bengle" = "Bengle") => run([pressure("Fill", bar, { seconds: 3 })], { model }).peakFlow;
+    expect(fills(low)).toBeCloseTo(least, 1);
+    expect(fills(low / 2)).toBeCloseTo(least, 1);
+    expect(fills((low + high) / 2)).toBeCloseTo((least + most) / 2, 1);
+    expect(fills(high)).toBeCloseTo(most, 1);
+    expect(fills(9)).toBeCloseTo(most, 1);
+    // So it comes to a low pressure later than it would giving all it has, and a DE1 gives a step what it gives at the pressure, whatever the step asks.
+    expect(fills(low, "DE1")).toBeCloseTo(fills(high, "DE1"), 1);
+    const reaches = (bar: number) => { const result = run([pressure("Fill", bar, { seconds: 20 })], { model: "Bengle" }); return result.samples.find((sample) => sample.values.pressure! >= 0.9 * bar)!.seconds; };
+    expect(reaches(low)).toBeGreaterThan(reaches(high));
+  });
+
   it("follows a flow step's target as each model's Shots show, a DE1 over most of a second, a Bengle within a few tenths", () => {
     const steps = [flow("Fast", 8, { seconds: 4 })];
     const at = (result: SimulatedRun, seconds: number) => result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values.flow!;

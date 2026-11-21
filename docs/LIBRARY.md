@@ -2464,8 +2464,12 @@ fit.
   on a step whose pump controls flow, and on one whose pump controls
   pressure about 6.5 ml/s below 2 bar, falling to about 3 from 6 bar, so a
   ramp to 9 bar on a coarse puck stalls short of it, as recorded Shots do; a
-  Bengle keeps up with about 15 on either, its 250 V/15 A heater's figure
-  (#588), its Shots showing no step giving it less. A DE1's flow comes up
+  Bengle keeps up with about 15 on a flow step, its 250 V/15 A heater's
+  figure (#588), and on a pressure step gives less the lower the pressure
+  the step asks for (`pressureStepTargetFlow`): about 7 ml/s where it asks
+  1 bar or less, rising to all 15 where it asks 6 or more, as its Shots
+  fill the group on such steps, where a run giving 15 came to the step's
+  pressure about 3 s before its Shot did. A DE1's flow comes up
   over about 0.7 s and it brings pressure to a target over about 1.5 s; a
   Bengle's flow follows within about 0.1 s and its pressure over about
   0.7 s. Wherever a pressure sets the flow, a step's own, its limiter's or
@@ -2487,12 +2491,13 @@ fit.
   limiter ease as Decaid's.
   Pressure builds in the group as the pump gives more than passes the puck
   and falls as it drains, over seconds. Each figure stays only where it
-  brings more of the corpus within the margin; what was tried and left
-  out, a DE1's flow on a flow step falling as pressure builds, the pump
-  already running as a Shot begins, a DE1's flow falling more slowly than
-  it rises, a machine leaving a step a moment before the pressure it
-  records passes its exit, and a Bengle giving less on a pressure step, is
-  in #601's pull request.
+  brings more of the corpus within the margin, or, as a Bengle's flow on a
+  pressure step does, brings its runs' curves closer to their Shots' and
+  costs the margin nothing; what was tried and left out, a DE1's flow on a
+  flow step falling as pressure builds, the pump already running as a Shot
+  begins, a DE1's flow falling more slowly than it rises, a machine leaving
+  a step a moment before the pressure it records passes its exit, and one
+  flat figure for a Bengle's pressure steps, is in #601's pull request.
 - **The puck** is its resistance through the Shot, the pressure a flow
   through it takes, against the water pumped, and the water it takes before
   the first drip. The standard puck (`standardPuck`) is a fixed curve for
