@@ -22,7 +22,7 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.12.1
 
 ### The time to first drip reads earlier
 
