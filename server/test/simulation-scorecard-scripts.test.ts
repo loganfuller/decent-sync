@@ -83,6 +83,7 @@ describe("The scorecard scripts on a real server's Shots", () => {
       expect(fromCorpus.sets.different.pairs).toBe(6);
       expect(fromCorpus.sets.bySet).toEqual({ s1: expect.objectContaining({ shots: 3 }) });
       expect(run("score.mjs", [corpus, "--set", "s1"])).toContain("Set s1: each Shot's puck run with each other Shot's steps");
+      expect(run("score.mjs", [corpus, "--set", "s9"])).toContain("No Shot is in set s9.");
     } finally {
       await database.end();
     }

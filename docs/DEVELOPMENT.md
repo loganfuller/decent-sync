@@ -121,7 +121,8 @@ grind and dose, it also runs each one's puck with each other's steps, and
 prints how close that comes for the same steps and for different ones, over
 all sets and for each set apart. `--set <label>` adds a set's table: a row
 for each Shot's puck, a column for each Shot whose steps it ran, each cell
-the run's duration error, as for the designed session's set (#600).
+the run's duration error, as for the designed session's set (#600). The
+table comes with the text output only, not with `--json`.
 
 The kind of Profile is read from its steps and the step the Shot spent
 longest in, its main step: `bloom` where a step after the first asks for no
