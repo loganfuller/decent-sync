@@ -110,9 +110,10 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await svg.click({ position: { x: 300, y: 120 } });
   await expect(svg.getByRole("slider", { name: "A moment on the graph" })).toBeFocused();
   // A finer puck runs longer.
+  // Three large steps finer, about three times the medium's resistance: short of the finest end, which chokes before the Recipe's yield.
   const medium = await time();
   await graph.getByRole("slider", { name: "Puck, finer to coarser" }).focus();
-  await page.keyboard.press("Home");
+  for (let n = 0; n < 3; n++) await page.keyboard.press("PageDown");
   await expect.poll(time).toBeGreaterThan(medium);
   // The Recipe's dose and yield.
   await graph.getByRole("button", { name: "Use a Recipe's" }).click();

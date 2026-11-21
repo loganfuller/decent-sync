@@ -39,12 +39,24 @@ function roundUp(value: number, least: number, step: number): number {
 /**
  * The time axis, s: its end, a little past what was reached so the plan
  * beyond a stop shows without dwarfing the run, but no further than the plan
- * runs, and its tick.
+ * runs, and its tick, so that the axis has a dozen intervals at most past
+ * 40 s, however long a run, as a fine or coarse puck runs for minutes.
  */
 export function timeAxis(reached: number, plannedEnd: number): { end: number; tick: number } {
   const span = Math.min(Math.max(reached * 1.15, reached + 3), Math.max(plannedEnd, reached + 1));
-  const tick = span > 90 ? 20 : span > 40 ? 10 : 5;
+  const tick = span > 1440 ? 300 : span > 720 ? 120 : span > 240 ? 60 : span > 90 ? 20 : span > 40 ? 10 : 5;
   return { end: Math.max(tick, Math.ceil(span / tick) * tick), tick };
+}
+
+/**
+ * The grams between marks of the weight in the cup: 10 g, or the next of
+ * 20, 50, 100 and so on that keeps to ten marks at most, as a pour-over or a
+ * long run on a coarse puck puts hundreds of grams or more in the cup.
+ */
+export function cupStep(weight: number): number {
+  for (let step = 10; ; step *= 10) {
+    for (const each of [step, step * 2, step * 5]) if (weight / each <= 10) return each;
+  }
 }
 
 /**

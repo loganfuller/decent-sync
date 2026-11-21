@@ -1,6 +1,6 @@
 import { type Profile, simulateProfile, standardPuck } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { LANE_CEILING, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "../src/lib/profile-graph-layout";
+import { LANE_CEILING, cupStep, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "../src/lib/profile-graph-layout";
 
 // The Profile graph's layout (#578): its time axis, lanes and their ranges,
 // and the scales each way between time and value and the graph's pixels.
@@ -27,6 +27,28 @@ describe("timeAxis", () => {
     expect(timeAxis(30, 60)).toEqual({ end: 35, tick: 5 });
     expect(timeAxis(30, 31)).toEqual({ end: 35, tick: 5 });
     expect(timeAxis(100, 200)).toEqual({ end: 120, tick: 20 });
+  });
+
+  it("keeps to a dozen intervals at most, however long the run", () => {
+    expect(timeAxis(200, 400)).toEqual({ end: 240, tick: 20 });
+    expect(timeAxis(500, 1000)).toEqual({ end: 600, tick: 60 });
+    expect(timeAxis(1000, 2000)).toEqual({ end: 1200, tick: 120 });
+    expect(timeAxis(2026, 2026)).toEqual({ end: 2100, tick: 300 });
+    for (const reached of [45, 95, 250, 700, 800, 1300, 1500, 3000]) {
+      const { end, tick } = timeAxis(reached, reached * 2);
+      expect(end / tick, String(reached)).toBeLessThanOrEqual(12);
+    }
+  });
+});
+
+describe("cupStep", () => {
+  it("marks each 10 g of an espresso, and a round step keeping to ten marks on a heavier run", () => {
+    expect(cupStep(36)).toBe(10);
+    expect(cupStep(100)).toBe(10);
+    expect(cupStep(150)).toBe(20);
+    expect(cupStep(340)).toBe(50);
+    expect(cupStep(8470)).toBe(1000);
+    for (const weight of [5, 99, 101, 201, 999, 1001, 25_000]) expect(weight / cupStep(weight), String(weight)).toBeLessThanOrEqual(10);
   });
 });
 
