@@ -22,7 +22,7 @@
 
 import { MODEL_FIGURES, type MachineModel, type ModelFigures, machineModelOf } from "./machine-models.js";
 import { MAX_PROFILE_STEPS, PROFILE_LIMITS, type Profile, type ProfileStep, type StepLimiter, profileOf, stepTarget } from "./profile.js";
-import { type Sample, type ShotCurve, type StepSpan, FIRST_DRIP_GRAMS, lastRecordedWeight, shotSamples, stepSpans, timeToFirstDrip } from "./record-samples.js";
+import { type Sample, type ShotCurve, type StepSpan, IN_THE_CUP_GRAMS, lastRecordedWeight, shotSamples, stepSpans, timeToFirstDrip } from "./record-samples.js";
 
 // The machine ------------------------------------------------------------------
 
@@ -136,9 +136,11 @@ const SOAKED_PER_GRAM = 1.1;
 /**
  * The water the space above the standard puck and the group take before the
  * coffee soaks any up, ml, as recorded Shots on a DE1 show from the start of
- * their profile: their first drip comes after 34 to 44 ml.
+ * their profile: at 18 g their first drip (`timeToFirstDrip`) comes after 36
+ * to 43 ml, the middle half of them, about 1 ml sooner than their scale's
+ * first reading of 1 g, which this was first fitted to (#609).
  */
-const STANDARD_HEADSPACE = 18;
+const STANDARD_HEADSPACE = 17;
 
 /** The standard puck's resistance at its peak, at a medium grind: about 2 ml/s at 9 bar. */
 const STANDARD_PEAK = 2.2;
@@ -260,7 +262,7 @@ export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | n
   }
   if (filling) return null;
   const resistance = monotoneInVolume(smoothed(points));
-  const firstDrip = timeToFirstDrip(shot.slice(tareLanded(shot)));
+  const firstDrip = timeToFirstDrip(shot);
   const last = lastRecordedWeight(shot);
   let holds = standardHolds;
   let yieldPerMl = 1;
@@ -274,27 +276,6 @@ export function shotPuck(samples: readonly Sample<ShotCurve>[], dose: number | n
     holds = Math.max(0, through[at]! - firstWeight / yieldPerMl);
   }
   return { resistance, holds, yieldPerMl, dose: doseOf, measuredTo: pumped[pumped.length - 1]! };
-}
-
-/** The seconds from the start of its profile within which the tare Decaid sends then lands. */
-const TARE_LANDS = 2;
-
-/**
- * The index of a Shot's first sample (`shotSamples`, after its Preheat) its
- * scale read after the tare Decaid sends at the profile's start: past a cup's
- * weight read before it landed, where the scale then reads under a gram
- * within TARE_LANDS, as `timeToFirstDrip` counts that weight as recorded.
- */
-function tareLanded(shot: readonly Sample<ShotCurve>[]): number {
-  let weighed = false;
-  let landed = 0;
-  for (let n = 0; n < shot.length && shot[n]!.seconds <= TARE_LANDS; n++) {
-    const weight = shot[n]!.values.weight;
-    if (weight === null) continue;
-    if (weight >= FIRST_DRIP_GRAMS) weighed = true;
-    else if (weighed) landed = n;
-  }
-  return landed;
 }
 
 /** Each resistance the median of it and its neighbours, two either side, which takes out a sample's spike. */
@@ -389,7 +370,7 @@ export interface SimulatedRun {
   stop: { seconds: number; reason: RunStop };
   /** s, from its start to its stop. */
   duration: number;
-  /** s, or null where nothing reached the cup. */
+  /** s, read from its samples as a Shot's is (`timeToFirstDrip`), or null where its cup never held IN_THE_CUP_GRAMS. */
   timeToFirstDrip: number | null;
   peakPressure: number;
   peakFlow: number;
@@ -569,7 +550,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     else sample(index, initialTarget(sentSteps[index]!, from));
   }
 
-  const firstDrip = samples.find((s) => (s.values.weight ?? 0) >= FIRST_DRIP_GRAMS);
+  const firstDrip = timeToFirstDrip(samples);
   return {
     model,
     dose: puck.dose,
@@ -578,7 +559,7 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     steps,
     stop,
     duration: stop.seconds,
-    timeToFirstDrip: firstDrip ? firstDrip.seconds : null,
+    timeToFirstDrip: firstDrip,
     peakPressure,
     peakFlow,
     weight,
@@ -698,12 +679,12 @@ export interface ShotFit {
   simulated: RunFigures;
 }
 
-/** A Shot's figures from its samples (`shotSamples`) after its Preheat, its first drip past a cup weighed before the tare landed (`tareLanded`), as its puck reads it. */
+/** A Shot's figures from its samples (`shotSamples`) after its Preheat, its first drip as a stored Shot's (`timeToFirstDrip`). */
 export function shotFigures(samples: readonly Sample<ShotCurve>[]): RunFigures {
   const shot = samples.filter((sample) => sample.shade === null);
   return {
     duration: shot.length > 0 ? shot[shot.length - 1]!.seconds : 0,
-    timeToFirstDrip: timeToFirstDrip(shot.slice(tareLanded(shot))),
+    timeToFirstDrip: timeToFirstDrip(shot),
     peakPressure: shot.reduce((peak, sample) => Math.max(peak, sample.values.pressure ?? 0), 0),
     steps: stepSpans(shot).map((span: StepSpan) => ({ index: span.frame, name: span.name, end: span.until })),
   };
@@ -732,7 +713,7 @@ const SCALE_GAP = 1;
  *   length for its time, within RAN_OUT, the run runs its steps out, as the
  *   weight may have all but stopped rising by then; not where its scale
  *   was lost and a step has a weight, as below.
- * - Otherwise, where its scale read a weight of at least FIRST_DRIP_GRAMS
+ * - Otherwise, where its scale read a weight of at least IN_THE_CUP_GRAMS
  *   within SCALE_GAP of the stop, the run stops at that weight or with its
  *   last step, whichever comes first, however it stopped: Decaid stops a Shot on weight before the weight it
  *   is set to, by what is still to land, a Bengle stops one at the Workflow's
@@ -754,7 +735,7 @@ export function shotFitStop(samples: readonly Sample<ShotCurve>[], stopReason: u
   // Whether a step's weight fired is unknown once the scale was lost.
   const unknowable = lost && profile.steps.some((step) => step.weight !== null && step.weight > 0);
   if (endedByDe1 && !unknowable && ranLastStepOut(shot, profile, model, RAN_OUT, false)) return { stopAt: null };
-  if (last !== null && last.weight >= FIRST_DRIP_GRAMS && !lost) return { stopAt: last.weight };
+  if (last !== null && last.weight >= IN_THE_CUP_GRAMS && !lost) return { stopAt: last.weight };
   if (endedByDe1 && !unknowable && ranLastStepOut(shot, profile, model, SCALE_GAP, true)) return { stopAt: null };
   return null;
 }

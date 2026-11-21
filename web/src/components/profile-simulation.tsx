@@ -9,6 +9,7 @@ import {
   type SimulationShot,
   STANDARD_DOSE,
   simulationShotOf,
+  timeToFirstDrip,
 } from "@decent-sync/protocol";
 import { useEffect, useState } from "react";
 import { InfoTip } from "@/components/info-tip";
@@ -160,13 +161,12 @@ function differs(by: number, unit: string, more: string, less: string): string {
   return Math.abs(by) < 0.05 ? "The same" : `${measure(Math.abs(by))} ${unit} ${by > 0 ? more : less}`;
 }
 
-/** A Shot's own headline figures, after its Preheat. */
+/** A Shot's or a run's own headline figures, after its Preheat, its first drip read as a stored Shot's. */
 function figuresOf(samples: Sample<ShotCurve>[]): { duration: number; firstDrip: number | null; peakPressure: number; flowAtStop: number } {
   const shot = samples.filter((sample) => sample.shade === null && sample.seconds >= 0);
-  const drip = shot.find((sample) => (sample.values.weight ?? 0) >= 1);
   return {
     duration: shot.at(-1)?.seconds ?? 0,
-    firstDrip: drip?.seconds ?? null,
+    firstDrip: timeToFirstDrip(shot),
     peakPressure: shot.reduce((peak, sample) => Math.max(peak, sample.values.pressure ?? 0), 0),
     flowAtStop: shot.at(-1)?.values.flow ?? 0,
   };

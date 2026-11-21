@@ -236,7 +236,7 @@ export function ShotDetailsCard({ shot, samples, recipe }: { shot: Shot; samples
             {zone}
           </p>
           <p>
-            The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the
+            The time to first drip is from the start of its profile to when the scale first shows coffee in the cup. The last weight recorded is the
             scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So
             the yield, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on
             the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.

@@ -13,7 +13,10 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // before a Shot kept what its samples show of how it went (ticket #467), at
 // revision 1, as 1.8.2 stores them: each a real Shot under another id, of 4
 // samples, whose scale first read 1 g or more, 25.8 g, 21.45 s into its
-// profile, which ended in its Pressure Decline step at 3.216 g/s.
+// profile, which ended in its Pressure Decline step at 3.216 g/s. And those
+// stored with a time to first drip at the scale's first reading of 1 g, at
+// revision 2, as 1.12.0 stores them, before #609 read it as when coffee
+// first reached the cup.
 
 interface Curves { duration: number | null; peakPressure: number | null; peakFlow: number | null }
 /** What a Shot's read and its row in the list give of what its samples show. */
@@ -119,12 +122,47 @@ describe("Shots stored with an earlier curves revision", () => {
       const again = await server.connectDatabase();
       try {
         const { rows: stored } = await again.query("SELECT DISTINCT curves_revision, poured, last_weight, last_weight_seconds FROM shots WHERE id LIKE 'earlier-%'");
-        expect(stored).toEqual([{ curves_revision: 2, poured: true, last_weight: 32.5, last_weight_seconds: 23.549 }]);
+        expect(stored).toEqual([{ curves_revision: 3, poured: true, last_weight: 32.5, last_weight_seconds: 23.549 }]);
       } finally {
         await again.end();
       }
     } finally {
       await Promise.all(others.map((other) => other.stop()));
+    }
+  });
+
+  it("have their time to first drip read again as when coffee first reached the cup, and a cup weighed before the tare left out", async () => {
+    const machine = await api.createMachine("First drip again");
+    const whole = { ...preheatShotFixture(), id: "drip-whole" };
+    // Derived: stopped in its preinfusion, with a cup on the scale weighed before Decaid's tare at the profile's start
+    // landed: nothing poured.
+    const preheat = preheatShotFixture();
+    const samples = (preheat.measurements as { scale: object | null }[]).slice(0, 72);
+    const cup = { ...preheat, id: "drip-cup", measurements: samples.map((sample, n) => (n === 43 || n === 44 ? { ...sample, scale: { ...sample.scale, weight: 152.3 } } : sample)) };
+    syncingTablet(machine, server, { api: withShots(derivedDe1Pro({ serial: "10003" }), [whole, cup]) });
+    const read = async (id: string) => (await api.get<{ shot: Measured & { spec: { unfinished: boolean } } }>(`/shots/${id}`)).shot;
+    await expect.poll(async () => (await api.get<{ shots: Measured[] }>("/shots?limit=100")).shots.filter((shot) => shot.id.startsWith("drip-")).length).toBe(2);
+    expect(await read("drip-whole")).toMatchObject({ timeToFirstDrip: 6.235 });
+    expect(await read("drip-cup")).toMatchObject({ timeToFirstDrip: null, spec: { unfinished: true } });
+
+    const database = await server.connectDatabase();
+    try {
+      // As 1.12.0 stores them: the whole Shot's first drip when its scale first read 1 g, 7.945 s in, and the cup's
+      // reading at the profile's first sample as the other's first drip, so it counted as poured.
+      await database.query("UPDATE shots SET curves_revision = 2, time_to_first_drip = 7.945 WHERE id = 'drip-whole'");
+      await database.query("UPDATE shots SET curves_revision = 2, time_to_first_drip = 0 WHERE id = 'drip-cup'");
+    } finally {
+      await database.end();
+    }
+    expect(await read("drip-whole")).toMatchObject({ timeToFirstDrip: 7.945 });
+    expect(await read("drip-cup")).toMatchObject({ timeToFirstDrip: 0, spec: { unfinished: false } });
+
+    const other = await startTestServer({ env, sharing: server });
+    try {
+      await expect.poll(async () => (await read("drip-whole")).timeToFirstDrip).toBe(6.235);
+      expect(await read("drip-cup")).toMatchObject({ timeToFirstDrip: null, spec: { unfinished: true } });
+    } finally {
+      await other.stop();
     }
   });
 });

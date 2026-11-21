@@ -131,10 +131,10 @@ describe("Shot extraction", () => {
   it("works out what a Shot's samples show of how it went: its first drip, the step it ended in, whether it poured, and the scale at the stop", () => {
     const shot = preheatShotFixture();
     const samples = shot.measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> | null }[];
-    // The whole Shot: its scale first read 1 g 7.945 s into its profile, and it stopped on weight in its last step, at
-    // 32.4 g, landing at 2.82 g/s.
+    // The whole Shot: its scale rose from 0 through 0.3 g 6.235 s into its profile to 1 g at 7.945 s, its first drip
+    // the first (#609), and it stopped on weight in its last step, at 32.4 g, landing at 2.82 g/s.
     expect(extractCurves(shot, samples)).toMatchObject({
-      timeToFirstDrip: 7.945,
+      timeToFirstDrip: 6.235,
       lastStepFrame: 6,
       lastStepName: "Extraction",
       poured: true,
@@ -144,7 +144,7 @@ describe("Shot extraction", () => {
     });
     // Derived: stopped in Pressurize, before its Profile's last steps.
     expect(extractCurves(shot, samples.slice(0, 120))).toMatchObject({
-      timeToFirstDrip: 7.945,
+      timeToFirstDrip: 6.235,
       lastStepFrame: 4,
       lastStepName: "Pressurize",
       poured: true,
@@ -193,9 +193,9 @@ describe("Shot extraction", () => {
       lastStepFrame: 3,
       lastStepName: "Step 4",
     });
-    // Decaid's simulated machine, on a profile of one step.
+    // Decaid's simulated machine, on a profile of one step: its scale read 0.76 g 0.394 s in, then 1.75 g.
     const simulated = burrsShotFixture();
-    expect(extractCurves(simulated, simulated.measurements)).toMatchObject({ lastStepFrame: 0, lastStepName: "Free flow", timeToFirstDrip: 0.594 });
+    expect(extractCurves(simulated, simulated.measurements)).toMatchObject({ lastStepFrame: 0, lastStepName: "Free flow", timeToFirstDrip: 0.394 });
     // Derived: a frame no profile has, which a record may still hold, is kept as it is.
     const shot = shotFixture();
     const beyond = (shot.measurements as { machine: Record<string, unknown> }[]).map((sample) => ({ ...sample, machine: { ...sample.machine, profileFrame: 3e10 } }));

@@ -177,14 +177,14 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(field(details, "Barista")).toHaveText("Ann");
   // The scale's last reading in its curves, before the stop, beside the yield Decaid weighed once the flow settled.
   await expect(field(details, "Last weight recorded")).toHaveText("32.5 g at 23.5 s");
-  // Beside it, when its scale first read 1 g or more, 21.45 s into its profile, and its weight flow at that last reading.
+  // Beside it, when coffee first reached its cup, its scale reading 25.8 g from 0, 21.45 s into its profile, and its weight flow at that last reading.
   await expect(field(details, "Time to first drip")).toHaveText("21.4 s");
   await expect(field(details, "Flow at the stop")).toHaveText("3.22 g/s");
   await expectTip(
     details,
     "Details",
     "What it was pulled with and what its Machine and scale measured, as recorded on its tablet. A Recipe Slot is the one its Recipe is in now. Times on this page are in Lab's time zone, America/Denver." +
-      "The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So the yield, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
+      "The time to first drip is from the start of its profile to when the scale first shows coffee in the cup. The last weight recorded is the scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So the yield, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
   );
 
   await curves.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
@@ -315,9 +315,10 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
   await page.goto("/shots/preheat-shot");
   // From the first sample after Preheat, not the 33.2 s since the recording started.
   await expect(field(page, "Duration")).toHaveText("25.8 s");
-  // Counted from there too: its scale first read 1 g 7.945 s into its profile, and its last reading landed at 2.82 g/s.
+  // Counted from there too: its first drip, the scale's 0.3 g 6.235 s into its profile in its rise from 0 to 1 g, and its
+  // last reading landed at 2.82 g/s.
   const details = await openCard(page, "Details");
-  await expect(field(details, "Time to first drip")).toHaveText("7.9 s");
+  await expect(field(details, "Time to first drip")).toHaveText("6.2 s");
   await expect(field(details, "Last weight recorded")).toHaveText("32.4 g at 25.8 s");
   await expect(field(details, "Flow at the stop")).toHaveText("2.82 g/s");
   const curves = page.getByRole("region", { name: "Curves" });

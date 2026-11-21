@@ -2423,7 +2423,9 @@ fit.
   the start of the profile, in the shape of a Shot's samples
   (`record-samples.ts`), with pressure, the pump's flow, the weight in the
   cup and its rate, and the plan's targets, each step's start, end and why
-  it ended, the stop and why, the time to first drip and the peaks. It
+  it ended, the stop and why, the time to first drip, read from its samples
+  by the rule a Shot's is (`timeToFirstDrip`, [SHOTS.md](SHOTS.md)), and
+  the peaks. It
   starts with the pump at rest and no pressure, with no Preheat, and assumes
   a scale under the cup. Temperature is not simulated: a sample's temperature target is
   its step's, and it has no temperature of its own.
@@ -2508,10 +2510,18 @@ fit.
   within a fiftieth. A Shot's puck (`shotPuck`) is worked out
   from its samples after its Preheat: its resistance from its pressure and
   the flow through the puck at each sample where the pump was running and
-  pressure had built, the water it took before its first drip, and the
-  grams that reached the cup for each ml through it after, past a cup's
-  weight read before Decaid's tare at the profile's start landed; none
-  where no sample shows its resistance. Another dose
+  pressure had built, the water it took before its first drip, as a stored
+  Shot's is read (`timeToFirstDrip`: the first reading of 0.2 g or more in
+  the scale's rise to 1 g, after its last reading of zero, past a cup's
+  weight read before Decaid's tare at the profile's start landed), and the
+  grams that reached the cup for each ml through it after; none where no
+  sample shows its resistance. The standard puck's head space was fitted
+  again for #609 to the water recorded Shots take before that first drip,
+  about 1 ml less than before their first reading of 1 g, which it was
+  fitted to before. Its two known limits are SHOTS.md's: a scale that
+  settles a little under 1 g within the first second reads as a first drip
+  then, and one tared again partway through has its first drip in the rise
+  after that. Another dose
   scales a puck's resistance in proportion and the water its coffee soaks
   up.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
@@ -2597,7 +2607,8 @@ title and steps table it had:
   Shot is drawn over the run, and a table gives how close its fit comes.
   On the standard puck any Shot can be laid over the run. The headline
   figures are the run's time, time to first drip, peak pressure and flow at
-  the stop, and on a Shot's puck how far each is from the Shot's.
+  the stop, and on a Shot's puck how far each is from the Shot's, the
+  Shot's first drip read by the same reader (`timeToFirstDrip`).
 - **The graph** (`web/src/components/profile-graph.tsx`) puts pressure, flow
   and temperature each in a lane on one time axis, drawn in the Shot page's
   colours: blue for the run, orange for a Shot or version compared with

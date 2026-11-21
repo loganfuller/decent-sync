@@ -646,8 +646,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect([editStanding, rest.editStanding]).toEqual([null, null]);
     expect({ grinderModel, basketName }).toEqual({ grinderModel: rest.grinderModel, basketName: rest.basketName });
     expect({ steps, lastStep }).toEqual({ steps: toolSteps(rest.steps!), lastStep: rest.lastStep });
-    // As stored with the Shot, to hundredths: its scale first read 1 g 7.945 s into its profile, and its last reading landed at 2.819 g/s.
-    expect({ timeToFirstDrip: rest.timeToFirstDrip, flowAtStop: rest.flowAtStop }).toEqual({ timeToFirstDrip: 7.945, flowAtStop: 2.8189155419461156 });
+    // As stored with the Shot, to hundredths: its first drip 6.235 s into its profile, its scale's 0.3 g in its rise from 0 to 1 g,
+    // and its last reading landed at 2.819 g/s.
+    expect({ timeToFirstDrip: rest.timeToFirstDrip, flowAtStop: rest.flowAtStop }).toEqual({ timeToFirstDrip: 6.235, flowAtStop: 2.8189155419461156 });
     expect({ firstDrip, flow }).toEqual({ firstDrip: hundredths(rest.timeToFirstDrip!), flow: 2.82 });
     sameTimes([pulledAt], [rest.pulledAt]);
     expect(pulledAt).toMatch(/-0[56]:00$/);
@@ -781,12 +782,12 @@ describe("reading Shots and Steam Records through an assistant", () => {
     const { curves } = await assistant.call<{ curves: { weight: Curve; weightFlow: Curve } }>("get_shot", { id: "assistant-stopped-early", curves: true });
     expect(curves.weight.values.at(-1)).toEqual([early.lastRecordedWeight!.seconds, early.lastRecordedWeight!.weight]);
     // Its flow at the stop is its weight flow curve's last point, and its time to first drip the first of its weight curve's
-    // readings at 1 g or more, each reading up to it given by a window.
-    expect({ timeToFirstDrip: early.timeToFirstDrip, flowAtStop: early.flowAtStop }).toEqual({ timeToFirstDrip: 7.95, flowAtStop: 0.98 });
+    // readings at 0.2 g or more, in its rise from 0 to 1 g, each reading up to it given by a window.
+    expect({ timeToFirstDrip: early.timeToFirstDrip, flowAtStop: early.flowAtStop }).toEqual({ timeToFirstDrip: 6.24, flowAtStop: 0.98 });
     expect(curves.weightFlow.values.at(-1)).toEqual([early.lastRecordedWeight!.seconds, early.flowAtStop]);
     const { curves: before } = await assistant.call<{ curves: { weight: Curve } }>("get_shot", { id: "assistant-stopped-early", window: { until: early.timeToFirstDrip! } });
-    expect(before.weight.values.at(-1)).toEqual([early.timeToFirstDrip, 1]);
-    expect(before.weight.values.slice(0, -1).every(([, weight]) => weight < 1)).toBe(true);
+    expect(before.weight.values.at(-1)).toEqual([early.timeToFirstDrip, 0.3]);
+    expect(before.weight.values.slice(0, -1).every(([, weight]) => weight < 0.2)).toBe(true);
     // Stopped in its Preheat, it ran no step, and has no last weight: Decaid records 0 for the scale until it tares it.
     const preheat = reads["assistant-stopped-in-preheat"]!;
     expect({ steps: preheat.steps, lastStep: preheat.lastStep, lastRecordedWeight: preheat.lastRecordedWeight }).toEqual({ steps: [], lastStep: null, lastRecordedWeight: null });
@@ -802,7 +803,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // Listed, each gives its time to first drip and the step it ended in, and leaves out the one it has none of.
     const { shots: rows } = await assistant.call<{ shots: Fields[] }>("find_shots", { machineId: uptown1.machine.id, from: "2026-10-25", to: "2026-10-26", limit: 50 });
     const row = (id: string) => rows.find((shot) => shot.id === id)!;
-    expect(row("assistant-stopped-early")).toMatchObject({ timeToFirstDrip: 7.95, lastStep: { frame: 4, name: "Pressurize" } });
+    expect(row("assistant-stopped-early")).toMatchObject({ timeToFirstDrip: 6.24, lastStep: { frame: 4, name: "Pressurize" } });
     expect(row("assistant-no-scale")).toMatchObject({ lastStep: { frame: 6, name: "Extraction" } });
     expect(row("assistant-no-scale")).not.toHaveProperty("timeToFirstDrip");
     for (const none of ["timeToFirstDrip", "lastStep"]) expect(row("assistant-stopped-in-preheat"), none).not.toHaveProperty(none);

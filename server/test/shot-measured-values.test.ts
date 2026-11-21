@@ -18,16 +18,16 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Worked out by hand from each record, in seconds from its profile's first
 // sample:
 //
-// | Shot | Scale's first reading of 1 g or more | Ended in | Poured | Last weight | Weight flow there |
+// | Shot | Time to first drip (#609) | Ended in | Poured | Last weight | Weight flow there |
 // |---|---|---|---|---|---|
-// | shot-preheat.json | exactly 1 g, at 7.945 s | 6, Extraction | yes | 32.4 g at 25.833 s | 2.819 g/s |
+// | shot-preheat.json | 0.3 g, at 6.235 s, rising from 0 to exactly 1 g at 7.945 s | 6, Extraction | yes | 32.4 g at 25.833 s | 2.819 g/s |
 // | its first 120 samples | the same | 4, Pressurize | yes | 4.6 g at 15.841 s | 0.975 g/s |
-// | its first 81 | none: 0.6 g at most | 3, Dripping | yes | 0.6 g at 7.7 s | 0.328 g/s |
+// | its first 81 | none: 0.6 g at most, never 1 g | 3, Dripping | yes | 0.6 g at 7.7 s | 0.328 g/s |
 // | its first 72, to the end of its preinfusion | none | 2, Compressing | no | 0 g at 5.845 s | 0 g/s |
 // | its first 43, its Preheat | none | none | no | none | none |
 // | with no scale | none | 6, Extraction | yes | none | none |
 // | shot-espresso.json | 25.8 g, at 21.45 s | 4, Pressure Decline | yes | 32.5 g at 23.549 s | 3.216 g/s |
-// | shot-grinder-burrs.json | 1.75 g, at 0.594 s | 0, Free flow | yes | 27.59 g at 4.095 s | 7.928 g/s |
+// | shot-grinder-burrs.json | 0.76 g, at 0.394 s, then 1.75 g | 0, Free flow | yes | 27.59 g at 4.095 s | 7.928 g/s |
 
 type Fields = Record<string, unknown>;
 
@@ -72,14 +72,14 @@ const shots: Fields[] = [
 /** Each Shot's values, as its read gives them, and whether it poured. */
 const expected: Record<string, Measured & { poured: boolean }> = {
   "measured-whole": {
-    timeToFirstDrip: 7.945,
+    timeToFirstDrip: 6.235,
     lastStep: { frame: 6, name: "Extraction" },
     lastRecordedWeight: { weight: 32.4, seconds: 25.833 },
     flowAtStop: 2.8189155419461156,
     poured: true,
   },
   "measured-stopped-early": {
-    timeToFirstDrip: 7.945,
+    timeToFirstDrip: 6.235,
     lastStep: { frame: 4, name: "Pressurize" },
     lastRecordedWeight: { weight: 4.6, seconds: 15.841 },
     flowAtStop: 0.975336540336653,
@@ -102,7 +102,7 @@ const expected: Record<string, Measured & { poured: boolean }> = {
   "measured-in-preheat": { timeToFirstDrip: null, lastStep: null, lastRecordedWeight: null, flowAtStop: null, poured: false },
   "measured-no-scale": { timeToFirstDrip: null, lastStep: { frame: 6, name: "Extraction" }, lastRecordedWeight: null, flowAtStop: null, poured: true },
   "measured-frame-beyond": {
-    timeToFirstDrip: 7.945,
+    timeToFirstDrip: 6.235,
     lastStep: { frame: 3e10, name: "Step 30000000001" },
     lastRecordedWeight: { weight: 32.4, seconds: 25.833 },
     flowAtStop: 2.8189155419461156,
@@ -116,7 +116,7 @@ const expected: Record<string, Measured & { poured: boolean }> = {
     poured: true,
   },
   "measured-simulated": {
-    timeToFirstDrip: 0.594,
+    timeToFirstDrip: 0.394,
     lastStep: { frame: 0, name: "Free flow" },
     lastRecordedWeight: { weight: 27.590909100856365, seconds: 4.095 },
     flowAtStop: 7.927902245118086,
@@ -197,7 +197,7 @@ describe("What a Shot's measurements show of how it went", () => {
         last_weight: lastRecordedWeight?.weight ?? null,
         last_weight_seconds: lastRecordedWeight?.seconds ?? null,
         flow_at_stop: flowAtStop,
-        curves_revision: 2,
+        curves_revision: 3,
       });
     }
     // The Unfinished Shots: the one stopped in its Preheat, and the one stopped in its preinfusion.
