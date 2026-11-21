@@ -113,7 +113,7 @@ export function ModelChoice({ model, onChange }: { model: MachineModel; onChange
       </Segmented>
       <InfoTip label="About the machine">
         <p>
-          Simulated as this model runs it: a DE1&apos;s pump gives about 8 ml/s at most, and a Bengle&apos;s heater keeps up with about 15 ml/s. It starts as the model of the
+          Simulated as this model runs it: a DE1&apos;s pump gives about 8 ml/s at most, and a Bengle&apos;s heater keeps up with about 15 ml/s at most. It starts as the model of the
           Machines at the Locations showing the Profile: a Bengle where all of them are, otherwise a DE1. On a Shot&apos;s puck it starts as the model of the Shot&apos;s Machine.
         </p>
       </InfoTip>

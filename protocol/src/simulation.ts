@@ -7,8 +7,9 @@
 // simulated machine (`MockDe1` in
 // decaid:lib/src/models/device/impl/mock_de1/mock_de1.dart, v0.9.2) is where
 // its dynamics start: a pump controlling pressure or flow, the other capped by
-// the step's limiter, eased over its range as `_applyLimiter` eases it, and
-// exits read from what the machine measures. Unlike it, a step that gets to
+// the step's limiter, eased over its range as `_applyLimiter` eases it or as
+// recorded Shots show the model holds it (`limited`), and exits read from
+// what the machine measures. Unlike it, a step that gets to
 // its target over the whole step ramps from what was measured as it began,
 // not from the target of the step before, as recorded Shots show, and the
 // puck is a resistance through the water pumped, with water held in the group
@@ -19,7 +20,7 @@
 //
 // Pure: no Node or browser API, as the plugin bundles this package.
 
-import { MODEL_FIGURES, type MachineModel, machineModelOf } from "./machine-models.js";
+import { MODEL_FIGURES, type MachineModel, type ModelFigures, machineModelOf } from "./machine-models.js";
 import { MAX_PROFILE_STEPS, PROFILE_LIMITS, type Profile, type ProfileStep, type StepLimiter, profileOf, stepTarget } from "./profile.js";
 import { type Sample, type ShotCurve, type StepSpan, FIRST_DRIP_GRAMS, lastRecordedWeight, shotSamples, stepSpans, timeToFirstDrip } from "./record-samples.js";
 
@@ -37,11 +38,12 @@ export const SIMULATION_TICK = 0.1;
 export const GROUP_COMPLIANCE = 0.5;
 
 /**
- * How quickly the pump brings pressure to a target: the time constant, s.
- * Recorded Shots show the DE1 in no hurry, its pump giving little more than
- * holds the pressure as it climbs to a target.
+ * How quickly the pump's flow follows what it is asked for on a step whose
+ * pump controls pressure, the time constant, s: within a tick, as how
+ * quickly the pressure follows its target is each model's own
+ * (`ModelFigures.pressureResponse`).
  */
-const PRESSURE_RESPONSE = 2;
+const PUMP_RESPONSE = 0.1;
 
 /**
  * A step's time as the machine runs it, as Decaid sends it in one byte
@@ -414,21 +416,28 @@ export interface Simulation {
 /**
  * Runs a profile on a puck, as a Machine of the model would with a scale
  * under the cup. Each step ends at its time, its exit, its water pumped or
- * the weight in the cup reaching its weight, whichever comes first, a step
- * of no length at once, whatever its exit, and none longer than the machine
- * runs one (127 s, PROFILE_LIMITS); the Shot stops when the weight in
- * the cup reaches the stop-at weight, or when its last step ends. A profile
- * of no steps runs for none.
+ * the weight in the cup reaching its weight, the model's stepWeightLag
+ * after it does (the stop-at weight has none),
+ * whichever comes first, a step of no length at once, whatever its exit,
+ * and none longer than the machine runs one (127 s, PROFILE_LIMITS); the
+ * Shot stops when the weight in the cup reaches the stop-at weight, or when
+ * its last step ends. A profile of no steps runs for none.
  */
 export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "ahead", model = "DE1" }: Simulation): SimulatedRun {
-  const figures = MODEL_FIGURES[model];
+  const figures: ModelFigures = MODEL_FIGURES[model];
   const puck = puckForDose(given, dose ?? given.dose);
   const stopWeight = stopAt !== null && stopAt > 0 ? stopAt : null;
   const steps: RunStep[] = profile.steps.map((step, index) => ({ index, name: step.name, start: null, end: null, reason: null }));
   // What the machine runs.
   const sentSteps = profile.steps.map((step) => sentStep(step, model));
   const samples: Sample<ShotCurve>[] = [];
-  const pumpFollow = 1 - Math.exp(-SIMULATION_TICK / figures.pumpResponse);
+  // The share of the gap to what it is asked for that the pump's flow closes each tick: as a pressure sets it, or as a flow step's target does.
+  const followsPressure = 1 - Math.exp(-SIMULATION_TICK / PUMP_RESPONSE);
+  const followsFlow = 1 - Math.exp(-SIMULATION_TICK / figures.flowResponse);
+  const holds = (target: number, pressure: number, resistance: number) => holding(target, pressure, resistance, figures.pressureResponse);
+  // The weight a step is judged on, a second ahead at its rate, at each tick, as it reaches the step the model's stepWeightLag later.
+  const lagTicks = Math.round((figures.stepWeightLag ?? 0) / SIMULATION_TICK);
+  const judged: number[] = [];
 
   let time = 0;
   let pressure = 0;
@@ -494,21 +503,32 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / step.seconds) : goal;
     const resistance = Math.max(LEAST_RESISTANCE, resistanceAt(puck.resistance, pumped));
 
-    // What the pump is asked for this tick.
+    // What the pump is asked for this tick, and whether a pressure sets it: the step's, its limiter's or the most the machine reaches.
     let asked: number;
+    let byPressure = step.pump === "pressure";
     if (step.pump === "pressure") {
-      asked = holding(target, pressure, resistance);
-      asked = eased(Math.min(figures.pressureStepMaxFlow, asked), step.limiter);
+      asked = holds(target, pressure, resistance);
+      // The most the model gives here: against the pressure now, and against the pressure the step asks for.
+      const gives = Math.min(
+        figures.pressureStepFlow ? pointsAt(figures.pressureStepFlow, pressure) : figures.maxFlow,
+        figures.pressureStepTargetFlow ? pointsAt(figures.pressureStepTargetFlow, goal) : figures.maxFlow,
+      );
+      asked = limited(Math.min(gives, asked), step.limiter, figures.flowLimiterReach);
     } else {
       asked = Math.min(figures.maxFlow, Math.max(0, target));
       const wouldBe = resistance * asked * asked;
-      const allowed = eased(wouldBe, step.limiter);
-      if (allowed < wouldBe) asked = Math.min(asked, holding(allowed, pressure, resistance));
+      const allowed = limited(wouldBe, step.limiter, figures.pressureLimiterReach);
+      if (allowed < wouldBe) {
+        const held = holds(allowed, pressure, resistance);
+        if (held < asked) [asked, byPressure] = [held, true];
+      }
     }
-    asked = Math.max(0, Math.min(asked, holding(figures.maxPressure, pressure, resistance)));
+    const most = holds(figures.maxPressure, pressure, resistance);
+    if (most < asked) [asked, byPressure] = [most, true];
+    asked = Math.max(0, asked);
 
     // The pump follows, and the group fills or drains through the puck.
-    flow += (asked - flow) * pumpFollow;
+    flow += (asked - flow) * (byPressure ? followsPressure : followsFlow);
     const next = groupPressure(pressure, flow, resistance);
     const puckFlow = Math.sqrt(next / resistance);
     pressure = next;
@@ -524,12 +544,13 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     // Whether the step or the Shot ends now; the sample is then of the step that begins, as a Shot's sample is of the frame the machine is on.
     const ran = index;
     const ahead = weight + weightFlow * WEIGHT_LOOKAHEAD;
+    judged.push(ahead);
     if (stopWeight !== null && (stopOn === "ahead" ? ahead : weight) >= stopWeight) {
       steps[index]!.end = round(time);
       steps[index]!.reason = "stop";
       stop = { seconds: round(time), reason: "weight" };
     } else {
-      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: ahead });
+      const reason = stepEnded(step, { elapsed, pressure, flow, water: pumped - stepPumped, weight: judged[judged.length - 1 - lagTicks] ?? 0 });
       if (reason) {
         steps[index]!.end = round(time);
         steps[index]!.reason = reason;
@@ -579,12 +600,26 @@ function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; f
 }
 
 /**
- * The flow that brings the group to `target` bar from `pressure` within the
- * pump's response: what holds it there through the puck, and more to fill
- * the group as pressure rises, or less to let it drain as it falls.
+ * The flow that brings the group to `target` bar from `pressure` within
+ * `response` s, the model's `pressureResponse`: what holds it there through
+ * the puck, and more to fill the group as pressure rises, or less to let it
+ * drain as it falls.
  */
-function holding(target: number, pressure: number, resistance: number): number {
-  return Math.sqrt(Math.max(0, target) / resistance) + (GROUP_COMPLIANCE * (target - pressure)) / PRESSURE_RESPONSE;
+function holding(target: number, pressure: number, resistance: number, response: number): number {
+  return Math.sqrt(Math.max(0, target) / resistance) + (GROUP_COMPLIANCE * (target - pressure)) / response;
+}
+
+/** A value read from [x, value] points in order of x, along the line between two, and level beyond either end. */
+function pointsAt(points: ReadonlyArray<readonly [number, number]>, x: number): number {
+  if (x <= points[0]![0]) return points[0]![1];
+  for (let n = 1; n < points.length; n++) {
+    const [x1, y1] = points[n]!;
+    if (x <= x1) {
+      const [x0, y0] = points[n - 1]!;
+      return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+    }
+  }
+  return points[points.length - 1]![1];
 }
 
 /**
@@ -615,6 +650,23 @@ export function eased(reading: number, limiter: StepLimiter | null): number {
   if (limiter.range <= 0) return limiter.value;
   const over = reading - limiter.value;
   return limiter.value + (limiter.range * over) / (limiter.range + over);
+}
+
+/**
+ * A reading held under a step's limiter as recorded Shots show a model holds
+ * it (`ModelFigures.flowLimiterReach`, `pressureLimiterReach`): unchanged up
+ * to the limit; above it, the limit plus what the reading is over it, less
+ * a share of that which grows evenly, so that it settles at `reach` of the
+ * range above the limit once the reading is twice that over. A reach of 0,
+ * or a limiter of no range, is a hard cap at the limit. Where the model has
+ * no reach, as Decaid's simulated machine eases it (`eased`).
+ */
+export function limited(reading: number, limiter: StepLimiter | null, reach?: number): number {
+  if (reach === undefined) return eased(reading, limiter);
+  if (!limiter || limiter.value <= 0 || reading <= limiter.value) return reading;
+  const most = reach * limiter.range;
+  const over = reading - limiter.value;
+  return limiter.value + (over >= 2 * most ? most : over - (over * over) / (4 * most));
 }
 
 function round(seconds: number): number {

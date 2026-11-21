@@ -68,7 +68,7 @@ describe("the scrubbed shape", () => {
     if (typeof scrubbed === "string") throw new Error(scrubbed);
     const from = scorecard([shotEntry("pulled", pulled("classic-italian"))]).shots[0]!;
     const corpus = scorecard([shotEntry("scrubbed", JSON.parse(JSON.stringify(scrubbed)))]).shots[0]!;
-    expect(corpus).toMatchObject({ model: from.model, kind: from.kind, within: true, noFit: null });
+    expect(corpus).toMatchObject({ model: from.model, kind: from.kind, within: from.within, noFit: null });
     expect(corpus.errors!.duration).toBeCloseTo(from.errors!.duration, 1);
     expect(corpus.errors!.peakPressure).toBeCloseTo(from.errors!.peakPressure, 2);
     expect(corpusRecord(scrubbed).measurements.length).toBe(scrubbed.samples.seconds.length);
@@ -95,9 +95,11 @@ describe("the scrubbed shape", () => {
 });
 
 describe("the scorecard", () => {
-  it("scores Shots as the REST API gives them, by model and kind of Profile, each within the margin", () => {
+  it("scores Shots as the REST API gives them, by model and kind of Profile, those of Decaid's simulated machine that hold it within the margin", () => {
     const card = scorecard(["classic-italian", "blooming", "default", "gentle-and-sweet"].map((name) => shotEntry(name, pulled(name))));
-    expect(card.models.DE1!.all).toMatchObject({ shots: 4, fitted: 4, within: 4, share: 1 });
+    // Classic Italian and the default run long on a DE1 that, as the corpus shows, builds pressure more slowly than the mock (WITHIN_MARGIN in protocol/test/simulation.test.ts).
+    expect(card.models.DE1!.all).toMatchObject({ shots: 4, fitted: 4, within: 2, share: 0.5 });
+    expect(card.shots.filter((shot) => shot.within).map((shot) => shot.name)).toEqual(["blooming", "gentle-and-sweet"]);
     expect(card.models.Bengle).toBeUndefined();
     expect(card.shots.map((shot) => shot.kind)).toEqual(["pressure", "bloom", "declining", "low pressure"]);
     expect(formatScorecard(card)).toContain("DE1");

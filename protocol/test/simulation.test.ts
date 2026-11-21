@@ -9,6 +9,7 @@ import {
   SIMULATION_TICK,
   eased,
   fitToShot,
+  limited,
   machineModelOf,
   profileOf,
   shotPuck,
@@ -163,13 +164,22 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
     expect(pumped).toBeLessThan(10 + 4 * SIMULATION_TICK + 1e-9);
   });
 
-  it("at its weight, judged a second ahead at its rate, as Decaid judges it", () => {
-    const result = run([flow("Weighs", 4, { seconds: 60, weight: 5 }), after]);
-    const step = result.steps[0]!;
-    expect(step.reason).toBe("weight");
-    const at = result.samples.find((sample) => sample.seconds === step.end)!.values;
-    expect(at.weight!).toBeLessThan(5);
-    expect(at.weight! + at.weightFlow! * 1).toBeGreaterThanOrEqual(5);
+  it("at its weight, judged a second ahead at its rate, as Decaid judges it, on a DE1 at once and on a Bengle four tenths of a second later", () => {
+    expect(MODEL_FIGURES.DE1).not.toHaveProperty("stepWeightLag");
+    expect(MODEL_FIGURES.Bengle.stepWeightLag).toBe(0.4);
+    for (const model of MACHINE_MODELS) {
+      const lag = model === "Bengle" ? MODEL_FIGURES.Bengle.stepWeightLag : 0;
+      const result = run([flow("Weighs", 4, { seconds: 60, weight: 5 }), after], { model });
+      const step = result.steps[0]!;
+      expect(step.reason).toBe("weight");
+      const ahead = (seconds: number) => {
+        const at = result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values;
+        return at.weight! + at.weightFlow! * 1;
+      };
+      expect(ahead(step.end! - lag)).toBeGreaterThanOrEqual(5);
+      expect(ahead(step.end! - lag - 0.1)).toBeLessThan(5);
+      expect(result.samples.find((sample) => sample.seconds === step.end)!.values.weight!).toBeLessThan(5);
+    }
   });
 
   it("whichever comes first", () => {
@@ -182,7 +192,7 @@ describe("a step ends at its time, its exit, its water pumped or its weight, whi
   it("on one tick, by exit before time, and by the Shot's stop before the step's weight", () => {
     const both = run([flow("Tick", 4, { seconds: 0.1, exit: { type: "flow", condition: "over", value: 0.5 } }), after]);
     expect(both.steps[0]).toMatchObject({ end: 0.1, reason: "exit" });
-    // A step's weight, judged ahead, that first holds on the tick the stop-at weight is reached.
+    // A step's weight, judged ahead, that the cup first holds on the tick the stop-at weight is reached.
     const pours = run([flow("Pours", 4, { seconds: 60 }), after], { stopAt: 20 });
     const ahead = (sample: (typeof pours.samples)[number]) => sample.values.weight! + sample.values.weightFlow! * 1;
     const [before, at] = pours.samples.slice(-2) as [(typeof pours.samples)[number], (typeof pours.samples)[number]];
@@ -341,13 +351,36 @@ describe("a limit", () => {
 
   it("caps the flow of a step whose pump controls pressure, easing over its range", () => {
     const free = fill(null);
-    expect(free.peakFlow).toBeCloseTo(MODEL_FIGURES.DE1.pressureStepMaxFlow, 1);
+    expect(free.peakFlow).toBeCloseTo(MODEL_FIGURES.DE1.pressureStepFlow[0][1], 1);
     const hard = fill({ value: 2, range: 0 });
     expect(hard.peakFlow).toBeLessThanOrEqual(2 + 1e-9);
     expect(hard.peakFlow).toBeGreaterThan(1.9);
     const soft = fill({ value: 2, range: 1 });
     expect(soft.peakFlow).toBeGreaterThan(2.2);
     expect(soft.peakFlow).toBeLessThan(3);
+  });
+
+  it("on a DE1's flow lets through what recorded Shots show: pushed hard, its reach of the range over the limit, and short of that, more than Decaid's easing", () => {
+    // Filling toward 9 bar, the pump would give far more than a limit of 1.5 ml/s with a range of 2.5.
+    const reach = MODEL_FIGURES.DE1.flowLimiterReach;
+    const wide = { value: 1.5, range: 2.5 };
+    expect(fill(wide).peakFlow).toBeCloseTo(1.5 + reach * 2.5, 2);
+    // Where the pump would give 3.4 ml/s, recorded Shots settle near 3: the easing gives 2.6.
+    expect(limited(3.4, wide, reach)).toBeGreaterThan(eased(3.4, wide) + 0.25);
+    expect(limited(3.4, wide, reach)).toBeLessThan(3.1);
+    // A Bengle's Shots show no such thing, so its flow eases as Decaid's simulated machine eases it.
+    const bengle = run([pressure("Fill", 9, { seconds: 8, limiter: { value: 1.5, range: 2.5 } })], { model: "Bengle" });
+    expect(bengle.peakFlow).toBeCloseTo(eased(MODEL_FIGURES.Bengle.maxFlow, { value: 1.5, range: 2.5 }), 2);
+  });
+
+  it("on a Bengle's pressure holds it at the limit's value, at every range its Shots show and wider, where a DE1's eases over it", () => {
+    expect(MODEL_FIGURES.Bengle.pressureLimiterReach).toBe(0);
+    for (const range of [0.6, 2, 5]) {
+      const steps = (model: "DE1" | "Bengle") => run([flow("Push", 6, { seconds: 25, limiter: { value: 3, range } })], { grind: -0.5, model });
+      expect(steps("Bengle").peakPressure).toBeLessThan(3.2);
+      expect(steps("Bengle").peakPressure).toBeGreaterThan(2.8);
+      expect(steps("DE1").peakPressure).toBeGreaterThan(3.2);
+    }
   });
 
   it("caps the pressure of a step whose pump controls flow, easing over its range", () => {
@@ -370,6 +403,28 @@ describe("a limit", () => {
     expect(eased(5, { value: 2, range: 0 })).toBe(2);
     expect(eased(3, { value: 2, range: 1 })).toBeCloseTo(2.5, 9);
     expect(eased(1000, { value: 2, range: 1 })).toBeLessThan(3);
+  });
+
+  it("with a reach settles that share of its range over its value, rising smoothly to it, and with none eases as Decaid's", () => {
+    const limiter = { value: 2, range: 1 };
+    expect(limited(3, limiter)).toBe(eased(3, limiter));
+    expect(limited(5, { value: 0, range: 1 }, 0.7)).toBe(5);
+    expect(limited(1.5, limiter, 0.7)).toBe(1.5);
+    // Twice its reach over or more, at its reach; below that, what it is over less a share that grows evenly.
+    expect(limited(2 + 1.4, limiter, 0.7)).toBeCloseTo(2.7, 9);
+    expect(limited(1000, limiter, 0.7)).toBeCloseTo(2.7, 9);
+    expect(limited(2.7, limiter, 0.7)).toBeCloseTo(2 + 0.7 - (0.7 * 0.7) / (4 * 0.7), 9);
+    expect(limited(2.001, limiter, 0.7)).toBeCloseTo(2.001, 3);
+    // A reach of 0, or a limiter of no range, is a hard cap.
+    expect(limited(5, limiter, 0)).toBe(2);
+    expect(limited(5, { value: 2, range: 0 }, 0.7)).toBe(2);
+    // It never falls as the reading rises.
+    let last = 0;
+    for (let reading = 0; reading <= 6; reading += 0.05) {
+      const now = limited(reading, limiter, 0.7);
+      expect(now).toBeGreaterThanOrEqual(last);
+      last = now;
+    }
   });
 });
 
@@ -418,6 +473,72 @@ describe("a machine of a model", () => {
     expect(MODEL_FIGURES.Bengle.maxFlow).toBe(15);
   });
 
+  it("on a step whose pump controls pressure, gives a DE1 ever less as pressure builds, so a coarse puck stalls short of 9 bar where a Bengle reaches it", () => {
+    const steps = [pressure("Nine", 9, { seconds: 30 })];
+    const de1 = run(steps, { grind: 1, model: "DE1" });
+    const bengle = run(steps, { grind: 1, model: "Bengle" });
+    expect(de1.peakPressure).toBeLessThan(7);
+    expect(de1.peakPressure).toBeGreaterThan(4.5);
+    expect(bengle.peakPressure).toBeGreaterThan(8.9);
+    // At its most below 2 bar, and stalled where the puck takes all it gives at that pressure, along the line to 6 bar.
+    const [[low, most], [high, least]] = MODEL_FIGURES.DE1.pressureStepFlow;
+    expect(de1.peakFlow).toBeCloseTo(most, 1);
+    const gives = (bar: number) => most + ((least - most) * (Math.min(high, Math.max(low, bar)) - low)) / (high - low);
+    const stalled = de1.samples[de1.samples.length - 1]!.values;
+    expect(stalled.flow!).toBeCloseTo(gives(stalled.pressure!), 1);
+    expect(stalled.flow!).toBeLessThan(most - 1);
+    // On a medium puck it gets there.
+    expect(run(steps, { model: "DE1" }).peakPressure).toBeGreaterThan(8.9);
+  });
+
+  it("on a step whose pump controls pressure, gives a Bengle less the lower the pressure the step asks for, whatever the pressure is by then", () => {
+    const [[low, least], [high, most]] = MODEL_FIGURES.Bengle.pressureStepTargetFlow;
+    expect(most).toBe(MODEL_FIGURES.Bengle.maxFlow);
+    // Filling the group, the pump at its most for the step: at the least where it asks the low pressure or less, along the line between, and all it has from the high one.
+    const fills = (bar: number, model: "DE1" | "Bengle" = "Bengle") => run([pressure("Fill", bar, { seconds: 3 })], { model }).peakFlow;
+    expect(fills(low)).toBeCloseTo(least, 1);
+    expect(fills(low / 2)).toBeCloseTo(least, 1);
+    expect(fills((low + high) / 2)).toBeCloseTo((least + most) / 2, 1);
+    expect(fills(high)).toBeCloseTo(most, 1);
+    expect(fills(9)).toBeCloseTo(most, 1);
+    // So it comes to a low pressure later than it would giving all it has, and a DE1 gives a step what it gives at the pressure, whatever the step asks.
+    expect(fills(low, "DE1")).toBeCloseTo(fills(high, "DE1"), 1);
+    const reaches = (bar: number) => { const result = run([pressure("Fill", bar, { seconds: 20 })], { model: "Bengle" }); return result.samples.find((sample) => sample.values.pressure! >= 0.9 * bar)!.seconds; };
+    expect(reaches(low)).toBeGreaterThan(reaches(high));
+  });
+
+  it("follows a flow step's target as each model's Shots show, a DE1 over most of a second, a Bengle within a few tenths", () => {
+    const steps = [flow("Fast", 8, { seconds: 4 })];
+    const at = (result: SimulatedRun, seconds: number) => result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values.flow!;
+    const de1 = run(steps, { model: "DE1" });
+    const bengle = run(steps, { model: "Bengle" });
+    // Most of the way, its time constant, by MODEL_FIGURES's flowResponse.
+    expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeGreaterThan(0.55);
+    expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeLessThan(0.7);
+    expect(at(bengle, MODEL_FIGURES.Bengle.flowResponse) / 8).toBeGreaterThan(0.55);
+    expect(at(bengle, MODEL_FIGURES.Bengle.flowResponse) / 8).toBeLessThan(0.7);
+    expect(at(de1, 0.3)).toBeLessThan(4);
+    // Nine tenths of the way in about half a second, as a Bengle's recorded Shots rise.
+    expect(at(bengle, 0.5)).toBeGreaterThan(0.9 * 8);
+    expect(at(bengle, 0.3)).toBeLessThan(0.9 * 8);
+  });
+
+  it("brings pressure to a pressure step's target more slowly on a DE1 than on a Bengle", () => {
+    const steps = [flow("Fill", 3, { seconds: 8 }), pressure("Up", 8, { seconds: 15 })];
+    const reached = (result: SimulatedRun) => result.samples.find((sample) => sample.step?.frame === 1 && sample.values.pressure! >= 7.5)!.seconds - result.steps[1]!.start!;
+    expect(reached(run(steps, { model: "DE1" }))).toBeGreaterThan(reached(run(steps, { model: "Bengle" })) + 0.5);
+  });
+
+  it("holds a flow step at the most pressure it reaches, its pump easing at once", () => {
+    // Asking for all its pump gives, on pucks from fine to the grind that brings that flow to about 12 bar. The pump eases
+    // within a tick, so the pressure passes the most by what that tick's flow still fills the group with, a fifth of a bar
+    // at most (a Bengle at 15 ml/s near grind 0.5).
+    for (const model of MACHINE_MODELS) {
+      const steps = [flow("Push", MODEL_FIGURES[model].maxFlow, { seconds: 30 })];
+      for (const grind of [-1, -0.5, 0, 0.25, 0.5, 0.75]) expect(run(steps, { grind, model }).peakPressure).toBeLessThanOrEqual(MODEL_FIGURES[model].maxPressure + 0.25);
+    }
+  });
+
   it("runs a step that asks for more flow than a DE1 gives, a Bengle keeping up", () => {
     const steps = [flow("Fast", 12, { seconds: 4 })];
     const de1 = run(steps, { model: "DE1" });
@@ -444,6 +565,12 @@ describe("a machine of a model", () => {
 
 // Shots Decaid v0.9.2's simulated machine recorded (server/test/fixtures/decaid/simulated-shots-v0.9.2/README.md).
 const SHOT_FIXTURES = ["classic-italian", "blooming", "default", "gentle-and-sweet"];
+// Those whose own steps on their puck still land within the margin, the corpus being the judge where Decaid's simulated
+// machine differs from the DE1s it holds (#601). The mock builds pressure on a pressure step as fast as its pump gives,
+// where those DE1s are held back as pressure builds, so Classic Italian's 9 bar and the default's 8.6 run long; and it
+// stops its pump at once for the blooming profile's pause, where a DE1's flow takes a second or more to fall, so the
+// run's first drip comes during the pause.
+const WITHIN_MARGIN = ["gentle-and-sweet"];
 
 /**
  * How close a Shot's own steps on its own puck land to the Shot: its
@@ -456,7 +583,7 @@ const MARGIN_BAR = 0.5;
 
 describe("a Shot's puck", () => {
   for (const name of SHOT_FIXTURES) {
-    it(`is worked out from its samples, its own steps on it landing near it: ${name}`, () => {
+    it(`is worked out from its samples, its own steps on it ${WITHIN_MARGIN.includes(name) ? "landing near it" : "coming to its steps"}: ${name}`, () => {
       const record = JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/simulated-shots-v0.9.2/${name}.json`, import.meta.url), "utf8")) as {
         workflow: { profile: unknown; context: { targetDoseWeight: number } };
         measurements: unknown;
@@ -470,10 +597,14 @@ describe("a Shot's puck", () => {
       const { run: fitted, fit } = fitToShot({ samples, profile: shotProfile, puck, stopAt: shotFitStop(samples, record.stopReason, "DE1", shotProfile)!.stopAt });
       const margin = Math.max(MARGIN_SECONDS, MARGIN_SHARE * fit.shot.duration);
       expect(fitted.stop.reason).toBe("weight");
+      expect(fit.simulated.steps.map((step) => step.index)).toEqual(fit.shot.steps.map((step) => step.index));
+      // Outside the margin, still near the Shot: within a fifth of its duration and 1.5 bar of its peak.
+      expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(0.2 * fit.shot.duration);
+      expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(1.5);
+      if (!WITHIN_MARGIN.includes(name)) return;
       expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(margin);
       expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(margin);
       expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(MARGIN_BAR);
-      expect(fit.simulated.steps.map((step) => step.index)).toEqual(fit.shot.steps.map((step) => step.index));
       fit.shot.steps.forEach((step, n) => expect(Math.abs(fit.simulated.steps[n]!.end - step.end)).toBeLessThanOrEqual(margin));
     });
   }
