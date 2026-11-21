@@ -2433,7 +2433,8 @@ fit.
   after that (`stepWeightLag`), an effective figure fitted on step ends: its
   recorded Shots leave such a step about 0.1 s after their own weights meet
   Decaid's rule, yet its runs left it about 0.4 s before the Shots did,
-  while a DE1's Shots move at no lag; a step under 0.05 s, which
+  while a DE1's Shots don't show one, none moving at any lag tried; a
+  step under 0.05 s, which
   Decaid sends as none, is passed through at once, whatever its exit. A
   step runs the time Decaid sends the machine (`stepSeconds`): rounded to a
   tenth of a second below 12.75 s and to a whole second from there, up to

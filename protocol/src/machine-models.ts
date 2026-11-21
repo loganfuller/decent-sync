@@ -49,7 +49,8 @@ export interface ModelFigures {
    * effective figure, fitted on step ends, for what makes a run leave such a
    * step early. A Bengle's recorded Shots leave one about 0.1 s after their
    * own recorded weights meet the rule, yet its runs leave it about 0.4 s
-   * before the Shots do. Where none, at once; a DE1's Shots move at no lag.
+   * before the Shots do. Where none, at once: a DE1's Shots don't show one,
+   * none moving at any lag tried.
    */
   stepWeightLag?: number;
   /** How quickly its flow follows a target on a step whose pump controls flow: the time constant, s. */
