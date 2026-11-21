@@ -516,11 +516,12 @@ var __decentSync = (() => {
         [6, 3]
       ],
       maxPressure: 12,
+      flowLimiterReach: 0.7,
       flowResponse: 0.7,
       pressureResponse: 1.5,
       wireScale: 16
     },
-    Bengle: { maxFlow: 15, maxPressure: 12, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 }
+    Bengle: { maxFlow: 15, maxPressure: 12, pressureLimiterReach: 0, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 }
   };
 
   // ../protocol/src/steam-phases.ts

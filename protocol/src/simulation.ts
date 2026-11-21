@@ -7,8 +7,9 @@
 // simulated machine (`MockDe1` in
 // decaid:lib/src/models/device/impl/mock_de1/mock_de1.dart, v0.9.2) is where
 // its dynamics start: a pump controlling pressure or flow, the other capped by
-// the step's limiter, eased over its range as `_applyLimiter` eases it, and
-// exits read from what the machine measures. Unlike it, a step that gets to
+// the step's limiter, eased over its range as `_applyLimiter` eases it or as
+// recorded Shots show the model holds it (`limited`), and exits read from
+// what the machine measures. Unlike it, a step that gets to
 // its target over the whole step ramps from what was measured as it began,
 // not from the target of the step before, as recorded Shots show, and the
 // puck is a resistance through the water pumped, with water held in the group
@@ -504,11 +505,11 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     if (step.pump === "pressure") {
       asked = holds(target, pressure, resistance);
       const gives = figures.pressureStepFlow ? pointsAt(figures.pressureStepFlow, pressure) : figures.maxFlow;
-      asked = eased(Math.min(gives, asked), step.limiter);
+      asked = limited(Math.min(gives, asked), step.limiter, figures.flowLimiterReach);
     } else {
       asked = Math.min(figures.maxFlow, Math.max(0, target));
       const wouldBe = resistance * asked * asked;
-      const allowed = eased(wouldBe, step.limiter);
+      const allowed = limited(wouldBe, step.limiter, figures.pressureLimiterReach);
       if (allowed < wouldBe) {
         const held = holds(allowed, pressure, resistance);
         if (held < asked) [asked, byPressure] = [held, true];
@@ -640,6 +641,23 @@ export function eased(reading: number, limiter: StepLimiter | null): number {
   if (limiter.range <= 0) return limiter.value;
   const over = reading - limiter.value;
   return limiter.value + (limiter.range * over) / (limiter.range + over);
+}
+
+/**
+ * A reading held under a step's limiter as recorded Shots show a model holds
+ * it (`ModelFigures.flowLimiterReach`, `pressureLimiterReach`): unchanged up
+ * to the limit; above it, the limit plus what the reading is over it, less
+ * a share of that which grows evenly, so that it settles at `reach` of the
+ * range above the limit once the reading is twice that over. A reach of 0,
+ * or a limiter of no range, is a hard cap at the limit. Where the model has
+ * no reach, as Decaid's simulated machine eases it (`eased`).
+ */
+export function limited(reading: number, limiter: StepLimiter | null, reach?: number): number {
+  if (reach === undefined) return eased(reading, limiter);
+  if (!limiter || limiter.value <= 0 || reading <= limiter.value) return reading;
+  const most = reach * limiter.range;
+  const over = reading - limiter.value;
+  return limiter.value + (over >= 2 * most ? most : over - (over * over) / (4 * most));
 }
 
 function round(seconds: number): number {

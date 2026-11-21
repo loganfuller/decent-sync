@@ -2448,7 +2448,8 @@ fit.
   the run measured as it began, not from the step before's target, as
   recorded Shots show and Decaid's simulated machine does not. A limiter
   caps the quantity the pump doesn't control, eased over its range as Decaid's
-  simulated machine eases it, the pump easing at once as it takes over. An
+  simulated machine eases it, or held as recorded Shots show the model holds
+  it (The machine, below), the pump easing at once as it takes over. An
   exit of 0 or less is none, as there.
 - **The machine.** The pump follows what a step asks within its model's
   figures, held in one place (`MODEL_FIGURES` in
@@ -2463,12 +2464,25 @@ fit.
   Bengle's flow follows within about 0.1 s and its pressure over about
   0.7 s. Wherever a pressure sets the flow, a step's own, its limiter's or
   the most the machine reaches, 12 bar, the pump follows within a tick.
+  Each model holds one kind of limiter as its Shots show, not as Decaid's
+  simulated machine eases it (`limited`). A DE1 lets more flow past a
+  pressure step's limiter, short of pushing it hard: the flow settles 0.7 of
+  the limiter's range over its value once the pump would give twice that
+  over (`flowLimiterReach`), so under a limit of 1.5 ml/s with a range of
+  2.5, a flow that would be 3.4 settles near 2.9, where its Shots hold
+  about 3 and the easing gives 2.6. A Bengle holds a flow step's pressure
+  at its limiter's value, whatever the range (`pressureLimiterReach`, 0):
+  about 6 bar under a limit of 6 with a range of 0.6, where the easing
+  gives 6.5. A DE1's pressure limiter and a Bengle's flow limiter ease as
+  Decaid's.
   Pressure builds in the group as the pump gives more than passes the puck
   and falls as it drains, over seconds. Each figure stays only where it
   brings more of the corpus within the margin; what was tried and left
   out, a DE1's flow on a flow step falling as pressure builds, the pump
-  already running as a Shot begins and a limiter eased further over its
-  range, is in #601's pull request.
+  already running as a Shot begins, a DE1's flow falling more slowly than
+  it rises, a machine leaving a step a moment before the pressure it
+  records passes its exit, and a Bengle giving less on a pressure step, is
+  in #601's pull request.
 - **The puck** is its resistance through the Shot, the pressure a flow
   through it takes, against the water pumped, and the water it takes before
   the first drip. The standard puck (`standardPuck`) is a fixed curve for
@@ -2512,7 +2526,7 @@ fit.
   1 s, whichever is more, and its peak pressure within 0.5 bar. On the
   corpus of real Shots in `scripts/simulation/corpus/` (#599), its share
   within that margin is held by a test at the level recorded in
-  `corpus/levels.json`: 80 of 113 DE1 coffee Shots and 15 of 23 Bengle
+  `corpus/levels.json`: 85 of 113 DE1 coffee Shots and 17 of 23 Bengle
   Shots with the machine fitted to it (#601), from 55 and 12 when it was
   committed. `npm run simulation-scorecard` prints how close
   it comes, by model and kind of Profile ([DEVELOPMENT.md](DEVELOPMENT.md#the-simulations-scorecard)).

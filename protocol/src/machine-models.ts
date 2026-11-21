@@ -25,6 +25,23 @@ export interface ModelFigures {
   pressureStepFlow?: ReadonlyArray<readonly [number, number]>;
   /** The most pressure it reaches, bar, as its profile's range allows. */
   maxPressure: number;
+  /**
+   * How far over a limiter's value it lets the flow settle on a step whose
+   * pump controls pressure, as a share of the limiter's range (`limited`).
+   * A DE1's recorded Shots let more through such a limiter than Decaid's
+   * simulated machine eases it to, short of pushing it hard: with a limit of
+   * 1.5 ml/s and a range of 2.5, a flow that would be 3.4 settles near 3,
+   * where the easing gives 2.6. Where none, Decaid's easing (`eased`).
+   */
+  flowLimiterReach?: number;
+  /**
+   * How far over a limiter's value it lets the pressure settle on a step
+   * whose pump controls flow, as a share of the limiter's range (`limited`):
+   * 0 holds it at the value, as a Bengle's recorded Shots hold 6 bar under a
+   * limiter of 6 with a range of 0.6, where Decaid's easing gives 6.5. Where
+   * none, Decaid's easing (`eased`).
+   */
+  pressureLimiterReach?: number;
   /** How quickly its flow follows a target on a step whose pump controls flow: the time constant, s. */
   flowResponse: number;
   /** How quickly its pump brings the pressure to a target on a step whose pump controls pressure: the time constant, s. */
@@ -44,10 +61,12 @@ export interface ModelFigures {
  * simulation's corpus of recorded Shots (scripts/simulation, #601): each
  * figure is the one that brings the most of its Shots within the margin on
  * their own puck, and each stays only where it does so by a clear step. A
- * DE1's pump is slow to bring up its flow and slower to build pressure, and
- * gives less on a step whose pump controls pressure; a Bengle follows its
- * targets about as fast as the machine reads them, and its Shots show no
- * such step giving it less. Decent Sync can't tell a Bengle's power version,
+ * DE1's pump is slow to bring up its flow and slower to build pressure,
+ * gives less on a step whose pump controls pressure, and lets more flow
+ * past such a step's limiter than Decaid's simulated machine does; a Bengle
+ * follows its targets about as fast as the machine reads them, its Shots
+ * show no such step giving it less, and it holds a flow step's pressure at
+ * its limiter's value. Decent Sync can't tell a Bengle's power version,
  * so one Bengle's figures stand for every Bengle, and its maxFlow is
  * Decent's, as no recorded Shot reaches it (#588).
  */
@@ -59,11 +78,12 @@ export const MODEL_FIGURES = {
       [6, 3],
     ],
     maxPressure: 12,
+    flowLimiterReach: 0.7,
     flowResponse: 0.7,
     pressureResponse: 1.5,
     wireScale: 16,
   },
-  Bengle: { maxFlow: 15, maxPressure: 12, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 },
+  Bengle: { maxFlow: 15, maxPressure: 12, pressureLimiterReach: 0, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 },
 } as const satisfies Record<string, ModelFigures>;
 
 /** A model a profile runs on: any DE1 model, or a Bengle. */

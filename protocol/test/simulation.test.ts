@@ -9,6 +9,7 @@ import {
   SIMULATION_TICK,
   eased,
   fitToShot,
+  limited,
   machineModelOf,
   profileOf,
   shotPuck,
@@ -350,6 +351,27 @@ describe("a limit", () => {
     expect(soft.peakFlow).toBeLessThan(3);
   });
 
+  it("on a DE1's flow lets through what recorded Shots show: pushed hard, its reach of the range over the limit, and short of that, more than Decaid's easing", () => {
+    // Filling toward 9 bar, the pump would give far more than a limit of 1.5 ml/s with a range of 2.5.
+    const reach = MODEL_FIGURES.DE1.flowLimiterReach;
+    const wide = { value: 1.5, range: 2.5 };
+    expect(fill(wide).peakFlow).toBeCloseTo(1.5 + reach * 2.5, 2);
+    // Where the pump would give 3.4 ml/s, recorded Shots settle near 3: the easing gives 2.6.
+    expect(limited(3.4, wide, reach)).toBeGreaterThan(eased(3.4, wide) + 0.25);
+    expect(limited(3.4, wide, reach)).toBeLessThan(3.1);
+    // A Bengle's Shots show no such thing, so its flow eases as Decaid's simulated machine eases it.
+    const bengle = run([pressure("Fill", 9, { seconds: 8, limiter: { value: 1.5, range: 2.5 } })], { model: "Bengle" });
+    expect(bengle.peakFlow).toBeCloseTo(eased(MODEL_FIGURES.Bengle.maxFlow, { value: 1.5, range: 2.5 }), 2);
+  });
+
+  it("on a Bengle's pressure holds it at the limit's value, whatever its range, where a DE1's eases over it", () => {
+    const steps = (model: "DE1" | "Bengle") => run([flow("Push", 6, { seconds: 25, limiter: { value: 3, range: 1 } })], { grind: -0.5, model });
+    expect(MODEL_FIGURES.Bengle.pressureLimiterReach).toBe(0);
+    expect(steps("Bengle").peakPressure).toBeLessThan(3.2);
+    expect(steps("Bengle").peakPressure).toBeGreaterThan(2.8);
+    expect(steps("DE1").peakPressure).toBeGreaterThan(3.3);
+  });
+
   it("caps the pressure of a step whose pump controls flow, easing over its range", () => {
     const steps = (limiter: { value: number; range: number } | null) => run([flow("Push", 6, { seconds: 25, limiter })], { grind: -0.5 });
     expect(steps(null).peakPressure).toBeGreaterThan(8);
@@ -370,6 +392,28 @@ describe("a limit", () => {
     expect(eased(5, { value: 2, range: 0 })).toBe(2);
     expect(eased(3, { value: 2, range: 1 })).toBeCloseTo(2.5, 9);
     expect(eased(1000, { value: 2, range: 1 })).toBeLessThan(3);
+  });
+
+  it("with a reach settles that share of its range over its value, rising smoothly to it, and with none eases as Decaid's", () => {
+    const limiter = { value: 2, range: 1 };
+    expect(limited(3, limiter)).toBe(eased(3, limiter));
+    expect(limited(5, { value: 0, range: 1 }, 0.7)).toBe(5);
+    expect(limited(1.5, limiter, 0.7)).toBe(1.5);
+    // Twice its reach over or more, at its reach; below that, what it is over less a share that grows evenly.
+    expect(limited(2 + 1.4, limiter, 0.7)).toBeCloseTo(2.7, 9);
+    expect(limited(1000, limiter, 0.7)).toBeCloseTo(2.7, 9);
+    expect(limited(2.7, limiter, 0.7)).toBeCloseTo(2 + 0.7 - (0.7 * 0.7) / (4 * 0.7), 9);
+    expect(limited(2.001, limiter, 0.7)).toBeCloseTo(2.001, 3);
+    // A reach of 0, or a limiter of no range, is a hard cap.
+    expect(limited(5, limiter, 0)).toBe(2);
+    expect(limited(5, { value: 2, range: 0 }, 0.7)).toBe(2);
+    // It never falls as the reading rises.
+    let last = 0;
+    for (let reading = 0; reading <= 6; reading += 0.05) {
+      const now = limited(reading, limiter, 0.7);
+      expect(now).toBeGreaterThanOrEqual(last);
+      last = now;
+    }
   });
 });
 
