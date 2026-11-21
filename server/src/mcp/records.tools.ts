@@ -5,15 +5,17 @@ import * as z from "zod";
 import type { Scope } from "../accounts/scope.js";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
-import { recordedText } from "../shots/extraction.js";
+import { extractShot, object, recordedText } from "../shots/extraction.js";
 import { MAX_WORDS, RATINGS, type ShotFilters, readShotFilters } from "../shots/filters.js";
 import { MAX_LISTED_EDITS, type ShotEditView, editStanding } from "../shots/shot-edits.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { BUCKETS, DEFAULT_NUMBERS, GROUPINGS, LAST_STEPS, MAX_GROUPINGS, NUMBERS, groupingsOf, numbersOf } from "../shots/summary.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
-import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, overBudget, refuseCutText } from "./budget.js";
+import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, mostWithinBudget, overBudget, refuseCutText } from "./budget.js";
 import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
+import { profileWhole } from "./library.tools.js";
 import { MAX_PAGE, PAGED, page, pageOf, pageOutput } from "./paging.js";
+import { CHANNEL_NAMES, type SampleColumns, shotSamplesOf } from "./shot-samples.js";
 import { GROUP_SPEC, SHOT_SPEC, STOPPED_AT_TARGET, STOPPED_BRIEFLY, groupSpec, shotRowSpec, shotSpec } from "./spec.js";
 import { periodBound, timeBound, timeRange, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
@@ -239,6 +241,40 @@ const getShotInput = z.object({
   window: curveWindow,
   edits: z.boolean().default(false).describe("Whether to list the edits of its rating and note made through Decent Sync, with who made each."),
 });
+const getShotSamplesInput = z.object({
+  id: id.describe("The Shot's id."),
+  offset: z.number().int().min(0).max(1 << 30).default(0).describe("How many of its samples to skip, in the order recorded: the previous page's offset plus its length."),
+  limit: z.number().int().min(1).max(1 << 30).optional().describe("At most this many samples; as many as fit the response when left out."),
+});
+const numbers = z.array(z.number().nullable());
+const getShotSamplesOutput = z.object({
+  id,
+  ...pageOutput,
+  total: z.number().int().describe("How many samples it has."),
+  profile: z.record(z.string(), z.unknown()).nullable().optional().describe("First page only: the profile it ran, as its Workflow held it, whole; null where it held none."),
+  stopReason: z.string().nullable().optional().describe("First page only."),
+  machineModel: z.string().nullable().optional().describe("First page only: the Machine's model, as Decaid named it."),
+  targetDose: z.number().nullable().optional().describe("First page only, in grams."),
+  actualDose: z.number().nullable().optional().describe("First page only, weighed, in grams."),
+  targetYield: z.number().nullable().optional().describe("First page only, in grams."),
+  actualYield: z.number().nullable().optional().describe("First page only, weighed, in grams."),
+  columns: z
+    .object({
+      seconds: numbers,
+      frame: z.array(z.number().int().nullable()),
+      state: z.array(z.string().nullable()),
+      substate: z.array(z.string().nullable()),
+      ...Object.fromEntries(CHANNEL_NAMES.map((channel) => [channel, numbers])),
+    })
+    .describe("One list per channel, of one length: the nth entry of each is the page's nth sample."),
+});
+/** Its columns and profile as stored (ADR-0028), but for the profile's free text, such as its notes. */
+const getShotSamplesBudget: Budget = { whole: ["/columns", ...profileWhole("/profile")], rest: "The profile's text is whole in get_library_item, for a Library Profile." };
+
+/** What get_shot_samples' columns are, in what unit, for its description. */
+const SAMPLE_COLUMNS =
+  "columns holds one list per channel, all of one length, the nth entry of each being the page's nth sample, in the order Decaid recorded them, several a second. seconds is on get_shot's curves' axis, from the start of its profile, negative in its Preheat, the Machine heating its water before the profile starts, and null for a sample recorded without a time, which get_shot's curves leave out. frame is the step of the profile the Machine was running, its index among profile.steps from 0, as get_shot's steps give it, null in Preheat and where none was reported. state and substate are the Machine's, as Decaid names them, such as espresso, and preparingForShot, preinfusion or pouring. pressure is in bar and flow, the pump's, in ml/s, with targetPressure and targetFlow, the targets the Machine reported, 0 where its step sets none. mixTemperature is the water's where the Machine mixes it, and groupTemperature at the group head, the closest to the coffee, each in °C, with targetMixTemperature and targetGroupTemperature, the profile's temperature; where a step measures at the coffee, the mix target is the firmware's control output. steamTemperature is the steam heater's, in °C. weight is the scale's, in grams, weightFlow the rate coffee lands in the cup, in g/s, and timerValue the scale's own timer, in milliseconds. volume is the water pumped since the profile's step that starts counting it, in ml. Every value but seconds and frame is as stored, never rounded, and null where the sample holds none.";
+
 const steamCurves = curvesInput(STEAM_CURVES);
 const timeZoneNote = "Times are ISO 8601, with the offset of the record's Location's time zone, or UTC's when its Location is unknown.";
 
@@ -630,6 +666,44 @@ export class RecordsTools {
     // A window alone asks for every curve within it.
     const asked = askedCurves(SHOT_CURVES, window && curves === false ? true : curves);
     return asked ? withCurves(details, samples, asked, { pressure: shot.peakPressure, flow: shot.peakFlow }, window) : details;
+  }
+
+  @BudgetedTool({
+    name: "get_shot_samples",
+    title: "Get a Shot's samples",
+    description: `Reads every sample of one Shot at full resolution, as columns, a page at a time, for analysis a thinned curve can't support, such as fitting a simulation to a Shot, comparing pucks across Shots, or studying the moments around a step change or the stop. It is not the way to read a Shot: get_shot, with its curves, or a window of a few seconds for every reading there, answers nearly every question at a fraction of the size. Use this only when every reading of a whole Shot is needed. ${SAMPLE_COLUMNS} The first page, at offset 0, also gives profile, the profile it ran, as its Workflow held it, whole: its steps and targets as run, which may differ from the Library's Profile; stopReason; machineModel, as Decaid named the Machine's model, such as DE1Pro or Bengle; and its doses and yields in grams, targets as set and actuals as weighed. ${STOP_REASONS} Each page gives total, how many samples it has, offset and more before its columns, and holds as many samples as fit the response, or limit if fewer: the next page's offset is this one's plus its columns' length. A Shot of a minute takes about one page.`,
+    inputSchema: getShotSamplesInput,
+    outputSchema: getShotSamplesOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: getShotSamplesBudget,
+  })
+  async getShotSamples({ id, offset, limit }: z.infer<typeof getShotSamplesInput>): Promise<z.infer<typeof getShotSamplesOutput>> {
+    const { record, measurements } = await this.shots.recorded(id);
+    const samples = shotSamplesOf(measurements);
+    const shot = object(record);
+    const workflow = object(shot.workflow);
+    const recorded = extractShot(record);
+    const first = offset === 0 && {
+      profile: typeof workflow.profile === "object" && workflow.profile !== null && !Array.isArray(workflow.profile) ? (workflow.profile as Record<string, unknown>) : null,
+      stopReason: recordedText(shot.stopReason),
+      machineModel: recordedText(object(workflow.machine).model),
+      targetDose: recorded.targetDose,
+      actualDose: recorded.actualDose,
+      targetYield: recorded.targetYield,
+      actualYield: recorded.actualYield,
+    };
+    const page = (count: number) => {
+      const columns: SampleColumns = samples.columns(offset, count);
+      return { id, ...pageOf(samples.total, offset, columns.seconds.length), ...first, columns };
+    };
+    const left = Math.max(0, samples.total - offset);
+    const most = Math.min(left, limit ?? left);
+    if (most === 0) return page(0);
+    // As many as fit whole. Only where not one does, as beside a profile whose notes run past the budget, as many as fit
+    // with its text cut as the guard cuts it, and at least one.
+    const whole = mostWithinBudget(0, most, page);
+    return page(whole > 0 ? whole : mostWithinBudget(1, most, page, getShotSamplesBudget));
   }
 
   @BudgetedTool({

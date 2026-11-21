@@ -599,6 +599,17 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   with neither (below).
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
   Decaid (null when none were sent).
+  The MCP endpoint's `get_shot_samples` (#607) gives the same samples to an
+  assistant, which has no Admin sign-in, for analysis that needs every
+  reading: as columns, one per channel, a page at a time, each page as
+  many samples as fit the response's budget (ADR-0028), every value as
+  stored, unrounded. Beside them it gives each sample's `seconds`, on
+  `get_shot`'s curves' axis, null for a sample without a machine time,
+  which the curves leave out, and its `frame`, null in Preheat; the scale's
+  battery and Decaid's timestamps are left out. Its first page also gives
+  the profile the Shot ran, from its record's Workflow, its stop reason,
+  the Machine's model as recorded, and its doses and yields. Whoever can
+  read the Shot through `get_shot` can read its samples.
 - `GET /api/machines/:id/set-aside-deliveries?limit=20&offset=0` returns
   `{ deliveries, total, limit, offset }`: the deliveries from that Machine's
   tablet set aside, latest first, each with `receivedAt`, `type`,

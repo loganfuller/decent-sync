@@ -163,10 +163,13 @@ export function refuseCutText(input: unknown, whole = "read it whole first, such
  * more points picks shorter readings, the number found may be a little under
  * the largest, but a response is never over the cap at it unless at `low`.
  * For structured data the guard never shortens, which a tool gives as much of
- * as fits, as get_shot's curves within a window.
+ * as fits, as get_shot's curves within a window. Given the tool's `budget`, a
+ * response is measured as the guard would shorten it, its free text cut and
+ * its numbers rounded but in its whole parts, as get_shot_samples measures a
+ * page whose profile's notes the guard may cut.
  */
-export function mostWithinBudget(low: number, high: number, respond: (n: number) => unknown): number {
-  return largest(low, high, (n) => size(respond(n)) <= MAX_RESPONSE_CHARS);
+export function mostWithinBudget(low: number, high: number, respond: (n: number) => unknown, budget?: Budget): number {
+  return largest(low, high, (n) => (budget ? !overBudget(respond(n), budget) : size(respond(n)) <= MAX_RESPONSE_CHARS));
 }
 
 /**

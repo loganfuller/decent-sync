@@ -338,6 +338,18 @@ export class ShotsService {
   }
 
   /**
+   * A Shot's record, without its measurements, and its measurements, each as
+   * stored, null where it has none: for get_shot_samples (#607), which gives
+   * every sample. The same Shots are visible as through `read`.
+   */
+  async recorded(id: string): Promise<{ record: unknown; measurements: unknown }> {
+    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, select: { record: true } });
+    if (!found) throw shotNotFound();
+    const measurements = await this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } });
+    return { record: found.record, measurements: measurements?.data ?? null };
+  }
+
+  /**
    * What the simulation of a profile on a Shot's puck reads of a Shot (#577):
    * its samples (`shotSamples`), its own profile, its Workflow's, null where
    * Decaid would not read it, the coffee it used, as weighed or else as set,
