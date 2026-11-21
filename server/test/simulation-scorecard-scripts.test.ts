@@ -75,12 +75,17 @@ describe("The scorecard scripts on a real server's Shots", () => {
       for (const leaked of ["scorecard-", "57801", "mock-de1", "2026-", "Classic", "Blooming"]) expect(scrubbed).not.toContain(leaked);
 
       const raw = JSON.parse(run("score.mjs", [pulled, "--json"])) as { models: { DE1: { all: { shots: number; within: number } } } };
-      const fromCorpus = JSON.parse(run("score.mjs", [corpus, "--json"])) as { models: { DE1: { all: { shots: number; within: number } } }; sets: { same: { pairs: number }; different: { pairs: number } } };
+      const fromCorpus = JSON.parse(run("score.mjs", [corpus, "--json"])) as { models: { DE1: { all: { shots: number; within: number } } }; sets: { same: { pairs: number }; different: { pairs: number }; bySet: Record<string, { shots: number }> } };
       expect(raw.models.DE1.all.shots).toBe(3);
       // Rounded to three places, and weights to two, its figures land where the Shot's own do.
       expect(fromCorpus.models.DE1.all).toMatchObject({ shots: raw.models.DE1.all.shots, within: raw.models.DE1.all.within });
       // The three, one set, each Shot's puck run with each other's steps: three profiles, so different steps.
       expect(fromCorpus.sets.different.pairs).toBe(6);
+      expect(fromCorpus.sets.bySet).toEqual({ s1: expect.objectContaining({ shots: 3 }) });
+      expect(run("score.mjs", [corpus, "--set", "s1"])).toContain("Set s1: each Shot's puck run with each other Shot's steps");
+      expect(run("score.mjs", [corpus, "--set", "s9"])).toContain("No Shot is in set s9.");
+      // A --set with no label is refused, not dropped without a word.
+      expect(() => run("score.mjs", [corpus, "--set"])).toThrow(expect.objectContaining({ status: 2 }));
     } finally {
       await database.end();
     }
