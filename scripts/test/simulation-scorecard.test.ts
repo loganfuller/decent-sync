@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PROFILE_KINDS, corpusRecord, formatScorecard, profileKind, readShots, scorecard, shotEntry, spread } from "../simulation/scorecard.mjs";
+import { PROFILE_KINDS, corpusRecord, formatScorecard, metNoCoffee, profileKind, readShots, scoreShot, scorecard, shotEntry, spread } from "../simulation/scorecard.mjs";
 import { corpusProblems, inferSets, scrubShot } from "../simulation/scrub.mjs";
 import { spreadOut } from "../simulation/pull.mjs";
 
@@ -129,6 +129,10 @@ describe("the scorecard", () => {
     expect(card.noCoffee).toBe(1);
     expect(card.unreadable).toBe(1);
     expect(formatScorecard(card)).toContain("1 with a profile that can't be read, 1 naming no model, 1 that met no coffee");
+    // With no scale reading, or no samples, a pour shows nothing of what it met.
+    const unweighed = { ...dry, measurements: dry.measurements.map((measurement) => ({ ...(measurement as Fields), scale: undefined })) };
+    expect(scoreShot(shotEntry("unweighed", unweighed)).noCoffee).toBe(false);
+    expect(metNoCoffee([])).toBe(false);
     expect(card.shots.find((shot) => shot.name === "steered")!.noFit).toBe("manual control");
   });
 

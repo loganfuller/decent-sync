@@ -17,7 +17,8 @@ if (args.includes("--json")) {
 } else {
   if (args.includes("--shots")) {
     for (const shot of card.shots) {
-      const errors = shot.errors ? `duration ${(shot.errors.durationShare * 100).toFixed(1)}%, peak ${shot.errors.peakPressure.toFixed(2)} bar${shot.within ? ", within" : ""}` : `no fit: ${shot.noFit}`;
+      const apart = shot.noCoffee ? "met no coffee, counted apart; " : "";
+      const errors = apart + (shot.errors ? `duration ${(shot.errors.durationShare * 100).toFixed(1)}%, peak ${shot.errors.peakPressure.toFixed(2)} bar${shot.within ? ", within" : ""}` : `no fit: ${shot.noFit}`);
       console.log(`${shot.name}  ${shot.model ?? "no model"}  ${shot.tea ? "tea" : (shot.kind ?? "-")}${shot.set ? `  set ${shot.set}` : ""}  ${errors}`);
     }
     console.log("");

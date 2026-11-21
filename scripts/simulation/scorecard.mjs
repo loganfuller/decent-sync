@@ -39,7 +39,8 @@ export const STEP_SECONDS = 1;
 /**
  * A pour that met no coffee, as a flush through an empty portafilter or a
  * Shot stopped at once: its pressure never reached NO_COFFEE_BAR and its
- * scale never read NO_COFFEE_GRAMS. On the 944 recorded Shots measured for
+ * scale, which must have reported, never read NO_COFFEE_GRAMS. A Shot with
+ * no samples or no scale reading is not one: it counts as a miss. On the 944 recorded Shots measured for
  * #599, the 27 such pours weighed under 2 g; the next lowest weight of a
  * Shot under 1.5 bar was 32 g.
  */
@@ -49,7 +50,7 @@ export const NO_COFFEE_GRAMS = 5;
 /** Whether a Shot's samples after Preheat show a pour that met no coffee (NO_COFFEE_BAR, NO_COFFEE_GRAMS). */
 export function metNoCoffee(samples) {
   const shot = samples.filter((sample) => sample.shade === null);
-  return shot.every((sample) => (sample.values.pressure ?? 0) < NO_COFFEE_BAR && (sample.values.weight ?? 0) < NO_COFFEE_GRAMS);
+  return shot.some((sample) => sample.values.weight !== null) && shot.every((sample) => (sample.values.pressure ?? 0) < NO_COFFEE_BAR && (sample.values.weight ?? 0) < NO_COFFEE_GRAMS);
 }
 
 /** The kinds of Profile the scorecard reports apart (`profileKind`). */
@@ -247,7 +248,7 @@ export function setPairs(entries) {
   for (const entry of entries) {
     if (entry.set === null || entry.tea) continue;
     const shot = simulationShotOf(entry.record, entry.measurements);
-    if (!shot.profile || shot.model === null || metNoCoffee(shot.samples)) continue;
+    if (!shot.profile || shot.profile.steps.length === 0 || shot.model === null || metNoCoffee(shot.samples)) continue;
     const puck = shotPuck(shot.samples, shot.dose);
     if (!puck || !shotFit(shot, puck)) continue;
     const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, shot.profile);
