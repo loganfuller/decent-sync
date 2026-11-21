@@ -509,8 +509,18 @@ var __decentSync = (() => {
 
   // ../protocol/src/machine-models.ts
   var MODEL_FIGURES = {
-    DE1: { maxFlow: 8, pressureStepMaxFlow: 6, maxPressure: 12, pumpResponse: 0.2, wireScale: 16 },
-    Bengle: { maxFlow: 15, pressureStepMaxFlow: 11, maxPressure: 12, pumpResponse: 0.2, wireScale: 10 }
+    DE1: {
+      maxFlow: 8,
+      pressureStepFlow: [
+        [2, 6.5],
+        [6, 3]
+      ],
+      maxPressure: 12,
+      flowResponse: 0.7,
+      pressureResponse: 1.5,
+      wireScale: 16
+    },
+    Bengle: { maxFlow: 15, maxPressure: 12, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 }
   };
 
   // ../protocol/src/steam-phases.ts

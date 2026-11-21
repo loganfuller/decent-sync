@@ -307,7 +307,7 @@ export class DraftsTools {
   @BudgetedTool({
     name: "simulate_draft",
     title: "Simulate a Draft",
-    description: `Simulates a Draft as simulate_profile simulates a Library Profile, taking the same puck, dose, stop-at weight, model and curves, and answering the same, with the Draft named in place of the Profile: on the model of the Profile it was started from, where none is asked for, else a DE1, or a Bengle where every Machine of the account is one. Its checks are get_draft's with those of the run. ${DRAFTS}`,
+    description: `Simulates a Draft as simulate_profile simulates a Library Profile, on the same simulated machine of each model, taking the same puck, dose, stop-at weight, model and curves, and answering the same, with the Draft named in place of the Profile: on the model of the Profile it was started from, where none is asked for, else a DE1, or a Bengle where every Machine of the account is one. Its checks are get_draft's with those of the run. ${DRAFTS}`,
     inputSchema: simulateDraftInput,
     outputSchema: simulateDraftOutput,
     annotations: { readOnlyHint: true },

@@ -19,7 +19,7 @@
 //
 // Pure: no Node or browser API, as the plugin bundles this package.
 
-import { MODEL_FIGURES, type MachineModel, machineModelOf } from "./machine-models.js";
+import { MODEL_FIGURES, type MachineModel, type ModelFigures, machineModelOf } from "./machine-models.js";
 import { MAX_PROFILE_STEPS, PROFILE_LIMITS, type Profile, type ProfileStep, type StepLimiter, profileOf, stepTarget } from "./profile.js";
 import { type Sample, type ShotCurve, type StepSpan, FIRST_DRIP_GRAMS, lastRecordedWeight, shotSamples, stepSpans, timeToFirstDrip } from "./record-samples.js";
 
@@ -37,11 +37,12 @@ export const SIMULATION_TICK = 0.1;
 export const GROUP_COMPLIANCE = 0.5;
 
 /**
- * How quickly the pump brings pressure to a target: the time constant, s.
- * Recorded Shots show the DE1 in no hurry, its pump giving little more than
- * holds the pressure as it climbs to a target.
+ * How quickly the pump's flow follows what it is asked for on a step whose
+ * pump controls pressure, the time constant, s: within a tick, as how
+ * quickly the pressure follows its target is each model's own
+ * (`ModelFigures.pressureResponse`).
  */
-const PRESSURE_RESPONSE = 2;
+const PUMP_RESPONSE = 0.1;
 
 /**
  * A step's time as the machine runs it, as Decaid sends it in one byte
@@ -421,14 +422,17 @@ export interface Simulation {
  * of no steps runs for none.
  */
 export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "ahead", model = "DE1" }: Simulation): SimulatedRun {
-  const figures = MODEL_FIGURES[model];
+  const figures: ModelFigures = MODEL_FIGURES[model];
   const puck = puckForDose(given, dose ?? given.dose);
   const stopWeight = stopAt !== null && stopAt > 0 ? stopAt : null;
   const steps: RunStep[] = profile.steps.map((step, index) => ({ index, name: step.name, start: null, end: null, reason: null }));
   // What the machine runs.
   const sentSteps = profile.steps.map((step) => sentStep(step, model));
   const samples: Sample<ShotCurve>[] = [];
-  const pumpFollow = 1 - Math.exp(-SIMULATION_TICK / figures.pumpResponse);
+  // The share of the gap to what it is asked for that the pump's flow closes each tick: as a pressure sets it, or as a flow step's target does.
+  const followsPressure = 1 - Math.exp(-SIMULATION_TICK / PUMP_RESPONSE);
+  const followsFlow = 1 - Math.exp(-SIMULATION_TICK / figures.flowResponse);
+  const holds = (target: number, pressure: number, resistance: number) => holding(target, pressure, resistance, figures.pressureResponse);
 
   let time = 0;
   let pressure = 0;
@@ -494,21 +498,28 @@ export function simulateProfile({ profile, puck: given, dose, stopAt, stopOn = "
     const target = step.transition === "smooth" ? from + (goal - from) * Math.min(1, elapsed / step.seconds) : goal;
     const resistance = Math.max(LEAST_RESISTANCE, resistanceAt(puck.resistance, pumped));
 
-    // What the pump is asked for this tick.
+    // What the pump is asked for this tick, and whether a pressure sets it: the step's, its limiter's or the most the machine reaches.
     let asked: number;
+    let byPressure = step.pump === "pressure";
     if (step.pump === "pressure") {
-      asked = holding(target, pressure, resistance);
-      asked = eased(Math.min(figures.pressureStepMaxFlow, asked), step.limiter);
+      asked = holds(target, pressure, resistance);
+      const gives = figures.pressureStepFlow ? pointsAt(figures.pressureStepFlow, pressure) : figures.maxFlow;
+      asked = eased(Math.min(gives, asked), step.limiter);
     } else {
       asked = Math.min(figures.maxFlow, Math.max(0, target));
       const wouldBe = resistance * asked * asked;
       const allowed = eased(wouldBe, step.limiter);
-      if (allowed < wouldBe) asked = Math.min(asked, holding(allowed, pressure, resistance));
+      if (allowed < wouldBe) {
+        const held = holds(allowed, pressure, resistance);
+        if (held < asked) [asked, byPressure] = [held, true];
+      }
     }
-    asked = Math.max(0, Math.min(asked, holding(figures.maxPressure, pressure, resistance)));
+    const most = holds(figures.maxPressure, pressure, resistance);
+    if (most < asked) [asked, byPressure] = [most, true];
+    asked = Math.max(0, asked);
 
     // The pump follows, and the group fills or drains through the puck.
-    flow += (asked - flow) * pumpFollow;
+    flow += (asked - flow) * (byPressure ? followsPressure : followsFlow);
     const next = groupPressure(pressure, flow, resistance);
     const puckFlow = Math.sqrt(next / resistance);
     pressure = next;
@@ -579,12 +590,26 @@ function stepEnded(step: ProfileStep, at: { elapsed: number; pressure: number; f
 }
 
 /**
- * The flow that brings the group to `target` bar from `pressure` within the
- * pump's response: what holds it there through the puck, and more to fill
- * the group as pressure rises, or less to let it drain as it falls.
+ * The flow that brings the group to `target` bar from `pressure` within
+ * `response` s, the model's `pressureResponse`: what holds it there through
+ * the puck, and more to fill the group as pressure rises, or less to let it
+ * drain as it falls.
  */
-function holding(target: number, pressure: number, resistance: number): number {
-  return Math.sqrt(Math.max(0, target) / resistance) + (GROUP_COMPLIANCE * (target - pressure)) / PRESSURE_RESPONSE;
+function holding(target: number, pressure: number, resistance: number, response: number): number {
+  return Math.sqrt(Math.max(0, target) / resistance) + (GROUP_COMPLIANCE * (target - pressure)) / response;
+}
+
+/** A value read from [x, value] points in order of x, along the line between two, and level beyond either end. */
+function pointsAt(points: ReadonlyArray<readonly [number, number]>, x: number): number {
+  if (x <= points[0]![0]) return points[0]![1];
+  for (let n = 1; n < points.length; n++) {
+    const [x1, y1] = points[n]!;
+    if (x <= x1) {
+      const [x0, y0] = points[n - 1]!;
+      return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+    }
+  }
+  return points[points.length - 1]![1];
 }
 
 /**

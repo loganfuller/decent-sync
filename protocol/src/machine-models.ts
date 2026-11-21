@@ -14,15 +14,21 @@ export interface ModelFigures {
    */
   maxFlow: number;
   /**
-   * The most flow it gives on a step whose pump controls pressure, ml/s,
-   * which on a DE1 is less than its pump gives on a step that controls flow:
-   * about 6 ml/s, where its recorded Shots fill the group at a low pressure.
+   * Where it gives less on a step whose pump controls pressure than maxFlow,
+   * the most it gives there against the pressure: [bar, ml/s] points in
+   * order of pressure, read along the line between two and level beyond
+   * either end. A DE1's recorded Shots fill the group at about 6.5 ml/s on
+   * such a step, and push ever less as pressure builds, about 3 ml/s from 6
+   * bar, where a ramp to 9 bar on a coarse puck stalls short of it. Where
+   * none, maxFlow.
    */
-  pressureStepMaxFlow: number;
+  pressureStepFlow?: ReadonlyArray<readonly [number, number]>;
   /** The most pressure it reaches, bar, as its profile's range allows. */
   maxPressure: number;
-  /** How quickly its pump's flow follows what it is asked for: the time constant, s. */
-  pumpResponse: number;
+  /** How quickly its flow follows a target on a step whose pump controls flow: the time constant, s. */
+  flowResponse: number;
+  /** How quickly its pump brings the pressure to a target on a step whose pump controls pressure: the time constant, s. */
+  pressureResponse: number;
   /**
    * The parts of a bar or ml/s Decaid sends a step's target, exit and limiter
    * in, each in one byte: sixteenths to a DE1, tenths to a Bengle
@@ -34,15 +40,30 @@ export interface ModelFigures {
 }
 
 /**
- * Each model's figures. Decent Sync can't tell a Bengle's power version, so
- * one Bengle's figures stand for every Bengle (#588). A DE1's were tuned
- * against recorded Shots; a Bengle's are Decent's maximum flow, with its
- * flow on a pressure step taken in the DE1's proportion, not yet checked
- * against a Bengle's Shots.
+ * Each model's figures, one typical machine of each, fitted to the
+ * simulation's corpus of recorded Shots (scripts/simulation, #601): each
+ * figure is the one that brings the most of its Shots within the margin on
+ * their own puck, and each stays only where it does so by a clear step. A
+ * DE1's pump is slow to bring up its flow and slower to build pressure, and
+ * gives less on a step whose pump controls pressure; a Bengle follows its
+ * targets about as fast as the machine reads them, and its Shots show no
+ * such step giving it less. Decent Sync can't tell a Bengle's power version,
+ * so one Bengle's figures stand for every Bengle, and its maxFlow is
+ * Decent's, as no recorded Shot reaches it (#588).
  */
 export const MODEL_FIGURES = {
-  DE1: { maxFlow: 8, pressureStepMaxFlow: 6, maxPressure: 12, pumpResponse: 0.2, wireScale: 16 },
-  Bengle: { maxFlow: 15, pressureStepMaxFlow: 11, maxPressure: 12, pumpResponse: 0.2, wireScale: 10 },
+  DE1: {
+    maxFlow: 8,
+    pressureStepFlow: [
+      [2, 6.5],
+      [6, 3],
+    ],
+    maxPressure: 12,
+    flowResponse: 0.7,
+    pressureResponse: 1.5,
+    wireScale: 16,
+  },
+  Bengle: { maxFlow: 15, maxPressure: 12, flowResponse: 0.1, pressureResponse: 0.7, wireScale: 10 },
 } as const satisfies Record<string, ModelFigures>;
 
 /** A model a profile runs on: any DE1 model, or a Bengle. */

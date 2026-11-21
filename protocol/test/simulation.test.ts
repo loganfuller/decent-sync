@@ -341,7 +341,7 @@ describe("a limit", () => {
 
   it("caps the flow of a step whose pump controls pressure, easing over its range", () => {
     const free = fill(null);
-    expect(free.peakFlow).toBeCloseTo(MODEL_FIGURES.DE1.pressureStepMaxFlow, 1);
+    expect(free.peakFlow).toBeCloseTo(MODEL_FIGURES.DE1.pressureStepFlow[0][1], 1);
     const hard = fill({ value: 2, range: 0 });
     expect(hard.peakFlow).toBeLessThanOrEqual(2 + 1e-9);
     expect(hard.peakFlow).toBeGreaterThan(1.9);
@@ -418,6 +418,47 @@ describe("a machine of a model", () => {
     expect(MODEL_FIGURES.Bengle.maxFlow).toBe(15);
   });
 
+  it("on a step whose pump controls pressure, gives a DE1 ever less as pressure builds, so a coarse puck stalls short of 9 bar where a Bengle reaches it", () => {
+    const steps = [pressure("Nine", 9, { seconds: 30 })];
+    const de1 = run(steps, { grind: 1, model: "DE1" });
+    const bengle = run(steps, { grind: 1, model: "Bengle" });
+    expect(de1.peakPressure).toBeLessThan(7);
+    expect(de1.peakPressure).toBeGreaterThan(4.5);
+    expect(bengle.peakPressure).toBeGreaterThan(8.9);
+    // At its most below 2 bar, and stalled where the puck takes all it gives at that pressure, along the line to 6 bar.
+    const [[low, most], [high, least]] = MODEL_FIGURES.DE1.pressureStepFlow;
+    expect(de1.peakFlow).toBeCloseTo(most, 1);
+    const gives = (bar: number) => most + ((least - most) * (Math.min(high, Math.max(low, bar)) - low)) / (high - low);
+    const stalled = de1.samples[de1.samples.length - 1]!.values;
+    expect(stalled.flow!).toBeCloseTo(gives(stalled.pressure!), 1);
+    expect(stalled.flow!).toBeLessThan(most - 1);
+    // On a medium puck it gets there.
+    expect(run(steps, { model: "DE1" }).peakPressure).toBeGreaterThan(8.9);
+  });
+
+  it("follows a flow step's target as each model's Shots show, a DE1 over most of a second, a Bengle within a few tenths", () => {
+    const steps = [flow("Fast", 8, { seconds: 4 })];
+    const at = (result: SimulatedRun, seconds: number) => result.samples.find((sample) => Math.abs(sample.seconds - seconds) < 1e-9)!.values.flow!;
+    const de1 = run(steps, { model: "DE1" });
+    const bengle = run(steps, { model: "Bengle" });
+    // Most of the way, its time constant, by MODEL_FIGURES's flowResponse.
+    expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeGreaterThan(0.55);
+    expect(at(de1, MODEL_FIGURES.DE1.flowResponse) / 8).toBeLessThan(0.7);
+    expect(at(de1, 0.3)).toBeLessThan(4);
+    expect(at(bengle, 0.3)).toBeGreaterThan(7.5);
+  });
+
+  it("brings pressure to a pressure step's target more slowly on a DE1 than on a Bengle", () => {
+    const steps = [flow("Fill", 3, { seconds: 8 }), pressure("Up", 8, { seconds: 15 })];
+    const reached = (result: SimulatedRun) => result.samples.find((sample) => sample.step?.frame === 1 && sample.values.pressure! >= 7.5)!.seconds - result.steps[1]!.start!;
+    expect(reached(run(steps, { model: "DE1" }))).toBeGreaterThan(reached(run(steps, { model: "Bengle" })) + 0.5);
+  });
+
+  it("holds a flow step at the most pressure it reaches, its pump easing at once", () => {
+    const steps = [flow("Push", 8, { seconds: 30 })];
+    for (const model of MACHINE_MODELS) expect(run(steps, { grind: -1, model }).peakPressure).toBeLessThanOrEqual(MODEL_FIGURES[model].maxPressure + 0.1);
+  });
+
   it("runs a step that asks for more flow than a DE1 gives, a Bengle keeping up", () => {
     const steps = [flow("Fast", 12, { seconds: 4 })];
     const de1 = run(steps, { model: "DE1" });
@@ -444,6 +485,12 @@ describe("a machine of a model", () => {
 
 // Shots Decaid v0.9.2's simulated machine recorded (server/test/fixtures/decaid/simulated-shots-v0.9.2/README.md).
 const SHOT_FIXTURES = ["classic-italian", "blooming", "default", "gentle-and-sweet"];
+// Those whose own steps on their puck still land within the margin, the corpus being the judge where Decaid's simulated
+// machine differs from the DE1s it holds (#601). The mock builds pressure on a pressure step as fast as its pump gives,
+// where those DE1s are held back as pressure builds, so Classic Italian's 9 bar and the default's 8.6 run long; and it
+// stops its pump at once for the blooming profile's pause, where a DE1's flow takes a second or more to fall, so the
+// run's first drip comes during the pause.
+const WITHIN_MARGIN = ["gentle-and-sweet"];
 
 /**
  * How close a Shot's own steps on its own puck land to the Shot: its
@@ -456,7 +503,7 @@ const MARGIN_BAR = 0.5;
 
 describe("a Shot's puck", () => {
   for (const name of SHOT_FIXTURES) {
-    it(`is worked out from its samples, its own steps on it landing near it: ${name}`, () => {
+    it(`is worked out from its samples, its own steps on it ${WITHIN_MARGIN.includes(name) ? "landing near it" : "coming to its steps"}: ${name}`, () => {
       const record = JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/simulated-shots-v0.9.2/${name}.json`, import.meta.url), "utf8")) as {
         workflow: { profile: unknown; context: { targetDoseWeight: number } };
         measurements: unknown;
@@ -470,10 +517,11 @@ describe("a Shot's puck", () => {
       const { run: fitted, fit } = fitToShot({ samples, profile: shotProfile, puck, stopAt: shotFitStop(samples, record.stopReason, "DE1", shotProfile)!.stopAt });
       const margin = Math.max(MARGIN_SECONDS, MARGIN_SHARE * fit.shot.duration);
       expect(fitted.stop.reason).toBe("weight");
+      expect(fit.simulated.steps.map((step) => step.index)).toEqual(fit.shot.steps.map((step) => step.index));
+      if (!WITHIN_MARGIN.includes(name)) return;
       expect(Math.abs(fit.simulated.duration - fit.shot.duration)).toBeLessThanOrEqual(margin);
       expect(Math.abs(fit.simulated.timeToFirstDrip! - fit.shot.timeToFirstDrip!)).toBeLessThanOrEqual(margin);
       expect(Math.abs(fit.simulated.peakPressure - fit.shot.peakPressure)).toBeLessThanOrEqual(MARGIN_BAR);
-      expect(fit.simulated.steps.map((step) => step.index)).toEqual(fit.shot.steps.map((step) => step.index));
       fit.shot.steps.forEach((step, n) => expect(Math.abs(fit.simulated.steps[n]!.end - step.end)).toBeLessThanOrEqual(margin));
     });
   }

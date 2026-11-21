@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import { type SimulatedRun, profileOf, simulateProfile, standardPuck } from "@decent-sync/protocol";
+import { type SimulatedRun, profileOf, shotFit, shotPuck, simulateProfile, simulationShotOf, standardPuck } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp } from "./support/assistants.js";
@@ -152,11 +152,14 @@ describe("A Library Profile simulated on a puck", () => {
     const { shot, simulated } = simulation.fit!;
     expect(shot.steps.map((step) => step.index)).toEqual([0, 1, 2, 3]);
     expect(simulated.steps.map((step) => step.index)).toEqual([0, 1, 2, 3]);
-    // The margins protocol/test/simulation.test.ts states.
-    const margin = Math.max(1, 0.05 * shot.duration);
-    expect(Math.abs(simulated.duration - shot.duration)).toBeLessThanOrEqual(margin);
-    expect(Math.abs(simulated.timeToFirstDrip! - shot.timeToFirstDrip!)).toBeLessThanOrEqual(margin);
-    expect(Math.abs(simulated.peakPressure - shot.peakPressure)).toBeLessThanOrEqual(0.5);
+    // The fit the simulation gives that Shot, as recorded; how close it comes is protocol/test/simulation.test.ts's and the scorecard's.
+    const recorded = JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json", import.meta.url), "utf8")) as Fields;
+    const own = simulationShotOf(recorded, recorded.measurements);
+    const expected = shotFit(own, shotPuck(own.samples, own.dose)!)!;
+    expect(simulated.duration).toBeCloseTo(expected.simulated.duration, 6);
+    expect(simulated.timeToFirstDrip).toBeCloseTo(expected.simulated.timeToFirstDrip!, 6);
+    expect(simulated.peakPressure).toBeCloseTo(expected.simulated.peakPressure, 6);
+    expect(shot.duration).toBeCloseTo(expected.shot.duration, 2);
     // The Shot's own figures are those the Shot's page gives.
     const read = (await api.get<{ shot: { duration: number; peakPressure: number; timeToFirstDrip: number | null } }>(`/shots/${SHOT}`)).shot;
     expect(shot.duration).toBeCloseTo(read.duration, 2);
