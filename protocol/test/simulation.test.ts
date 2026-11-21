@@ -455,8 +455,13 @@ describe("a machine of a model", () => {
   });
 
   it("holds a flow step at the most pressure it reaches, its pump easing at once", () => {
-    const steps = [flow("Push", 8, { seconds: 30 })];
-    for (const model of MACHINE_MODELS) expect(run(steps, { grind: -1, model }).peakPressure).toBeLessThanOrEqual(MODEL_FIGURES[model].maxPressure + 0.1);
+    // Asking for all its pump gives, on pucks from fine to the grind that brings that flow to about 12 bar. The pump eases
+    // within a tick, so the pressure passes the most by what that tick's flow still fills the group with, a fifth of a bar
+    // at most (a Bengle at 15 ml/s near grind 0.5).
+    for (const model of MACHINE_MODELS) {
+      const steps = [flow("Push", MODEL_FIGURES[model].maxFlow, { seconds: 30 })];
+      for (const grind of [-1, -0.5, 0, 0.25, 0.5, 0.75]) expect(run(steps, { grind, model }).peakPressure).toBeLessThanOrEqual(MODEL_FIGURES[model].maxPressure + 0.25);
+    }
   });
 
   it("runs a step that asks for more flow than a DE1 gives, a Bengle keeping up", () => {
