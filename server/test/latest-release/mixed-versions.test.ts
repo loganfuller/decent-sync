@@ -767,7 +767,7 @@ describe("the latest release beside the change", () => {
     // gives 6.235 s. Its profile ended in its Extraction step at 2.819 g/s.
     it("gives what a Shot's samples show once the latest release's server has stored it, and keeps it through an edit that server stores", async () => {
       const { tablet } = await connected("Measured, on the latest release", "latest release", "latest release");
-      const shot = { ...preheatShotFixture(), id: "mixed-measured-shot" };
+      const shot: Record<string, unknown> = { ...preheatShotFixture(), id: "mixed-measured-shot" };
       tablet.pullShot(shot);
       await expect.poll(async () => (await apis["latest release"].call("GET", `/shots/${shot.id}`)).status).toBe(200);
       interface Measured { id: string; timeToFirstDrip: number | null; flowAtStop?: number | null; lastStep: { frame: number; name: string } | null; enjoyment: number | null }
