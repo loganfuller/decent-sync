@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type BucketedGroup, RESPONSE_BUDGET, type SummaryGroup, type TestApp, asTools, serveTestApp, toolSummary } from "./support/assistants.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
-import { preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
+import { preheatShotFixture, shotFixture, stretchedShot } from "./support/shot-fixtures.js";
 import {
   RawConnection,
   type SimulatedTablet,
@@ -310,6 +310,34 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(edited.result.edits).toMatchObject({ total: 3, offset: 0, more: false });
       expect(edited.result.edits.entries.map((edit) => [edit.rating, edit.note])).toEqual([[9, "The best of the morning."], [undefined, "Sweeter once it cooled; keep the grind."], [8, undefined]]);
       expect(edited.result.curves).toEqual(result.curves);
+    });
+
+    it("reads every sample of a Shot of over 300 s across pages, each within the budget, with the profile it ran on the first", async () => {
+      // Derived: the real Shot with a Preheat, its profile's samples repeated, each repeat timed on, to run over 300 s.
+      await deliverShots(raw, [shotAt("samples-long", 92, "43101", {}, stretchedShot(preheatShotFixture(), 300))]);
+      const stored = (await api.get<{ measurements: Fields[] }>("/shots/samples-long/measurements")).measurements;
+      expect(stored.length).toBeGreaterThan(1400);
+      const read: { seconds: unknown[]; pressure: unknown[]; lengths: number[] } = { seconds: [], pressure: [], lengths: [] };
+      for (let offset = 0; ; ) {
+        const { result, text } = await assistant.callWithinBudget<Page & Fields & { columns: Record<string, unknown[]> }>("get_shot_samples", { id: "samples-long", offset });
+        pagingFirst(text, "columns");
+        expect(result).not.toHaveProperty("cut");
+        expect(result).toMatchObject({ total: stored.length, offset });
+        expect("profile" in result, `profile at ${offset}`).toBe(offset === 0);
+        const length = result.columns.seconds!.length;
+        expect(length).toBeGreaterThan(0);
+        read.seconds.push(...result.columns.seconds!);
+        read.pressure.push(...result.columns.pressure!);
+        read.lengths.push(length);
+        offset += length;
+        expect(result.more).toBe(offset < stored.length);
+        if (!result.more) break;
+      }
+      expect(read.pressure).toEqual(stored.map((sample) => (sample.machine as Fields).pressure));
+      expect(read.seconds.at(-1)).toBeGreaterThanOrEqual(300);
+      // Each page filled near the budget: a few for five minutes.
+      expect(read.lengths.length).toBeGreaterThan(3);
+      expect(read.lengths.length).toBeLessThan(12);
     });
 
     it("finds Steam Records a page at a time, and reads one with its curves", async () => {
@@ -948,6 +976,21 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(read.result.referenceOf.map((named) => named.id).sort()).toEqual([...recipes].sort());
       expect(read.result.cut).toBeDefined();
       expect(read.result.referenceOf.every((named) => cut(named.name))).toBe(true);
+    });
+
+    it("reads a Shot's samples beside a profile whose notes run far past the budget, cutting the notes and no sample", async () => {
+      const fixture = preheatShotFixture();
+      // On a Machine of its own, so the Shots the other tests summarise are the 55.
+      const own = await connectionOf(await machineAt("Haunted samples", lab), "43108");
+      await deliverShots(own, [shotAt("haunted-samples", 120, "43108", { profile: { notes: hostile(60_000) } }, fixture)]);
+      const { result } = await assistant.callWithinBudget<Page & { cut?: string; profile: Fields; columns: Record<string, unknown[]> }>("get_shot_samples", { id: "haunted-samples" });
+      expect(result.cut).toBeDefined();
+      expect(cut(result.profile.notes)).toBe(true);
+      // What Decaid hashes of it whole, and every sample, unrounded.
+      const profile = (fixture.workflow as Record<string, Fields>).profile!;
+      expect(result.profile.steps).toEqual(profile.steps);
+      expect(result).toMatchObject({ total: 168, offset: 0, more: false });
+      expect(result.columns.pressure).toEqual((fixture.measurements as Fields[]).map((sample) => (sample.machine as Fields).pressure));
     });
 
     it("summarises Shots whose names run far longer than any typed in as few characters, as it gives none of their text", async () => {

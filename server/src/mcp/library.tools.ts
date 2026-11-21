@@ -396,9 +396,12 @@ export type ConflictOutput = z.infer<typeof conflict>;
  * rounded or cut, it would be another profile, with another id. Its title,
  * author and notes are free text still.
  */
-export const PROFILE_WHOLE = ["/profile/content/profile", "/profile/profile"].flatMap((profile) =>
-  ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"].map((field) => `${profile}/${field}`),
-);
+export const PROFILE_WHOLE = ["/profile/content/profile", "/profile/profile"].flatMap(profileWhole);
+
+/** The `Budget.whole` paths of what Decaid hashes of a profile, as Decaid holds it, at `profile`, a path such as `/profile`. */
+export function profileWhole(profile: string): string[] {
+  return ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"].map((field) => `${profile}/${field}`);
+}
 
 /**
  * The Library, read through an assistant: each kind's items as the REST API

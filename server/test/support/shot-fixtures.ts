@@ -57,3 +57,33 @@ export function withRepeatedSamples(fixture: Record<string, unknown>, id: string
   record.measurements = Array.from({ length: Math.max(1, repeats) }, () => samples).flat();
   return record;
 }
+
+/**
+ * Derived: a real Shot whose samples after its Preheat are repeated until it
+ * runs at least `seconds` from the start of its profile, each repeat timed on
+ * from the one before, a sample's gap after it, as a long filter shot's or a
+ * slow bloom's run on (#607). Its Preheat is its leading `preparingForShot`
+ * samples, kept once.
+ */
+export function stretchedShot(fixture: Record<string, unknown>, seconds: number): Record<string, unknown> {
+  type Sample = { machine: { timestamp: string; state: { substate: string } }; scale: { timestamp: string } | null };
+  const samples = fixture.measurements as Sample[];
+  const start = samples.findIndex((sample) => sample.machine.state.substate !== "preparingForShot");
+  const profile = samples.slice(start);
+  const at = (sample: Sample) => Date.parse(`${sample.machine.timestamp}Z`);
+  const gap = at(profile[1]!) - at(profile[0]!);
+  const span = at(profile.at(-1)!) - at(profile[0]!) + gap;
+  const shifted = (timestamp: string, by: number) => new Date(Date.parse(`${timestamp}Z`) + by).toISOString().slice(0, -1);
+  const repeats = Math.ceil((seconds * 1000) / span) + 1;
+  const measurements = [
+    ...samples.slice(0, start),
+    ...Array.from({ length: repeats }, (_, n) =>
+      profile.map((sample) => ({
+        ...sample,
+        machine: { ...sample.machine, timestamp: shifted(sample.machine.timestamp, n * span) },
+        scale: sample.scale && { ...sample.scale, timestamp: shifted(sample.scale.timestamp, n * span) },
+      })),
+    ).flat(),
+  ];
+  return { ...fixture, measurements };
+}

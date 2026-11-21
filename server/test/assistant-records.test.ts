@@ -485,6 +485,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     }
     expect(await toolError("find_steam_records", { machineId: "not-an-id" })).toBe("No such Machine");
     expect(await toolError("get_shot", { id: "no-such-shot" })).toBe("Shot not found");
+    expect(await toolError("get_shot_samples", { id: "no-such-shot" })).toBe("Shot not found");
     expect(await toolError("get_steam_record", { id: "no-such-steam" })).toBe("Steam Record not found");
   });
 
@@ -737,6 +738,98 @@ describe("reading Shots and Steam Records through an assistant", () => {
     const steam = await assistant.call<Read>("get_steam_record", { id: "steam-listed", curves: true });
     const milk = await assistant.call<Read>("get_steam_record", { id: "steam-listed", curves: ["milkTemperature"] });
     expect(milk.curves).toEqual({ shaded: steam.curves.shaded, thinnedTo: steam.curves.thinnedTo, milkTemperature: steam.curves.milkTemperature });
+  });
+
+  it("reads every sample of a Shot as stored, a page at a time, timed and stepped as get_shot's curves are, with the profile it ran on the first page", async () => {
+    const fixture = preheatShotFixture();
+    const workflow = fixture.workflow as Record<string, Fields>;
+    const recorded = { ...workflow, machine: { ...workflow.machine, model: hardware.uptown1.model, serialNumber: hardware.uptown1.serial } };
+    // Derived: the real Shot with a Preheat, but that one sample in its profile has no machine time, which its curves leave out.
+    const measurements = structuredClone(fixture.measurements) as Fields[];
+    delete (measurements[60]!.machine as Fields).timestamp;
+    await deliverShots(uptown1, hardware.uptown1, [{ ...fixture, id: "assistant-samples", workflow: recorded, measurements }]);
+    const stored = (await api.get<{ measurements: Fields[] }>("/shots/assistant-samples/measurements")).measurements;
+    expect(stored).toHaveLength(168);
+
+    type Columns = Record<string, (number | string | null)[]>;
+    type SamplesPage = Page & Fields & { columns: Columns };
+    const pages: SamplesPage[] = [];
+    for (let offset = 0; ; ) {
+      const page = await assistant.call<SamplesPage>("get_shot_samples", { id: "assistant-samples", offset, limit: 50 });
+      expect(page).toMatchObject({ id: "assistant-samples", total: 168, offset });
+      pages.push(page);
+      offset += page.columns.seconds!.length;
+      expect(page.more).toBe(offset < 168);
+      if (!page.more) break;
+    }
+    expect(pages.map((page) => page.columns.seconds!.length)).toEqual([50, 50, 50, 18]);
+    const columns = Object.keys(pages[0]!.columns);
+    expect(columns).toEqual([
+      "seconds", "frame", "state", "substate", "pressure", "flow", "targetPressure", "targetFlow", "mixTemperature", "groupTemperature",
+      "targetMixTemperature", "targetGroupTemperature", "steamTemperature", "weight", "weightFlow", "timerValue", "volume",
+    ]);
+    const column = (name: string) => pages.flatMap((page) => page.columns[name]!);
+    // Without a limit, as many as fit: this Shot's 168 in one page, the same.
+    const whole = await assistant.call<SamplesPage>("get_shot_samples", { id: "assistant-samples" });
+    expect(whole).toMatchObject({ total: 168, offset: 0, more: false });
+    for (const name of columns) expect(whole.columns[name], name).toEqual(column(name));
+
+    // Every value as stored, unrounded, null where a sample holds none, as the scale's timer is here.
+    const machineOf = (sample: Fields) => sample.machine as Fields;
+    const scaleOf = (sample: Fields) => sample.scale as Fields | null;
+    for (const name of ["pressure", "flow", "targetPressure", "targetFlow", "mixTemperature", "groupTemperature", "targetMixTemperature", "targetGroupTemperature", "steamTemperature"]) {
+      expect(column(name), name).toEqual(stored.map((sample) => machineOf(sample)[name] ?? null));
+    }
+    for (const name of ["weight", "weightFlow", "timerValue"]) expect(column(name), name).toEqual(stored.map((sample) => scaleOf(sample)?.[name] ?? null));
+    expect(column("volume")).toEqual(stored.map((sample) => sample.volume ?? null));
+    expect(column("state")).toEqual(stored.map((sample) => (machineOf(sample).state as Fields).state));
+    expect(column("substate")).toEqual(stored.map((sample) => (machineOf(sample).state as Fields).substate));
+    expect(column("pressure").some((value) => typeof value === "number" && value !== hundredths(value))).toBe(true);
+    expect(column("timerValue").every((value) => value === null)).toBe(true);
+
+    // Timed as its curves are: its 43 Preheat samples before 0 s, the first of its profile at 0 s, and the sample
+    // without a time at none, beside every reading get_shot gives within a window as wide as the Shot.
+    const seconds = column("seconds");
+    const samples = shotSamples(stored, profileOf(workflow.profile));
+    expect(samples).toHaveLength(167);
+    expect(seconds[60]).toBeNull();
+    expect(seconds.filter((value) => value !== null)).toEqual(samples.map((sample) => sample.seconds));
+    expect(seconds.slice(0, 43).every((value) => (value as number) < 0)).toBe(true);
+    expect(seconds[43]).toBe(0);
+    type Read = { steps: { frame: number; from: number }[]; curves: Record<string, Curve> };
+    const read = await assistant.call<Read>("get_shot", { id: "assistant-samples", curves: ["pressure", "weight"], window: {} });
+    for (const name of ["pressure", "weight"]) {
+      const readings = seconds.flatMap((at, n) => (at === null || column(name)[n] === null ? [] : [[hundredths(at as number), hundredths(column(name)[n] as number)]]));
+      expect(read.curves[name]!.values, name).toEqual(readings);
+    }
+    // Each sample's frame as its steps give it: none in Preheat, where the frame is left over from before the Shot.
+    const frames = column("frame");
+    expect(frames.slice(0, 43).every((frame) => frame === null)).toBe(true);
+    const runs: [number, number][] = [];
+    frames.forEach((frame, n) => {
+      if (frame === null || seconds[n] === null || runs.at(-1)?.[0] === frame) return;
+      runs.push([frame as number, hundredths(seconds[n] as number)]);
+    });
+    expect(runs).toEqual(read.steps.map((step) => [step.frame, step.from]));
+    expect(runs.length).toBeGreaterThan(3);
+
+    // The first page alone gives the profile it ran, whole, and what get_shot gives of its stop, dose and yield.
+    const shot = await assistant.call<Fields>("get_shot", { id: "assistant-samples" });
+    expect(pages[0]).toMatchObject({
+      stopReason: shot.stopReason,
+      machineModel: "DE1Pro",
+      targetDose: shot.targetDose,
+      actualDose: shot.actualDose,
+      targetYield: shot.targetYield,
+      actualYield: shot.actualYield,
+    });
+    expect(pages[0]!.profile).toEqual(workflow.profile);
+    expect(pages[0]!.stopReason).toBe("targetWeight");
+    for (const page of pages.slice(1)) for (const field of ["profile", "stopReason", "machineModel", "targetDose", "actualYield"]) expect(page).not.toHaveProperty(field);
+    // Past its last sample, an empty page.
+    const past = await assistant.call<SamplesPage>("get_shot_samples", { id: "assistant-samples", offset: 168 });
+    expect(past).toMatchObject({ total: 168, offset: 168, more: false });
+    expect(past.columns.seconds).toEqual([]);
   });
 
   it("gives the steps of its Profile a Shot ran, the one it ended in, its last recorded weight, its time to first drip and its flow at the stop, without curves, as the REST API does, timed as its curves", async () => {
@@ -1210,8 +1303,21 @@ describe("reading Shots and Steam Records through an assistant", () => {
       expect(await viewer.call<Fields>("summarise_shots", {})).toEqual(await assistant.call<Fields>("summarise_shots", {}));
       expect(await viewer.call<Fields>("summarise_shots", { groupBy: ["machine", "barista"] })).toEqual(await assistant.call<Fields>("summarise_shots", { groupBy: ["machine", "barista"] }));
       expect(await viewer.call<Fields>("get_steam_record", { id: "steam-harbor-early" })).toMatchObject({ id: "steam-harbor-early", location: harbor });
+      expect(await viewer.call<Fields>("get_shot_samples", { id: "harbor-early" })).toEqual(await assistant.call<Fields>("get_shot_samples", { id: "harbor-early" }));
     } finally {
       await viewer.close();
     }
+  });
+
+  it("gives no samples of a Shot nobody can read, as its dismissed Pending Machine's, as get_shot and the REST API give none", async () => {
+    // Recorded on hardware no Machine holds, so credited to a Pending Machine, which an Admin then dismisses.
+    const unknown = { model: "DE1Pro", serial: "40809" };
+    await deliverShots(uptown1, hardware.uptown1, [shotAt("assistant-pending", "2026-02-12T12:00:00Z", unknown, "Eve")]);
+    expect((await assistant.call<Page>("get_shot_samples", { id: "assistant-pending" })).total).toBe(4);
+    const pending = (await api.pendingMachines()).find((machine) => machine.serial === unknown.serial)!;
+    expect((await api.call("POST", `/pending-machines/${pending.id}/dismiss`)).status).toBe(200);
+    expect((await api.call("GET", "/shots/assistant-pending/measurements")).status).toBe(404);
+    expect(await toolError("get_shot", { id: "assistant-pending" })).toBe("Shot not found");
+    expect(await toolError("get_shot_samples", { id: "assistant-pending" })).toBe("Shot not found");
   });
 });

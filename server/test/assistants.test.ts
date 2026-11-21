@@ -146,6 +146,7 @@ describe("connecting an assistant", () => {
         "get_machine_use",
         "get_profile_versions",
         "get_shot",
+        "get_shot_samples",
         "get_steam_record",
         "list_conflicts",
         "list_drafts",

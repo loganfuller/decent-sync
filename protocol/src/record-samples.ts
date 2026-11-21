@@ -89,7 +89,7 @@ const QUARTER_HOUR_MS = 900_000;
  */
 export function shotSamples(measurements: unknown, profile: Profile | null = null): Sample<ShotCurve>[] {
   const steps = profile?.steps ?? [];
-  return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale, preheat) => ({
+  return timedSamples(measurements, inPreheat, (_, machine, scale, preheat) => ({
     shade: preheat ? "Preheat" : null,
     step: preheat ? null : profileStep(machine?.profileFrame, steps),
     substate: text(record(machine?.state)?.substate),
@@ -174,7 +174,41 @@ function timedSamples<C extends string>(
   ) => Omit<Sample<C>, "seconds">,
 ): Sample<C>[] {
   if (!Array.isArray(measurements)) return [];
-  const timed: { elapsed: number; sample: Omit<Sample<C>, "seconds"> }[] = [];
+  const times = timeline(measurements, leading);
+  return measurements.flatMap((measurement, index) => {
+    const { seconds, lead } = times[index]!;
+    if (seconds === null) return [];
+    const fields = record(measurement)!;
+    const machine = record(fields.machine);
+    return [{ seconds, ...read(fields, machine, record(fields.scale), lead, index) }];
+  });
+}
+
+/** One measurement's place in time, as `timedSamples` times it: its seconds, null where it has no time, and whether it leads. */
+export interface Timed {
+  seconds: number | null;
+  lead: boolean;
+}
+
+/**
+ * Each of a Shot's measurements, in the order Decaid recorded them, timed as
+ * its samples are (`shotSamples`): its seconds, from the first sample after
+ * its Preheat, null for one without a time, which `shotSamples` leaves out,
+ * and whether it is in its Preheat (`lead`). For a tool that gives every
+ * measurement, each beside its seconds on the curves' axis (#607).
+ */
+export function shotTimeline(measurements: unknown): Timed[] {
+  return Array.isArray(measurements) ? timeline(measurements, inPreheat) : [];
+}
+
+/** Whether a Shot's machine snapshot is in its Preheat, if it leads: the substate Decaid reports while the Machine heats its water. */
+function inPreheat(machine: Record<string, unknown> | undefined): boolean {
+  return record(machine?.state)?.substate === "preparingForShot";
+}
+
+/** Each measurement timed as `timedSamples` describes. */
+function timeline(measurements: readonly unknown[], leading: (machine: Record<string, unknown> | undefined, index: number) => boolean): Timed[] {
+  const timed: { elapsed: number | null; lead: boolean }[] = [];
   let previous: number | undefined;
   let elapsed = 0;
   let lead = true;
@@ -185,7 +219,10 @@ function timedSamples<C extends string>(
     // A sample without a time still ends what leads, as it does on the server.
     if (lead && !leading(machine, index)) lead = false;
     const at = time(machine?.timestamp);
-    if (!fields || at === undefined) continue;
+    if (!fields || at === undefined) {
+      timed.push({ elapsed: null, lead });
+      continue;
+    }
     if (previous !== undefined) {
       const gap = at - previous;
       const real = Math.abs(gap) <= CLOCK_CHANGE_MS ? gap : gap - Math.round(gap / QUARTER_HOUR_MS) * QUARTER_HOUR_MS;
@@ -193,10 +230,10 @@ function timedSamples<C extends string>(
     }
     previous = at;
     if (!lead) zero ??= elapsed;
-    timed.push({ elapsed, sample: read(fields, machine, record(fields.scale), lead, index) });
+    timed.push({ elapsed, lead });
   }
   const start = zero ?? elapsed + 1;
-  return timed.map(({ elapsed, sample }) => ({ seconds: (elapsed - start) / 1000, ...sample }));
+  return timed.map(({ elapsed, lead }) => ({ seconds: elapsed === null ? null : (elapsed - start) / 1000, lead }));
 }
 
 /**

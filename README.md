@@ -461,7 +461,8 @@ their activity, each dial-in change included, and how much each was used by
 day or by hour, each Machine's scale,
 sensors, paired devices, plugins and Skins, Settings Edits and Settings
 History, Shots with their curves, the profile steps they ran, their time to
-first drip and their flow at the stop, found by any of the Shots list's
+first drip and their flow at the stop, or every sample of a Shot,
+unrounded, for closer analysis, found by any of the Shots list's
 filters, its rating filter and its periods of each Location's own days
 among them, a summary of the Shots any filter
 finds, with the numbers it asks for, as one group or grouped by Machine,
