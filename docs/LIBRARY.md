@@ -2503,8 +2503,9 @@ fit.
   through it takes, against the water pumped, and the water it takes before
   the first drip. The standard puck (`standardPuck`) is a fixed curve for
   18 g, scaled by a grind from -1, the finest, fifty times the resistance, to
-  1, the coarsest, a fiftieth of it, as recorded Shots' pucks span about a
-  fiftieth to twenty times its resistance. A Shot's puck (`shotPuck`) is worked out
+  1, the coarsest, a fiftieth of it, as recorded coffee Shots' pucks span
+  about a 150th to twenty times its resistance, all but the coarsest few
+  within a fiftieth. A Shot's puck (`shotPuck`) is worked out
   from its samples after its Preheat: its resistance from its pressure and
   the flow through the puck at each sample where the pump was running and
   pressure had built, the water it took before its first drip, and the

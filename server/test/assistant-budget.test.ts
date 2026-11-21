@@ -843,7 +843,8 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         const long = await assistant.callWithinBudget<{ steps: unknown[]; duration: number; curves: Record<string, { values: unknown[] }> }>("simulate_profile", {
           profileId: gagne.id,
           stopAt: 0,
-          grind: -1,
+          // Its longest run, on the coarsest puck.
+          grind: 1,
           curves: true,
         });
         expect(long.result).not.toHaveProperty("cut");

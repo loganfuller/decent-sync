@@ -145,10 +145,11 @@ const STANDARD_PEAK = 2.2;
 
 /**
  * Each end of the grind takes this many times the middle's resistance, or a
- * part of it: recorded Shots' pucks span from about a fiftieth of the
+ * part of it: recorded coffee Shots' pucks span from about a 150th of the
  * standard puck's resistance, a coarse grind on a Bengle, to some twenty
- * times it, a fine one on a DE1, so the ends reach a turbo or filter grind
- * and one finer than any recorded.
+ * times it, a fine one on a DE1, all but the coarsest few within a
+ * fiftieth, so the ends reach a turbo or filter grind and one finer than
+ * any recorded.
  */
 const GRIND_RANGE = 50;
 

@@ -28,6 +28,17 @@ describe("timeAxis", () => {
     expect(timeAxis(30, 31)).toEqual({ end: 35, tick: 5 });
     expect(timeAxis(100, 200)).toEqual({ end: 120, tick: 20 });
   });
+
+  it("keeps to a dozen labels at most, however long the run", () => {
+    expect(timeAxis(200, 400)).toEqual({ end: 240, tick: 20 });
+    expect(timeAxis(500, 1000)).toEqual({ end: 600, tick: 60 });
+    expect(timeAxis(1000, 2000)).toEqual({ end: 1200, tick: 120 });
+    expect(timeAxis(2026, 2026)).toEqual({ end: 2100, tick: 300 });
+    for (const reached of [45, 95, 250, 700, 800, 1300, 1500, 3000]) {
+      const { end, tick } = timeAxis(reached, reached * 2);
+      expect(end / tick, String(reached)).toBeLessThanOrEqual(12);
+    }
+  });
 });
 
 describe("laneRanges", () => {
