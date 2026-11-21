@@ -153,5 +153,10 @@ describe("pulling and sets", () => {
     const files = [shot("a", "2026-11-09T08:00:00Z"), shot("b", "2026-11-09T09:00:00Z"), shot("c", "2026-11-09T20:00:00Z"), shot("d", "2026-11-09T09:30:00Z", "10")];
     expect(inferSets(files)).toEqual([["a", "b"]]);
     expect(inferSets(files, [String((files[0]!.shot as { machine?: { name: string } }).machine?.name ?? "none")])).toEqual([["a", "b"]]);
+    // Two Pending Machines' Shots are of two Machines; a Shot naming neither joins no set.
+    const pending = (file: (typeof files)[number], id: string | null) => ({ shot: { ...file.shot, machineId: null, pendingMachine: id ? { id, model: "DE1", serial: "57890" } : null } });
+    expect(inferSets([pending(files[0]!, "p1"), pending(files[1]!, "p2")])).toEqual([]);
+    expect(inferSets([pending(files[0]!, "p1"), pending(files[1]!, "p1")])).toEqual([["a", "b"]]);
+    expect(inferSets([pending(files[0]!, null), pending(files[1]!, null)])).toEqual([]);
   });
 });

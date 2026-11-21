@@ -154,8 +154,10 @@ export function inferSets(files, excluded = []) {
     if (excluded.includes(shot.machine?.name)) continue;
     const context = shot.record?.workflow?.context ?? {};
     const coffee = shot.beanBatchId ?? `${context.coffeeRoaster ?? ""}/${context.coffeeName ?? ""}`;
-    if (coffee === "/" || context.grinderSetting === undefined) continue;
-    const key = [shot.machineId, coffee, shot.grinderId ?? context.grinderModel, context.grinderSetting, simulationShotOf(shot.record, null).dose, shot.basketId ?? context.extras?.basketName ?? null].join("|");
+    // A Pending Machine's Shot names it by its pendingMachine, with no machineId.
+    const machine = shot.machineId ? `machine ${shot.machineId}` : shot.pendingMachine?.id ? `pending ${shot.pendingMachine.id}` : null;
+    if (!machine || coffee === "/" || context.grinderSetting === undefined) continue;
+    const key = [machine, coffee, shot.grinderId ?? context.grinderModel, context.grinderSetting, simulationShotOf(shot.record, null).dose, shot.basketId ?? context.extras?.basketName ?? null].join("|");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(shot);
   }
