@@ -241,7 +241,7 @@ function timeline(measurements: readonly unknown[], leading: (machine: Record<st
  * "Step N", counting from 1, for a step with none or a frame past the last.
  */
 export function profileStep(frame: unknown, steps: readonly ProfileStep[]): Step | null {
-  if (typeof frame !== "number" || !Number.isInteger(frame) || frame < 0) return null;
+  if (typeof frame !== "number" || !Number.isSafeInteger(frame) || frame < 0) return null;
   const name = steps[frame]?.name.trim();
   return { frame, name: name ? name : `Step ${frame + 1}` };
 }

@@ -993,6 +993,22 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.columns.pressure).toEqual((fixture.measurements as Fields[]).map((sample) => (sample.machine as Fields).pressure));
     });
 
+    it("reads a Shot's samples beside a profile whose steps alone run past the budget one sample on the first page, over it, then pages within it", async () => {
+      // Derived: the real Shot with a Preheat, its profile's first step repeated 400 times. Its steps are what Decaid
+      // hashes, never cut, so the first page can only be over the cap, with one sample, and logged (ADR-0028).
+      const fixture = preheatShotFixture();
+      const step = ((fixture.workflow as Record<string, Fields>).profile!.steps as Fields[])[0];
+      const own = await connectionOf(await machineAt("Haunted steps", lab), "43109");
+      await deliverShots(own, [shotAt("samples-long-steps", 121, "43109", { profile: { steps: Array.from({ length: 400 }, () => step) } }, fixture)]);
+      const first = await assistant.call<Page & { profile: Fields; columns: Record<string, unknown[]> }>("get_shot_samples", { id: "samples-long-steps" });
+      expect(first).toMatchObject({ total: 168, offset: 0, more: true });
+      expect(first.profile.steps).toHaveLength(400);
+      expect(first.columns.pressure).toHaveLength(1);
+      const { result } = await assistant.callWithinBudget<Page & { columns: Record<string, unknown[]> }>("get_shot_samples", { id: "samples-long-steps", offset: 1 });
+      expect(result).toMatchObject({ total: 168, offset: 1, more: false });
+      expect(result.columns.pressure).toEqual((fixture.measurements as Fields[]).slice(1).map((sample) => (sample.machine as Fields).pressure));
+    });
+
     it("summarises Shots whose names run far longer than any typed in as few characters, as it gives none of their text", async () => {
       const { result, text } = await assistant.callWithinBudget<Fields>("summarise_shots", { machineId: haunted.machine.id });
       expect(result).toEqual(toolSummary(await api.get(`/shots/summary?machineId=${haunted.machine.id}`)));
