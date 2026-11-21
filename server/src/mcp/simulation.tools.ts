@@ -29,7 +29,7 @@ export const simulateInput = z.object({
     .min(-1)
     .max(1)
     .optional()
-    .describe("The standard puck's grind, from -1, the finest, to 1, the coarsest, 0 a medium grind and 0 where left out: each end takes four times the middle's resistance or a quarter of it, so about half or twice its flow at one pressure. Not with shotId."),
+    .describe("The standard puck's grind, from -1, the finest, to 1, the coarsest, 0 a medium grind and 0 where left out: each end takes fifty times the middle's resistance or a fiftieth of it, so about a seventh or seven times its flow at one pressure, from finer than any recorded Shot to a turbo or filter grind. Not with shotId."),
   dose: z.number().gt(0).max(MAX_DOSE).optional().describe(`The dose in grams; the Shot's for its puck, as weighed or else as set, and ${STANDARD_DOSE} g for the standard puck, where left out.`),
   stopAt: z
     .number()

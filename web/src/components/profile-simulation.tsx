@@ -127,7 +127,7 @@ export function GrindControl({ grind, onChange }: { grind: number; onChange(grin
     <div className="flex min-w-0 flex-1 basis-full items-center gap-2 sm:min-w-64 sm:basis-auto">
       <span className="text-sm text-muted-foreground">Puck</span>
       <span className="text-xs">Finer</span>
-      <Slider label="Puck, finer to coarser" min={-1} max={1} step={0.05} value={[grind]} onValueChange={([value]) => onChange(value ?? 0)} className="min-w-24 flex-1" />
+      <Slider label="Puck, finer to coarser" min={-1} max={1} step={0.01} value={[grind]} onValueChange={([value]) => onChange(value ?? 0)} className="min-w-24 flex-1" />
       <span className="text-xs">Coarser</span>
     </div>
   );
