@@ -516,6 +516,7 @@ var __decentSync = (() => {
         [6, 3]
       ],
       maxPressure: 12,
+      startFlow: 4,
       flowLimiterReach: 0.7,
       flowResponse: 0.7,
       pressureResponse: 1.5,
@@ -995,6 +996,9 @@ var __decentSync = (() => {
 
   // ../protocol/src/settings-history.ts
   var BRIEF_CHANGE_MS = 2 * 6e4;
+
+  // ../protocol/src/simulation.ts
+  var YIELD_FROM = 1 / 3;
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;

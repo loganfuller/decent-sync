@@ -36,6 +36,16 @@ export interface ModelFigures {
   /** The most pressure it reaches, bar, as its profile's range allows. */
   maxPressure: number;
   /**
+   * The flow its pump is already giving as a Shot's profile begins, ml/s,
+   * where it runs through the Preheat before it: a DE1's recorded Shots
+   * begin at 3.4 to 6 ml/s. It is there for the shape of a run's flow as it
+   * fills, which stands about three tenths closer to its Shots' with it, and
+   * moves no corpus Shot across the margin (#602). A run begins at this, or
+   * at what its first step asks for where that is a flow and less. Where
+   * none, from rest.
+   */
+  startFlow?: number;
+  /**
    * How far over a limiter's value it lets the flow settle on a step whose
    * pump controls pressure, as a share of the limiter's range (`limited`).
    * A DE1's recorded Shots let more through such a limiter than Decaid's
@@ -110,6 +120,7 @@ export const MODEL_FIGURES = {
       [6, 3],
     ],
     maxPressure: 12,
+    startFlow: 4,
     flowLimiterReach: 0.7,
     flowResponse: 0.7,
     pressureResponse: 1.5,

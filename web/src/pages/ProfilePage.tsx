@@ -5,6 +5,7 @@ import {
   type SimulatedRun,
   profileOf,
   profileTextOf,
+  shotPuck,
   simulateOnShot,
   simulateProfile,
   standardPuck,
@@ -425,23 +426,25 @@ export function HowItRuns({
   };
   const cannot = unsimulatable(definition);
 
+  // The Shot's puck, worked out once for the Shot: working it out runs the Shot's own steps some hundreds of times, which each edit's run must not wait on.
+  const shotsPuck = useMemo(() => (puckShot ? shotPuck(puckShot.simulation) : null), [puckShot]);
   const result = useMemo(() => {
     if (cannot || !definition) return undefined;
     if (puck === "shot") {
       if (!puckShot) return undefined;
-      return simulateOnShot({ profile: definition, shot: puckShot.simulation, dose: ask.dose, stopAt: ask.stopAt, model: ask.model }) ?? null;
+      return shotsPuck ? simulateOnShot({ profile: definition, shot: puckShot.simulation, puck: shotsPuck, dose: ask.dose, stopAt: ask.stopAt, model: ask.model }) : null;
     }
     return { run: simulateProfile({ profile: definition, puck: standardPuck(ask.grind), dose: ask.dose, stopAt: ask.stopAt, model: ask.model }), fit: null };
-  }, [cannot, definition, puck, puckShot, ask]);
+  }, [cannot, definition, puck, puckShot, shotsPuck, ask]);
   useEffect(() => onRun(result?.run), [result, onRun]);
   // The baseline on the same puck, where it can be simulated: on the standard puck stopping at its own stop-at weight, unless the person chose where both stop.
   const baselineProfile = baseline?.profile;
   const baselineRun = useMemo(() => {
     if (!baselineProfile || unsimulatable(baselineProfile)) return undefined;
-    if (puck === "shot") return puckShot ? simulateOnShot({ profile: baselineProfile, shot: puckShot.simulation, dose: ask.dose, stopAt: ask.stopAt, model: ask.model })?.run : undefined;
+    if (puck === "shot") return puckShot && shotsPuck ? simulateProfile({ profile: baselineProfile, puck: shotsPuck, dose: ask.dose, stopAt: ask.stopAt, model: ask.model }) : undefined;
     const stopAt = stopChosen ? ask.stopAt : startingAsk(baselineProfile, ask.model).stopAt;
     return simulateProfile({ profile: baselineProfile, puck: standardPuck(ask.grind), dose: ask.dose, stopAt, model: ask.model });
-  }, [baselineProfile, puck, puckShot, ask, stopChosen]);
+  }, [baselineProfile, puck, puckShot, shotsPuck, ask, stopChosen]);
 
   // Each Shot asked for, so one that answers after a later choice is dropped.
   const latest = useRef(0);

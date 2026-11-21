@@ -2,6 +2,7 @@ export declare const MARGIN_SHARE: number;
 export declare const MARGIN_SECONDS: number;
 export declare const MARGIN_BAR: number;
 export declare const STEP_SECONDS: number;
+export declare const SOAK_SECONDS: number;
 export declare const PROFILE_KINDS: readonly string[];
 
 export interface ShotEntry {
@@ -30,9 +31,11 @@ export interface ScoredShot {
   noCoffee: boolean;
   manual: boolean;
   noFit: string | null;
+  puck: { resistance: number; opens: number; holds: number; yieldPerMl: number; dose: number } | null;
   errors: FigureErrors | null;
   within: boolean;
   stepsAlike: boolean;
+  soaks: number[];
   curves: { pressure: number | null; flow: number | null; weight: number | null } | null;
 }
 export interface Summary {
@@ -75,6 +78,7 @@ export interface Scorecard {
   noModel: number;
   noCoffee: number;
   manual: number;
+  soaks: { steps: number; within: number; error: Spread };
   sets: { same: PairSummary; different: PairSummary; bySet: Record<string, SetSummary>; pairs: SetPair[] };
 }
 

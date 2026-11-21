@@ -2426,7 +2426,8 @@ fit.
   it ended, the stop and why, the time to first drip, read from its samples
   by the rule a Shot's is (`timeToFirstDrip`, [SHOTS.md](SHOTS.md)), and
   the peaks. It
-  starts with the pump at rest and no pressure, with no Preheat, and assumes
+  starts with no pressure and no Preheat, a DE1's pump already giving what
+  it gives through one (The machine, below), and assumes
   a scale under the cup. Temperature is not simulated: a sample's temperature target is
   its step's, and it has no temperature of its own.
 - **Steps.** A step ends at its maximum time, its exit, the water it may pump
@@ -2474,7 +2475,12 @@ fit.
   pressure about 3 s before its Shot did. A DE1's flow comes up
   over about 0.7 s and it brings pressure to a target over about 1.5 s; a
   Bengle's flow follows over about 0.2 s, as its Shots' curves rise, and
-  its pressure over about 0.7 s. Wherever a pressure sets the flow, a
+  its pressure over about 0.7 s. A DE1's pump is already giving 4 ml/s as a
+  profile begins (`startFlow`, #602), as its recorded Shots begin at 3.4 to
+  6 ml/s after their Preheat, or what the first step asks for where that is
+  a flow and less: it is there for the shape of the fill, where the run's
+  flow stands about three tenths closer to its Shots' with it, and moves no
+  corpus Shot across the margin. A Bengle's starts from rest. Wherever a pressure sets the flow, a
   step's own, its limiter's or the most the machine reaches, 12 bar, the
   pump follows within a tick.
   Each model holds one kind of limiter as its Shots show, not as Decaid's
@@ -2493,37 +2499,93 @@ fit.
   let it reach about 7. A DE1's pressure limiter and a Bengle's flow
   limiter ease as Decaid's.
   Pressure builds in the group as the pump gives more than passes the puck
-  and falls as it drains, over seconds. Each figure stays only where it
+  and falls as it drains, over seconds (The puck, below). Each figure stays only where it
   brings more of the corpus within the margin, or, as a Bengle's flow on a
   pressure step and its flow response do, brings its runs' curves closer to
   their Shots' and costs the corpus's margin nothing; what was tried and
-  left out, a DE1's flow on a flow step falling as pressure builds, the
-  pump already running as a Shot begins, a DE1's flow falling more slowly than it rises, a machine leaving
+  left out, a DE1's flow on a flow step falling as pressure builds, a DE1's flow falling more slowly than it rises, a machine leaving
   a step a moment before the pressure it records passes its exit, and one
   flat figure for a Bengle's pressure steps, is in #601's pull request.
-- **The puck** is its resistance through the Shot, the pressure a flow
-  through it takes, against the water pumped, and the water it takes before
-  the first drip. The standard puck (`standardPuck`) is a fixed curve for
-  18 g, scaled by a grind from -1, the finest, fifty times the resistance, to
-  1, the coarsest, a fiftieth of it, as recorded coffee Shots' pucks span
-  about a 150th to twenty times its resistance, all but the coarsest few
-  within a fiftieth. A Shot's puck (`shotPuck`) is worked out
-  from its samples after its Preheat: its resistance from its pressure and
-  the flow through the puck at each sample where the pump was running and
-  pressure had built, the water it took before its first drip, as a stored
-  Shot's is read (`timeToFirstDrip`: the first reading of 0.2 g or more in
-  the scale's rise to 1 g, after its last reading of zero, past a cup's
-  weight read before Decaid's tare at the profile's start landed), and the
-  grams that reached the cup for each ml through it after; none where no
-  sample shows its resistance. The standard puck's head space was fitted
-  again for #609 to the water recorded Shots take before that first drip,
-  about 1 ml less than before their first reading of 1 g, which it was
-  fitted to before. Its two known limits are SHOTS.md's: a scale that
-  settles a little under 1 g within the first second reads as a first drip
-  then, and one tared again partway through has its first drip in the rise
-  after that. Another dose
-  scales a puck's resistance in proportion and the water its coffee soaks
-  up.
+- **The puck** is a few numbers, not a curve through the Shot (#602), so
+  that a Shot's puck carries to another profile: the water the space above
+  it and the coffee take before the first drip (`holds`), its resistance
+  once it has opened (`resistance`: the pressure a flow through it takes
+  over that flow squared, stated at 9 bar), the water through it after the
+  first drip by which it has opened (`opens`), and the grams that reach the
+  cup for each ml through it. What it does with them is what the corpus of
+  recorded Shots shows, not a published model of a puck, and each part
+  stays only where it earns its place on the scorecard (the pull request
+  for #602 lists what was tried and left out):
+  - **It soaks, seals and opens** (`resistanceOf`), against the water that
+    has gone into the space above it and into it, which is what was pumped
+    less what the group holds. It resists next to nothing while water
+    fills the space, more as the coffee soaks, to 0.4 of its open
+    resistance at the first drip; seals over the next 3 ml, where it
+    passes about a twelfth of its open flow at the least; and opens from
+    there as water passes through it, its flow a share of its open flow
+    that grows evenly with the water through it since the first drip, to
+    all of it at `opens`. Recorded Shots' flow at one pressure climbs so
+    through the pour, and a pump-off soak holds its pressure against a
+    puck that is sealing.
+  - **It tightens under pressure**, so its flow rises little with it: as
+    the pressure to the power 0.15 (`TIGHTENS`), where a fixed resistance
+    gives its square root. One coffee, grind and dose passed 2.2 to
+    2.6 ml/s late in its Shots at 0.6 bar after a bloom, at 5.3 bar and at
+    9 bar; with the square root, one Shot's puck run with another
+    Profile's steps lands a median 14.8% off that Shot's duration on the
+    corpus, and with this 7.0%. So a step whose pump controls flow asks
+    very different pressures of pucks a little apart, as its Shots do.
+  - **The group above it** holds 0.9 ml for each bar in its own give and
+    9 ml of trapped air, which pressure squeezes (`groupHolds`): about 5 ml
+    for a bar gained near none and about 1 at 9 bar. It fills as pressure
+    builds and drains through the puck as it falls. With these a pump-off
+    soak that ends as pressure falls under a figure lasts within a second
+    of its Shot's on 22 of the corpus's 26, at a median 0.46 s off; with
+    the 0.5 ml for each bar and no air it had, the same puck leaves them a
+    median 1.1 s short.
+  - **The standard puck** (`standardPuck`) is 18 g at the middle of its
+    control, from the corpus's pucks as fitted: it holds the median of
+    them all before its first drip, 35 ml; its open resistance, 1, is the
+    median of the corpus's Shots of a flat 9 bar Profile; and it opens
+    over the 20 ml with which their steps, run on it at their own dose and
+    to their own weight, last what they lasted, at the median (26 to
+    33 s). The median puck of the whole corpus is coarser (0.79, opening
+    over 12 ml), as most of its Shots are of gentler Profiles ground for
+    them, and would run a flat 9 bar Profile in under 20 s. Its grind runs
+    from -1, the finest, fifty times that resistance, to 1, the coarsest, a
+    fiftieth of it, so about a seventh or seven times the flow at one
+    pressure: the corpus's pucks span a thirtieth of it, a filter-like
+    Profile's, to twenty times it, with its fast, turbo Shots about
+    halfway to the coarse end.
+  - **A Shot's puck** (`shotPuck`) is what the simulation needs of the
+    Shot to reproduce it. Its yield is read from its samples after its
+    Preheat, over the later part of the pour, from where the cup held a
+    third of its last weight. Its open resistance, the water by which it
+    opens and the water it holds are those with which a run of the Shot's
+    own steps, on its own Machine's model and ended as it ended (The fit,
+    below), comes closest to the Shot: its duration and its peak pressure,
+    each as a share of the margin, the distance between their pressure and
+    flow curves, and, for less, their first drips. They are sought from
+    what its samples show (`readPuck`: the water at its first drip, as a
+    stored Shot's is read by `timeToFirstDrip`, and its resistance from
+    its pressure and the flow through the puck at each sample where the
+    pump was running and pressure had built), over a fixed count of steps
+    (Nelder and Mead's method), so the same Shot gives the same puck in
+    the browser and on the server; it runs the Shot's steps some hundreds
+    of times, a few tens of milliseconds. Where its own steps can't be
+    run as it ran (no fit, below), its puck is what its samples show, which
+    lands much further from it: a median 17% off its duration on the
+    corpus's Shots, so such a run is a rough guide. None where no sample
+    shows its resistance. `timeToFirstDrip`'s two known limits are
+    SHOTS.md's: a scale that settles a little under 1 g within the first
+    second reads as a first drip then, and one tared again partway through
+    has its first drip in the rise after that.
+  - **Another dose** scales a puck's resistance in proportion, as the bed
+    is deeper, and the water by which it opens; the coffee soaks up 1.1 ml
+    more for each gram more, and takes 1.3 ml of the space above it, so
+    pressure builds sooner and the water before the first drip falls a
+    little (`puckForDose`). Recorded Shots of 16, 18 and 20 g in one
+    basket took a median 42, 44 to 46 and 41 ml before their first drip.
 - **The fit.** On a Shot's puck, the Shot's own steps, its Workflow's
   profile, are run on that puck on its own Machine's model, ended as it
   ended (`shotFitStop`): with its steps run out where a DE1 ran its last
@@ -2554,10 +2616,18 @@ fit.
   1 s, whichever is more, and its peak pressure within 0.5 bar. On the
   corpus of real Shots in `scripts/simulation/corpus/` (#599), its share
   within that margin is held by a test at the level recorded in
-  `corpus/levels.json`: 92 of 123 DE1 coffee Shots and 17 of 23 Bengle
-  Shots with the machine fitted to it (#601), from 55 of 113 and 12 when it
-  was committed; the designed session's ten Shots (#600) brought the DE1's
-  from 85 of 113. `npm run simulation-scorecard` prints how close
+  `corpus/levels.json`: 115 of 123 DE1 coffee Shots and 17 of 23 Bengle
+  Shots with the puck of #602, from 92 and 17 with the machine fitted to it
+  (#601) and a puck that was its Shot's resistance replayed, and 55 of 113
+  and 12 when the corpus was committed; the designed session's ten Shots
+  (#600) brought the DE1's from 85 of 113. The six Bengle Shots outside
+  were outside before: five miss on the peak pressure of a step whose pump
+  controls flow, and one stopped as no run can. The same file holds two
+  more levels for #602: one Shot's puck run with another Profile's steps on
+  the same coffee lands a median 7.0% off that Shot's duration (9.4% with
+  the replayed resistance, where a bloom's puck ran every other Profile 32
+  to 57% short), and 22 of the 26 pump-off soaks that end as pressure falls
+  last within a second of their Shots' (5 before). `npm run simulation-scorecard` prints how close
   it comes, by model and kind of Profile ([DEVELOPMENT.md](DEVELOPMENT.md#the-simulations-scorecard)).
 
 `GET /api/profiles/:id/simulation` (REST API, below) and the
@@ -2573,9 +2643,9 @@ step that ended at its exit, its water or its weight did what it was asked,
 and gets none; nor does one that ran 3 s or less, which is over before the
 pump catches up and is usually carried on by the next, as a lever's forced
 rise is, or one asking for a flow the pump of the model simulated can't
-give, which `pumpTooSlow` says already. On the standard puck it is advice for 28 of Decaid's 73
-bundled Profiles on a medium grind, each stopping at its own stop-at weight, most of them declines the Shot stops
-before they end, and pour-over pulses the puck holds back. Anyone
+give, which `pumpTooSlow` says already. On the standard puck it is advice for 22 of Decaid's 73
+bundled Profiles on a medium grind, each stopping at its own stop-at weight, most of them declines and ramps the Shot stops
+before they end. Anyone
 who reads Profiles may, a Viewer too. The tool
 answers within the size budget (ADR-0028): the headline figures, each
 step's end and why, never cut, the checks and the fit, and the run's curves
@@ -2590,7 +2660,10 @@ Location with a Machine, or with a DE1 among them, a DE1 (#578, #588).
 A Shot's puck is read the same way on both sides: `simulationShotOf` takes
 the Shot's full record and measurements, as the server stores them and as
 `GET /api/shots/:id` and `/measurements` give them, and `simulateOnShot`
-runs a profile on its puck and fits the Shot's own steps to it.
+runs a profile on its puck and fits the Shot's own steps to it. The
+Profile page works a Shot's puck out once, when the Shot is chosen, and
+passes it to each run as the profile or the dose changes; the server works
+it out for each request.
 
 ## The Profile page
 
