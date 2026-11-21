@@ -752,8 +752,13 @@ export interface SimulationShot {
   dose: number | null;
   /** What stopped it, as Decaid recorded it. */
   stopReason: string | null;
-  /** The model of the Machine it recorded, a DE1 for any DE1 model and where it recorded none (`machineModelOf`). */
-  model: MachineModel;
+  /**
+   * The model of the Machine it recorded, a DE1 for any DE1 model
+   * (`machineModelOf`); null where its record names none, as Decaid's
+   * records before v0.9.2 and one whose capture of the Machine failed
+   * (`provenanceStatus` `unavailable`).
+   */
+  model: MachineModel | null;
 }
 
 /** What a simulation on a Shot's puck reads of the Shot, from its full record and its measurements, as the server stores both. */
@@ -767,7 +772,7 @@ export function simulationShotOf(record: unknown, measurements: unknown): Simula
     profile,
     dose: above(fieldsOf(shot.annotations).actualDoseWeight) ?? above(fieldsOf(workflow.context).targetDoseWeight),
     stopReason: typeof shot.stopReason === "string" ? shot.stopReason : null,
-    model: machineModelOf(fieldsOf(workflow.machine).model),
+    model: typeof fieldsOf(workflow.machine).model === "string" ? machineModelOf(fieldsOf(workflow.machine).model) : null,
   };
 }
 
@@ -783,7 +788,8 @@ export interface ShotPuckRun {
    * The Shot's own steps run on its puck, stopped as it stopped, beside the
    * Shot (`fitToShot`); null where Decaid would not read its own profile or
    * it has more steps than a machine takes, and where a run can't end as the
-   * Shot did (`shotFitStop`).
+   * Shot did (`shotFitStop`), where its record names no Machine model, and
+   * where it ran under manual control (`underManualControl`).
    */
   fit: ShotFit | null;
 }
@@ -798,8 +804,77 @@ export function simulateOnShot({ profile, shot, dose, stopAt, model }: { profile
   const puck = shotPuck(shot.samples, shot.dose);
   if (!puck) return null;
   const run = simulateProfile({ profile, puck, dose: dose ?? puck.dose, stopAt, model });
+  return { puck, run, fit: shotFit(shot, puck) };
+}
+
+/**
+ * How close a run of a Shot's own steps on its puck comes to it
+ * (`fitToShot`), ended as it ended (`shotFitStop`), on the model of its
+ * Machine; null where Decaid would not read its own profile or it has more
+ * steps than a machine takes, where its record names no Machine model,
+ * where it ran under manual control (`underManualControl`), and where a run
+ * can't end as it did.
+ */
+export function shotFit(shot: SimulationShot, puck: Puck): ShotFit | null {
   const own = shot.profile && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
-  const stop = own ? shotFitStop(shot.samples, shot.stopReason, shot.model, own) : null;
-  const fit = own && stop ? fitToShot({ samples: shot.samples, profile: own, puck, stopAt: stop.stopAt, model: shot.model }).fit : null;
-  return { puck, run, fit };
+  if (!own || shot.model === null || underManualControl(shot.samples, own, shot.model)) return null;
+  const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, own);
+  return stop ? fitToShot({ samples: shot.samples, profile: own, puck, stopAt: stop.stopAt, model: shot.model }).fit : null;
+}
+
+/**
+ * How far a target its Machine reported may stray from what a step asks
+ * before it is one the step never asked for: 1 bar or ml/s, or this share of
+ * what it asks, whichever is more, as a DE1 recorded a target of 12 ml/s for
+ * a step asking 15, above what its pump gives.
+ */
+const MANUAL_STRAY = 1;
+const MANUAL_STRAY_SHARE = 0.25;
+
+/**
+ * Whether a Shot ran under manual control, as under a Bengle's lever and
+ * group-head modes (GHC), so that its steps were not what its Machine
+ * followed: for more than half its time after Preheat, the Machine reported
+ * a target for what its step's pump controls further than MANUAL_STRAY from
+ * what the step asks, as sent to the model (`sentStep`). A smooth step asks
+ * for a ramp over its time from its pump's quantity as it began. While a
+ * step's limiter holds the other quantity near its value (within
+ * MANUAL_STRAY of it, or MANUAL_STRAY_SHARE of it, whichever is more, however
+ * wide the limiter's range), a lower target is the limiter's doing. A
+ * pressure step's sample with no pressure target reported a target of 0; a
+ * flow step's with no flow target counts as following its step. On 944 recorded Shots (#599), the seven that strayed for more than
+ * half their time were the Bengle's manual modes and two others whose own
+ * steps ran 33% and 78% off their duration; no other strayed for more than
+ * two fifths of its time.
+ */
+export function underManualControl(samples: readonly Sample<ShotCurve>[], profile: Profile, model: MachineModel): boolean {
+  const shot = samples.filter((sample) => sample.shade === null);
+  if (shot.length < 2) return false;
+  const steps = profile.steps.map((step) => sentStep(step, model));
+  let strayed = 0;
+  let from = 0;
+  let began = 0;
+  for (let n = 0; n + 1 < shot.length; n++) {
+    const sample = shot[n]!;
+    const step = sample.step ? steps[sample.step.frame] : undefined;
+    if (!step) continue;
+    if (sample.step!.frame !== shot[n - 1]?.step?.frame) {
+      from = sample.values[step.pump] ?? 0;
+      began = sample.seconds;
+    }
+    // Decaid reports both targets in every sample and shotSamples reads a zero as none, so a pressure step's missing
+    // pressure target is a reported 0, as with a lever held closed. A flow step's is none: a Bengle reports a flow
+    // step's target as a pressure, with a flow target of 0.
+    const target = sample.targets[step.pump] ?? (step.pump === "pressure" ? 0 : null);
+    if (target === null) continue;
+    const asked = stepTarget(step);
+    // A smooth step ramps its target over its time from its pump's quantity as it began, as the Machine reports it.
+    const ramped = step.transition === "smooth" && step.seconds > 0 ? from + (asked - from) * Math.min(1, (sample.seconds - began) / step.seconds) : asked;
+    // A limiter lowers the target a Bengle reports while it holds the other quantity back near its value, and never raises it.
+    const limited = step.pump === "pressure" ? sample.values.flow : sample.values.pressure;
+    const holding = step.limiter !== null && step.limiter.value > 0 && limited !== null && limited >= step.limiter.value - Math.max(MANUAL_STRAY, MANUAL_STRAY_SHARE * step.limiter.value);
+    const off = holding ? target - ramped : Math.abs(target - ramped);
+    if (off > Math.max(MANUAL_STRAY, MANUAL_STRAY_SHARE * Math.max(asked, ramped))) strayed += shot[n + 1]!.seconds - sample.seconds;
+  }
+  return strayed > shot[shot.length - 1]!.seconds / 2;
 }

@@ -462,7 +462,7 @@ export function HowItRuns({
             ...now.standard,
             dose: loaded.simulation.dose ?? now.standard.dose,
             stopAt: lastWeight !== null && lastWeight > 0 ? Math.round(lastWeight * 10) / 10 : now.standard.stopAt,
-            model: loaded.simulation.model,
+            model: loaded.simulation.model ?? now.standard.model,
           },
         }));
       },
@@ -658,7 +658,9 @@ function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | nul
           <Field term="Duration">
             <OrNone>{listed.duration === null ? undefined : seconds(listed.duration)}</OrNone>
           </Field>
-          <Field term="Pulled on a">{shot.simulation.model}</Field>
+          <Field term="Pulled on a">
+            <OrNone>{shot.simulation.model ?? undefined}</OrNone>
+          </Field>
         </Fields>
         <div>
           <Button variant="outline" size="sm" onClick={onChange}>
@@ -695,7 +697,7 @@ function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | nul
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Not worked out for this Shot: its own profile can&apos;t be read or has more steps than a machine takes, or its scale left no weight to stop a run where it stopped.
+            Not worked out for this Shot: its own profile can&apos;t be read or has more steps than a machine takes, its record names no machine model, it ran under manual control, or its scale left no weight to stop a run where it stopped.
           </p>
         )}
       </section>

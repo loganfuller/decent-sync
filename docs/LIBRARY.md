@@ -2483,10 +2483,27 @@ fit.
   without one; and
   the answer gives the Shot's duration, time to first drip, peak pressure
   and each step's end beside the run's (`fitToShot`), to say how far to
-  trust the simulation on that puck. On the Shots in
-  `server/test/fixtures/decaid/simulated-shots-v0.9.2/`, each lands within
-  5% of the Shot's duration or 1 s, whichever is more, and its peak pressure
-  within 0.5 bar.
+  trust the simulation on that puck. A Shot has no fit where its record
+  names no Machine model, as Decaid's before v0.9.2 and one whose capture of
+  the Machine failed (`provenanceStatus` `unavailable`) don't, or where it
+  ran under manual control (`underManualControl`, #599), as under a Bengle's
+  lever and group-head modes: for more than half its time after Preheat, its
+  Machine reported a target for what its step's pump controls more than
+  1 bar or ml/s, or a quarter of what the step asks, from what the step
+  asks, a smooth step asking for a ramp over its time from where its pump's
+  quantity began, and a lower target counting as asked while the step's
+  limiter holds the other quantity within 1 bar or ml/s, or a quarter, of
+  its value, however wide the limiter's range. A pressure step's sample
+  reporting a pressure target of 0 strays from it too; a flow step's
+  reporting a flow target of 0 counts as following it, as a Bengle reports
+  a flow step's target as a pressure.
+  The margin a run is held to is its duration within 5% of the Shot's or
+  1 s, whichever is more, and its peak pressure within 0.5 bar. On the
+  corpus of real Shots in `scripts/simulation/corpus/` (#599), its share
+  within that margin is held by a test at the level recorded in
+  `corpus/levels.json`: 55 of 113 DE1 coffee Shots and 12 of 23 Bengle Shots
+  when it was committed. `npm run simulation-scorecard` prints how close
+  it comes, by model and kind of Profile ([DEVELOPMENT.md](DEVELOPMENT.md#the-simulations-scorecard)).
 
 `GET /api/profiles/:id/simulation` (REST API, below) and the
 `simulate_profile` tool (`server/src/mcp/simulation.tools.ts`) simulate a
@@ -2887,12 +2904,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
   ends, else the Profile's stop-at weight; on a Machine of `model`, `DE1` or
   `Bengle`, else the model it is simulated as (`machineModel`). `puck` is `{ kind: "standard", grind }` or
   `{ kind: "shot", shotId, model }`, the model of the Machine the Shot
-  recorded, which its fit runs on; `run` is `simulateProfile`'s, every
+  recorded, which its fit runs on, null where its record names none; `run` is `simulateProfile`'s, every
   sample; `checks` are the Profile's (`checkProfile`); `fit` is
   `{ shot, simulated }` on a Shot's puck, each `{ duration,
   timeToFirstDrip, peakPressure, steps }`, and null on the standard puck or
   where Decaid would not read the Shot's own profile or it has more than 20
-  steps, or where the run can't end as the Shot did (`shotFitStop`): a DE1
+  steps, where its record names no Machine model, where it ran under manual
+  control (`underManualControl`), or where the run can't end as the Shot did (`shotFitStop`): a DE1
   that ran its last step for its time runs its steps out, and otherwise the
   fit stops at a weight of 1 g or more read within a second of the stop; so
   none with no such weight, as with no scale, a stop before anything reached

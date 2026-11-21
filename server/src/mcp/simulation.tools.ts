@@ -62,7 +62,7 @@ export const simulateOutput = z.object({
   profile: z.object({ id, title: z.string().nullable() }),
   model: z.enum(MACHINE_MODELS),
   puck: z
-    .union([z.object({ kind: z.literal("standard"), grind: z.number() }), z.object({ kind: z.literal("shot"), shotId: id, model: z.enum(MACHINE_MODELS).describe("The model of the Machine the Shot recorded, which the fit runs on.") })])
+    .union([z.object({ kind: z.literal("standard"), grind: z.number() }), z.object({ kind: z.literal("shot"), shotId: id, model: z.enum(MACHINE_MODELS).nullable().describe("The model of the Machine the Shot recorded, which the fit runs on; null where its record names none, and it has no fit.") })])
     .describe("The puck simulated on: the standard one at its grind, or a Shot's."),
   dose: z.number(),
   stopAt: z.number().nullable().describe("The weight it stops at; null where it runs until its last step ends."),
@@ -86,7 +86,7 @@ export const simulateOutput = z.object({
   fit: z
     .object({ shot: figures.describe("The Shot's own, as recorded."), simulated: figures.describe("Its own steps', run on its puck, stopped at the weight it reached, or run out where it ran its steps out with no scale.") })
     .nullable()
-    .describe("On a Shot's puck: how close the simulation comes to that Shot. Null on the standard puck, where the Shot's own profile can't be read or has more steps than a machine takes, and where a run can't end as the Shot did, as where it was stopped by hand with no scale or its scale dropped out before it ended."),
+    .describe("On a Shot's puck: how close the simulation comes to that Shot. Null on the standard puck, where the Shot's own profile can't be read or has more steps than a machine takes, where its record names no Machine model, where it ran under manual control, as under a Bengle's lever or group-head modes, its Machine reporting targets its steps never asked for, and where a run can't end as the Shot did, as where it was stopped by hand with no scale or its scale dropped out before it ended."),
   curves: z
     .object({
       thinnedTo: thinnedToSchema,

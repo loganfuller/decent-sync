@@ -106,6 +106,8 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `e2e/`: Playwright specs (Seam 2); `e2e/support/` holds their seeding and helpers.
 - `scripts/`: repo checks, release packaging, the test PostgreSQL, stale builds, the latest release's build and suite; tests in `scripts/test/`.
 - `scripts/readme-images/`: the generator of the README's images in `docs/images/` (`npm run readme-images`), with its sample of recorded Shots.
+- `scripts/simulation/`: the simulation's scorecard (`npm run simulation-scorecard`), the read-only puller of an instance's Shots and the scrubber that makes corpus Shots of them.
+- `scripts/simulation/corpus/`: scrubbed real Shots the scorecard's test runs on, and the shares within the margin it holds them at (`levels.json`).
 - `.github/workflows/ci.yml`: CI on pull requests and `main`.
 - `.github/workflows/release.yml`: the release on a `vX.Y.Z` tag.
 
