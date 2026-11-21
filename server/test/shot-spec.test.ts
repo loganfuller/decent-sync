@@ -197,7 +197,7 @@ describe("Out of spec", () => {
           preheat: 0,
           actual_yield: copy.yield ?? 36,
           target_yield: copy.target ?? 36,
-          // An Unfinished Shot never reported pouring, and its scale never read a gram.
+          // An Unfinished Shot never reported pouring, and its scale never showed a gram in the cup.
           ...(copy.unfinished && { poured: false, time_to_first_drip: null }),
           record: {
             ...record,

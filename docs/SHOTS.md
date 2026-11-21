@@ -340,9 +340,9 @@ Preheat:
      there.
 
   So a reading that returns to zero is never the first drip: on 24 of 326
-  Shots measured for #609, a reading of 0.1 g came and went 5 to 7 s
-  before the real rise, and 0.2 g, two counts of the scales' 0.1 g, did so
-  on one. The rise must reach 1 g so that a small reading is trusted, and
+  Shots measured for #609, a reading of 0.1 g came and went, typically 5
+  to 7 s before the real rise, and 0.2 g, two counts of the scales' 0.1 g,
+  did so on one. The rise must reach 1 g so that a small reading is trusted, and
   it needs the whole Shot, which nothing that shows a time to first drip
   lacks. Two known limits:
   - A scale that settles a little under 1 g within the first second, as a

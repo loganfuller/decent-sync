@@ -115,7 +115,7 @@ for (const [width, phone] of WIDTHS) {
       // An Unfinished Shot and a cleaning Shot say what they are, and carry no mark.
       await shown.goto("/shots/left-house-unfinished");
       await expect(went.getByText("Unfinished Shot", { exact: true })).toBeVisible();
-      await expectTip(went, "Unfinished Shot", /^Nothing poured: its Machine never reached pouring and its scale never read a gram\./);
+      await expectTip(went, "Unfinished Shot", /^Nothing poured: its Machine never reached pouring and its scale never showed a gram in the cup\./);
       await expect(field(went, "Duration")).toHaveText(/^\d+\.\d s$/);
       await expect(mark(went)).toHaveCount(0);
       await expect(went.getByText(/reference/i)).toHaveCount(0);

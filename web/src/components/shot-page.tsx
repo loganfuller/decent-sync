@@ -74,7 +74,7 @@ export function HowItWentCard({ shot, reference, onEdited }: { shot: Shot; refer
           ) : (
             spec?.unfinished && (
               <Kind name="Unfinished Shot">
-                Nothing poured: its Machine never reached pouring and its scale never read a gram. It is judged against no margin, and a Shot Summary
+                Nothing poured: its Machine never reached pouring and its scale never showed a gram in the cup. It is judged against no margin, and a Shot Summary
                 counts it apart.
               </Kind>
             )

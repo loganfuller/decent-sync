@@ -192,7 +192,7 @@ Each server has one owner: a household, or a business with all of its sites.
   steps Shots ended in. Cleaning and
   calibration Shots are left out, and counted, as are Unfinished Shots, in
   which nothing poured: the Machine never reached pouring and the scale
-  never read a gram, as when a Shot is stopped at once.
+  never showed a gram in the cup, as when a Shot is stopped at once.
 - **Trends.** Under that summary, closed until opened, a chart of one of its
   numbers by day or by
   week, to see a coffee drift or a change take effect: each day's or week's
