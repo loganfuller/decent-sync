@@ -235,6 +235,8 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
     { title: "Paused", target_weight: 36, first: step({ name: "Pause", pump: "pressure", pressure: 0, seconds: 5 }) },
     // A ramp to 9 bar over 20 s: its target and its tag stand where the pressure lane's name is.
     { title: "Ramped", target_weight: 36, first: step({ name: "Pause", pump: "pressure", pressure: 9, transition: "smooth", seconds: 20, exit: { type: "pressure", condition: "over", value: 8 } }) },
+    // A ramp to 8 bar over 25 s: no place in the name's first three rows is clear.
+    { title: "Ramped longer", target_weight: 36, first: step({ name: "Pause", pump: "pressure", pressure: 8, transition: "smooth", seconds: 25, exit: { type: "pressure", condition: "over", value: 7 } }) },
     // A long ramp the run stops in: its target's tag stands where "Not reached" is.
     { title: "Unreached", target_weight: 18, first: step({ name: "Pause", pump: "pressure", pressure: 5, transition: "smooth", seconds: 60 }) },
   ];

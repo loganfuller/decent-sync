@@ -303,12 +303,12 @@ export function ProfileGraph({
   const pick = (candidates: LabelBox[], lane: Lane, curves: readonly (readonly [number, number])[], taken: readonly LabelBox[]) => candidates[clearest(candidates, within(lane), curves, taken)]!;
   const lineBox = (at: number): LabelBox => ({ left: x(at) - 1, right: x(at) + 1, top: plot.top, bottom: plot.bottom });
 
-  // Each lane's name at its right, or left of a handle, its tag or the bracket where one stands on it there; a row or two lower where no place left of them is clear.
+  // Each lane's name at its right, or left of a handle, its tag or the bracket where one stands on it there; a row lower, down the lane, where no place left of them is clear.
   const titles = Object.fromEntries(
     LANES.map((lane) => {
       const text = `${lane.title} (${lane.unit})`;
       const wide = textWidth(text, 12, 500);
-      const rows = [0, 1, 2].map((row) => {
+      const rows = Array.from({ length: Math.floor((lanes[lane.key].bottom - lanes[lane.key].top - 18) / 16) + 1 }, (_, row) => {
         const top = lanes[lane.key].top + row * 16;
         return movedLeft({ left: plot.right - 4 - wide, right: plot.right - 4, top, bottom: top + 18 }, covered, plot.left);
       });
