@@ -227,6 +227,25 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
   }
   await page.setViewportSize({ width: 1280, height: 720 });
   expect((await page.request.delete(`/api/drafts/${draft.id}`)).status()).toBe(204);
+
+  // A pause at 0 bar: its target stands on the pressure lane's bottom, by the gap the bracket's tag is in, and neither tag covers the other or a handle.
+  const paused = await page.request.post("/api/drafts", {
+    data: { file: { ...file, title: "Paused", steps: [step({ name: "Pause", pump: "pressure", pressure: 0, seconds: 5 }), step({ name: "Full brew", pump: "pressure", pressure: 9, seconds: 60 })] } },
+  });
+  expect(paused.status()).toBe(201);
+  const pausedId = ((await paused.json()) as { draft: { id: string } }).draft.id;
+  await page.goto(`/library/drafts/${pausedId}`);
+  await stepsCard(page).getByRole("button", { name: "Select step 1, Pause" }).click();
+  await expect(graph.getByRole("slider", { name: "Pause's target, bar" })).toBeVisible();
+  drawnAt = "";
+  for (const [width, height] of widths.slice(0, 2)) {
+    await page.setViewportSize({ width, height });
+    await expect(drawn).not.toHaveAttribute("width", drawnAt);
+    drawnAt = (await drawn.getAttribute("width"))!;
+    await expect.poll(() => graphClashes(graph), { message: `paused, at ${width} px` }).toEqual([]);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  expect((await page.request.delete(`/api/drafts/${pausedId}`)).status()).toBe(204);
 });
 
 test("steps are added, duplicated, moved and deleted, with preinfusion kept on its step, and every change undone and redone", async ({ page }) => {

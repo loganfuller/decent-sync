@@ -290,7 +290,7 @@ describe("where labels go among what is drawn", () => {
       expect(handleBox(bracket)).toEqual({ left: bracket.x - 7, right: bracket.x + 7, top: layout.plot.top, bottom: layout.plot.bottom });
     });
 
-    it("puts the bracket's tag in the gap under the first lane, below every band's name and outcome, held inside the graph", () => {
+    it("puts the bracket's tag in the gap under the first lane, below every band's name and outcome, held inside the graph and right of the lanes' values", () => {
       const [tag] = placeTags(layout, [{ shape: bracket, width: 90 }]);
       expect(tag!.top).toBeGreaterThanOrEqual(layout.lanes.pressure.bottom);
       expect(tag!.bottom).toBeLessThanOrEqual(layout.lanes.flow.top);
@@ -300,8 +300,8 @@ describe("where labels go among what is drawn", () => {
       expect(tag!.top).toBeGreaterThan(layout.plot.top);
       const [atEnd] = placeTags(layout, [{ shape: { ...bracket, x: layout.x(60) }, width: 90 }]);
       expect(atEnd!.right).toBe(layout.width);
-      const [atStart] = placeTags(layout, [{ shape: { ...bracket, x: 10 }, width: 90 }]);
-      expect(atStart!.left).toBe(0);
+      const [atStart] = placeTags(layout, [{ shape: { ...bracket, x: layout.plot.left }, width: 90 }]);
+      expect(atStart!.left).toBe(layout.plot.left);
     });
 
     it("puts a point's tag on its right, level with it, and on its left at the graph's edge or where another handle is in the way", () => {
@@ -319,6 +319,53 @@ describe("where labels go among what is drawn", () => {
       expect(tags[1]!.right).toBeLessThan(200);
       expect(overlaps(tags[0]!, tags[1]!)).toBe(false);
       for (const tag of tags) for (const handle of handles) expect(overlaps(tag, handleBox(handle.shape))).toBe(false);
+    });
+
+    it("keeps a point's tag inside its lane, off the bracket and its tag, as a pause's target at 0 bar beside a short step's bracket", () => {
+      const { pressure, flow } = layout.lanes;
+      // A 5 s pause: its target at 0 bar, 62% along, and its bracket at its end.
+      const pause = { kind: "point" as const, x: layout.x(3.1), y: pressure.bottom };
+      const end = { ...bracket, x: layout.x(5) };
+      const handles = [
+        { shape: pause, width: 40 },
+        { shape: end, width: 90 },
+      ];
+      const tags = placeTags(layout, handles);
+      expect(tags[0]!.bottom).toBe(pressure.bottom);
+      expect(overlaps(tags[0]!, tags[1]!)).toBe(false);
+      expect(overlaps(tags[0]!, handleBox(end))).toBe(false);
+      expect(overlaps(tags[1]!, handleBox(pause))).toBe(false);
+      // On a phone, where its left would run into the lane's values: past the bracket instead.
+      const phone = graphLayout({ width: 361, end: 60, tick: 10, ranges: laneRanges(profile, run) });
+      const shapes = [
+        { kind: "point" as const, x: phone.x(3.1), y: phone.lanes.pressure.bottom },
+        { kind: "bracket" as const, x: phone.x(5), top: phone.plot.top, bottom: phone.plot.bottom },
+      ];
+      const onPhone = placeTags(phone, [
+        { shape: shapes[0]!, width: 40 },
+        { shape: shapes[1]!, width: 90 },
+      ]);
+      expect(onPhone[0]!.left).toBeGreaterThanOrEqual(phone.plot.left);
+      expect(onPhone[0]!.left).toBeGreaterThan(handleBox(shapes[1]!).right);
+      expect(overlaps(onPhone[0]!, onPhone[1]!)).toBe(false);
+      expect(overlaps(onPhone[1]!, handleBox(shapes[0]!))).toBe(false);
+      // At the top of a lane, its tag doesn't rise into the band text above the plot, or into the gap above the flow lane.
+      const [top] = placeTags(layout, [{ shape: { kind: "point", x: 200, y: pressure.top }, width: 40 }]);
+      expect(top!.top).toBe(pressure.top);
+      const [flowTop] = placeTags(layout, [{ shape: { kind: "point", x: 200, y: flow.top + 2 }, width: 40 }]);
+      expect(flowTop!.top).toBe(flow.top);
+    });
+
+    it("moves the bracket's tag aside, off a point standing at the first lane's foot on the bracket, as a smooth step down to 0 bar", () => {
+      const foot = { kind: "point" as const, x: bracket.x, y: layout.lanes.pressure.bottom };
+      const tags = placeTags(layout, [
+        { shape: foot, width: 40 },
+        { shape: bracket, width: 90 },
+      ]);
+      expect(overlaps(tags[1]!, handleBox(foot))).toBe(false);
+      expect(tags[1]!.top).toBeGreaterThanOrEqual(layout.lanes.pressure.bottom);
+      expect(tags[1]!.bottom).toBeLessThanOrEqual(layout.lanes.flow.top);
+      expect(overlaps(tags[0]!, tags[1]!)).toBe(false);
     });
   });
 });
