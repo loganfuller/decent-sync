@@ -3,6 +3,8 @@ import {
   DYE2_NAMESPACE,
   type Dye2Exchange,
   SimulatedDye2,
+  archiveBasketInDye2,
+  deleteBasketInDye2,
   dye2ClearBeanlessRecipeWorkflows,
   dye2Generated,
   dye2Keys,
@@ -12,7 +14,10 @@ import {
   dye2Recording,
   dye2StoreExchanges,
   dye2V032Recording,
+  dye2V042Recording,
+  editBasketInDye2,
   openDye2RecipeEditor,
+  pickBasketInDye2,
   recordedDye2Tablet,
   saveInDye2,
 } from "./support/simulated-dye2.js";
@@ -130,6 +135,40 @@ describe("DYE2's equipment and baskets pages replayed on a simulated tablet", ()
     expect(dye2List(tablet, "equipment")).toEqual(afterEdit);
     await saveInDye2(tablet, tools.deleteSpareTamper!, elsewhere);
     expect(dye2List(tablet, "equipment")).toEqual(afterEdit.filter((tool) => tool.name !== "Fixture Spare Tamper"));
+  });
+});
+
+describe("DYE2 v0.1.42's Basket picker on a simulated tablet", () => {
+  // Recorded in fixtures/decaid/dye2-v0.1.42/baskets.json, for #618: a step's entries are exchanges, but `{"shown": ...}`.
+  type Step = ({ request: Dye2Exchange["request"]; response: Dye2Exchange["response"]; after?: true } | { shown: unknown })[];
+  const steps = dye2V042Recording<Record<string, Step>>("baskets");
+  const exchanges = (step: Step) => step.filter((entry): entry is Dye2Exchange => "request" in entry);
+  const postedIn = (step: Step) => posted(exchanges(step));
+  const [seed18, seed20] = postedIn(steps.seeded!) as [Record_, Record_];
+  const id18 = String(seed18.id);
+  const id20 = String(seed20.id);
+
+  it("archives, unarchives, edits and deletes a basket as DYE2 v0.1.42 was recorded doing, keeping its id, creation time and global id", async () => {
+    const tablet = load({ ...dye2Library(), [`/store/${DYE2_NAMESPACE}/baskets`]: postedIn(steps.seeded!) });
+    expect(await archiveBasketInDye2(tablet, id18, true)).toEqual(postedIn(steps.archive18gBasket!));
+    // The form saved for the archived basket carries `archived` over.
+    const edited = postedIn(steps.editArchived18gBasket!).find((row) => row.id === id18)!;
+    const form = { name: String(edited.name), size: String(edited.size), notes: String(edited.notes), diameterMm: Number(edited.diameterMm) };
+    expect(await editBasketInDye2(tablet, id18, form)).toEqual(postedIn(steps.editArchived18gBasket!));
+    // UNARCHIVE writes `archived: false`, the field kept.
+    expect(await archiveBasketInDye2(tablet, id18, false)).toEqual(postedIn(steps.unarchive18gBasket!));
+    expect(await archiveBasketInDye2(tablet, id20, true)).toEqual(postedIn(steps.archive20gBasket!));
+    expect(await deleteBasketInDye2(tablet, id20)).toEqual(postedIn(steps.delete20gBasket!));
+    // A field emptied on the form is left out of what it saves, so the row keeps its value.
+    const { notes, ...cleared } = form;
+    expect(await editBasketInDye2(tablet, id18, cleared)).toEqual(postedIn(steps.clearNotes18gBasket!));
+    expect(dye2List(tablet, "baskets")).toEqual(postedIn(steps.clearNotes18gBasket!));
+  });
+
+  it("offers no archived basket to pick, as the picker lists it dimmed and the recipe editor not at all", async () => {
+    const tablet = load({ ...dye2Library(), [`/store/${DYE2_NAMESPACE}/baskets`]: postedIn(steps.archive18gBasket!) });
+    await expect(pickBasketInDye2(tablet, id18)).rejects.toThrow("archived");
+    expect((await pickBasketInDye2(tablet, id20)).status).toBe(200);
   });
 });
 

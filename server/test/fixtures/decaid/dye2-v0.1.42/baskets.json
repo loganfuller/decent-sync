@@ -1,0 +1,895 @@
+{
+  "seeded": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a"
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a"
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    }
+  ],
+  "opened": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a"
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "shown": [
+        {
+          "name": "Fixture 20g Ridgeless",
+          "archived": false,
+          "sub": "double · 58mm",
+          "meta": "Fixture ridgeless notes"
+        },
+        {
+          "name": "Fixture 18g Precision",
+          "archived": false,
+          "sub": "double · 58.5mm",
+          "meta": "Fixture notes"
+        }
+      ]
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a"
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    }
+  ],
+  "archive18gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a"
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    }
+  ],
+  "pickerListed": [
+    {
+      "shown": [
+        {
+          "name": "Fixture 20g Ridgeless",
+          "archived": false,
+          "sub": "double · 58mm",
+          "meta": "Fixture ridgeless notes"
+        },
+        {
+          "name": "Fixture 18g Precision",
+          "archived": true,
+          "sub": "double · 58.5mm",
+          "meta": "Archived · Fixture notes"
+        }
+      ]
+    }
+  ],
+  "editArchived18gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "shown": [
+        {
+          "name": "Fixture 20g Ridgeless",
+          "archived": false,
+          "sub": "double · 58mm",
+          "meta": "Fixture ridgeless notes"
+        },
+        {
+          "name": "Fixture 18g Precision II",
+          "archived": true,
+          "sub": "double · 58.5mm",
+          "meta": "Archived · Fixture notes, edited while archived"
+        }
+      ]
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    }
+  ],
+  "unarchive18gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": true
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "shown": [
+        {
+          "name": "Fixture 20g Ridgeless",
+          "archived": false,
+          "sub": "double · 58mm",
+          "meta": "Fixture ridgeless notes"
+        },
+        {
+          "name": "Fixture 18g Precision II",
+          "archived": false,
+          "sub": "double · 58.5mm",
+          "meta": "Fixture notes, edited while archived"
+        }
+      ]
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    }
+  ],
+  "archive20gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5",
+            "archived": true
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5",
+            "archived": true
+          }
+        ]
+      }
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5",
+            "archived": true
+          }
+        ]
+      }
+    }
+  ],
+  "delete20gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          },
+          {
+            "name": "Fixture 20g Ridgeless",
+            "size": "double",
+            "diameterMm": 58,
+            "notes": "Fixture ridgeless notes",
+            "id": "ed59b902-f56a-4379-b32f-43565346b758",
+            "createdAt": "2026-11-22T09:01:00.000Z",
+            "decentSyncId": "85f98441-6e47-47ea-92ee-d63919378de5",
+            "archived": true
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      }
+    },
+    {
+      "shown": [
+        {
+          "name": "Fixture 18g Precision II",
+          "archived": false,
+          "sub": "double · 58.5mm",
+          "meta": "Fixture notes, edited while archived"
+        }
+      ]
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      }
+    }
+  ],
+  "clearNotes18gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      }
+    },
+    {
+      "shown": [
+        {
+          "name": "Fixture 18g Precision II",
+          "archived": false,
+          "sub": "double · 58.5mm",
+          "meta": "Fixture notes, edited while archived"
+        }
+      ]
+    },
+    {
+      "after": true,
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision II",
+            "size": "double",
+            "diameterMm": 58.5,
+            "notes": "Fixture notes, edited while archived",
+            "id": "da0654b8-d582-4108-84d3-fa85233aa7cf",
+            "createdAt": "2026-11-22T09:00:00.000Z",
+            "decentSyncId": "d5a470e1-803b-44c5-8b6b-91cf6f13664a",
+            "archived": false
+          }
+        ]
+      }
+    }
+  ]
+}

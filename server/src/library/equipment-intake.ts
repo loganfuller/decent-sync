@@ -15,6 +15,12 @@ import { changedFields } from "./merge.js";
 // write lost to the list being rewritten at the same moment: a field set back
 // to the value the tablet held just before that write is taken as unchanged
 // (ADR-0005), and the item's value written again.
+//
+// A Basket's record carries `archived` once a barista archives it in DYE2
+// (from v0.1.41): that is its Location's state, hidden there, never its
+// content, as a record deleted there is (ADR-0019), and a record set back to
+// what it held before the server archived or unarchived it is taken as
+// unchanged, as a field of its content is.
 
 /** A Basket's or Tool's record as a tablet reported it, one Decent Sync can take in. */
 export interface ReportedEquipment {
@@ -60,7 +66,14 @@ export type EquipmentIntakeStep =
    * (ADR-0020), but those set back to what the tablet held before the
    * server's latest write to that field.
    */
-  | { kind: "update"; itemId: string; reported: ReportedEquipment; content: Record<string, unknown> }
+  | {
+      kind: "update";
+      itemId: string;
+      reported: ReportedEquipment;
+      content: Record<string, unknown>;
+      /** Whether the tablet archived it (true) or unarchived it (false) since the record known, which hides or shows it at its Location (`archiveChange`); undefined if neither. */
+      archived?: boolean;
+    }
   /** The tablet holds a Library item the map did not know it held, by the global id its record carries. */
   | { kind: "map"; itemId: string; reported: ReportedEquipment }
   /** A record new to the Library whose name matches a Library item's: it is that item. */
@@ -95,13 +108,46 @@ export function readReportedEquipment(value: unknown, updatedAt: readonly (strin
 }
 
 /**
+ * The field DYE2 sets on a Basket's record as a barista archives it there,
+ * true, and unarchives it, false: whether its Location hides it, never its
+ * content.
+ */
+export const ARCHIVED_FIELD = "archived";
+
+/**
  * A Basket's or Tool's content, from a tablet's record of it: DYE2's fields,
  * those this server does not know included, but its id, `createdAt` and
- * global id, which belong to that tablet's record.
+ * global id, which belong to that tablet's record, and `archived`, its
+ * Location's state (`ARCHIVED_FIELD`). Read from the Library's content too,
+ * which a release before #618 may have merged `archived` into.
  */
-export function equipmentContent(record: Record<string, unknown>): Record<string, unknown> {
-  const { id, createdAt, [GLOBAL_ID_KEY]: globalId, ...content } = record;
+export function equipmentContent(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const { id, createdAt, [GLOBAL_ID_KEY]: globalId, [ARCHIVED_FIELD]: archived, ...content } = record;
   return content;
+}
+
+/** Whether a tablet's record of a Basket is archived there. */
+export function archivedRecord(record: Readonly<Record<string, unknown>>): boolean {
+  return record[ARCHIVED_FIELD] === true;
+}
+
+/**
+ * Whether a tablet's record of an item the map holds shows the tablet
+ * archived it (true) or unarchived it (false) since the record known: undefined
+ * if it is as known, or set back to what it was just before the server's
+ * latest write of `archived` (`beforeWrite`), as by a page opened before the
+ * write, which is taken as unchanged (ADR-0005), and the Location's state
+ * written again.
+ */
+export function archiveChange(
+  known: Readonly<Record<string, unknown>>,
+  reported: Readonly<Record<string, unknown>>,
+  beforeWrite: Readonly<Record<string, unknown>> | null,
+): boolean | undefined {
+  const archived = archivedRecord(reported);
+  if (archived === archivedRecord(known)) return undefined;
+  const stale = beforeWrite !== null && Object.prototype.hasOwnProperty.call(beforeWrite, ARCHIVED_FIELD) && archived === (beforeWrite[ARCHIVED_FIELD] === true);
+  return stale ? undefined : archived;
 }
 
 /**
@@ -224,14 +270,17 @@ export function answeredEquipment(
  * global id it carries, so one whose global id another app wiped is not
  * taken for a new one (ADR-0006); it replaces the record known when it
  * differs, and each field of its content it changed is an edit
- * (`editedContent`). Otherwise a record carrying a Library item's global id
- * is that item, as on a tablet whose answer to the write was lost.
+ * (`editedContent`), and archiving or unarchiving it there hides or shows it
+ * at the tablet's Location (`archiveChange`). Otherwise a record carrying a
+ * Library item's global id is that item, as on a tablet whose answer to the
+ * write was lost.
  *
  * Every other record is new, and comes next, in the order reported: it is
  * linked to a Library item of the same name that is not Archived, the oldest
- * first, or joins the Library (ADR-0018). An item another record the tablet
- * still reports is already is neither mapped nor linked again, so it never
- * gets two records on one tablet.
+ * first, or joins the Library (ADR-0018); one archived there is not shown
+ * there (equipment.ts). An item another record the tablet still reports is
+ * already is neither mapped nor linked again, so it never gets two records
+ * on one tablet.
  *
  * Last, each record the map holds whose id the list no longer holds
  * (`listed`, every id the reported list holds, read or not), unless another
@@ -257,7 +306,14 @@ export function planEquipmentIntake(
     const mine = byLocalId.get(record.localId);
     if (mine) {
       if (!sameValue(mine.record, record.record)) {
-        steps.push({ kind: "update", itemId: mine.itemId, reported: record, content: editedContent(mine.record, record.record, mine.beforeWrite) });
+        const archived = archiveChange(mine.record, record.record, mine.beforeWrite);
+        steps.push({
+          kind: "update",
+          itemId: mine.itemId,
+          reported: record,
+          content: editedContent(mine.record, record.record, mine.beforeWrite),
+          ...(archived === undefined ? {} : { archived }),
+        });
       }
       continue;
     }

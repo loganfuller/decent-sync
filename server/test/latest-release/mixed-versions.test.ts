@@ -458,6 +458,38 @@ describe("the latest release beside the change", () => {
     }
   });
 
+  // A Basket its Location hides is archived on its tablets' lists from #618,
+  // where the latest release removes it. The change's server archives it
+  // with an ordinary write of its record, which the latest release's plugin
+  // carries out as any other; the latest release's server still removes it,
+  // which the change's plugin carries out as before.
+  it("archives a Basket the change's server hides on a tablet with the latest release's plugin, and unarchives it once shown; the latest release's server removes one it hides from a tablet with the change's plugin", async () => {
+    type Record_ = Record<string, unknown>;
+    for (const { name, plugin, server } of [
+      { name: "the latest release's plugin", plugin: "latest release", server: "change" },
+      { name: "the change's plugin on the latest release", plugin: "change", server: "latest release" },
+    ] as const) {
+      const location = await apis.change.createLocation(`Hidden Basket, ${name}`, "America/Chicago");
+      const { tablet } = await connected(`Hidden Basket, ${name}`, plugin, server, { location });
+      const created = await apis[server].send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: `Hidden ${server} 18g`, size: "double" } }, 201);
+      const id = created.basket.id;
+      const record = () => ((dye2List(tablet, "baskets") as Record_[] | null) ?? []).find((entry) => dye2GlobalIdOf(entry) === id);
+      await expect.poll(() => record()?.name, { timeout: 15_000, message: name }).toBe(`Hidden ${server} 18g`);
+      const localId = record()!.id;
+
+      expect((await apis[server].call("PUT", `/baskets/${id}/locations/${location.id}`, { shown: false })).status, name).toBe(200);
+      if (server === "change") {
+        // Archived, its record kept with its id; shown again, unarchived.
+        await expect.poll(() => record()?.archived, { timeout: 15_000, message: name }).toBe(true);
+        expect(record()?.id, name).toBe(localId);
+        expect((await apis.change.call("PUT", `/baskets/${id}/locations/${location.id}`, { shown: true })).status, name).toBe(200);
+        await expect.poll(() => record()?.archived, { timeout: 15_000, message: name }).toBe(false);
+      } else {
+        await expect.poll(record, { timeout: 15_000, message: name }).toBeUndefined();
+      }
+    }
+  });
+
   // A request puts a Recipe in a slot of 6 to 9 (#502), which each release's
   // server and plugin read and keep (#506): the Recipe is in the slot the
   // change's server put it in on every tablet, whichever release's plugin it

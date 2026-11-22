@@ -426,21 +426,58 @@ describe("Baskets and Tools a Location shows", () => {
     contentDecidedAt: EDITED,
   });
 
-  it("creates each the tablet lacks with its content, and removes each the Location does not show, as DYE2 cannot hide one", () => {
+  it("creates each the tablet lacks with its content, archives each Basket the Location does not show, and removes each such Tool and each Basket Archived", () => {
+    const tamper = { id: "c0ffee00-0000-4000-8000-0000000000aa", name: "Fixture Tamper", createdAt: "2026-10-16T17:27:08.155Z" };
+    const ARCHIVED = "9d2f4b6a-8c1e-4f3a-9b5d-7e9a1c3f5b7d";
+    const archivedBasket = { ...basket18, id: "c0ffee00-0000-4000-8000-0000000000bb", name: "Fixture Archived Basket" };
     const writes = plannedWrites(
       offer([], [], [], [], { baskets: [shownItem(BASKETS[0], basket18)], tools: [shownItem(TOOL, wdt)] }),
-      holding([], [], [], [], { baskets: [heldItem(BASKETS[1], basket20)] }),
+      holding([], [], [], [], {
+        baskets: [heldItem(BASKETS[1], basket20), { ...heldItem(ARCHIVED, archivedBasket), archived: true }],
+        tools: [heldItem("5d7f9b1c-3e5a-4c7e-9a1b-3d5f7b9c1e3a", tamper)],
+      }),
     );
     expect(writes).toEqual([
       { kind: "basket", globalId: BASKETS[0], localId: null, fields: equipmentContent(basket18), decidedAt: DECIDED, contentDecidedAt: EDITED },
-      // Removed only while the tablet's record is the one the map holds, so a change made since is taken in first.
-      { remove: true, kind: "basket", globalId: BASKETS[1], localId: basket20.id, decidedAt: DECIDED, expected: { ...basket20, [GLOBAL_ID_KEY]: BASKETS[1] } },
+      // A Basket the Location hides is archived, as DYE2's ARCHIVE does, only while the record is not archived already.
+      { kind: "basket", globalId: BASKETS[1], localId: basket20.id, fields: { archived: true }, expected: { archived: null }, decidedAt: DECIDED, contentDecidedAt: EDITED },
+      // One Archived in the Library is removed, only while the tablet's record is the one the map holds, so a change made since is taken in first.
+      { remove: true, kind: "basket", globalId: ARCHIVED, localId: archivedBasket.id, decidedAt: DECIDED, expected: { ...archivedBasket, [GLOBAL_ID_KEY]: ARCHIVED } },
       { kind: "tool", globalId: TOOL, localId: null, fields: equipmentContent(wdt), decidedAt: DECIDED, contentDecidedAt: EDITED },
+      // A Tool, whose records DYE2 cannot archive, is removed.
+      {
+        remove: true,
+        kind: "tool",
+        globalId: "5d7f9b1c-3e5a-4c7e-9a1b-3d5f7b9c1e3a",
+        localId: tamper.id,
+        decidedAt: DECIDED,
+        expected: { ...tamper, [GLOBAL_ID_KEY]: "5d7f9b1c-3e5a-4c7e-9a1b-3d5f7b9c1e3a" },
+      },
     ]);
     // Skipped, a removal is left out by its record's key.
     expect(
-      plannedWrites(offer([]), holding([], [], [], [], { baskets: [heldItem(BASKETS[1], basket20)] }), new Set([removeKey("basket", basket20.id as string)])),
+      plannedWrites(offer([]), holding([], [], [], [], { baskets: [{ ...heldItem(BASKETS[1], basket20), archived: true }] }), new Set([removeKey("basket", basket20.id as string)])),
     ).toEqual([]);
+  });
+
+  it("unarchives a Basket the Location shows that the tablet holds archived, leaves one hidden there archived, and creates none hidden there", () => {
+    const archived = (record: Record<string, unknown>) => ({ ...record, archived: true });
+    // Shown, an archived record is unarchived, as DYE2's UNARCHIVE writes it; one never archived is written nothing.
+    expect(plannedWrites(offer([], [], [], [], { baskets: [shownItem(BASKETS[0], basket18)] }), holding([], [], [], [], { baskets: [heldItem(BASKETS[0], archived(basket18))] }))).toEqual([
+      { kind: "basket", globalId: BASKETS[0], localId: basket18.id, fields: { archived: false }, expected: { archived: true }, decidedAt: DECIDED, contentDecidedAt: EDITED },
+    ]);
+    expect(plannedWrites(offer([], [], [], [], { baskets: [shownItem(BASKETS[0], basket18)] }), holding([], [], [], [], { baskets: [heldItem(BASKETS[0], basket18)] }))).toEqual([]);
+    // Hidden, an archived record is written nothing, and its content where it differs, as any record.
+    expect(plannedWrites(offer([]), holding([], [], [], [], { baskets: [heldItem(BASKETS[1], archived(basket20))] }))).toEqual([]);
+    const renamed = { ...basket20, name: "Fixture 20g Renamed" };
+    expect(plannedWrites(offer([]), holding([], [], [], [], { baskets: [heldItem(BASKETS[1], archived(basket20), true, renamed)] }))).toEqual([
+      { kind: "basket", globalId: BASKETS[1], localId: basket20.id, fields: { name: "Fixture 20g Renamed" }, expected: { name: basket20.name }, decidedAt: DECIDED, contentDecidedAt: EDITED },
+    ]);
+    // The Library's content holds no `archived`, though a release before #618 may have merged one in: it is never written.
+    const merged: HeldRecord = { ...heldItem(BASKETS[0], basket18), content: equipmentContent({ ...basket18, archived: true }) };
+    expect(plannedWrites(offer([], [], [], [], { baskets: [shownItem(BASKETS[0], basket18)] }), holding([], [], [], [], { baskets: [merged] }))).toEqual([]);
+    // One the tablet lacks that the Location does not show is not created.
+    expect(plannedWrites(offer([]), holding([], []))).toEqual([]);
   });
 
   it("writes a record its item's content where it differs, and its global id, in a field of its own, where it lost it", () => {

@@ -263,12 +263,14 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
       expect(comparable(profile.profile)).toEqual(comparable(await restItem("profile", uptownItems.profile)));
       expect(await shownAt("profile", uptownItems.profile)).toEqual(offered ? ["Uptown"] : []);
       await expect.poll(visibility).toBe(offered ? "visible" : "hidden");
-      // DYE2 can't hide a Basket or Tool: hidden at Uptown, each leaves its tablet's list.
+      // Hidden at Uptown, a Basket is archived on its tablet's list, as DYE2's ARCHIVE does, and shown, unarchived; DYE2
+      // can't archive a Tool, which leaves the list.
       for (const [kind, key] of [["basket", "baskets"], ["tool", "equipment"]] as const) {
         const result = await assistant.call<Record<string, Record_>>("set_location_offering", { kind, id: uptownItems[kind], locationId: uptown.id.toUpperCase(), offered });
         expect(comparable(result[kind]), kind).toEqual(comparable(await restItem(kind, uptownItems[kind])));
         expect(await shownAt(kind, uptownItems[kind]), kind).toEqual(offered ? ["Uptown"] : []);
-        await expect.poll(() => inList(key, uptownItems[kind]) !== undefined, { message: kind }).toBe(offered);
+        if (kind === "basket") await expect.poll(() => inList(key, uptownItems[kind])?.archived === true, { message: kind }).toBe(!offered);
+        else await expect.poll(() => inList(key, uptownItems[kind]) !== undefined, { message: kind }).toBe(offered);
       }
     }
     const [shown] = await versions("profile", uptownItems.profile);

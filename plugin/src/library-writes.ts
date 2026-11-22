@@ -88,8 +88,11 @@ import { randomUuid } from "./tablet-id.js";
 // others wrote survive. A key never written is an empty list. A list in a
 // shape the plugin does not recognise is never written (`dye2Records`), and
 // the answer says so. A record carries its global id in a top-level field of
-// its own, which DYE2 keeps when it saves. DYE2 can neither archive nor hide
-// a record, so one its Location stops offering is removed from the list. A
+// its own, which DYE2 keeps when it saves. A Basket its Location stops
+// showing is written `archived`, as DYE2's own ARCHIVE sets it from v0.1.41,
+// and a Tool, whose records DYE2 cannot archive, or an item Archived in the
+// Library, is removed from the list; a write sets and clears `archived` as
+// any field. A
 // recipe's id is its record id, the same on every tablet at its Location,
 // and its Recipe Slot its `stripSlot`, which one record holds at a time.
 // Once Decaid takes a post of DYE2's recipes, or a write into the Workflow
@@ -1297,9 +1300,9 @@ async function removeFromList(path: ListPath, remove: LibraryRemove | LibraryDel
 }
 
 /**
- * Sets aside a record the Library leaves out of one of DYE2's lists, which
- * can neither archive nor hide one: it is removed from the list, and not
- * kept (ADR-0005, ADR-0018). Only a record carrying no global id: one that
+ * Sets aside a record the Library leaves out of one of DYE2's lists: it is
+ * removed from the list, and not kept (ADR-0005, ADR-0018), as a Tool's
+ * cannot be archived and a recipe's has no such flag. Only a record carrying no global id: one that
  * carries one is a Library item's now (`taken`).
  */
 async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeftOut["outcome"] | Answer | "unrecognised"> {

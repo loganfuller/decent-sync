@@ -216,9 +216,10 @@ export class LibraryEditsService {
 
   /**
    * Shows a Basket or Tool at a Location, or hides it there, as a Profile is
-   * (ADR-0008): showing it there writes it to the Location's tablets, and
-   * hiding it removes it from their lists, as DYE2 cannot hide one, and from
-   * no other Location's. Staff only at their own Locations.
+   * (ADR-0008): showing it there writes it to the Location's tablets, or
+   * unarchives it on their lists, and hiding it archives a Basket on their
+   * lists and removes a Tool, which DYE2 cannot archive, and changes no
+   * other Location's. Staff only at their own Locations.
    */
   async showEquipment(kind: "basket" | "tool", id: string, locationId: string, shown: boolean, editor: Editor, scope: Scope): Promise<void> {
     await this.show(kind, id, locationId, shown, editor, scope);

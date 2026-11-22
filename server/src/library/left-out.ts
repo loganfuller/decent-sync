@@ -48,7 +48,7 @@ export async function offersAny(tx: Prisma.TransactionClient, locationId: string
  * id it holds) no longer holds, or that the map holds now, as a write made
  * it a Library item's, is forgotten. Returns the rest, and whether a record
  * is newly due to be set aside. A record of a kind DYE2 keeps (`removable`)
- * cannot be set aside on the tablet, only removed from its list (ADR-0005):
+ * is not set aside on the tablet but removed from its list (ADR-0005):
  * one listed again after it was removed, as when another app rewrote the
  * list at the same moment, is due to be removed again rather than taken up.
  */

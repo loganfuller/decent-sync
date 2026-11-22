@@ -3,6 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { EquipmentKind } from "./equipment.js";
+import { equipmentContent } from "./equipment-intake.js";
 import { KINDS } from "./kinds.js";
 
 /** A Basket or Tool as the REST API lists it. */
@@ -131,7 +132,8 @@ function summary(item: ItemRow, places: readonly PlaceRow[], locations: Readonly
           .sort((a, b) => a.location.name.localeCompare(b.location.name)),
     createdAt: item.createdAt.toISOString(),
     createdLocation: item.createdLocationId === null ? null : (locations.get(item.createdLocationId) ?? null),
-    content: object(item.content),
+    // `archived` is a Location's state, never content, though a release before #618 may have merged it in.
+    content: equipmentContent(object(item.content)),
   };
 }
 
