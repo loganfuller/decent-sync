@@ -251,10 +251,15 @@ export function grindOf(puck: Puck): number {
   return Math.min(1, Math.max(-1, -Math.log(resistance / STANDARD_RESISTANCE) / Math.log(GRIND_RANGE)));
 }
 
-/** How far apart the grinds `shotGrind` first tries are. */
-const GRIND_SEARCH_STEP = 0.1;
+/**
+ * How far apart the grinds `shotGrind` first tries are: closer than the
+ * 0.02 to 0.04 over which a run's distance from a Shot (`shotMiss`) rises
+ * and falls again, as its steps' exits and its stop fall a tick earlier or
+ * later, so the grid steps over no dip that matters.
+ */
+const GRIND_SEARCH_STEP = 0.02;
 /** How many times `shotGrind` narrows its search about the best of those it first tried. */
-const GRIND_SEARCH_NARROWINGS = 14;
+const GRIND_SEARCH_NARROWINGS = 10;
 
 /**
  * The grind of the standard puck, -1 to 1, that best imitates a Shot (#622):
@@ -294,7 +299,7 @@ export function shotGrind(shot: SimulationShot): number | null {
   const steps = Math.round(2 / GRIND_SEARCH_STEP);
   let best = -1;
   for (let n = 0; n <= steps; n++) {
-    const grind = -1 + n * GRIND_SEARCH_STEP;
+    const grind = -1 + (2 * n) / steps;
     if (miss(grind) < miss(best)) best = grind;
   }
   // Golden section within a step either side of the best, held to the control.

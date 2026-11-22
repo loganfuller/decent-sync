@@ -2710,7 +2710,7 @@ the standard puck only (#622). When a Shot is laid over the run it works
 out once the grind that best imitates the Shot (`shotGrind`): the grind of
 the standard puck at which the Shot's own steps, run at its dose as its
 Machine's model and stopped as it stopped (`fitToShot`), come closest to it
-by the fit's measure (`shotMiss`), tried every 0.1 from end to end of the
+by the fit's measure (`shotMiss`), tried every 0.02 from end to end of the
 control and narrowed by golden section about the best. Where the Shot's
 own steps can't be run as it ran (`shotPuck`'s conditions), it takes the
 grind at which the standard puck has the open resistance the Shot's
