@@ -505,6 +505,12 @@ describe("DYE2's recipes as Recipes", () => {
     const dosed = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 19 } });
     expect(editedPaths(editedContent(recipeView(record), dosed, null))).toEqual(["dashboardVariables.dose"]);
     expect(holdsRecipe(dosed, written)).toBe(false);
+    // A grind setting of 0 is an edit, the number or the text, taken in as typed, as any other grind setting is (#617).
+    for (const zero of [0, "0"]) {
+      const zeroed = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), grind: zero } });
+      expect(editedPaths(editedContent(recipeView(record), zeroed, null)), String(zero)).toEqual(["dashboardVariables.grind"]);
+      expect(libraryValues(zeroed, ["dashboardVariables.grind"], slot1Content, intake()), String(zero)).toEqual({ grindSetting: zero });
+    }
     expect([...EDITED_PATHS]).not.toContain("barista");
   });
 

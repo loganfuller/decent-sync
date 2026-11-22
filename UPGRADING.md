@@ -74,7 +74,11 @@ applied. That is no edit of the Recipe and writes nothing to other tablets.
 
 While the previous release still serves beside this one during the deploy,
 it takes a grind setting of 0 saved on a tablet it holds as none, as it did,
-and shows a Recipe's 0 as none.
+and shows a Recipe's 0 as none. A Recipe set to 0 then, from another
+setting, is written none to the tablets the previous release holds, and
+cleared from the Workflow of each of their Machines that has it loaded, so
+a Shot pulled there names no grind setting. Each is written the 0 again as
+its tablet reconnects to this release.
 
 ### Loading a Recipe turns steam on or off
 
