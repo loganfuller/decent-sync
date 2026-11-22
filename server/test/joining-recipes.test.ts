@@ -12,8 +12,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Recipes, Baskets and Tools (ADR-0008, ADR-0018). Its tablet is written
 // every Recipe of the Location not Archived, under the record id it has on
 // every tablet there and with its Recipe Slot as its `stripSlot`; its
-// records of another Location's Recipes leave its list, and its own
-// recipes, baskets and tools are removed from DYE2's lists and not kept,
+// records of another Location's Recipes leave its list, its records of
+// Library Baskets the Location hides are archived, and its own recipes,
+// baskets and tools are removed from DYE2's lists and not kept,
 // unless the Location has none of that kind yet, which takes them in, its
 // recipes with their ids and slots. Its Workflow loses a Basket the Location
 // does not show and its Loaded Recipe, whose `recipeId` is cleared from it,
@@ -183,9 +184,13 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     await expect.poll(() => recipeIdInWorkflow(tablet), { timeout: 15_000 }).toBeNull();
     await loads(machine, null);
     expect(dye2.selected()).toBeNull();
-    // Uptown does not show the lab's Basket: it is cleared from the Workflow, which keeps its hot water.
+    // Uptown does not show the lab's Basket: it is cleared from the Workflow, which keeps its hot water, though DYE2's own
+    // archive leaves one named (#618). The lab's Baskets, Library items Uptown hides, are archived on its list, their records
+    // kept, so a barista can bring one back there.
     await expect.poll(() => [extras(tablet).basketId ?? null, extras(tablet).basketName ?? null]).toEqual([null, null]);
-    expect(names(tablet, "baskets")).toEqual(["Moved Uptown 21g"]);
+    await expect
+      .poll(() => records(tablet, "baskets").map((record) => [String(record.name), record.archived === true]).sort())
+      .toEqual([["Moved Fixture 18g Precision", true], ["Moved Fixture 20g High-flow", true], ["Moved Uptown 21g", false]]);
     expect(tablet.workflow().hotWaterData).toEqual(hotWater);
     // Nothing is saved into Uptown's Recipe in slot 2.
     await tablet.changeSettings({ context: { grinderSetting: "4.4" } });

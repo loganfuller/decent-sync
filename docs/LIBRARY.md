@@ -84,7 +84,11 @@ has a Machine joining a Location take on its Recipes, and drop its own
 recipes, baskets and tools unless the Location has none of their kind yet,
 its Workflow losing a Basket the Location does not show and a Loaded Recipe
 of another Location, whose `recipeId` is cleared from it (Joining a
-Location, below). It
+Location, below). Ticket
+[#618](https://github.com/loganfuller/decent-sync/issues/618) reads a Basket
+archived in DYE2, from v0.1.41, as hidden at that tablet's Location, never
+as content, and archives one a Location hides on its tablets' lists rather
+than removing it (Taking in a tablet's baskets and tools, below). It
 follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0016, ADR-0018,
 ADR-0019, ADR-0020 and ADR-0021.
 
@@ -153,8 +157,9 @@ by archiving or deleting it on a tablet at its Location. What the Location offer
 to each of its tablets, with each batch's remaining weight there and each
 Profile visible, and what it does not offer is archived or hidden on them,
 never deleted, so their Shots still find it (Writing to tablets, below);
-but a Basket or Tool it does not show is removed from DYE2's list, which
-can hide nothing (Taking in a tablet's baskets and tools, below).
+a Basket it does not show is archived on DYE2's list, and a Tool, which
+DYE2 cannot archive, removed from it (Taking in a tablet's baskets and
+tools, below).
 
 ### A Profile reaches only the Machines that can run it
 
@@ -985,8 +990,9 @@ Conflict names is kept, still refused, so history goes on naming it
   shown nowhere and hidden on every tablet that holds it, but keeps each
   Location's state of it, which can still be changed, so restoring it shows
   it again where it is shown. An Archived Basket or Tool is the same, but
-  removed from every tablet's list, as DYE2 cannot hide one, and written again
-  where it is shown once restored; it is Archived or restored under the lock
+  removed from every tablet's list, rather than archived there as one its
+  Location hides is, as a barista's UNARCHIVE in DYE2 could not restore it,
+  and written again where it is shown once restored; it is Archived or restored under the lock
   its kind is matched under, as a Bean is, since a tablet's new record is
   never linked to one Archived.
 - **Who.** An Admin does everything. Staff edit the Library's shared content
@@ -1378,8 +1384,15 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
 - A record without what DYE2 always saves (its id and name) or a time is
   ignored.
 - **Content and ids.** A record's content is its fields but its id,
-  `createdAt` and global id, which DYE2 keeps in a top-level field of the
-  record's own (`decentSyncId`, ADR-0006) and keeps when it saves. A record
+  `createdAt`, `archived` and global id, which DYE2 keeps in a top-level
+  field of the record's own (`decentSyncId`, ADR-0006) and keeps when it
+  saves. `archived`, which DYE2 sets on a basket from v0.1.41, is the
+  tablet's Location's state (Archived in DYE2, below), never content, so it
+  is no field of any Basket's content, edit, Conflict or history entry; a
+  Basket's content holding one, as a release before #618 took it in, is read
+  as holding none (`equipmentContent`), and the migration
+  `20261122000000_basket_archived_not_content` took it out of every
+  Basket's. A record
   the map holds by DYE2's id stays that item whatever global id it carries,
   so one that lost it, as from another app's save or a backup taken before
   it was written, has it written back. One the map does not hold carrying an
@@ -1419,20 +1432,56 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the
   record takes the item's content, each field it held otherwise kept as a
   Conflict, and the item is shown at the tablet's Location. Otherwise it
-  joins the Library, shown at the tablet's Location only.
+  joins the Library, shown at the tablet's Location only. A new record
+  already archived on the tablet shows the item nowhere: linked, it leaves
+  the Location's state as it was, and joining the Library, it is hidden at
+  the tablet's Location, so shown nowhere.
+- **Archived in DYE2.** From v0.1.41 a barista archives a basket in DYE2's
+  Basket picker, which sets `archived: true` on its record and leaves it in
+  the list, listed dimmed at the end of the picker and offered by no other,
+  and UNARCHIVE sets `archived: false`; its edit form carries `archived`
+  over, and every save puts the row in over the one held, so a field the
+  form leaves out keeps its value
+  (`fixtures/decaid/dye2-v0.1.42/baskets.json`). A record the map holds
+  that turns archived hides the item at the tablet's Location only, as a
+  record deleted there does (ADR-0019), and one that turns back shows it
+  there again, each timed by when the plugin first read the record, as its
+  edits are, and judged by the latest decision of the item's showing there
+  the record had seen, as a Profile hidden on a tablet is
+  (`archiveChange`, `showAt`); its other fields are edits as before, of an
+  archived record too. A write's answer showing the record archived or
+  unarchived since, where the write did not set `archived`, is taken the
+  same way. Every archive and unarchive is the barista's, even one that
+  sets back the server's latest write of `archived`: DYE2's ARCHIVE and
+  UNARCHIVE write the opposite of what the barista saw, so a page opened
+  before the server's write cannot undo it, and no stale save of
+  `archived` is guarded against, unlike a field of its content. Only a
+  save of DYE2's form, opened on an archived record before the server
+  unarchived it, archives it again unmeant, and the Basket is then hidden
+  at that Location by that tablet, as its history shows. A write of
+  `archived` lost to DYE2 posting the list at the same moment is taken as
+  the barista's the same way. The Location's other tablets have their
+  records archived or unarchived as the writer writes the Location's state
+  (Writing to tablets, below), and a Basket the Location shows is
+  unarchived on a tablet that holds it archived. DYE2 keeps a Workflow naming the basket as
+  it was, "in the recipes and shots that name it"; Decent Sync still clears
+  a joining tablet's Workflow of a Basket its Location does not show
+  (Joining a Location, below), and leaves one a barista archives there
+  named. Tools are unchanged: DYE2's `equipment` records have no
+  `archived`.
 - **Gone from the list.** A record the map holds that a report listed before
   was deleted on the tablet: the item is hidden at the tablet's Location
   only (ADR-0019), as a deleted Profile is, timed when the server learns of
-  it, and the map holds it no more. DYE2 deletes Tools; it cannot delete a
-  Basket, but one gone is taken the same way. A record the server's write
+  it, and the map holds it no more. DYE2 deletes Tools, and from v0.1.41
+  Baskets, from its Basket picker, archived or not. A record the server's write
   created that no report listed before it went was lost to another app
   rewriting the list as the plugin wrote it: the map forgets it, and the
   writer writes it again where its Location shows it.
 - **Joining.** A report that is part of joining takes nothing of the
   tablet's in, as for any kind (Joining a Location, below): its records of
-  items the Library has are those items, written the Location's state, and
-  the rest are left out, removed from the list by the writer, as DYE2 can
-  neither archive nor hide one, and not kept (ADR-0005). A Location that
+  items the Library has are those items, written the Location's state, a
+  Basket the Location hides archived and a Tool removed, and the rest are
+  left out, removed from the list by the writer, and not kept (ADR-0005). A Location that
   shows none of the kind yet takes the joining tablet's own. A record left
   out that is listed again after its removal, as another app rewrote the list
   at the same moment, is removed again. A tablet that took part at its
@@ -1442,9 +1491,10 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
 
 So a Basket or Tool created in DYE2 on one tablet is written to the other
 tablets at its Location, and to another Location's once shown there; an edit
-on any tablet reaches every tablet that holds it; and deleting a Tool hides it
-at that Location only. Hiding one at a Location removes it from that
-Location's tablets' lists.
+on any tablet reaches every tablet that holds it; and deleting a Basket or
+Tool, or archiving a Basket, hides it at that Location only. Hiding one at a
+Location archives a Basket on that Location's tablets' lists, and removes a
+Tool from them; showing a Basket there again unarchives it.
 
 ## Taking in a tablet's recipes
 
@@ -1754,10 +1804,15 @@ each update also writing the item's content where the record differs from it
    show, hidden, never deleted.
 6. Each Basket, then each Tool, the Location shows that the tablet lacks,
    created in DYE2's list, or whose record lacks its global id, which is
-   written; then each the tablet holds that the Location does not show, as
-   one hidden there or Archived, removed from the list (`remove`), as DYE2
-   can neither archive nor hide one (ADR-0005). These lists are written to
-   every sharing tablet, whether or not DYE2 is installed there, so
+   written, or a Basket whose record is archived, unarchived (`archived:
+   false`, as DYE2's UNARCHIVE writes it); then each the tablet holds that
+   the Location does not show: a Basket hidden there archived (`archived:
+   true`, as DYE2's ARCHIVE writes it), its record kept so a barista can
+   bring it back there and a Recipe naming it still finds it; a Tool, whose
+   records DYE2 cannot archive, and a Basket or Tool Archived, removed from
+   the list (`remove`, ADR-0005). One hidden there that the tablet lacks is
+   not created, and records removed under the rule before #618 stay removed.
+   These lists are written to every sharing tablet, whether or not DYE2 is installed there, so
    installing DYE2 later finds them ready, but never one the tablet holds in
    a shape that is not recognised.
 7. Each record of a Recipe the tablet holds that is not of one of the
@@ -1802,8 +1857,8 @@ the clearing of a joining tablet's Workflow grinder, batch and Basket
 record a joining tablet held that the Library leaves out and that is not set aside
 there yet is archived or hidden (`leaveOut`; Joining a Location, below),
 batches first, then beans, grinders and profiles, and last baskets and
-tools, which are removed from DYE2's list instead (Taking in a tablet's
-baskets and tools, above).
+tools, which are removed from DYE2's list instead, and not kept (Taking in
+a tablet's baskets and tools, above).
 
 It writes nothing until that connection's reports of the tablet's beans, bean
 batches, grinders, profiles, baskets, tools and recipes, which the plugin sends on
@@ -2019,7 +2074,9 @@ tablet's list of batches to show it does not.
   item, only the global id written to it (`linked`); otherwise it adds a
   record with the item's content, a new random UUID as its id, as DYE2 gives
   one, and `createdAt`. To update one, it sets the fields the record still
-  holds as the server expects, a cleared one left out of the record. Either
+  holds as the server expects, a cleared one left out of the record, which
+  is how a Basket its Location hides is archived and one shown again
+  unarchived (`archived`, set as any field). Either
   way the global id goes in the record's own field, and the list is posted
   back whole (`POST /store/dye2.reaplugin/{key}`), only where it changed. To
   remove one (`remove`), it leaves the record out of the list and posts it
@@ -2031,9 +2088,9 @@ tablet's list of batches to show it does not.
   (`requestCollections`) and writes nothing more to the tablet until a
   report of that list arrives, taken in, or unavailable or set aside, which
   ends the wait all the same, so the change is kept, as an edit of the
-  Recipe Archived or of the Basket or Tool hidden, before the removal is
-  asked again with the record as changed: an edit saved on a tablet just
-  before Staff Archive a Recipe, or hide a Basket or Tool there, is not lost
+  Recipe, Basket or Tool Archived or of the Tool hidden, before the removal
+  is asked again with the record as changed: an edit saved on a tablet just
+  before Staff Archive a Recipe, or hide a Tool there, is not lost
   with the record. Such a refusal is not kept
   with the tablet's refusals: the removal shows as waiting meanwhile. A record of one an Admin hard-deleted is
   removed the same way, but a basket or tool a Shot it queued since it
@@ -2041,7 +2098,9 @@ tablet's list of batches to show it does not.
   batch; and one the Library leaves out too, answered as set aside. Each is timed by the plugin's clock, as DYE2's records carry none.
   Its next read of the list it wrote is reported whatever it holds, so a
   write another app's rewrite of the list lost at the same moment shows up
-  there (ADR-0005); the server then writes it again.
+  there (ADR-0005); the server then writes it again, but for a Basket's
+  `archived`, whose loss is taken as the barista's archive or unarchive
+  there (Archived in DYE2, above).
 - To write a Recipe, it reads DYE2's recipes as it reads baskets and tools,
   which must be in a shape it recognises. A write names the record's fields
   by their paths, a field of its `dashboardVariables` as
@@ -2332,9 +2391,9 @@ it.
   taken in there, the tablet is written what the Location offers, its shown
   Profiles, Baskets and Tools, the batches at it and their Beans, its
   Grinders, and its Recipes, in their slots or none, and what it does not
-  offer is archived or hidden on the tablet, never deleted, but for a
-  Basket, Tool or recipe, removed from DYE2's list: so another Location's
-  Recipes leave its list (Taking in a tablet's recipes, above). Its
+  offer is archived or hidden on the tablet, never deleted, a Basket
+  archived on DYE2's list, but for a Tool or recipe, removed from it: so
+  another Location's Recipes leave its list (Taking in a tablet's recipes, above). Its
   Workflow's steam, hot water and flush settings stay its own until it
   loads a Recipe (Steam, hot water and flush settings, above).
 - **Its Workflow's grinder, batch and Basket.** The Workflow taken in as
@@ -2346,7 +2405,8 @@ it.
   Location or Archived, the batch its `context.beanBatchId` names if it is
   not at the Location, or is Archived, or its Bean is, and the Basket its
   `context.extras.basketId` names if the Location does not show it, or it
-  is Archived. Cleared are the grinder's `grinderId`, `grinderModel` and
+  is Archived, though the tablet's record of it is kept, archived, and
+  DYE2's own archive leaves a Workflow naming one as it was. Cleared are the grinder's `grinderId`, `grinderModel` and
   `grinderBurrs`, and the batch's `beanBatchId`, `coffeeName` and
   `coffeeRoaster`, as Decaid's `clearGrinder` and `clearBeanBatch` clear
   them (v0.9.0 added the burrs), and `extras.basketId` and
@@ -2407,9 +2467,9 @@ it.
   pure `joiningRecord` in `join-plan.ts`: its records of another
   Location's Recipes, and of Baskets and Tools the Library has, by their
   global ids or matched by name, are those items, written the Location's
-  state, and removed if it does not offer them; its own are removed from
-  DYE2's lists and not kept, as DYE2 can neither archive nor hide one,
-  unless the Location has none of the kind yet (below).
+  state, a Basket it does not show archived and the rest it does not offer
+  removed; its own are removed from DYE2's lists and not kept, unless the
+  Location has none of the kind yet (below).
 - **What it holds of its own** (ADR-0018). A report that is part of
   joining takes nothing of the tablet's into the Library: the Location's
   state wins. Its records of items the Library has are those items: one
@@ -3265,7 +3325,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   /api/baskets/:id/locations/:locationId` and `PUT
   /api/tools/:id/locations/:locationId`, with `{ shown }`, show it at the
   Location or hide it there, as for a Profile: shown, it is written to the
-  Location's tablets; hidden, it is removed from their lists. 403 for Staff
+  Location's tablets, a Basket unarchived where they hold it archived;
+  hidden, a Basket is archived on their lists and a Tool removed from them,
+  and a tablet that lacks it is written none. 403 for Staff
   at a Location they do not work at. Their `history` and `conflicts` are an
   item's (below).
 - `POST /api/baskets` and `POST /api/tools`, with `{ locationId, content }`,
@@ -3548,6 +3610,8 @@ the same Profiles.
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,
 `server/test/library-equipment-management.test.ts`,
+`server/test/library-basket-archive.test.ts`,
+`server/test/basket-archived-migration.test.ts`,
 `server/test/library-recipes.test.ts` and
 `server/test/library-recipe-management.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;

@@ -63,7 +63,11 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // dashboard and embedded in a recipe's Workflow as the text "0", only null
 // and an empty one naming none; and as it loads, every time, a recipe saved
 // at 0 before, holding none in its embedded Workflow, gets "0" there
-// (`dye2RestoreZeroGrindRecipeWorkflows`).
+// (`dye2RestoreZeroGrindRecipeWorkflows`); and its Basket picker, the one
+// page that edits baskets from v0.1.41, archives, unarchives, edits and
+// deletes a basket as fixtures/decaid/dye2-v0.1.42/baskets.json records
+// (`archiveBasketInDye2`, `editBasketInDye2`, `deleteBasketInDye2`), an
+// archived basket left out of every other picker.
 //
 // DYE2 itself, the recipe id it reads from the Workflow and clears on a
 // profile change, its derived selection, its `record` and `save-recipe`, its
@@ -155,8 +159,12 @@ export type Dye2V040File =
   | "yield-set"
   | "keys";
 
-/** The files of fixtures/decaid/dye2-v0.1.42/: what DYE2 v0.1.42 and Streamline v0.2.31 do with a grind setting of 0, on Decaid v0.9.2 (its README). */
-export type Dye2V042File = "library" | "loading" | "dashboard-applies" | "strip-applies" | "record" | "repair" | "keys";
+/**
+ * The files of fixtures/decaid/dye2-v0.1.42/: what DYE2 v0.1.42 and Streamline v0.2.31 do with a grind setting of 0, on
+ * Decaid v0.9.2, and what DYE2 v0.1.42's Basket picker writes as it archives, unarchives, edits and deletes a basket
+ * (`baskets`, #618) (its README).
+ */
+export type Dye2V042File = "library" | "loading" | "dashboard-applies" | "strip-applies" | "record" | "repair" | "keys" | "baskets";
 
 /** The files of fixtures/decaid/streamline-v0.2.24/: what Streamline v0.2.24 writes around steam, on a profile switch and from its Grind label, and DYE2 v0.1.36's Grinders page (its README). */
 export type StreamlineV0224File = "library" | "loading" | "strip" | "heater" | "tile" | "settings" | "record" | "steam-off-edit" | "settings-kept" | "profile-switch" | "grind-label" | "grinders-page" | "keys";
@@ -427,6 +435,66 @@ export async function saveInDye2(tablet: SimulatedTablet, step: Dye2Exchange[], 
     },
     change,
   );
+}
+
+/**
+ * The fields of DYE2 v0.1.42's basket form (`submitForm` in
+ * dye2:dye2-plugin/src/pages/basket-picker.ts): its name, and its size,
+ * notes and diameter where filled in.
+ */
+export interface Dye2BasketForm {
+  name: string;
+  size?: string;
+  notes?: string;
+  diameterMm?: number;
+}
+
+/**
+ * DYE2 v0.1.42's Basket picker archiving (true) or unarchiving (false) the
+ * tablet's basket with that id, as its ARCHIVE and UNARCHIVE do
+ * (`toggleArchive`): the row read with the list, and put back as
+ * `updateBasket` puts it, with `archived` set, `{...row, archived}` over the
+ * row (`kvUpsert`), its `createdAt` kept. Resolves with the list posted.
+ * Recorded in fixtures/decaid/dye2-v0.1.42/baskets.json.
+ */
+export function archiveBasketInDye2(tablet: SimulatedTablet, localId: string, archived: boolean): Promise<Record_[]> {
+  return updateBasketInDye2(tablet, localId, (row) => ({ ...row, archived }));
+}
+
+/**
+ * DYE2 v0.1.42's Basket picker saving its form for the tablet's basket with
+ * that id (`submitForm`): the form's fields, and `archived` true where the
+ * basket is archived, as the form carries it over, put in as `updateBasket`
+ * puts them, over the row (`kvUpsert`), so a field the form leaves empty
+ * keeps the row's value. Resolves with the list posted.
+ */
+export function editBasketInDye2(tablet: SimulatedTablet, localId: string, form: Dye2BasketForm): Promise<Record_[]> {
+  return updateBasketInDye2(tablet, localId, (row) => ({ ...form, ...(row.archived === true ? { archived: true } : {}) }));
+}
+
+/** DYE2 v0.1.42's Basket picker deleting the tablet's basket with that id (`deleteBasket`): left out of the list posted. Resolves with the list. */
+export async function deleteBasketInDye2(tablet: SimulatedTablet, localId: string): Promise<Record_[]> {
+  const route = `/store/${DYE2_NAMESPACE}/baskets`;
+  const list = asList((await tablet.callApi("GET", route)).body).filter((row) => row.id !== localId);
+  await postBaskets(tablet, list);
+  return list;
+}
+
+/** `updateBasket(id, data)` in DYE2 v0.1.42: the list read, `data` from the row put in over it with the row's id and `createdAt`, and posted back. */
+async function updateBasketInDye2(tablet: SimulatedTablet, localId: string, data: (row: Record_) => Record_): Promise<Record_[]> {
+  const route = `/store/${DYE2_NAMESPACE}/baskets`;
+  const list = asList((await tablet.callApi("GET", route)).body);
+  const row = list.find((item) => item.id === localId);
+  if (!row) throw new Error(`The tablet holds no basket ${localId}`);
+  const item = { ...data(row), id: localId, createdAt: row.createdAt ?? new Date().toISOString() };
+  const posted = list.map((kept) => (kept === row ? { ...kept, ...item } : kept));
+  await postBaskets(tablet, posted);
+  return posted;
+}
+
+async function postBaskets(tablet: SimulatedTablet, list: Record_[]): Promise<void> {
+  const written = await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list);
+  if (written.status !== 200) throw new Error(`Decaid answered ${written.status} writing DYE2's baskets`);
 }
 
 /**
@@ -1980,12 +2048,14 @@ export async function assignRecipeInDye2(tablet: SimulatedTablet, recordId: stri
 /**
  * DYE2's basket picker (basket-picker.ts), as its dashboard's Basket field opens it: it reads DYE2's baskets, and on
  * CONFIRM of the one with that id writes it into the Workflow, its id and name flagged (`markDye`), then goes back.
+ * From v0.1.41 it lists an archived basket dimmed at the end, where a tap opens its editor, so none is picked.
  * Resolves with Decaid's answer.
  */
 export async function pickBasketInDye2(tablet: SimulatedTablet, basketId: string): Promise<DecaidAnswer> {
   const { status, body } = await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/baskets`);
   const basket = (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === basketId);
   if (!basket) throw new Error(`DYE2's basket picker lists no basket ${basketId}`);
+  if (basket.archived === true) throw new Error(`DYE2's basket picker offers no archived basket to pick (${basketId})`);
   return tablet.callApi("PUT", "/workflow", { context: markDye({ extras: { basketId, basketName: basket.name || "Unnamed" } }) });
 }
 
@@ -2439,7 +2509,8 @@ export async function openDye2RecipeEditor(tablet: SimulatedTablet, target: { id
   };
   const recipes = await read(`/store/${DYE2_NAMESPACE}/recipes`);
   const grinders = await read("/grinders");
-  const baskets = await read(`/store/${DYE2_NAMESPACE}/baskets`);
+  // From v0.1.41 an archived basket is no choice (`getBaskets()`), so a recipe naming one shows None.
+  const baskets = (await read(`/store/${DYE2_NAMESPACE}/baskets`)).filter((basket) => basket?.archived !== true);
   await read("/beans");
   const profiles = await read("/profiles");
   // Read again with the archived included, to tell a grinder deleted from one only off the row; a read that fails leaves the recipe's selected.

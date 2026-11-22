@@ -626,9 +626,10 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     expect(refusedTool.status).toBe(409);
     expect(await refusedTool.text()).toContain("A Shot names this Tool");
     expect((await api.call("DELETE", `/baskets/${shotBasket}`)).status).toBe(409);
-    // Still named once their records leave the tablets, the Tool Archived and the Basket hidden at the Location.
-    expect((await api.call("PUT", `/tools/${shotTool}/archived`, { archived: true })).status).toBe(200);
-    expect((await api.call("PUT", `/baskets/${shotBasket}/locations/${here.id}`, { shown: false })).status).toBe(200);
+    // Still named once their records leave the tablets, the Tool hidden at the Location and the Basket Archived: a Basket
+    // hidden there would be archived on them, its record kept (#618).
+    expect((await api.call("PUT", `/tools/${shotTool}/locations/${here.id}`, { shown: false })).status).toBe(200);
+    expect((await api.call("PUT", `/baskets/${shotBasket}/archived`, { archived: true })).status).toBe(200);
     for (const each of [tablet, neverUsed]) {
       await expect.poll(() => recordOf(each, "equipment", shotTool)).toBeUndefined();
       await expect.poll(() => recordOf(each, "baskets", shotBasket)).toBeUndefined();

@@ -774,7 +774,8 @@ function equipmentKind(
     belongsToLocation: false,
     archivedIsContent: false,
     editedIn: null,
-    values: (content) => content,
+    // `archived` is a Location's state, never content, though a release before #618 may have merged it into the Library's.
+    values: (content) => equipmentContent(content),
     recordValues: (record) => equipmentContent(record),
     keptColumns: (content) => (typeof content.name === "string" ? Prisma.sql`, match_key = ${equipmentMatchKey(content.name)}` : Prisma.empty),
     editable,
@@ -786,24 +787,24 @@ function equipmentKind(
             SELECT items.id::text AS id, items.content, here.decided_at AS "decidedAt", items.field_edits AS "fieldEdits"
             FROM ${table} AS items ${shownHere(locationId)}
             WHERE NOT items.archived ORDER BY items.created_at, items.id`
-        ).map(edited),
+        ).map((row) => edited({ ...row, content: equipmentContent(row.content) })),
       held: async (tx, tabletId, locationId) =>
         (
           await tx.$queryRaw<HeldRow[]>`
             SELECT held.${column}::text AS "itemId", held.local_id AS "localId", held.record, here.decided_at AS "decidedAt",
-              items.content, items.field_edits AS "fieldEdits"
+              items.content, items.field_edits AS "fieldEdits", items.archived AS "libraryArchived"
             FROM ${map} AS held
             JOIN ${table} AS items ON items.id = held.${column}
             LEFT JOIN ${shown} AS here ON here.${column} = held.${column} AND here.location_id = ${locationId}::uuid
             WHERE held.tablet_id = ${tabletId}::uuid ORDER BY held.${column}`
-        ).map((row) => heldRecord(row)),
+        ).map((row) => heldRecord(row, equipmentContent)),
     },
     plan: (offer, held) => equipmentWrites(kind, offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM ${table} AS items ${shownHere(locationId)} WHERE NOT items.archived LIMIT 1`,
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM ${shown} WHERE ${column} = ANY(${ids}::uuid[])`,
     ...(kind === "basket" ? { shotLink: { local: "basket_id", link: "library_basket_id" } } : {}),
     // A Shot names one by its id on the tablet that pulled it, so one whose record has that id on any tablet's map is named,
-    // as is one a Shot is linked to, whose record may have left the map since, as one Archived or hidden there.
+    // as is one a Shot is linked to, whose record may have left the map since, as one Archived, or a Tool hidden there.
     shotsNameSql: (ids) =>
       kind === "basket"
         ? Prisma.sql`(

@@ -68,8 +68,9 @@ export type PlannedRecord = "map" | "update" | "link" | "edit" | "add";
  * What a report that is part of joining does with one of the tablet's
  * records of Recipes, Baskets or Tools (ADR-0018). A record of an item the
  * Library has is that item, and is written the Location's state, nothing of
- * it taken in: removed if the Location does not offer it, as another
- * Location's Recipe or a Basket it does not show (`theItem`); but a Basket or
+ * it taken in: archived if the Location hides it, as a Basket, or removed if
+ * it does not offer it, as another Location's Recipe or a Tool it does not
+ * show (`theItem`); but a Basket or
  * Tool matched by name, at a Location that shows none of the kind yet, is
  * shown there (`shown`). Every other record, the tablet's own, is left out,
  * removed from DYE2's list and not kept (`leftOut`), unless the Location has

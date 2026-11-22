@@ -52,7 +52,9 @@ latest DYE2 on each tablet by itself; a tablet whose DYE2 is pinned to an
 earlier build is moved to v0.1.42 or later by hand first. Then deploy the
 server. Nothing refuses an older DYE2, but nothing is written for what it
 does: DYE2 v0.1.41 or earlier applies a Recipe's grind setting of 0 as none,
-clearing the Machine's.
+clearing the Machine's, and DYE2 v0.1.40 or earlier, which knows no archived
+basket, offers in its pickers every Basket hidden at its Location, as such a
+Basket is now archived on its list rather than removed.
 
 ### A grind setting of 0 is a Recipe's
 
@@ -79,6 +81,36 @@ then, from another setting, is written none to the tablets the previous
 release holds, and cleared from the Workflow of each of their Machines that
 has it loaded, so a Shot pulled there names no grind setting. Each is
 written the 0 again as its tablet reconnects to this release.
+
+### A Basket archived in DYE2 is hidden at its Location
+
+From DYE2 v0.1.41 a barista can archive a Basket in DYE2's Basket picker.
+Earlier releases took that as part of the Basket itself: it left the picker
+on every tablet at every Location, while the management interface still
+showed it shown and not Archived. Now archiving a Basket on a tablet hides
+it at that tablet's Location only, as deleting it there does, and UNARCHIVE
+shows it there again. Hiding a Basket at a Location in the management
+interface or through an assistant archives it on that Location's tablets,
+where it used to be removed from their lists, so a barista can bring it back
+there; showing it again unarchives it. A Basket Archived in the management
+interface is still removed from every tablet, and Tools are unchanged.
+
+The release's migration takes the archive earlier releases spread out of
+every Basket, and changes no Location's state. A Basket archived that way
+before this release therefore reappears on every tablet wherever it is
+shown. Where it was meant to go, archive it again in DYE2 on a tablet at
+that Location, or hide it there in the management interface. A Basket
+removed from a tablet's list under the old rule is not put back.
+
+A Machine joining a Location still has its Workflow's Basket cleared if the
+Location does not show it, though DYE2's own archive leaves it named.
+
+While the previous release still serves beside this one during the deploy,
+it takes a Basket archived on a tablet it holds as part of the Basket again,
+and writes that to the tablets it holds; it removes a Basket hidden at a
+Location from those tablets rather than archiving it. This release reads
+such a Basket as not archived, so the tablets it holds are written it
+unarchived wherever it is shown. Archive it again once the deploy is done.
 
 ### Loading a Recipe turns steam on or off
 

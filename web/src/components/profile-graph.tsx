@@ -1,7 +1,33 @@
 import { type Profile, type ProfileLimits, type Range, type Sample, type ShotCurve, type SimulatedRun, sentStep, stepTarget } from "@decent-sync/protocol";
 import { type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject, type SVGProps, useEffect, useId, useRef, useState } from "react";
 import { RECORD_CLASSES, RECORD_VARIABLES } from "@/components/record-colors";
-import { type GraphLayout, LANES, type Lane, type LaneLabel, type LaneRanges, cupStep, graphLayout, laneRanges, laneTicks, placeLabels, timeAxis } from "@/lib/profile-graph-layout";
+import {
+  type GraphLayout,
+  type HandleShape,
+  LANES,
+  type LabelBox,
+  type Lane,
+  type LaneLabel,
+  type LaneRanges,
+  TAG_HEIGHT,
+  besideLine,
+  besideUpright,
+  clear,
+  clearest,
+  cupStep,
+  densified,
+  graphLayout,
+  handleBox,
+  labelBaseline,
+  labelBox,
+  laneRanges,
+  movedLeft,
+  laneTicks,
+  placeLabels,
+  placeTags,
+  spaced,
+  timeAxis,
+} from "@/lib/profile-graph-layout";
 import { exitRange, held, targetRange } from "@/lib/profile-edits";
 import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/lib/profile-words";
 
@@ -20,6 +46,13 @@ import { exitText, limitText, measure, seconds, stepEndText, stepName } from "@/
 // exit and its maximum time, a bracket of its own past the band's end where
 // the step ends sooner. Each is dragged, or moved with the arrow keys as a
 // slider; while one is dragged the axes hold still.
+//
+// What is written in the plot is placed clear of what else is there (#621):
+// the lanes' names, the steps' labels, "Not reached" and where each record
+// stops keep off one another and the curves, and off a Draft's handles,
+// their tags and the bracket, which are drawn over the graph. The bracket's
+// tag sits in the gap under the first lane, so it covers no band's name or
+// outcome, and the selected step's exit is said by its handle's tag alone.
 //
 // Its layout (profile-graph-layout.ts) is apart from its drawing, the
 // drawing is hidden from screen readers, which read the graph in words from
@@ -212,6 +245,12 @@ export function ProfileGraph({
   const { end } = layout;
   const { x, y, plot, lanes, height, short, cupY, ranges } = layout;
 
+  // A Draft's handles on the selected step and their tags, drawn over the graph: what is written in the plot keeps clear of them.
+  const handles = editing ? editHandles(layout, profile, run, editing) : [];
+  const tags = placeTags(layout, handles.map((handle) => ({ shape: handle.shape, width: tagWidth(handle.tag) })));
+  const bracket = handles.flatMap((handle) => (handle.shape.kind === "bracket" ? [handleBox(handle.shape)] : []))[0] ?? null;
+  const covered = [...handles.map((handle) => handleBox(handle.shape)), ...tags];
+
   // The plan in the lane of each sample's pump, a pump stopped as 0; null where the pump controls the other.
   const stepOf = (sample: Sample<ShotCurve>) => (sample.step ? profile.steps[sample.step.frame] : undefined);
   const planPoints = (lane: "pressure" | "flow") =>
@@ -237,38 +276,130 @@ export function ProfileGraph({
   const stepLabels: StepLabel[] = bands.flatMap((band) => {
     const step = profile.steps[band.index];
     if (!step) return [];
-    const room = Math.max(0, x(band.end) - x(band.start) - 8);
+    // In its band, and beside the bracket where that crosses it.
     const labelled = (key: string, lane: Lane, whole: string, top: number, bottom: number): StepLabel => {
-      const text = fitText(whole, room, 11);
-      return { key, lane, band: band.index, x: x(band.start) + 4, text, whole, width: textWidth(text, 11), top, bottom };
+      const from = x(band.start) + 4;
+      const to = Math.max(from, x(band.end) - 4);
+      const part = besideUpright(from, to, Math.min(textWidth(whole, 11), to - from), bracket);
+      const text = fitText(whole, Math.max(0, part.to - part.from), 11);
+      return { key, lane, band: band.index, x: part.from, text, whole, width: textWidth(text, 11), top, bottom };
     };
     const labels: StepLabel[] = [];
-    const limit = step.limiter && step.limiter.value > 0 ? step.limiter : null;
+    const { limit, capped, exit } = marksOf(step);
     if (limit) {
-      const capped = step.pump === "pressure" ? "flow" : "pressure";
       labels.push(
         labelled("limit", capped, `${capitalised(limitText(step) ?? "")}, easing over ${measure(limit.range)} ${capped === "flow" ? "ml/s" : "bar"}`, y(capped, limit.value + limit.range), y(capped, limit.value)),
       );
     }
-    const exit = step.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null;
-    if (exit) labels.push(labelled("exit", exit.type, `Moves on ${exitText(exit)}`, y(exit.type, exit.value), y(exit.type, exit.value)));
+    // The selected step's exit is said by its handle's tag, on the same line.
+    if (exit && !(editing?.step === band.index && handles.some((handle) => handle.name === "exit"))) labels.push(labelled("exit", exit.type, `Moves on ${exitText(exit)}`, y(exit.type, exit.value), y(exit.type, exit.value)));
     if (band.index === 0 || step.temperature !== profile.steps[0]?.temperature || step.sensor !== profile.steps[0]?.sensor) {
       const text = band.index === 0 ? `${measure(step.temperature)} °C at the ${step.sensor}` : `${signed(step.temperature - profile.steps[0]!.temperature)} °C, at the ${step.sensor}`;
       labels.push(labelled("temperature", "temperature", text, y("temperature", step.temperature), y("temperature", step.temperature)));
     }
     return labels;
   });
-  // Kept apart from each other, the lane's name, the preinfusion bar's and the curves, lane by lane.
+  const within = (lane: Lane): LabelBox => ({ left: plot.left, right: plot.right, top: lanes[lane].top, bottom: lanes[lane].bottom });
+  const pick = (candidates: LabelBox[], lane: Lane, curves: readonly (readonly [number, number])[], taken: readonly LabelBox[]) => candidates[clearest(candidates, within(lane), curves, taken)]!;
+  const lineBox = (at: number): LabelBox => ({ left: x(at) - 1, right: x(at) + 1, top: plot.top, bottom: plot.bottom });
+
+  // Each lane's name at its right, or left of a handle, its tag or the bracket where one stands on it there; a row lower, down the lane, where no place left of them is clear.
+  const titles = Object.fromEntries(
+    LANES.map((lane) => {
+      const text = `${lane.title} (${lane.unit})`;
+      const wide = textWidth(text, 12, 500);
+      const rows = Array.from({ length: Math.floor((lanes[lane.key].bottom - lanes[lane.key].top - 18) / 16) + 1 }, (_, row) => {
+        const top = lanes[lane.key].top + row * 16;
+        return movedLeft({ left: plot.right - 4 - wide, right: plot.right - 4, top, bottom: top + 18 }, covered, plot.left);
+      });
+      return [lane.key, { text, box: rows.find((box) => clear(box, within(lane.key), covered)) ?? rows[0]! }];
+    }),
+  ) as Record<Lane, { text: string; box: LabelBox }>;
+  // Each lane's curves, as what is written there keeps off them: the compared record's points and the baseline's are two curves, as `points` joins them.
+  const laneCurves = Object.fromEntries(
+    LANES.map((lane) => [lane.key, [points[lane.key].run, points[lane.key].plan, comparedPoints(lane.key), lane.key === "temperature" ? [] : baselinePoints(lane.key)].flatMap((curve) => densified(curve))]),
+  ) as Record<Lane, [number, number][]>;
+  const curvesIn = (lane: Lane) => laneCurves[lane];
+  // The preinfusion bar's name under its start, a row or two lower under a handle, or right of the bracket; else further down the
+  // lane there, then right of whichever handle or tag is in its way; off the curves where it can be.
+  const preinfusion = (() => {
+    if (!showsPreinfusion) return null;
+    const wide = textWidth("Preinfusion", 11);
+    const rows = Array.from({ length: Math.floor((lanes.pressure.bottom - 2 - (plot.top + 16)) / 13) + 1 }, (_, row) => row);
+    const lefts = [plot.left + 4, ...(bracket ? [bracket.right + 4] : [])];
+    const at = (left: number, row: number) => labelBox(Math.max(plot.left, Math.min(left, plot.right - wide)), plot.top + 16 + row * 13, wide);
+    const candidates = [
+      ...lefts.flatMap((left) => rows.slice(0, 3).map((row) => at(left, row))),
+      ...lefts.flatMap((left) => rows.slice(3).map((row) => at(left, row))),
+      ...covered.flatMap((box) => rows.map((row) => at(box.right + 4, row))),
+    ];
+    return pick(candidates, "pressure", curvesIn("pressure"), [...covered, titles.pressure.box]);
+  })();
+  // What is written in a lane before its steps' labels.
+  const named = (lane: Lane): LabelBox[] => [
+    { ...titles[lane].box, right: titles[lane].box.right + 4 },
+    ...(lane === "pressure" && preinfusion ? [{ left: preinfusion.left - 4, right: preinfusion.right + 4, top: preinfusion.top - 2, bottom: preinfusion.bottom + 2 }] : []),
+    ...covered,
+  ];
+
+  // The steps' labels, kept apart from each other, the lane's name, the preinfusion bar's, the handles and the curves, lane by lane.
   const baselines = new Map<StepLabel, number>();
   for (const lane of LANES) {
     const here = stepLabels.filter((each) => each.lane === lane.key);
-    const title = `${lane.title} (${lane.unit})`;
-    const taken = [{ left: plot.right - 4 - textWidth(title, 12, 500), right: plot.right, top: lanes[lane.key].top, bottom: lanes[lane.key].top + 18 }];
-    if (lane.key === "pressure" && showsPreinfusion) taken.push({ left: plot.left, right: plot.left + 8 + textWidth("Preinfusion", 11), top: lanes.pressure.top, bottom: lanes.pressure.top + 20 });
-    const curves = [...points[lane.key].run, ...points[lane.key].plan, ...points[lane.key].compared].filter((point) => point !== null);
-    const placed = placeLabels(here.map((each): LaneLabel => ({ x: each.x, width: each.width, top: each.top, bottom: each.bottom })), lanes[lane.key].top, lanes[lane.key].bottom, curves, taken);
+    const placed = placeLabels(here.map((each): LaneLabel => ({ x: each.x, width: each.width, top: each.top, bottom: each.bottom })), lanes[lane.key].top, lanes[lane.key].bottom, curvesIn(lane.key), named(lane.key));
     here.forEach((each, index) => baselines.set(each, placed[index]!));
   }
+  const written = (lane: Lane): LabelBox[] => [...named(lane), ...stepLabels.flatMap((each) => (each.lane === lane && each.text !== "" ? [labelBox(each.x, baselines.get(each)!, each.width)] : []))];
+
+  // "Not reached" in the middle of what the run left of the plan, on the wider side of the bracket where that stands there, a row or two
+  // up or down, or on the other side, where a handle, its tag or what is written there is in the way; left out where nowhere is clear.
+  const unreached = (() => {
+    if (!notReached) return null;
+    const [from, to] = [x(run.stop.seconds), x(end)];
+    const parts = bracket && bracket.right > from && bracket.left < to ? [[from, bracket.left] as const, [bracket.right, to] as const] : [[from, to] as const];
+    const wide = textWidth("Not reached", 12);
+    const middle = (lanes.pressure.top + lanes.pressure.bottom) / 2;
+    const roomy = parts.filter((part) => part[1] - part[0] > 80).sort((one, other) => other[1] - other[0] - (one[1] - one[0]));
+    const candidates = roomy.flatMap((part) => [0, -1, 1, -2, 2].map((row) => labelBox((part[0] + part[1] - wide) / 2, middle + row * 13, wide)));
+    if (candidates.length === 0) return null;
+    const taken = written("pressure");
+    const box = pick(candidates, "pressure", [], taken);
+    return clear(box, within("pressure"), taken) ? box : null;
+  })();
+
+  // Where each record stops: its name beside its line, down its lane to a row clear of the curves, the thresholds, the
+  // handles and what is written there, on the other side of the line where no row on the first is.
+  const ruled = (lane: Lane): [number, number][] => [
+    ...bands.flatMap((band) => {
+      const { limit, capped, exit } = marksOf(profile.steps[band.index]);
+      return [...(limit && capped === lane ? [y(lane, limit.value)] : []), ...(exit && exit.type === lane ? [y(lane, exit.value)] : [])].flatMap((at) => densified([[x(band.start), at], [x(band.end), at]]));
+    }),
+    ...beyond.flatMap((part) => (part.lane === lane ? densified([[x(part.from), y(lane, part.target)], [x(Math.min(part.until, end)), y(lane, part.target)]]) : [])),
+  ];
+  // The first of `texts`, from the fullest, that has a place clear beside its line; the fullest where none has.
+  const stopLabel = (texts: string[], size: number, weight: number, at: number, lane: Lane, first: "left" | "right", curves: readonly (readonly [number, number])[], taken: LabelBox[]) => {
+    const places = texts.map((text) => ({ text, box: pick(besideLine(x(at), textWidth(text, size, weight), lanes[lane], first), lane, curves, taken) }));
+    return places.find((place) => clear(place.box, within(lane), taken)) ?? places[0]!;
+  };
+  const baselineStop = baseline && baselineRun && Math.abs(baselineRun.stop.seconds - run.stop.seconds) > 0.3 ? { seconds: baselineRun.stop.seconds, text: `${baseline.label.replace(/, simulated$/, "")} stops` } : null;
+  const comparedStop = compared?.stop ? { seconds: compared.stop.seconds, texts: [`${compared.stop.label}, ${seconds(compared.stop.seconds)}`, compared.stop.label, seconds(compared.stop.seconds)] } : null;
+  const stopLines = [lineBox(run.stop.seconds), ...(comparedStop ? [lineBox(comparedStop.seconds)] : []), ...(baselineStop ? [lineBox(baselineStop.seconds)] : [])];
+  const inPressure = [...curvesIn("pressure"), ...ruled("pressure")];
+  const beside = [...written("pressure"), ...(unreached ? [unreached] : [])];
+  // A label is beside its own line, so that one is left out of what it keeps off. Where its words find no clear place, as on a phone, the run's is its time alone, and the compared record's its name alone, then its time alone.
+  const stop = stopLabel([`${run.stop.reason === "weight" ? "Stops" : "Ends"} at ${seconds(run.stop.seconds)}`, seconds(run.stop.seconds)], 12, 600, run.stop.seconds, "pressure", "right", inPressure, [...beside, ...stopLines.slice(1)]);
+  // The compared record's on the side away from the run's stop first, so the two seldom cross.
+  const comparedStopLabel = comparedStop
+    ? stopLabel(comparedStop.texts, 11, 400, comparedStop.seconds, "pressure", comparedStop.seconds > run.stop.seconds ? "right" : "left", inPressure, [...beside, stop.box, ...stopLines.filter((_, index) => index !== 1)])
+    : null;
+  const baselineStopBox = baselineStop
+    ? pick(
+        besideLine(x(baselineStop.seconds), textWidth(baselineStop.text, 11), lanes.flow, baselineStop.seconds > run.stop.seconds ? "right" : "left"),
+        "flow",
+        [...curvesIn("flow"), ...ruled("flow")],
+        [...written("flow"), ...stopLines.slice(0, comparedStop ? 2 : 1)],
+      )
+    : null;
 
   // The weight in the cup: its first drip, then each 10 g, or a larger round step on a heavier run (`cupStep`), as run.
   const cupMarks: { at: number; text: string }[] = [];
@@ -282,6 +413,22 @@ export function ProfileGraph({
       grams += gramStep;
     }
   }
+  // A mark's name is left out where it would run into the one before it, and a time where it would run into the axis's end, as on a phone.
+  const cupNames = spaced(
+    cupMarks.map((mark) => {
+      const [drip, wide] = [mark.text === "First drip", textWidth(short && mark.text === "First drip" ? "Drip" : mark.text, 11)];
+      return drip ? { left: x(mark.at) + 2 - wide, right: x(mark.at) + 2 } : { left: x(mark.at) - wide / 2, right: x(mark.at) + wide / 2 };
+    }),
+  );
+  const times = layout.timeTicks();
+  const timesWritten = spaced(
+    times
+      .map((at) => {
+        const wide = textWidth(at === end ? `${at} s` : `${at}`, 12);
+        return at === end ? { left: x(at) - wide, right: x(at) } : { left: x(at) - wide / 2, right: x(at) + wide / 2 };
+      })
+      .reverse(),
+  ).reverse();
 
   return (
     <figure ref={ref} aria-labelledby={captionId} style={RECORD_VARIABLES} className="m-0 grid min-w-0 gap-3">
@@ -344,9 +491,8 @@ export function ProfileGraph({
           overlay={
             editing && (
               <EditHandles
-                layout={layout}
-                profile={profile}
-                run={run}
+                handles={handles}
+                tags={tags}
                 editing={editing}
                 onHold={(holding) => setStillAxes(holding ? { end: layout.end, tick: layout.tick, ranges: layout.ranges } : null)}
               />
@@ -403,16 +549,16 @@ export function ProfileGraph({
                       </text>
                     </g>
                   ))}
-                  <text x={plot.right - 4} y={lanes[lane.key].top + 14} textAnchor="end" className="fill-foreground font-medium">
-                    {`${lane.title} (${lane.unit})`}
+                  <text x={titles[lane.key].box.right} y={titles[lane.key].box.top + 14} textAnchor="end" className="fill-foreground font-medium" data-lane-name>
+                    {titles[lane.key].text}
                   </text>
                 </g>
               ))}
 
-              {showsPreinfusion && (
+              {showsPreinfusion && preinfusion && (
                 <g data-preinfusion>
                   <rect x={plot.left} y={plot.top} width={x(preinfusionEnd) - plot.left} height={3} className="fill-muted-foreground/50" />
-                  <text x={plot.left + 4} y={plot.top + 16} className="fill-muted-foreground text-[11px]">
+                  <text x={preinfusion.left} y={labelBaseline(preinfusion)} className="fill-muted-foreground text-[11px]">
                     Preinfusion
                   </text>
                 </g>
@@ -422,9 +568,7 @@ export function ProfileGraph({
               {bands.map((band) => {
                 const step = profile.steps[band.index];
                 if (!step) return null;
-                const limit = step.limiter && step.limiter.value > 0 ? step.limiter : null;
-                const capped = step.pump === "pressure" ? "flow" : "pressure";
-                const exit = step.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null;
+                const { limit, capped, exit } = marksOf(step);
                 return (
                   <g key={band.index}>
                     {limit && (
@@ -471,8 +615,8 @@ export function ProfileGraph({
                   <line key={index} x1={x(part.from)} x2={x(Math.min(part.until, end))} y1={y(part.lane, part.target)} y2={y(part.lane, part.target)} />
                 ))}
               </g>
-              {notReached && x(end) - x(run.stop.seconds) > 80 && (
-                <text x={(x(run.stop.seconds) + x(end)) / 2} y={(lanes.pressure.top + lanes.pressure.bottom) / 2} textAnchor="middle" className="fill-muted-foreground">
+              {unreached && (
+                <text x={(unreached.left + unreached.right) / 2} y={labelBaseline(unreached)} textAnchor="middle" className="fill-muted-foreground" data-not-reached>
                   Not reached
                 </text>
               )}
@@ -483,16 +627,11 @@ export function ProfileGraph({
                     <path d={pathOf(baselinePoints("pressure"))} />
                     <path d={pathOf(baselinePoints("flow"))} />
                   </g>
-                  {Math.abs(baselineRun.stop.seconds - run.stop.seconds) > 0.3 && (
-                    <g>
-                      <line x1={x(baselineRun.stop.seconds)} x2={x(baselineRun.stop.seconds)} y1={plot.top} y2={plot.bottom} className="stroke-muted-foreground/50" strokeDasharray="3 3" />
-                      <text
-                        x={x(baselineRun.stop.seconds) + (baselineRun.stop.seconds > run.stop.seconds ? 4 : -4)}
-                        y={lanes.flow.top + 14}
-                        textAnchor={baselineRun.stop.seconds > run.stop.seconds ? "start" : "end"}
-                        className="fill-muted-foreground text-[11px]"
-                      >
-                        {`${baseline.label.replace(/, simulated$/, "")} stops`}
+                  {baselineStop && baselineStopBox && (
+                    <g data-baseline-stop>
+                      <line x1={x(baselineStop.seconds)} x2={x(baselineStop.seconds)} y1={plot.top} y2={plot.bottom} className="stroke-muted-foreground/50" strokeDasharray="3 3" />
+                      <text {...besideAt(baselineStopBox, x(baselineStop.seconds))} className="fill-muted-foreground text-[11px]">
+                        {baselineStop.text}
                       </text>
                     </g>
                   )}
@@ -511,30 +650,18 @@ export function ProfileGraph({
               </g>
 
               {/* Where the compared record stopped, and where the run stops. */}
-              {compared?.stop && (
+              {comparedStop && comparedStopLabel && (
                 <g data-compared-stop>
-                  <line x1={x(compared.stop.seconds)} x2={x(compared.stop.seconds)} y1={plot.top} y2={plot.bottom} className={RECORD_CLASSES.previous.stroke} strokeDasharray="3 3" />
-                  {/* On the side away from the run's stop, so the two never cross. */}
-                  <text
-                    x={x(compared.stop.seconds) + (compared.stop.seconds > run.stop.seconds ? 4 : -4)}
-                    y={lanes.pressure.bottom - 6}
-                    textAnchor={compared.stop.seconds > run.stop.seconds ? "start" : "end"}
-                    className="fill-foreground text-[11px]"
-                  >
-                    {`${compared.stop.label}, ${seconds(compared.stop.seconds)}`}
+                  <line x1={x(comparedStop.seconds)} x2={x(comparedStop.seconds)} y1={plot.top} y2={plot.bottom} className={RECORD_CLASSES.previous.stroke} strokeDasharray="3 3" />
+                  <text {...besideAt(comparedStopLabel.box, x(comparedStop.seconds))} className="fill-foreground text-[11px]">
+                    {comparedStopLabel.text}
                   </text>
                 </g>
               )}
               <g data-stop>
                 <line x1={x(run.stop.seconds)} x2={x(run.stop.seconds)} y1={plot.top} y2={plot.bottom + 4} className="stroke-foreground" />
-                {/* Left of the line and a row lower where right of it would run into the lane's name. */}
-                <text
-                  x={x(run.stop.seconds) + (x(run.stop.seconds) > plot.right - 220 ? -6 : 6)}
-                  y={plot.top + (x(run.stop.seconds) > plot.right - 220 ? 32 : 16)}
-                  textAnchor={x(run.stop.seconds) > plot.right - 220 ? "end" : "start"}
-                  className="fill-foreground font-semibold"
-                >
-                  {`${run.stop.reason === "weight" ? "Stops" : "Ends"} at ${seconds(run.stop.seconds)}`}
+                <text {...besideAt(stop.box, x(run.stop.seconds))} className="fill-foreground font-semibold">
+                  {stop.text}
                 </text>
                 {(["pressure", "flow"] as const).map((lane) => {
                   const last = run.samples.at(-1)?.values[lane];
@@ -550,14 +677,16 @@ export function ProfileGraph({
                   {short ? "Cup" : "In the cup"}
                 </text>
                 {run.timeToFirstDrip !== null && <line x1={x(run.timeToFirstDrip)} x2={x(run.stop.seconds)} y1={cupY} y2={cupY} className="stroke-foreground" />}
-                {cupMarks.map((mark) => {
+                {cupMarks.map((mark, index) => {
                   const drip = mark.text === "First drip";
                   return (
                     <g key={mark.text} data-cup-mark={mark.text}>
                       <line x1={x(mark.at)} x2={x(mark.at)} y1={cupY - 4} y2={cupY + 4} className="stroke-foreground" />
-                      <text x={x(mark.at) + (drip ? 2 : 0)} y={cupY - 8} textAnchor={drip ? "end" : "middle"} className="fill-muted-foreground text-[11px]">
-                        {short && drip ? "Drip" : mark.text}
-                      </text>
+                      {cupNames[index] && (
+                        <text x={x(mark.at) + (drip ? 2 : 0)} y={cupY - 8} textAnchor={drip ? "end" : "middle"} className="fill-muted-foreground text-[11px]">
+                          {short && drip ? "Drip" : mark.text}
+                        </text>
+                      )}
                     </g>
                   );
                 })}
@@ -567,7 +696,7 @@ export function ProfileGraph({
               </g>
 
               {/* The time axis. */}
-              {layout.timeTicks().map((at) => (
+              {times.map((at, index) => timesWritten[index] && (
                 <text key={at} x={x(at)} y={height - 6} textAnchor={at === end ? "end" : "middle"} className="fill-muted-foreground">
                   {at === end ? `${at} s` : at}
                 </text>
@@ -578,6 +707,25 @@ export function ProfileGraph({
       )}
     </figure>
   );
+}
+
+/** What a step draws in the lanes: its limit, in the lane it caps, and its exit, where it has them. */
+function marksOf(step: Profile["steps"][number] | undefined) {
+  return {
+    limit: step?.limiter && step.limiter.value > 0 ? step.limiter : null,
+    capped: step?.pump === "pressure" ? ("flow" as const) : ("pressure" as const),
+    exit: step?.exit && step.exit.value > 0 && step.seconds > 0 ? step.exit : null,
+  };
+}
+
+/** Where text placed in `box` beside an upright line at `line` is drawn: from the box's left on the line's right, to its right on the line's left. */
+function besideAt(box: LabelBox, line: number): { x: number; y: number; textAnchor: "start" | "end" } {
+  return box.left >= line ? { x: box.left, y: labelBaseline(box), textAnchor: "start" } : { x: box.right, y: labelBaseline(box), textAnchor: "end" };
+}
+
+/** How wide a handle's tag is, px, its text in its padding. */
+function tagWidth(tag: string): number {
+  return Math.ceil(textWidth(tag, 11, 600)) + 12;
 }
 
 /** One of a band's labels in a lane, where it was placed. */
@@ -762,9 +910,6 @@ function GraphPointer({
   );
 }
 
-/** How a handle on the graph is laid out: a point dragged up and down in a lane, or a bracket dragged along the time axis. */
-type HandleShape = { kind: "point"; x: number; y: number } | { kind: "bracket"; x: number; top: number; bottom: number };
-
 /**
  * One handle on the graph, a slider to the keyboard and to assistive
  * technology: dragged, it sets the value at the pointer (`valueAt`, from the
@@ -784,7 +929,7 @@ function Handle({
   onValue,
   onHold,
   name,
-  tagLeft,
+  tagBox,
 }: {
   shape: HandleShape;
   label: string;
@@ -800,8 +945,8 @@ function Handle({
   onHold(holding: boolean): void;
   /** What tests and styles find it by. */
   name: string;
-  /** Whether a point's tag goes on its left, as near the graph's right edge. */
-  tagLeft?: boolean;
+  /** Where its tag is, on the graph, as `placeTags` places it. */
+  tagBox: LabelBox;
 }) {
   const dragging = useRef(false);
   // A handle taken away mid-drag, as when its step's band changes, lets the axes go, as its pointerup never comes.
@@ -884,9 +1029,9 @@ function Handle({
       )}
       <span
         aria-hidden
-        className={`pointer-events-none absolute rounded px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white ${RECORD_CLASSES.current.background} ${
-          !point ? "-top-5 left-1/2 -translate-x-1/2" : tagLeft ? "top-1/2 right-full mr-1.5 -translate-y-1/2" : "top-1/2 left-full ml-1.5 -translate-y-1/2"
-        }`}
+        data-handle-tag={name}
+        className={`pointer-events-none absolute flex items-center justify-center rounded text-[11px] leading-none font-semibold whitespace-nowrap text-white ${RECORD_CLASSES.current.background}`}
+        style={{ left: tagBox.left - style.left, top: tagBox.top - style.top, width: tagBox.right - tagBox.left, height: TAG_HEIGHT }}
       >
         {tag}
       </span>
@@ -894,11 +1039,26 @@ function Handle({
   );
 }
 
+/** A handle on the selected step: what it sets, where it is, and what it reads. */
+interface EditHandle {
+  name: HandleField;
+  shape: HandleShape;
+  label: string;
+  value: number;
+  range: Range;
+  step: number;
+  /** The value in words, for assistive technology. */
+  text: string;
+  /** What its tag on the graph reads. */
+  tag: string;
+  valueAt(x: number, y: number): number;
+}
+
 /** The selected step's handles: its target, its exit where it has one, and its maximum time; none for a step the run never came to. A step of no length keeps them, at its start, so its maximum time can be brought back. */
-function EditHandles({ layout, profile, run, editing, onHold }: { layout: GraphLayout; profile: Profile; run: SimulatedRun; editing: GraphEditing; onHold(holding: boolean): void }) {
+function editHandles(layout: GraphLayout, profile: Profile, run: SimulatedRun, editing: GraphEditing): EditHandle[] {
   const ran = run.steps[editing.step];
   const step = profile.steps[editing.step];
-  if (!ran || !step || ran.start === null || ran.end === null || ran.end < ran.start) return null;
+  if (!ran || !step || ran.start === null || ran.end === null || ran.end < ran.start) return [];
   const start = ran.start;
   const along = (fraction: number) => layout.x(start) + (layout.x(ran.end!) - layout.x(start)) * fraction;
   const name = stepName(step, editing.step);
@@ -909,52 +1069,55 @@ function EditHandles({ layout, profile, run, editing, onHold }: { layout: GraphL
   const targetX = step.transition === "smooth" ? layout.x(start + step.seconds) : along(0.62);
   const exit = step.exit && step.seconds > 0 ? step.exit : null;
   const timeRange = editing.limits.seconds;
-  const bracketX = layout.x(start + step.seconds);
   const offAxis = start + step.seconds > layout.end;
+  return [
+    {
+      name: "target",
+      shape: { kind: "point", x: targetX, y: layout.y(step.pump, target) },
+      label: `${name}'s target, ${unit(step.pump)}`,
+      value: target,
+      range: targetLimits,
+      step: 0.1,
+      text: `${measure(target)} ${unit(step.pump)}`,
+      tag: `${measure(target)} ${unit(step.pump)}`,
+      valueAt: (_, y) => held(layout.valueAt(step.pump, y), targetLimits),
+    },
+    ...(exit
+      ? [
+          {
+            name: "exit" as const,
+            shape: { kind: "point" as const, x: along(0.3), y: layout.y(exit.type, exit.value) },
+            label: `${name}'s exit, ${exit.type} ${exit.condition}, ${unit(exit.type)}`,
+            value: exit.value,
+            range: exitRange(exit.type, editing.limits),
+            step: 0.1,
+            text: capitalised(exitText(exit)),
+            tag: capitalised(exitText(exit)),
+            valueAt: (_: number, y: number) => held(layout.valueAt(exit.type, y), exitRange(exit.type, editing.limits)),
+          },
+        ]
+      : []),
+    {
+      name: "seconds",
+      shape: { kind: "bracket", x: layout.x(start + step.seconds), top: layout.plot.top, bottom: layout.plot.bottom },
+      label: `${name}'s maximum time, s`,
+      value: step.seconds,
+      range: timeRange,
+      step: 0.5,
+      text: `At most ${seconds(step.seconds)}`,
+      tag: `At most ${seconds(step.seconds)}${offAxis ? " ›" : ""}`,
+      valueAt: (x) => held(layout.secondsAt(x) - start, timeRange),
+    },
+  ];
+}
+
+/** The selected step's handles, each with its tag where `placeTags` put it. */
+function EditHandles({ handles, tags, editing, onHold }: { handles: EditHandle[]; tags: LabelBox[]; editing: GraphEditing; onHold(holding: boolean): void }) {
   return (
     <>
-      <Handle
-        name="target"
-        shape={{ kind: "point", x: targetX, y: layout.y(step.pump, target) }}
-        label={`${name}'s target, ${unit(step.pump)}`}
-        value={target}
-        range={targetLimits}
-        step={0.1}
-        text={`${measure(target)} ${unit(step.pump)}`}
-        tag={`${measure(target)} ${unit(step.pump)}`}
-        valueAt={(_, y) => held(layout.valueAt(step.pump, y), targetLimits)}
-        onValue={(value) => editing.onChange("target", value)}
-        onHold={onHold}
-        tagLeft={targetX > layout.width - 90}
-      />
-      {exit && (
-        <Handle
-          name="exit"
-          shape={{ kind: "point", x: along(0.3), y: layout.y(exit.type, exit.value) }}
-          label={`${name}'s exit, ${exit.type} ${exit.condition}, ${unit(exit.type)}`}
-          value={exit.value}
-          range={exitRange(exit.type, editing.limits)}
-          step={0.1}
-          text={capitalised(exitText(exit))}
-          tag={capitalised(exitText(exit))}
-          valueAt={(_, y) => held(layout.valueAt(exit.type, y), exitRange(exit.type, editing.limits))}
-          onValue={(value) => editing.onChange("exit", value)}
-          onHold={onHold}
-        />
-      )}
-      <Handle
-        name="seconds"
-        shape={{ kind: "bracket", x: bracketX, top: layout.plot.top, bottom: layout.plot.bottom }}
-        label={`${name}'s maximum time, s`}
-        value={step.seconds}
-        range={timeRange}
-        step={0.5}
-        text={`At most ${seconds(step.seconds)}`}
-        tag={`At most ${seconds(step.seconds)}${offAxis ? " ›" : ""}`}
-        valueAt={(x) => held(layout.secondsAt(x) - start, timeRange)}
-        onValue={(value) => editing.onChange("seconds", value)}
-        onHold={onHold}
-      />
+      {handles.map(({ name, ...handle }, index) => (
+        <Handle key={name} name={name} {...handle} tagBox={tags[index]!} onValue={(value) => editing.onChange(name, value)} onHold={onHold} />
+      ))}
     </>
   );
 }

@@ -4,6 +4,7 @@ import {
   type MappedEquipment,
   type ReportedEquipment,
   answeredEquipment,
+  archiveChange,
   editedContent,
   equipmentContent,
   beforeWriteAfter,
@@ -37,8 +38,11 @@ const mapped = (itemId: string, record: Record<string, unknown>, state: Partial<
 });
 
 describe("DYE2's baskets and tools as Library items", () => {
-  it("keeps every field of a record but its id, its creation time and its global id as the item's content", () => {
+  it("keeps every field of a record but its id, its creation time, its global id and `archived` as the item's content", () => {
     expect(equipmentContent(carrying(basket18, ITEMS[0]))).toEqual({ name: "Fixture 18g Precision", size: "double", notes: "Fixture notes, edited", diameterMm: 58.4 });
+    // Archived on the tablet, from DYE2 v0.1.41, it is hidden at its Location: never content, either way.
+    expect(equipmentContent({ ...basket18, archived: true })).toEqual(equipmentContent(basket18));
+    expect(equipmentContent({ ...basket18, archived: false })).toEqual(equipmentContent(basket18));
     expect(equipmentContent(wdt)).toEqual({ name: "Fixture WDT Tool", custom: wdt.custom });
     // Fields DYE2 may add later are kept.
     expect(equipmentContent({ ...puckScreen, colour: "black" })).toMatchObject({ colour: "black" });
@@ -207,6 +211,39 @@ describe("planEquipmentIntake", () => {
     // An edit is the fields it changed.
     const edited = reported(carrying({ ...basket18, notes: "Re-measured" }, ITEMS[0]));
     expect(planEquipmentIntake([edited], [mapped(ITEMS[0], basket18)], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: edited, content: { notes: "Re-measured" } }]);
+  });
+
+  it("reads a record the map holds archived or unarchived since as hidden or shown at the tablet's Location, its other fields edits as before", () => {
+    const known = mapped(ITEMS[0], basket18);
+    const archived = reported(carrying({ ...basket18, archived: true }, ITEMS[0]));
+    expect(planEquipmentIntake([archived], [known], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: archived, content: {}, archived: true }]);
+    // Unarchived, as DYE2's UNARCHIVE writes `archived: false`; one dropping the field is unarchived too.
+    const wasArchived = mapped(ITEMS[0], { ...basket18, archived: true });
+    const unarchived = reported(carrying({ ...basket18, archived: false }, ITEMS[0]));
+    expect(planEquipmentIntake([unarchived], [wasArchived], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: unarchived, content: {}, archived: false }]);
+    expect(archiveChange(wasArchived.record, carrying(basket18, ITEMS[0]))).toBe(false);
+    // An edit of an archived record's notes is an edit of the item's content, and archives nothing more.
+    const editedArchived = reported(carrying({ ...basket18, notes: "Retired", archived: true }, ITEMS[0]));
+    expect(planEquipmentIntake([editedArchived], [wasArchived], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: editedArchived, content: { notes: "Retired" } }]);
+    // Archived and edited in one save, it is both.
+    const both = reported(carrying({ ...basket18, notes: "Retired", archived: true }, ITEMS[0]));
+    expect(planEquipmentIntake([both], [known], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: both, content: { notes: "Retired" }, archived: true }]);
+  });
+
+  it("takes every archive or unarchive as the barista's, even one setting back the server's write, and keeps no guard of `archived`", () => {
+    // The server archived it, as its Location hid it, the record holding no `archived` before: no guard of it is kept.
+    const plain = carrying(basket18, ITEMS[0]);
+    expect(heldBefore(plain, ["archived"])).toBeNull();
+    expect(heldBefore({ ...plain, notes: "A" }, ["archived", "notes"])).toEqual({ notes: "A" });
+    // Nor one kept from before, as a release before #618 wrote `archived` as content.
+    expect(heldBefore(plain, ["notes"], { archived: null, size: "18g" })).toEqual({ size: "18g", notes: basket18.notes });
+    // DYE2's UNARCHIVE on any tablet the server archived, at its first tap, shows it again.
+    const written = mapped(ITEMS[0], { ...basket18, archived: true }, { beforeWrite: { archived: null } });
+    const unarchived = reported(carrying({ ...basket18, archived: false }, ITEMS[0]));
+    expect(planEquipmentIntake([unarchived], [written], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: unarchived, content: {}, archived: false }]);
+    // The server unarchived it; DYE2's ARCHIVE, at its first tap, hides it again.
+    const shown = mapped(ITEMS[0], { ...basket18, archived: false }, { beforeWrite: { archived: true } });
+    expect(archiveChange(shown.record, carrying({ ...basket18, archived: true }, ITEMS[0]))).toBe(true);
   });
 
   it("reads a record gone from the list as deleted there once a report listed it, and as a write lost otherwise", () => {

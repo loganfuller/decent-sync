@@ -263,9 +263,11 @@ its Machine had loaded and the Basket DYE2 recorded
   while the Shot names the same id, only so a Tool a Shot used is not
   hard-deleted once its record has left the tablet, as when it is Archived
   or hidden at its Location.
-- **A Basket or Tool the tablet dropped first.** DYE2 can neither archive
-  nor hide one, so a Basket or Tool its Location stops offering is removed
-  from the tablet's list, and from its map. A Shot naming it that reaches
+- **A Basket or Tool the tablet dropped first.** A Tool its Location stops
+  showing, which DYE2 cannot archive, and a Basket or Tool Archived, are
+  removed from the tablet's list, and from its map; a Basket its Location
+  hides is archived there and stays on the map (#618), and so does not
+  drop. A Shot naming it that reaches
   the server only after that, as one found only by a later index rather
   than queued as it was pulled, is linked to neither, and keeps neither
   from being hard-deleted; the plugin holds back only a hard delete's
