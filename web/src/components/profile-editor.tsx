@@ -12,7 +12,7 @@ import {
   stepLabel,
 } from "@decent-sync/protocol";
 import { ChevronDown, ChevronUp, CircleCheck, CircleX, Plus, TriangleAlert } from "lucide-react";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, type Ref, useId, useRef, useState } from "react";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { Segmented, SegmentedItem } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
@@ -243,6 +243,7 @@ export function Inspector({
   onSelect,
   onChange,
   className = "",
+  ref,
 }: {
   profile: Profile;
   selected: number;
@@ -252,10 +253,11 @@ export function Inspector({
   onSelect(step: number): void;
   onChange: ProfileChange;
   className?: string;
+  ref?: Ref<HTMLDivElement>;
 }) {
   const step = profile.steps[selected];
   return (
-    <Card role="region" aria-label="Inspector" className={`min-w-0 ${className}`}>
+    <Card ref={ref} role="region" aria-label="Inspector" className={`min-w-0 ${className}`}>
       <CardContent className="grid gap-5">
         <Tabs value={step ? tab : "profile"} onValueChange={(value) => onTab(value as "step" | "profile")}>
           <TabsList>

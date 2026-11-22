@@ -234,11 +234,17 @@ test("the checks, a status beside Publish, count what stops it and the advice, a
   await expect(checks(page).getByRole("region", { name: "Stops it publishing" }).getByText("Step 2 has no name.")).toBeVisible();
   await page.keyboard.press("Escape");
   await stepsCard(page).getByRole("button", { name: "Select step 1, Fill" }).click();
-  // Chosen from the list, a check selects its step and the list closes.
+  // Chosen from the list, a check selects its step and the list closes, with the inspector, in a window too short for it, scrolled back to its top.
+  await page.setViewportSize({ width: 1280, height: 480 });
+  await inspector(page).evaluate((card) => card.scrollTo({ top: card.scrollHeight }));
+  expect(await inspector(page).evaluate((card) => card.scrollTop)).toBeGreaterThan(100);
   await checksStatus(page).click();
   await advice.getByRole("button", { name: /^Step 2 ends at a weight/ }).click();
   await expect(checks(page)).toHaveCount(0);
   await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toHaveAttribute("data-state", "active");
+  expect(await inspector(page).evaluate((card) => card.scrollTop)).toBe(0);
+  await expect(inspector(page).getByLabel("Name")).toBeInViewport();
+  await page.setViewportSize(viewport);
   await inspector(page).getByLabel("Name").fill("Soak");
   await expect(checksStatus(page)).toHaveAccessibleName("Checks: Nothing stops publishing · 1 piece of advice");
 });

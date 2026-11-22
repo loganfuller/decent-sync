@@ -274,6 +274,15 @@ function DraftEditor({ id }: { id: string }) {
     setSelected(index);
     setTab("step");
   }, []);
+  const inspector = useRef<HTMLDivElement>(null);
+  // A check chosen from the list shows its step from the inspector's top, however far down it was scrolled.
+  const selectChecked = useCallback(
+    (index: number) => {
+      select(index);
+      inspector.current?.scrollTo({ top: 0 });
+    },
+    [select],
+  );
 
   const back = draft?.startedFrom ? (
     <Link to={profilePath(draft.startedFrom.id)} className="text-sm text-muted-foreground hover:text-foreground">
@@ -347,7 +356,7 @@ function DraftEditor({ id }: { id: string }) {
             </p>
           </div>
           <div className="flex flex-wrap items-start gap-2">
-            <ChecksStatus checks={checks} onSelect={select} />
+            <ChecksStatus checks={checks} onSelect={selectChecked} />
             <Button variant="outline" size="icon" aria-label="Undo" disabled={!canUndo(history)} onClick={() => step("undo")}>
               <Undo2 aria-hidden />
             </Button>
@@ -438,6 +447,7 @@ function DraftEditor({ id }: { id: string }) {
         {/* Within reach in a window shorter than it: it scrolls within itself rather than running past the window's end. */}
         <div className="min-w-0 lg:sticky lg:top-4">
           <Inspector
+            ref={inspector}
             profile={profile}
             selected={chosen}
             tab={tab}
