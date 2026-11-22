@@ -4,7 +4,7 @@ import { type CopiedFrom, type EditSource, type ItemRef, recordConflict, recordR
 import { KINDS, idSql, idsSql } from "./kinds.js";
 import { isObject } from "./listed.js";
 import { BEAN_TAKEN, recipeBean } from "./loaded-recipe-intake.js";
-import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
+import { type FieldEdits, changedFields, editsAfter, holdsContentAsDecided, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
 
 // Edits of Library items' content, merged per field with the latest edit
 // winning (ADR-0020): a Bean's, a Bean Batch's and a Grinder's record fields,
@@ -248,23 +248,36 @@ export async function recordLinked(tx: Prisma.TransactionClient, item: ItemRef, 
 /**
  * Whether a tablet's record, as Decaid returned it for one of the server's
  * writes, holds the content that write carried, so it has seen the edits the
- * write's `contentDecidedAt` covers. A record the map held does unless a
- * change of its content the write did not set lost (`edited`): a field the
- * plugin left as the tablet had changed it, or that the tablet changed before
- * the write, which then lost, does not hold the item's value. One that won is
- * the field's latest edit, the tablet's own, which it has seen whatever this
- * says. One the map did not hold, as a create's, does when its content is
- * the item's now: a create may have found the record of an earlier write, or
- * a bean of the same roaster and name. `values` are the record's, as edits
- * merge them.
+ * write's `contentDecidedAt` (`contentSeen`) covers. A record the map held
+ * does unless a change of its content the write did not set lost (`edited`):
+ * a field the plugin left as the tablet had changed it, or that the tablet
+ * changed before the write, which then lost, does not hold the item's value.
+ * One that won is the field's latest edit, the tablet's own, which it has
+ * seen whatever this says. One the map did not hold, as a create's, or one
+ * whose answer reached the server only after a reconnect, does when its
+ * content is the item's as it stood at `contentSeen` (`holdsContentAsDecided`):
+ * a field edited since may differ, as the edit may have been made while the
+ * answer was on its way, and a create may have found the record of an
+ * earlier write, or a bean of the same roaster and name. `values` are the
+ * record's, as edits merge them.
  */
 export async function holdsWrittenContent(
   tx: Prisma.TransactionClient,
   item: ItemRef,
   values: Readonly<Record<string, unknown>>,
   edited: EditOutcome | null,
+  contentSeen: Date,
 ): Promise<boolean> {
   if (edited !== null) return !edited.lost;
+  const description = KINDS[item.kind];
+  const [row] = await tx.$queryRaw<{ content: unknown; fieldEdits: unknown }[]>`
+    SELECT content, field_edits AS "fieldEdits" FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
+  if (!row) return false;
+  return holdsContentAsDecided(description.values(isObject(row.content) ? row.content : {}), readFieldEdits(row.fieldEdits), values, contentSeen);
+}
+
+/** Whether a tablet's record holds the item's content as it is now, so it needs no write. `values` are the record's, as edits merge them. */
+export async function holdsItemContent(tx: Prisma.TransactionClient, item: ItemRef, values: Readonly<Record<string, unknown>>): Promise<boolean> {
   const description = KINDS[item.kind];
   const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
   if (!row) return false;
