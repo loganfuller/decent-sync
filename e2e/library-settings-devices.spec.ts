@@ -92,9 +92,12 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Refill kit", "Auto-Detect", KEPT],
   ]);
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
-  // The card's own tip: its one field has Streamline's name for it, "Flow calibration" too, from v0.2.29.
-  await expectTip(calibration.locator('[data-slot="card-header"]'), "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
-  await expectShown(calibration, [["Flow calibration", "0.596", WRITTEN_AGAIN]]);
+  // The section's own tip, the first of two: its one field has Streamline's name for it, "Flow calibration" too, from v0.2.29.
+  await calibration.getByRole("button", { name: "About Flow calibration", exact: true }).first().hover();
+  await expect(page.getByRole("tooltip")).toHaveText(/^Reported at \w{3} \d+, \d{4}/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expectShown(calibration.locator("dl"), [["Flow calibration", "0.596", WRITTEN_AGAIN]]);
   // Its sensors' calibrations show rounded to their fields' steps, as Streamline shows them (#272).
   const sensors = machineSettings.getByRole("region", { name: "Sensor calibration" });
   await expectTip(sensors, "Sensor calibration", /^Reported at \w{3} \d+, \d{4}/);
