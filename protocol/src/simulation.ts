@@ -240,6 +240,90 @@ export function standardPuck(grind = 0): Puck {
 }
 
 /**
+ * The grind of the standard puck, -1 to 1, at which it has a puck's open
+ * resistance, the puck's taken at STANDARD_DOSE (`puckForDose`): below 0 for
+ * a puck finer than the standard's middle, above it for a coarser one, and
+ * held to the control's ends. The standard puck at it still holds and opens
+ * as the standard puck does, so it comes near the puck without being it.
+ */
+export function grindOf(puck: Puck): number {
+  const resistance = (puck.resistance * STANDARD_DOSE) / puck.dose;
+  return Math.min(1, Math.max(-1, -Math.log(resistance / STANDARD_RESISTANCE) / Math.log(GRIND_RANGE)));
+}
+
+/**
+ * How far apart the grinds `shotGrind` first tries are: closer than the
+ * 0.02 to 0.04 over which a run's distance from a Shot (`shotMiss`) rises
+ * and falls again, as its steps' exits and its stop fall a tick earlier or
+ * later, so the grid steps over no dip that matters.
+ */
+const GRIND_SEARCH_STEP = 0.02;
+/** How many times `shotGrind` narrows its search about the best of those it first tried. */
+const GRIND_SEARCH_NARROWINGS = 10;
+
+/**
+ * The grind of the standard puck, -1 to 1, that best imitates a Shot (#622):
+ * the one at which the Shot's own steps, run on the standard puck at its
+ * dose as its Machine's model and stopped as it stopped (`fitToShot`), come
+ * closest to it (`shotMiss`). A Shot laid over a Profile's graph sets the
+ * simulation's finer to coarser control to it, so that moving the control
+ * from there says how the Shot would likely shift. The standard puck holds
+ * and opens as it always does, so the grind takes up as much of the Shot's
+ * difference from it as one control can.
+ *
+ * The grinds tried first are GRIND_SEARCH_STEP apart from end to end, and
+ * the best of them is narrowed by golden section within a step either
+ * side, so the same Shot always gives the same grind. Where its own steps
+ * can't be run as it ran (`shotPuck`'s conditions), the grind at which the
+ * standard puck has the open resistance its samples show (`readPuck`,
+ * `grindOf`). Null where no sample shows the puck's resistance.
+ */
+export function shotGrind(shot: SimulationShot): number | null {
+  const read = readPuck(shot.samples, shot.dose);
+  if (!read) return null;
+  const own = shot.profile && shot.profile.steps.length > 0 && shot.profile.steps.length <= MAX_PROFILE_STEPS ? shot.profile : null;
+  if (!own || shot.model === null || underManualControl(shot.samples, own, shot.model)) return grindOf(read);
+  const stop = shotFitStop(shot.samples, shot.stopReason, shot.model, own);
+  if (!stop) return grindOf(read);
+  const model = shot.model;
+  const dose = shot.dose ?? STANDARD_DOSE;
+  const tried = new Map<number, number>();
+  const miss = (grind: number) => {
+    let y = tried.get(grind);
+    if (y === undefined) {
+      y = shotMiss(shot.samples, fitToShot({ samples: shot.samples, profile: own, puck: puckForDose(standardPuck(grind), dose), stopAt: stop.stopAt, model }));
+      tried.set(grind, y);
+    }
+    return y;
+  };
+  const steps = Math.round(2 / GRIND_SEARCH_STEP);
+  let best = -1;
+  for (let n = 0; n <= steps; n++) {
+    const grind = -1 + (2 * n) / steps;
+    if (miss(grind) < miss(best)) best = grind;
+  }
+  // Golden section within a step either side of the best, held to the control.
+  const golden = (Math.sqrt(5) - 1) / 2;
+  let low = Math.max(-1, best - GRIND_SEARCH_STEP);
+  let high = Math.min(1, best + GRIND_SEARCH_STEP);
+  let left = high - golden * (high - low);
+  let right = low + golden * (high - low);
+  for (let n = 0; n < GRIND_SEARCH_NARROWINGS; n++) {
+    if (miss(left) < miss(right)) {
+      high = right;
+      right = left;
+      left = high - golden * (high - low);
+    } else {
+      low = left;
+      left = right;
+      right = low + golden * (high - low);
+    }
+  }
+  const narrowed = (low + high) / 2;
+  return Math.min(1, Math.max(-1, miss(narrowed) < miss(best) ? narrowed : best));
+}
+
+/**
  * A puck's resistance at its first drip, as a part of what it is once open:
  * soaked through, and not yet sealed.
  */

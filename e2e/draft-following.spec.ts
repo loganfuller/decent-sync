@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
@@ -11,7 +12,7 @@ import { tabletAt } from "./support/tablets.js";
 // Draft's page the Lab's Machine, a simulated tablet, is had to follow it,
 // after the notice that its Loaded Recipe ends, and the page says it has the
 // Draft's steps. A Shot pulled there arrives by itself, listed as a Trial
-// Shot and laid over the graph with the simulation on its puck. A profile
+// Shot and laid over the graph, setting the simulation to match it. A profile
 // loaded on the tablet stops following, the page says what the Machine has,
 // and one press follows again. Serials are made up, from 58151.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -76,36 +77,50 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await expect.poll(() => title(tablet)).toBe("Lab classic (Draft)");
   await expect(onMachine(page)).toContainText("The Machine has these steps, since");
 
-  // A Shot pulled on it arrives by itself: listed, laid over the graph, the simulation on its puck.
-  tablet.pullShot(shotOf(tablet, "trial-shot-58151"));
+  // Away from what the Trial Shot will give: another dose, a Bengle, the finest puck.
+  const puck = graph(page).getByRole("slider", { name: "Puck, finer to coarser" });
+  await graph(page).getByLabel("Dose").fill("21");
+  await graph(page).getByRole("radio", { name: "Bengle" }).click();
+  await puck.focus();
+  await page.keyboard.press("Home");
+  await expect(graph(page).getByText(/^21 g in, .*, on a Bengle$/)).toBeVisible();
+
+  // A Shot pulled on it arrives by itself: listed, and laid over the graph on the standard puck, the simulation set to match it, with no tap.
+  const trialShot = shotOf(tablet, "trial-shot-58151");
+  const trialGrind = shotGrind(simulationShotOf(trialShot, trialShot.measurements))!;
+  tablet.pullShot(trialShot);
   await expect(trials(page).getByRole("listitem")).toHaveCount(1, { timeout: 15_000 });
   await expect(trials(page)).toContainText("On these steps");
   await expect(trials(page)).toContainText("Trial Shots · 1 on Trial lab group");
-  await expect(graph(page).getByRole("radio", { name: "The Trial Shot's puck" })).toBeChecked();
   await expect(graph(page)).toContainText("The Trial Shot, as it ran");
   await expect(trials(page).getByRole("listitem").getByRole("button")).toHaveAttribute("aria-current", "true");
-  // Beside the inspector the graph keeps its width, wider than a phone's 560 px: the Shot's cards go under it, side by side, not beside it.
-  const drawn = (await graph(page).locator("svg[data-graph-end]").first().boundingBox())!;
-  const puck = graph(page).getByRole("complementary", { name: "The puck" });
-  const another = (await puck.getByRole("button", { name: "Choose another Shot" }).boundingBox())!;
-  const fit = (await puck.getByRole("region", { name: "How close the simulation is" }).boundingBox())!;
-  expect(drawn.width).toBeGreaterThanOrEqual(560);
-  expect(fit.y).toBeGreaterThanOrEqual(drawn.y + drawn.height);
-  expect(fit.y).toBeLessThan(another.y);
-  expect(fit.x).toBeGreaterThanOrEqual(another.x + another.width);
+  // Its 18 g weighed, the 32.5 g it stopped at, its DE1Pro, and the grind that best imitates it.
+  await expect(graph(page).getByText(/^18 g in, stopping at 32\.5 g, on a DE1, with the Shot of .* on Trial lab group over it$/)).toBeVisible();
+  await expect(graph(page).getByRole("radio", { name: "DE1" })).toBeChecked();
+  expect(trialGrind).toBeGreaterThan(-1);
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(trialGrind, 6);
+  await expect(graph(page).getByRole("figure", { name: /^Simulated run of Lab classic on a standard puck\./ })).toBeVisible();
+  await expect(graph(page).getByRole("complementary")).toHaveCount(0);
+  await expect(graph(page).getByRole("table")).toHaveCount(0);
+  // Beside the inspector the graph keeps its width, wider than a phone's 560 px.
+  expect((await graph(page).locator("svg[data-graph-end]").first().boundingBox())!.width).toBeGreaterThanOrEqual(560);
+  // Each can be changed after, the Trial Shot staying over the run.
+  await graph(page).getByLabel("Dose").fill("19");
+  await expect(graph(page).getByText(/^19 g in, stopping at 32\.5 g, on a DE1, with the Shot of /)).toBeVisible();
+  await expect(trials(page).getByRole("listitem").getByRole("button")).toHaveAttribute("aria-current", "true");
 
   // A change of the Draft's steps makes that trial one on earlier steps, which opens against the steps it ran.
   await page.getByRole("region", { name: "Steps" }).getByRole("button", { name: "Add a step" }).click();
   await expect(trials(page)).toContainText("On earlier steps", { timeout: 15_000 });
   await trials(page).getByRole("listitem").getByRole("button").click();
   const earlier = page.getByRole("dialog", { name: /^Trial Shot of .*, on earlier steps$/ });
-  await expect(earlier.getByRole("region", { name: "How it runs" })).toContainText("The Trial Shot, as it ran");
-  // In the dialog too the Shot's cards go under the graph, not beside it. The svg's width attribute is its laid-out width once the graph has measured itself (in its first frame it may still be the zoomed width, which only lowers it); its box is scaled while the dialog zooms in, which keeps the order top to bottom.
-  const dialogGraph = earlier.locator("svg[data-graph-end]").first();
-  expect(Number(await dialogGraph.getAttribute("width"))).toBeGreaterThanOrEqual(560);
-  const dialogDrawn = (await dialogGraph.boundingBox())!;
-  const dialogFit = (await earlier.getByRole("region", { name: "How close the simulation is" }).boundingBox())!;
-  expect(dialogFit.y).toBeGreaterThanOrEqual(dialogDrawn.y + dialogDrawn.height);
+  const earlierGraph = earlier.getByRole("region", { name: "How it runs" });
+  await expect(earlierGraph).toContainText("The Trial Shot, as it ran");
+  // There too the steps it ran are simulated on the standard puck, set to match the Shot laid over them.
+  await expect(earlierGraph.getByText(/^18 g in, stopping at 32\.5 g, on a DE1, with the Shot of .* on Trial lab group over it$/)).toBeVisible();
+  await expect(earlierGraph.getByRole("complementary")).toHaveCount(0);
+  // The svg's width attribute is its laid-out width once the graph has measured itself (in its first frame it may still be the zoomed width, which only lowers it).
+  expect(Number(await earlier.locator("svg[data-graph-end]").first().getAttribute("width"))).toBeGreaterThanOrEqual(560);
   await expect(earlier.getByRole("link", { name: "Open the Shot" })).toHaveAttribute("href", "/shots/trial-shot-58151");
   await page.keyboard.press("Escape");
 

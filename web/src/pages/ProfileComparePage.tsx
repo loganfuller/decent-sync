@@ -224,7 +224,7 @@ function Compared({ one, two }: { one: Side; two: Side }) {
               profile={one.definition}
               run={runOne}
               runLabel={`${one.name}, simulated`}
-              label={graphWords(one.name, one.definition, runOne, false)}
+              label={graphWords(one.name, one.definition, runOne)}
               compared={runTwo ? { label: `${two.name}, simulated`, samples: withPlannedTemperature(runTwo.samples), stop: { seconds: runTwo.stop.seconds, label: `${two.name} stops` } } : null}
             />
           ) : (

@@ -10,6 +10,7 @@ import {
   SIMULATION_TICK,
   eased,
   fitToShot,
+  grindOf,
   limited,
   machineModelOf,
   profileOf,
@@ -19,6 +20,7 @@ import {
   shotFigures,
   shotFit,
   shotFitStop,
+  shotGrind,
   simulateOnShot,
   simulateProfile,
   simulationShotOf,
@@ -491,6 +493,80 @@ describe("the standard puck", () => {
     const builds = (result: SimulatedRun) => result.samples.find((sample) => sample.values.pressure! >= 1)!.seconds;
     expect(builds(large)).toBeLessThan(builds(small) - 0.5);
     expect(large.timeToFirstDrip! - small.timeToFirstDrip!).toBeLessThan(builds(small) - builds(large));
+  });
+});
+
+describe("the grind a puck gives (#622)", () => {
+  it("is the grind at which the standard puck has its open resistance: the standard puck's own grind back", () => {
+    for (const grind of [-1, -0.6, -0.15, 0, 0.3, 0.85, 1]) expect(grindOf(standardPuck(grind))).toBeCloseTo(grind, 9);
+  });
+
+  it("is below 0 for a puck finer than the standard, above it for a coarser one, and the control's end for one past it", () => {
+    const of = (resistance: number) => grindOf({ ...standardPuck(), resistance });
+    expect(of(4)).toBeLessThan(0);
+    expect(of(0.25)).toBeGreaterThan(0);
+    expect(of(4)).toBeCloseTo(-of(0.25), 9);
+    expect(of(500)).toBe(-1);
+    expect(of(0.005)).toBe(1);
+  });
+
+  it("is taken at the standard dose: a puck of more coffee resists more, so the same resistance is a coarser grind", () => {
+    const at18 = { ...standardPuck(), resistance: 2 };
+    expect(grindOf({ ...at18, dose: 20, resistance: (2 * 20) / 18 })).toBeCloseTo(grindOf(at18), 9);
+    expect(grindOf({ ...at18, dose: 20 })).toBeGreaterThan(grindOf(at18));
+  });
+
+  it("of a Shot's puck is the grind it ran at, for a Shot run on the standard puck", () => {
+    const nine = profile([flow("Fill", 6, { seconds: 8, exit: { type: "pressure", condition: "over", value: 3 } }), pressure("Extract", 9, { seconds: 60 })]);
+    for (const grind of [-0.3, 0, 0.25]) {
+      const shot = simulateProfile({ profile: nine, puck: standardPuck(grind), stopAt: 36, stopOn: "reached", model: "DE1" });
+      expect(grindOf(shotPuck(shotOf(shot.samples, nine))!)).toBeCloseTo(grind, 1);
+    }
+  });
+});
+
+describe("the grind that best imitates a Shot (#622)", () => {
+  const nine = profile([flow("Fill", 6, { seconds: 8, exit: { type: "pressure", condition: "over", value: 3 } }), pressure("Extract", 9, { seconds: 60 })]);
+
+  it("is the grind it ran at, for a Shot run on the standard puck, on either model and at another dose", () => {
+    for (const model of ["DE1", "Bengle"] as const) {
+      for (const grind of [-0.55, -0.1, 0.35]) {
+        for (const dose of [18, 20]) {
+          const ran = simulateProfile({ profile: nine, puck: standardPuck(grind), dose, stopAt: 36, stopOn: "reached", model });
+          expect(shotGrind(shotOf(ran.samples, nine, { model, dose }))).toBeCloseTo(grind, 2);
+        }
+      }
+    }
+  });
+
+  it("is the control's end for a Shot run on a puck past it", () => {
+    const tight = simulateProfile({ profile: nine, puck: { ...standardPuck(), resistance: standardPuck(-1).resistance * 4 }, stopAt: 36, stopOn: "reached", model: "DE1" });
+    expect(shotGrind(shotOf(tight.samples, nine))).toBe(-1);
+    const loose = simulateProfile({ profile: nine, puck: { ...standardPuck(), resistance: standardPuck(1).resistance / 1.5 }, stopAt: 36, stopOn: "reached", model: "DE1" });
+    expect(shotGrind(shotOf(loose.samples, nine))).toBe(1);
+  });
+
+  it("brings the standard puck's run of a real Shot's own steps nearer the Shot than the grind its puck's resistance gives", () => {
+    const record = fixtureShot("classic-italian");
+    const shot = simulationShotOf(record, record.measurements);
+    const stop = shotFitStop(shot.samples, shot.stopReason, shot.model!, shot.profile!)!;
+    const durationError = (grind: number) => {
+      const { fit } = fitToShot({ samples: shot.samples, profile: shot.profile!, puck: standardPuck(grind), stopAt: stop.stopAt, model: shot.model! });
+      return Math.abs(fit.simulated.duration - fit.shot.duration);
+    };
+    const imitating = shotGrind(shot)!;
+    expect(shot.dose).toBe(18);
+    expect(durationError(imitating)).toBeLessThan(durationError(grindOf(shotPuck(shot)!)));
+    expect(durationError(imitating)).toBeLessThan(1.5);
+  });
+
+  it("is the grind of the open resistance its samples show where its own steps can't be run as it ran, and null where none shows it", () => {
+    const ran = simulateProfile({ profile: nine, puck: standardPuck(0.2), stopAt: 36, stopOn: "reached", model: "DE1" });
+    const unmodelled = shotOf(ran.samples, nine, { model: null });
+    expect(shotGrind(unmodelled)).toBe(grindOf(readPuck(unmodelled.samples, unmodelled.dose)!));
+    expect(shotGrind(shotOf(ran.samples, null))).toBe(grindOf(readPuck(ran.samples, 18)!));
+    const unpressed = ran.samples.map((sample) => ({ ...sample, values: { ...sample.values, pressure: 0 } }));
+    expect(shotGrind(shotOf(unpressed, nine))).toBeNull();
   });
 });
 
