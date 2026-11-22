@@ -217,9 +217,10 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
 
   // Each can be changed after, the Shot staying over the run.
   await graph.getByLabel("Dose").fill("19");
+  await graph.getByLabel("Stop at").fill("35");
   await puck.focus();
   await page.keyboard.press("PageDown");
-  await expect(graph.getByText(/^19 g in, stopping at 33\.4 g, on a DE1, with the Shot of /)).toBeVisible();
+  await expect(graph.getByText(/^19 g in, stopping at 35 g, on a DE1, with the Shot of /)).toBeVisible();
   await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeLessThan(shotGrind);
 
   // A Shot whose puck can't be worked out sets what it can give, and leaves the puck where it was.

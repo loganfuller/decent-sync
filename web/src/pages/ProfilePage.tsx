@@ -2,11 +2,8 @@ import {
   type MachineModel,
   type Profile as ProfileDefinition,
   type SimulatedRun,
-  grindOf,
-  lastRecordedWeight,
   profileOf,
   profileTextOf,
-  shotPuck,
   simulateProfile,
   standardPuck,
 } from "@decent-sync/protocol";
@@ -37,6 +34,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ApiError, api, type Profile, type ProfileVersion, type Published, type RecipeOnProfile } from "@/lib/api";
 import { measure, profileFacts, seconds, stepAction, stepMovesOn, stepName, stepSimulated } from "@/lib/profile-words";
 import { earlierVersions, versionNames } from "@/lib/profile-versions";
+import { askOf } from "@/lib/puck-ask";
 import { shotsText } from "@/lib/shot-summary";
 
 /**
@@ -441,7 +439,7 @@ export function HowItRuns({
       (loaded) => {
         if (asked !== latest.current) return;
         setOverlay(loaded);
-        const matched = askOf(loaded);
+        const matched = askOf(loaded.simulation);
         if (matched.stopAt !== undefined) setStopChosen(true);
         setAsk((now) => ({ ...now, ...matched }));
       },
@@ -568,24 +566,6 @@ export function HowItRuns({
       />
     </Card>
   );
-}
-
-/**
- * What a Shot laid over the run sets the simulation to (#622): its dose, as
- * weighed or else as set; the weight it stopped at; its Machine's model; and
- * the grind at which the standard puck has its puck's open resistance. Each
- * it can't give, as it recorded no dose, no weight or no model, or no puck
- * can be worked out from it, is left out, and stays as it was.
- */
-function askOf({ simulation }: GraphShot): Partial<PuckAsk> {
-  const stopped = lastRecordedWeight(simulation.samples)?.weight;
-  const puck = shotPuck(simulation);
-  return {
-    ...(simulation.dose !== null && { dose: simulation.dose }),
-    ...(stopped !== undefined && stopped > 0 && { stopAt: Math.round(stopped * 10) / 10 }),
-    ...(simulation.model !== null && { model: simulation.model }),
-    ...(puck && { grind: grindOf(puck) }),
-  };
 }
 
 /** Its steps in plain words, each with when it moves on and what the simulation the graph draws did with it, and the figures it states once. */

@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { type Shot, api } from "@/lib/api";
+import { MAX_DOSE, MAX_STOP_AT } from "@/lib/puck-ask";
 import { measure, seconds } from "@/lib/profile-words";
 
 // The controls and figures of a Profile's simulation (#578), shared by its
@@ -25,10 +26,6 @@ import { measure, seconds } from "@/lib/profile-words";
 // coarser control, the dose, the stop-at weight and the Machine model; the
 // run's headline figures; and a Shot read to lay over a graph.
 
-/** The most coffee a dose may be, g, as the REST API takes one. */
-export const MAX_DOSE = 50;
-/** The most a stop-at weight may be, g. */
-export const MAX_STOP_AT = 500;
 
 /** What a standard puck's simulation is asked for. */
 export interface PuckAsk {
