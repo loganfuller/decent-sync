@@ -212,6 +212,22 @@ test("the checks, a status beside Publish, count what stops it and the advice, a
   await inspector(page).getByLabel("Name").fill("");
   await expect(checksStatus(page)).toHaveAccessibleName("Checks: 1 thing stops publishing · 1 piece of advice");
   await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+  // Its longest words wrap on a small phone rather than running past the screen.
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: 320, height: 640 });
+  const status = (await checksStatus(page).boundingBox())!;
+  expect(status.x + status.width).toBeLessThanOrEqual(320);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  // In a short window the list stays within it, scrolling within itself to its last check.
+  await page.setViewportSize({ width: 1280, height: 240 });
+  await checksStatus(page).click();
+  const list = (await checks(page).boundingBox())!;
+  expect(list.y + list.height).toBeLessThanOrEqual(240);
+  const last = checks(page).getByRole("region", { name: "Advice" }).getByRole("button");
+  await last.scrollIntoViewIfNeeded();
+  await expect(last).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await page.setViewportSize(viewport);
   await checksStatus(page).click();
   const advice = checks(page).getByRole("region", { name: "Advice" });
   await expect(advice.getByRole("button", { name: "Step 2 ends at a weight in the cup, which needs a scale connected." })).toBeVisible();

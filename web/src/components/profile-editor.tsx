@@ -544,7 +544,8 @@ export function ChecksStatus({ checks, onSelect }: { checks: ProfileChecks; onSe
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" aria-label={`Checks: ${text}`}>
+        {/* Its words wrap rather than run past a phone's width. */}
+        <Button variant="outline" aria-label={`Checks: ${text}`} className="h-auto min-h-8 max-w-full shrink py-1 text-left whitespace-normal">
           <Icon aria-hidden className={tone} />
           {text}
         </Button>
@@ -553,7 +554,8 @@ export function ChecksStatus({ checks, onSelect }: { checks: ProfileChecks; onSe
         align="end"
         aria-label="Checks"
         tabIndex={-1}
-        className="w-96 max-w-[calc(100vw-2rem)] gap-3"
+        // A long list scrolls within itself rather than running past the window's end.
+        className="max-h-(--radix-popover-content-available-height) w-96 max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto"
         // Opens with focus on the first check that selects a step, or on the list, not on the info icon, whose tooltip would open with it.
         onOpenAutoFocus={(event) => {
           event.preventDefault();
