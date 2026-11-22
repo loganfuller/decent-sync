@@ -85,10 +85,21 @@ export function laneRanges(profile: Profile, run: SimulatedRun, compared: readon
   return { pressure: [0, laneMax("pressure")], flow: [0, laneMax("flow")], temperature: [low, high] };
 }
 
-/** A lane's grid values: every 2 or 4 bar or ml/s, every 5 or 10 °C, and never more than a dozen or so, whatever the range. */
-export function laneTicks(lane: Lane, [low, high]: readonly [number, number]): number[] {
+/** The least distance, px, between two of a lane's values written beside it: their 12 px text and a gap, so no two touch. */
+const LANE_VALUE_SPACING = 16;
+
+/**
+ * A lane's grid values: every 2 or 4 bar or ml/s, every 5 or 10 °C, or a
+ * rounder step where that would write them closer than `LANE_VALUE_SPACING`
+ * in a lane `height` px tall, as on a phone, and never more than a dozen or
+ * so, whatever the range.
+ */
+export function laneTicks(lane: Lane, [low, high]: readonly [number, number], height: number): number[] {
   if (!(high > low)) return [low];
-  const step = Math.max(lane === "temperature" ? (high - low > 20 ? 10 : 5) : high > 12 ? 4 : 2, (high - low) / 12);
+  const span = high - low;
+  const least = Math.max(lane === "temperature" ? (span > 20 ? 10 : 5) : high > 12 ? 4 : 2, span / 12, height > 0 ? (span * LANE_VALUE_SPACING) / height : 0);
+  const steps = lane === "temperature" ? [5, 10, 20, 25, 50, 100] : [2, 4, 5, 10, 20];
+  const step = steps.find((each) => each >= least - 0.001) ?? least;
   const ticks: number[] = [];
   for (let value = low; value <= high + 0.001; value += step) ticks.push(value);
   return ticks;
@@ -340,6 +351,21 @@ export type HandleShape = { kind: "point"; x: number; y: number } | { kind: "bra
 const POINT_SIZE = 18;
 const BRACKET_WIDTH = 14;
 export const TAG_HEIGHT = 18;
+
+/**
+ * How far left of the plot the lanes' values end, px: clear of a bracket
+ * standing on the plot's left edge, as a first step of no length's does.
+ */
+export const LANE_VALUES_GAP = BRACKET_WIDTH / 2 + 1;
+
+/**
+ * A point handle's x, held so its circle stands inside the plot: off the
+ * lanes' values left of it, as a first step's exit would stand in a short
+ * band on a phone, and inside the graph's right edge.
+ */
+export function pointInPlot(plot: { left: number; right: number }, x: number): number {
+  return Math.min(Math.max(x, plot.left + POINT_SIZE / 2), plot.right - POINT_SIZE / 2);
+}
 
 /** The box a handle covers: a point's circle, or a bracket's line with the room either side of it that takes the pointer. */
 export function handleBox(shape: HandleShape): LabelBox {
