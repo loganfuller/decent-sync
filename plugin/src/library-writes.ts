@@ -60,7 +60,7 @@ import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 import type { ShotGate } from "./shot-gate.js";
-import { clearRecipe } from "./loaded-recipe-rules.js";
+import { clearRecipe, steamOffPaired } from "./loaded-recipe-rules.js";
 import { type Answered, type LoadedRecipeWrites, machineMissing, putWorkflow } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
 import { randomUuid } from "./tablet-id.js";
@@ -783,8 +783,10 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * the recipe named through, as the server writes a Profile only once the
  * tablet's record of the recipe holds it (ADR-0022). A steam temperature and
  * a steam time are left out of a Workflow whose steam is off (`steamOff`):
- * the temperature would turn steam on, and Streamline v0.2.23 would show the
- * time with the heater off.
+ * nothing written from elsewhere turns a Machine's steam on, which only a
+ * load, or its own switch, does. A Recipe edited to "Off" carries both as
+ * STEAM_OFF_VALUE, which turn the steam of a Workflow that has it on off
+ * whole, the two written together or not at all.
  * Decaid refuses to change the steam, hot water and flush settings while no
  * machine is connected, so the rest is then written without them, the
  * Workflow read again first, and a write of only them is refused. A write
@@ -866,8 +868,11 @@ async function writeFollowedDraft(write: LibraryWrite, _log: (message: string) =
   return written(write, record, ["profile"], new Date().toISOString());
 }
 
+const STEAM_TEMPERATURE_FIELD = RECIPE_SETTINGS.steamTemperature.workflow;
+const STEAM_TIME_FIELD = RECIPE_SETTINGS.steamDuration.workflow;
+
 /** The Workflow's fields never written while its steam is off: its steam temperature, which would turn steam on, and its steam time (ADR-0022). */
-const STEAM_OFF_KEPT: ReadonlySet<string> = new Set([RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow]);
+const STEAM_OFF_KEPT: ReadonlySet<string> = new Set([STEAM_TEMPERATURE_FIELD, STEAM_TIME_FIELD]);
 
 /** Whether a Workflow field is one of the steam, hot water and flush settings Decaid writes to the machine (MACHINE_SETTING_PARTS). */
 function isMachineSetting(field: string): boolean {
@@ -901,9 +906,14 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
  * barista changed since, or cleared, which stays the Machine's own, is
  * kept; its steam, hot water and flush settings only where
  * `machineSettings` says; and a steam temperature and a steam time only
- * where the Workflow's steam is on (`steamOff`).
+ * where the Workflow's steam is on (`steamOff`), a steam time paired with
+ * a steam temperature that is steam off (`steamOffPaired`).
  */
 function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, machineSettings: boolean): Record<string, unknown> {
+  return steamOffPaired(loadedRecipeFieldsByPart(write, workflow, machineSettings), write.fields);
+}
+
+function loadedRecipeFieldsByPart(write: LibraryWrite, workflow: Record<string, unknown>, machineSettings: boolean): Record<string, unknown> {
   return Object.fromEntries(
     Object.values(LOADED_RECIPE_PARTS).flatMap((part: readonly string[]) => {
       const [first] = part as [string];

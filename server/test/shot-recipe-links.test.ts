@@ -391,7 +391,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => recipeRecords(neverUsed)).toEqual(recipeRecords(tablet));
   });
 
-  it("writes the settings Streamline's strip leaves out of a recipe made in DYE2's editor and applied before its record was taken in, which the Machine's next change keeps", async () => {
+  it("loads a recipe made in DYE2's editor and applied from Streamline's strip before its record was taken in, its settings as the strip applied them, which the Machine's next change keeps", async () => {
     const unread = recipeReadsHold();
     const { machine, tablet, quiet } = await lab("Made then applied", 49111, unread.tabletOptions);
     tablet.connectMachine();
@@ -401,12 +401,12 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     expect(own).not.toBe(87);
 
     // Before the plugin reads it: a new recipe saved in DYE2's editor in slot 5, applied from Streamline's strip, which applies
-    // no flush temperature, at v0.2.23 as before (decentespresso/streamline-js#154).
+    // its flush temperature too from v0.2.29 (decentespresso/streamline-js#154).
     await unread.hold();
     const { saved } = await (await openDye2RecipeEditor(tablet, { slot: 5 })).set({ name: "Made then applied", flushTempC: 87 }).save();
     const savedId = String(saved.id);
     await streamline.applyRecipe(5);
-    expect([recipeIdInWorkflow(tablet), flush()]).toEqual([savedId, own]);
+    expect([recipeIdInWorkflow(tablet), flush()]).toEqual([savedId, 87]);
     // The site's own wait, as the recipe reads are held: the server has the Workflow naming the new recipe, so its report,
     // timed by the tablet's clock as the host's, comes before the dial change timed from here on.
     await expect.poll(() => namedDelivered(tablet, savedId), { timeout: 15_000 }).toBe(true);
@@ -417,8 +417,8 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const dialled = (frame: Record_) => frame.type === "workflow" && ((frame.workflow as Record_).context as Record_).grinderSetting === "3.1";
     await expect.poll(() => tablet.acknowledgedSome(dialled)).toBe(true);
 
-    // Taken in, it is loaded, and the load writes its flush temperature, which DYE2's save of the next change keeps, and
-    // clears the grind setting the recipe names none of.
+    // Taken in, it is loaded: its flush temperature stays as the strip applied it, which DYE2's save of the next change
+    // keeps, and the load clears the grind setting the recipe names none of.
     unread.release();
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;

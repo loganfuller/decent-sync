@@ -74,7 +74,8 @@ Each server has one owner: a household, or a business with all of its sites.
   whole Shot: a Machine that loads it is left with none of what it names
   none of, such as a Grinder or Basket. Each Recipe holds
   its steam, hot water and flush settings too, and a Machine keeps its own
-  for those it holds none of.
+  for those it holds none of. Loading a Recipe turns the Machine's steam on
+  at its steam temperature, or off where it holds "Off".
 - **A Reference Shot for each Recipe.** Make the Shot you just dialled in,
   or one from another Location, such as the lab's, the Shot a Recipe's
   Shots should go like. Its page shows the Shot's pressure, flow and weight
@@ -369,7 +370,7 @@ to it. The server can run as several instances on one database.
 |---|---|
 | Beans, Bean Batches, Profiles, Baskets and Tools | Every Location. Each Location offers its own part: the Profiles, Baskets and Tools shown there, the batches there with their Beans, and its own stock of each batch. |
 | Grinders, Recipes and Recipe Slots | The Machines at one Location. |
-| What a Machine is using: its profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings | Nothing. Each Machine has its own, which loading a Recipe sets. Turning steam off never changes the Recipe. |
+| What a Machine is using: its profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings | Nothing. Each Machine has its own, which loading a Recipe sets, steam turned on or off as the Recipe holds it. Turning steam off at the Machine never changes the Recipe. |
 
 A few rules shape the rest:
 
@@ -423,7 +424,7 @@ the internet, fly.io, and upgrading.
 ## Installing the plugin
 
 The plugin needs Decaid v0.9.2 or newer. For a Machine to follow Recipes, its
-tablet also needs DYE2 v0.1.40 or newer, and Streamline v0.2.27 or newer if
+tablet also needs DYE2 v0.1.40 or newer, and Streamline v0.2.31 or newer if
 Streamline is its skin.
 
 1. On the tablet, open Decaid's **Settings**, then **Plugins**.

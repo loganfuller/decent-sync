@@ -88,7 +88,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await expectTip(
       main,
       "Recipe",
-      "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush setting it holds, and keeps its own of each it does not.",
+      "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush setting it holds, and keeps its own of each it does not. A steam temperature turns the Machine's steam on as it loads, and one of Off turns it off, there and on every Machine that has the Recipe loaded.",
     );
     const details = samsPage.getByRole("region", { name: "Recipe", exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
@@ -508,9 +508,10 @@ test("a Recipe's page shows the steam, hot water and flush settings it holds, an
   await expect(form.getByLabel("Hot water by")).toHaveCount(0);
   await expect(form.getByLabel("Steam temperature (°C)")).toHaveValue("150");
   await expect(form.getByLabel("Flush time (s)")).toHaveAttribute("placeholder", "Machine's own");
-  // An empty input clears a setting; one outside DYE2's range is refused by the server, saying why, and nothing is saved.
-  await form.getByLabel("Steam temperature (°C)").fill("");
-  // A steam time of 0 is steam off from Streamline v0.2.22, each Machine's own, so no Recipe's (#394).
+  // A steam temperature of 0 is "Off", which the Recipe holds (#616); one outside DYE2's range is refused by the server, saying
+  // why, and nothing is saved.
+  await form.getByLabel("Steam temperature (°C)").fill("0");
+  // A steam time of 0 is the other half of steam off, which the steam temperature holds, so no Recipe's (#394).
   await form.getByLabel("Steam time (s)").fill("0");
   await form.getByLabel("Hot water time (s)").fill("30");
   await form.getByLabel("Flush time (s)").fill("10");
@@ -526,15 +527,23 @@ test("a Recipe's page shows the steam, hot water and flush settings it holds, an
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toBeHidden();
 
-  // Still showing those not set, as before the edit.
-  await shown({ "Steam temperature": "Machine's own", "Steam time": "45 s", "Milk stop": "Off" });
+  // Still showing those not set, as before the edit, its steam temperature "Off".
+  await shown({ "Steam temperature": "Off", "Steam time": "45 s", "Milk stop": "Off" });
   await shown({ "Hot water time": "30 s", "Hot water volume": "200 ml" });
   await shown({ "Flush temperature": "Machine's own", "Flush time": "10 s", "Flush flow": "4.5 ml/s" });
+  const held = async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } }).recipe.content;
+  expect(await held()).toMatchObject({ steamTemperature: 0, steamDuration: 45, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
+
+  // The form opens on "Off" as 0, and an empty input clears it, each Machine keeping its own steam again.
+  await page.getByRole("button", { name: "Edit the Recipe" }).click();
+  await expect(form.getByLabel("Steam temperature (°C)")).toHaveValue("0");
+  await form.getByLabel("Steam temperature (°C)").fill("");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toBeHidden();
+  await shown({ "Steam temperature": "Machine's own", "Steam time": "45 s" });
   await details.getByRole("button", { name: "Hide the fields not set" }).click();
   await expect(details.getByRole("term")).toHaveText(["Steam time", "Milk stop", "Hot water time", "Hot water volume", "Flush time", "Flush flow", "Joined"]);
-  const { recipe: saved } = (await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } };
-  expect(saved.content).not.toHaveProperty("steamTemperature");
-  expect(saved.content).toMatchObject({ steamDuration: 45, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
+  expect(await held()).not.toHaveProperty("steamTemperature");
 });
 
 test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: the Recipe there leaves its slot, and the copy's history names the original", async ({

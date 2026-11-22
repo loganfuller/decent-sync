@@ -52,7 +52,7 @@ import { ratedShotsPath } from "@/lib/shot-list";
 // it is in a slot the strip has a button for, 1 to 5 of the nine, so it has
 // no switch of its own for that. Its grind
 // setting is a number or text, as DYE2 keeps one. Each steam, hot water and flush setting it does
-// not hold is each Machine's own. Picking a Bean Batch, Profile, Basket or
+// not hold is each Machine's own, and a steam temperature of 0 is "Off" (ADR-0022). Picking a Bean Batch, Profile, Basket or
 // Tool its Location does not offer offers it there, as the form says before
 // saving. A Recipe is copied to a Location as a new Recipe there, offering
 // there what it uses.
@@ -366,7 +366,7 @@ const SETTING_GROUPS: readonly { readonly name: string; readonly settings: reado
   {
     name: "Steam",
     settings: [
-      { field: "steamTemperature", term: "Steam temperature", unit: "°C", min: 135, max: 170, whole: true },
+      { field: "steamTemperature", term: "Steam temperature", unit: "°C", min: 135, max: 170, whole: true, off: true },
       { field: "steamDuration", term: "Steam time", unit: "s", min: 1, max: 255, whole: true },
       { field: "steamFlow", term: "Steam flow", unit: "ml/s", min: 0 },
       { field: "steamStopTemperature", term: "Milk stop", unit: "°C", min: 30, max: 80, off: true },
@@ -398,7 +398,7 @@ function settingLabel(setting: Setting): string {
   return `${setting.term} (${setting.unit})`;
 }
 
-/** A setting a Recipe holds, such as "30 s" or a milk stop's "Off", or none where each Machine keeps its own. */
+/** A setting a Recipe holds, such as "30 s" or a steam temperature's or milk stop's "Off", or none where each Machine keeps its own. */
 function settingText(setting: Setting, value: unknown): string | undefined {
   if (setting.off && value === 0) return "Off";
   return numberText(value, ` ${setting.unit}`);
@@ -1047,6 +1047,8 @@ function RecipeForm({
       <div className="grid gap-4">
         <p className="text-sm text-muted-foreground">
           A Machine loading the Recipe takes each steam, hot water and flush setting it holds. Leave one empty for each Machine to keep its own.
+          A steam temperature turns the Machine's steam on as the Recipe loads, and one of 0 is Off, which turns it off there and on every
+          Machine that has the Recipe loaded.
         </p>
         {SETTING_GROUPS.map((group) => (
           <fieldset key={group.name} className="grid gap-3 sm:grid-cols-2">
@@ -1792,7 +1794,8 @@ function RecipeFieldsCard({ recipe }: { recipe: Recipe }) {
           </p>
           <p>
             Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush
-            setting it holds, and keeps its own of each it does not.
+            setting it holds, and keeps its own of each it does not. A steam temperature turns the Machine's steam on as it loads, and one
+            of Off turns it off, there and on every Machine that has the Recipe loaded.
           </p>
         </CardTitleWithInfo>
       </CardHeader>

@@ -1,4 +1,4 @@
-// Compares what the simulated DYE2 v0.1.40 and Streamline v0.2.27 make again
+// Compares what the simulated DYE2 v0.1.40 and Streamline v0.2.31 make again
 // with a recording made before DYE2 v0.1.37 (fixtures/decaid/dye2-v0.1.26/ to
 // dye2-v0.1.35/ and streamline-v0.2.24/), which still shows what it was
 // recorded for but where a recipe's apply clears what the recipe names none

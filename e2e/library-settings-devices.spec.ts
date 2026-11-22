@@ -92,8 +92,12 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Refill kit", "Auto-Detect", KEPT],
   ]);
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
-  await expectTip(calibration, "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
-  await expectShown(calibration, [["Flow multiplier", "0.596", WRITTEN_AGAIN]]);
+  // The section's own tip, the first of two: its one field has Streamline's name for it, "Flow calibration" too, from v0.2.29.
+  await calibration.getByRole("button", { name: "About Flow calibration", exact: true }).first().hover();
+  await expect(page.getByRole("tooltip")).toHaveText(/^Reported at \w{3} \d+, \d{4}/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expectShown(calibration.locator("dl"), [["Flow calibration", "0.596", WRITTEN_AGAIN]]);
   // Its sensors' calibrations show rounded to their fields' steps, as Streamline shows them (#272).
   const sensors = machineSettings.getByRole("region", { name: "Sensor calibration" });
   await expectTip(sensors, "Sensor calibration", /^Reported at \w{3} \d+, \d{4}/);
@@ -111,7 +115,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Charging mode", "Charge to 100%"],
     // In the tablet's own time.
     ["Night mode sleep time", "22:00 (UTC\u22124)"],
-    ["Volume flow multiplier", "0.3 s"],
+    ["Volume look-ahead", "0.3 s"],
     ["Simulated devices", "machine, bengle, scale, sensor", "For development"],
     // Shown, with where it is managed: Decaid turns it on only with a token, which the plugin has none of (#549).
     ["Automatic update checks", "On", "Managed in Decaid on the Tablet"],

@@ -108,6 +108,8 @@ function valueText(field: string, value: unknown, names: ReadonlyMap<string, str
   if (typeof value === "string" && names.has(value)) return names.get(value)!;
   if (field === "hotWaterMode") return value === "temp" ? "Temperature" : value === "vol" ? "Volume" : String(value);
   if (field === "steamMode") return value === "time" ? "Time" : value === "flow" ? "Flow" : String(value);
+  // A steam temperature of 0 is "Off", which a Recipe holds (ADR-0022).
+  if (field === "steamTemperature" && value === 0) return "Off";
   if (field === "toolAttributes" && typeof value === "object" && !Array.isArray(value)) {
     const tools = Object.entries(value as Record<string, unknown>);
     if (tools.length === 0) return "None";

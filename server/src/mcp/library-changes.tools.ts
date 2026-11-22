@@ -131,8 +131,9 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
     basketId: "The id of its Basket, as find_library_items gives it, not Archived. One not shown at the Recipe's Location is shown there.",
     toolIds: "The ids of its Tools, as find_library_items gives them, none Archived. Each not shown at the Recipe's Location is shown there.",
     toolAttributes: "Each Tool's attributes for this Recipe, such as a puck screen's thickness, by the Tool's id, only for the Tools it uses: each a list of a key and a value.",
-    steamTemperature: "Its steam temperature, in °C.",
-    steamDuration: "Its steam time, in seconds.",
+    steamTemperature:
+      "Its steam temperature, in °C, which turns a Machine's steam on as it loads the Recipe. 0 is Off, which turns steam off on a Machine that loads it and on every Machine that has it loaded.",
+    steamDuration: "Its steam time, in seconds, kept while its steam temperature is Off.",
     steamFlow: "Its steam flow, in ml/s.",
     steamStopTemperature: "Its milk stop, the milk's temperature in °C at which steaming stops.",
     hotWaterTemperature: "Its hot water temperature, in °C.",

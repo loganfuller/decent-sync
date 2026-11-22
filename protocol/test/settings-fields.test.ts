@@ -81,7 +81,7 @@ describe("validateSettingsEdit", () => {
       { reason: "offStep", field: "volumeFlowMultiplier" },
       { reason: "offStep", field: "hotWaterFlowMultiplier" },
     ]);
-    expect(settingsRefusalText("appSettings", { reason: "offStep", field: "weightFlowMultiplier" })).toBe("Weight flow multiplier must be a multiple of 0.01");
+    expect(settingsRefusalText("appSettings", { reason: "offStep", field: "weightFlowMultiplier" })).toBe("Weight look-ahead must be a multiple of 0.01");
   });
 
   it("refuses a flow multiplier off its thousandths", () => {
@@ -247,7 +247,7 @@ describe("refusedByOtherDefinitions", () => {
   });
 
   it("leaves a refusal these definitions make too, and any other refusal, as it is", () => {
-    expect(refusedByOtherDefinitions({ ...edit, fields: { weightFlowMultiplier: 0.865 } }, { ...earlier, message: `${NOT_WRITTEN}Weight flow multiplier must be a multiple of 0.01` })).toBe(false);
+    expect(refusedByOtherDefinitions({ ...edit, fields: { weightFlowMultiplier: 0.865 } }, { ...earlier, message: `${NOT_WRITTEN}Weight look-ahead must be a multiple of 0.01` })).toBe(false);
     // Decaid's own refusals, and the plugin's of what it does not write or could not ask.
     expect(refusedByOtherDefinitions(edit, { ...earlier, status: 400 })).toBe(false);
     expect(refusedByOtherDefinitions(edit, { ...earlier, message: "Decaid did not answer: timed out" })).toBe(false);

@@ -347,7 +347,7 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   // (calibration-writes.json).
   const calibration = page.getByRole("region", { name: "Flow calibration", exact: true });
   await calibration.getByRole("button", { name: "Edit Flow calibration" }).click();
-  const multiplier = calibration.getByRole("form", { name: "Edit Flow calibration" }).getByLabel("Flow multiplier");
+  const multiplier = calibration.getByRole("form", { name: "Edit Flow calibration" }).getByLabel("Flow calibration", { exact: true });
   await expect(multiplier).toHaveValue("1.1");
   await expect(
     calibration.getByText(
@@ -357,15 +357,15 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await multiplier.fill("1.005");
   await calibration.getByRole("button", { name: "Save" }).click();
   await expect(calibration.getByRole("status")).toContainText("Stored otherwise");
-  await expect(calibration.getByRole("status")).toContainText("The Machine holds another value than was asked for: Flow multiplier: 1.003.");
+  await expect(calibration.getByRole("status")).toContainText("The Machine holds another value than was asked for: Flow calibration: 1.003.");
   await expect(calibration.getByRole("definition").first()).toHaveText("1.003");
   await expect(rows(await settingsEdits(page)).nth(0).getByRole("cell")).toHaveText([
     /\S/,
     "Machine Settings: Flow calibration",
-    "Flow multiplier",
+    "Flow calibration",
     "1.1 to 1.003 (asked for 1.005)",
     "You",
-    "Stored otherwiseThe Machine holds another value than was asked for: Flow multiplier: 1.003.",
+    "Stored otherwiseThe Machine holds another value than was asked for: Flow calibration: 1.003.",
   ]);
 });
 
@@ -381,7 +381,7 @@ test("Staff at the Machine's Location have no Edit for its advanced settings or 
     await expect(advanced.getByText("Heater voltage")).toBeVisible();
     await expect(advanced.getByRole("button", { name: "Edit Advanced" })).toHaveCount(0);
     const calibration = kimsPage.getByRole("region", { name: "Flow calibration", exact: true });
-    await expect(calibration.getByText("Flow multiplier")).toBeVisible();
+    await expect(calibration.getByRole("term").filter({ hasText: /^Flow calibration$/ })).toBeVisible();
     await expect(calibration.getByRole("button", { name: "Edit Flow calibration" })).toHaveCount(0);
     const sensors = kimsPage.getByRole("region", { name: "Sensor calibration", exact: true });
     await expect(sensors.getByText("Flow sensor multiplier")).toBeVisible();
@@ -487,14 +487,14 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
     await form.getByRole("combobox", { name: "Charging mode" }).click();
     await ravisPage.getByRole("option", { name: "Charge up to 80%" }).click();
     // In hundredths, finer than Streamline's ± buttons move it (#343).
-    await form.getByLabel("Weight flow multiplier").fill("0.86");
+    await form.getByLabel("Weight look-ahead").fill("0.86");
     await form.getByRole("button", { name: "Save" }).click();
     const status = tabletSettings.getByRole("status");
     await expect(status).toContainText("Applied");
     await expect(status).toContainText("Night mode sleep time: 23:30 (UTC+5:30)");
     await expect(field(tabletSettings, "Night mode sleep time")).toHaveText("23:30 (UTC+5:30)");
     await expect(field(tabletSettings, "Charging mode")).toHaveText("Charge up to 80%");
-    await expect(field(tabletSettings, "Weight flow multiplier")).toHaveText("0.86");
+    await expect(field(tabletSettings, "Weight look-ahead")).toHaveText("0.86");
   });
   // Sent as minutes after midnight, as Decaid keeps them, and only the fields changed.
   expect((await tablet.callApi("GET", "/settings")).body).toMatchObject({

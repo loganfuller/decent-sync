@@ -4,6 +4,7 @@ import {
   type LibraryList,
   DRAFT_KIND,
   LOADED_RECIPE_KIND,
+  STEAM_ON_FROM,
   STEAM_TIME_FROM,
   STEAM_TIME_TO,
   WORKFLOW_KIND,
@@ -330,10 +331,13 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * off. Its feed rate is text as typed, as DYE2 v0.1.34 keeps one. Each steam, hot water and flush setting is held or
  * not, null for the Machine's own, and is checked against the range DYE2's
  * editor offers, a whole number where Decaid's field is an int: a steam
- * temperature with no "Off", a steam time from 1 s to 255 s, as a steam time
- * of 0 is steam off from Streamline v0.2.22 and the DE1 holds no longer one
- * (STEAM_TIME_FROM, STEAM_TIME_TO; a tablet's longer one is taken as 255 s,
- * `steamTimeOf`), and a milk stop of 0 for off. Whether it is
+ * temperature, or 0 for "Off", as DYE2's editor saves it, which turns a
+ * Machine's steam off as the Recipe loads (`steamHeldOff`, ADR-0022); a
+ * steam time from 1 s to 255 s, as a steam time of 0 is the other half of
+ * steam off, which the steam temperature holds, and the DE1 holds no longer
+ * one (STEAM_TIME_FROM, STEAM_TIME_TO; a tablet's longer one is taken as
+ * 255 s, `steamTimeOf`), kept while the Recipe holds "Off" for when it holds
+ * a steam temperature again; and a milk stop of 0 for off. Whether it is
  * shown on Streamline's strip is no field of its own: it is shown exactly
  * while it is in a slot (recipes.ts).
  */
@@ -352,7 +356,7 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   basketId: "id",
   toolIds: "ids",
   toolAttributes: "toolAttributes",
-  steamTemperature: { min: 135, max: 170, whole: true },
+  steamTemperature: { min: STEAM_ON_FROM, max: 170, whole: true, offAtZero: true },
   steamDuration: { min: STEAM_TIME_FROM, max: STEAM_TIME_TO, whole: true },
   steamFlow: { min: 0 },
   steamStopTemperature: { min: 30, max: 80, offAtZero: true },

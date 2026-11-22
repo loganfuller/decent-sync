@@ -146,6 +146,16 @@ describe("The Streamline row, for Streamline Cafe (#556)", () => {
     });
   });
 
+  it("reads Streamline Cafe 0.2.31-cafe.1 as a release built on Streamline 0.2.31, the minimum (#616)", () => {
+    expect(streamlineView(cafeActive(cafeSkin("streamline-cafe.js", "Streamline Cafe", "0.2.31-cafe.1"), "served"))).toEqual({
+      status: "active",
+      skin: "streamlineCafe",
+      version: "0.2.31-cafe.1",
+      build: "release",
+      streamlineVersion: "0.2.31",
+    });
+  });
+
   it("shows a version of another form as reported, with no Streamline version", () => {
     for (const version of ["0.2.27", "0.2.27-cafe", "0.2.27-cafe.1-dev.12", "cafe-0.2.27-cafe.1"]) {
       expect(streamlineView(cafeActive({ ...RELEASE, version }, "served"))).toMatchObject({ skin: "streamlineCafe", version, streamlineVersion: null });

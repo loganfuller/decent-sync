@@ -280,7 +280,7 @@ each Machine's Loaded Recipe (ADR-0022), and ticket
 recipe its Workflow names. Ticket
 [#550](https://github.com/loganfuller/decent-sync/issues/550) makes a Recipe
 the whole Shot: a Machine that loads one is left with none of what it names
-none of. DYE2 v0.1.40 and Streamline v0.2.27, the
+none of. DYE2 v0.1.40 and Streamline v0.2.31, the
 supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
@@ -335,20 +335,22 @@ through `plugin/src/dye2.ts`, and writes what the pure
   Batch (`beanBatchId`) with its Bean's name and roaster (`beanName`,
   `beanRoaster`) as `coffeeName` and `coffeeRoaster`, and each steam, hot
   water and flush setting the record holds in DYE2's field of it
-  (`RECIPE_SETTINGS`), as DYE2's dashboard applies them and Streamline's
-  strip does only in part (decentespresso/streamline-js#154, interim,
-  ADR-0022): from v0.2.23, its milk stop, its hot water volume,
-  temperature, time and flow, its flush time, and its steam time or flow by
-  its steam mode, but no steam temperature, flush temperature or flush flow
-  (`mergeRecipeLiveSettings` in `streamline-js:src/modules/dyeStrip.js`);
-  but a steam temperature or steam time into a Workflow whose steam is off
-  (`steamOff`): the temperature would turn steam on, and Streamline would
-  show the time with the heater off. A record's steam time of 0, as DYE2's
-  editor saves until the server writes the Recipe's back, is none
-  (`steamTimeOf`, `loadWrite`); DYE2 v0.1.35 applies such a record as steam
-  off whole, a steam temperature and time of 0 (`recipeMachineSettings`,
-  decentespresso/dye2#46). A recipe is the whole shot, so of its dose,
-  grind setting, grinder, RPM, feed rate, Basket and Bean Batch
+  (`RECIPE_SETTINGS`), as DYE2's dashboard applies them and, from v0.2.29,
+  Streamline's strip (`mergeRecipeLiveSettings` in
+  `streamline-js:src/modules/dyeStrip.js`,
+  decentespresso/streamline-js#154), so after either it finds them held
+  and writes them only for a Skin that applies none, or a stale copy. A
+  load switches steam as the record holds it (ADR-0022, Steam on and off):
+  its steam temperature and steam time are written whether the Workflow's
+  steam is on or off, so a record holding a steam temperature turns steam
+  on at it, and one holding "Off" (`steamHeldOff`), a steam temperature
+  below 135 °C or a steam time of 0, as DYE2's editor saves both as 0,
+  turns it off whole, both written as 0 (`STEAM_OFF_VALUE`), as DYE2 v0.1.35
+  (`recipeMachineSettings`, decentespresso/dye2#46) and Streamline's strip
+  (`recipeSteamPatch`) apply one. A record holding only one of the two has
+  that one written and the other left as the apply chose it, and one
+  holding neither leaves the Machine's steam as it is. A recipe is the
+  whole shot, so of its dose, grind setting, grinder, RPM, feed rate, Basket and Bean Batch
   (`WHOLE_SHOT_PARTS` in `protocol/`), each the record names none of that
   the Workflow still holds is cleared, every field of it null, as DYE2's
   dashboard from v0.1.37 and Streamline's strip from v0.2.25 clear them as
@@ -387,9 +389,8 @@ through `plugin/src/dye2.ts`, and writes what the pure
   turns it on with the Recipe's, Steam turned back on, below). Once Decaid takes a
   load's write, where it changed
   the Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
-  endpoint, so Streamline's tiles show the steam, hot water and flush
-  settings its strip left out at once rather than at its 20 s poll (ticket
-  #207, `AI_RUNTIME_NOTES.md`, Skins).
+  endpoint, so Streamline's tiles show the settings it wrote at once rather
+  than at its 20 s poll (ticket #207, `AI_RUNTIME_NOTES.md`, Skins).
 - **A write that changes the profile.** DYE2 clears the Workflow's
   `recipeId` once its profile moves off the one it held when the id
   appeared, by DYE2's fingerprint (`dye2Fingerprint` in `protocol/`, a copy
@@ -470,11 +471,14 @@ through `plugin/src/dye2.ts`, and writes what the pure
   Workflow still holds the one steam came back with and holds another than
   the record's: one set since, with steam on, is the Recipe's edit, and
   steam turned off again none. A Recipe holding no steam temperature or
-  time, or a record holding "Off" (0) or a time of 0, has none of it to
-  take, and DYE2 saves the one steam came back with where it moved off the
-  one it had at the apply, an accepted gap. A change that loads a Recipe is
-  a load (A load, above), whose write writes the record's steam temperature
-  and time where steam is on. A write Decaid refuses, as
+  time has none of it to take, and DYE2 saves the one steam came back with
+  where it moved off the one it had at the apply, an accepted gap. A record
+  holding "Off" (`steamHeldOff`) has none to take either: DYE2 saves what
+  steam came back with into it, which is the Recipe's edit, and the other
+  Machines with it loaded stay off, as nothing written from elsewhere turns
+  steam on. A change that loads a Recipe is a load (A load, above), whose
+  write writes the record's steam temperature and time whatever the
+  Workflow's steam state. A write Decaid refuses, as
   with no machine connected, is logged, and the save waits for the next
   change.
 - **DYE2's recipes on each push.** DYE2 pushes `{"what":"workflow"}` on its
@@ -739,8 +743,8 @@ parts to the Recipe's content both ways.
 - **What stays the Machine's own.** A batch the Library retired, which keeps
   the Recipe loaded, its Shots linked to it; a value cleared, but the grind
   setting and RPM a Grinder's pick left; steam turned
-  off; and a steam setting changed while steam is off, which DYE2 does not
-  save. None is an edit, and `held` takes it while `base` still holds the
+  off at the Machine; and a steam setting changed while steam is off, which
+  DYE2 does not save. None is an edit, and `held` takes it while `base` still holds the
   Recipe's, so no write of the Recipe's value is planned over it. A coffee
   name or roaster typed on the Machine is its own the same way: `held`
   holds no coffee name, so it is never taken into the Recipe, and it is
@@ -768,26 +772,36 @@ parts to the Recipe's content both ways.
   otherwise, as after a load from an out-of-date copy of the record, a Bean
   renamed since included, so the Recipe's Bean is written into it; the Workflow named again
   with the record of what it named forgotten takes it as it stands.
-- **Steam on and off.** Steam on and off stays each Machine's own
-  (ADR-0022, Steam on and off). The server reads each delivered Workflow's
-  steam temperature only as one of its parts, never as an edit, and steam
-  is off below `STEAM_ON_FROM` (135 °C), as Decaid judges it (`steamOff`).
-  DYE2 saves no steam temperature or steam time while steam is off, so
-  steam turned off reaches no Recipe; from v0.1.35 it saves the steam flow
-  and milk stop then, as at any other time (`5561549`). From Streamline v0.2.22 a steam time of 0 is steam off
-  too, which Streamline writes with a steam temperature of 0, so a Recipe's
+- **Steam on and off.** Steam on and off follows DYE2's own rules
+  (ADR-0022, Steam on and off, #616). The server reads each delivered
+  Workflow's steam temperature only as one of its parts, never as an edit,
+  and steam is off below `STEAM_ON_FROM` (135 °C), as Decaid judges it
+  (`steamOff`). DYE2 saves no steam temperature or steam time while steam
+  is off, so steam turned off at a Machine reaches no Recipe; from v0.1.35
+  it saves the steam flow and milk stop then, as at any other time
+  (`5561549`). From Streamline v0.2.22 a steam time of 0 is steam off too,
+  which Streamline writes with a steam temperature of 0, so a Recipe's
   steam time is 1 to 255 s or none (`RECIPE_FIELDS` in
-  `server/src/library/kinds.ts`). A steam temperature below 135 °C in a
-  record, as DYE2's editor saves "Off" (0), with a steam time of 0 beside it
-  from v0.1.35, and a steam time below 1 s, as it saves 0, which it shows
-  as "Off" from v0.1.35, are never taken in (`steamOffPaths` in `recipe-intake.ts`),
-  and the Recipe's, or none, is written back into the record; a stored
-  steam time of 0, as 1.6.2 may take one in, is read as none, and one above
-  255 s, taken in or stored, as 255 s (`steamTimeOf`), which DYE2's editor
-  no longer saves from v0.1.35, holding one typed to 255 s. Steam turned back on takes the Recipe's steam
-  temperature and time in the plugin, before DYE2 saves (Steam turned back
-  on, above), so the server is never brought those it came back with as an
-  edit, and nothing of the server's takes part in it.
+  `server/src/library/kinds.ts`). A Recipe holds a steam temperature of
+  135 to 170 °C, none, or "Off", a steam temperature of 0
+  (`STEAM_OFF_VALUE`, `steamHeldOff` in `protocol/`). A record saved with
+  a steam temperature below 135 °C, as DYE2's editor saves "Off" as 0 with
+  a steam time of 0 from v0.1.35, or, outside Flow mode, a steam time
+  below 1 s, is the Recipe's edit to "Off" (`libraryValues` in
+  `recipe-intake.ts`), as Streamline's strip applies either; in Flow mode,
+  where DYE2's editor shows no steam time, a steam temperature saved over
+  "Off" is an edit to that temperature (ADR-0022); the steam time of 0
+  beside "Off" is no steam time of
+  the Recipe's, which keeps the one it held, and a Recipe holding "Off" is
+  written to every tablet as a steam temperature and a steam time of 0
+  (`recipeRecord`). A stored steam time of 0, as 1.6.2 may take one in, is
+  read as none, and one above 255 s, taken in or stored, as 255 s
+  (`steamTimeOf`), which DYE2's editor no longer saves from v0.1.35,
+  holding one typed to 255 s. A load switches steam as the Recipe holds it
+  (A load, above), and is no edit. Steam turned back on takes the Recipe's
+  steam temperature and time in the plugin, before DYE2 saves (Steam turned
+  back on, above), so the server is never brought those it came back with
+  as an edit, and nothing of the server's takes part in it.
 - **The same edit once.** A field of the tablet's record that sets the
   Recipe's value its own latest edit set already is no edit
   (`withoutOwnEdits` in `recipe-intake.ts`), so the same edit reaching the
@@ -843,8 +857,14 @@ parts to the Recipe's content both ways.
   stays loaded (A write that changes the profile, above). It leaves
   the steam temperature and time out of `PUT /workflow` where the Workflow
   it has just read has steam off (`steamOff`), as a barista may turn steam
-  off after the server plans the write. The steam flow and milk stop are
-  written as usual, as they do not turn steam on or off. The Workflow change the write causes is
+  off after the server plans the write: nothing written from elsewhere
+  turns a Machine's steam on, which only a load or its own switch does. A
+  Recipe edited to "Off" is carried as a steam temperature and a steam time
+  of 0 (`recipeParts` in `loaded-recipe-intake.ts`), which the plugin
+  writes together into a Workflow whose steam is on, turning it off, or not
+  at all (`loadedRecipeFields` in `plugin/src/library-writes.ts`). The
+  steam flow and milk stop are written as usual, as they do not turn steam
+  on or off. The Workflow change the write causes is
   sent after the answer, which records what Decaid returned as the
   Workflow's (`recordLoadedRecipeWritten`), where it still names the
   record: each part the write set held as Decaid returned it, and, by the
@@ -979,8 +999,9 @@ entries, each with its time, who made its first change (`cause`,
 - **`loaded`** and **`unloaded`**: a Recipe loaded or unloaded, as
   `loaded_recipes` times it, with the first change within 5 s after it, which
   made it, and in those 5 s, for a load the plugin's `load` writes (Streamline's
-  strip, then the plugin's write of what it leaves out, as a steam time, about
-  2 s later), and for an unload changes of that first one's cause (Streamline's
+  strip, then the plugin's write, about 2 s later, only where something still
+  differs, as over a stale copy, as from v0.2.29 the strip leaves none of the
+  settings out), and for an unload changes of that first one's cause (Streamline's
   profile switch, which clears the recipe in the same write, then the steam
   time it saved for that profile). A Recipe loaded as another unloads, at one
   moment, is one `loaded` entry naming the one it `replaced`.
@@ -1163,7 +1184,7 @@ Each Location's page lists its Machines and the Recipe each has loaded.
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe,
-`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/steam-back-on.test.ts` steam turned back on, `server/test/loaded-recipe-intake.test.ts` its pure module,
+`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam turned off at a Machine, `server/test/recipe-steam-switch.test.ts` a load switching steam and a Recipe holding "Off", `server/test/steam-back-on.test.ts` steam turned back on, `server/test/loaded-recipe-intake.test.ts` its pure module,
 `plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back and who each change is from, with each cause through the built plugin in `server/test/loaded-recipes.test.ts`, `loaded-recipe-following.test.ts`, `steam-back-on.test.ts`, `joining.test.ts` and `joining-recipes.test.ts`, and the tablet and Library items an event keeps in `server/test/machine-events.test.ts`,
 `server/test/dial-in-trail.test.ts` the dial-in trail's pure module, with
 the trail through `get_machine_activity` on simulated tablets in

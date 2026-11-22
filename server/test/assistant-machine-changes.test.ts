@@ -402,7 +402,7 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     // The settings it offers are the editable ones: no automatic update checks, and the flow multiplier with its note.
     const offered = tools.find((tool) => tool.name === "edit_machine_settings")!.description!;
     expect(offered).not.toContain("automaticUpdateCheck");
-    expect(offered).toContain("flowMultiplier (Flow multiplier: a number, 0.13 to 2, a multiple of 0.001; its tablet writes it again as the Machine connects; Admins only)");
+    expect(offered).toContain("flowMultiplier (Flow calibration: a number, 0.13 to 2, a multiple of 0.001; its tablet writes it again as the Machine connects; Admins only)");
     for (const [name] of calls) {
       expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({ readOnlyHint: false, destructiveHint: name === "edit_machine_settings", openWorldHint: false });
     }

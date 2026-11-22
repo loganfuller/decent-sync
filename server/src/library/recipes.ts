@@ -50,7 +50,7 @@ import {
   refusedPaths,
   savedInEditor,
   slotMove,
-  steamOffPaths,
+  holdsSteamOff,
   tabletIds,
   withoutOwnEdits,
 } from "./recipe-intake.js";
@@ -75,8 +75,8 @@ import {
 // slot, and its global id in a top-level field of its own, beside the
 // server's map per tablet; a Recipe Archived is removed from the list
 // (holdings.ts). A steam temperature that turns steam off, as DYE2's editor
-// saves for "Off", is no edit, and the Recipe's is written back
-// (recipe-intake.ts).
+// saves for "Off", is the Recipe's edit, which turns steam off on every
+// Machine with it loaded (recipe-intake.ts, ADR-0022).
 //
 // Under the locks equipment.ts takes, in the same order: the Machine's row,
 // the tablet's, the Location's, under which its slots are decided, then the
@@ -518,8 +518,8 @@ export async function recordRecipeWritten(
       const saved = savedInEditor(known.record, record);
       const unwritten = Object.fromEntries(Object.entries(editedContent(recipeView(known.record), view, null)).filter(([path]) => !written.has(path)));
       const recorded = here && !saved ? await recordedByDye2(tx, tablet, itemId, content, unwritten) : new Set<string>();
-      // Steam turned off, taken in as no edit (`libraryValues`), is written back over too.
-      const steamOff = steamOffPaths(answered.values).length > 0;
+      // "Off" held otherwise than the server writes it, as by one half alone, is written so too (`holdsSteamOff`).
+      const steamOff = holdsSteamOff(view);
       for (const path of recorded) delete answered.values[path];
       const paths = editedPaths(answered.values);
       // And so is a pick of what the Library does not offer the Recipe, as an Archived Bean or a Profile it does not have.

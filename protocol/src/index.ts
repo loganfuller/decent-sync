@@ -1283,7 +1283,9 @@ export const STEAM_ON_FROM = 135;
  * 1 to 255 s (`steamOffPatch`, `steamOnPatch`, MIN_STEAM_DURATION_S and
  * MAX_STEAM_DURATION_S in streamline-js:src/modules/steam-mode.js at
  * v0.2.23, `formatSteamDuration` in src/modules/ui.js), so a steam time
- * below STEAM_TIME_FROM is steam off, never a Recipe's (ADR-0022).
+ * below STEAM_TIME_FROM is the other half of steam off, never a Recipe's
+ * steam time: a Recipe holds "Off" as its steam temperature (`steamHeldOff`,
+ * ADR-0022).
  */
 export const STEAM_TIME_FROM = 1;
 export const STEAM_TIME_TO = 255;
@@ -1298,6 +1300,27 @@ export const STEAM_TIME_TO = 255;
 export function steamTimeOf(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
 }
+
+/**
+ * Whether a recipe holding this steam temperature and steam time holds
+ * "Off": a steam temperature below STEAM_ON_FROM, as DYE2's editor saves 0
+ * for "Off" with a steam time of 0 beside it, or a steam time below
+ * STEAM_TIME_FROM. DYE2 applies either alone as steam off whole
+ * (`recipeMachineSettings` in dye2:dye2-plugin/src/utils/dev-api.ts at
+ * v0.1.42), and Streamline's strip a steam time below 1 s only for a recipe
+ * not in Flow mode (`recipeSteamPatch` in
+ * streamline-js:src/modules/steam-mode.js at v0.2.31), which the server's
+ * intake follows (`libraryValues`). One holding neither, or only values that leave steam on, does
+ * not: null and anything but a number is none held. A Recipe holding "Off"
+ * turns a Machine's steam off as it loads (ADR-0022, Steam on and off).
+ */
+export function steamHeldOff(temperature: unknown, duration: unknown): boolean {
+  const below = (value: unknown, from: number) => typeof value === "number" && Number.isFinite(value) && value < from;
+  return below(temperature, STEAM_ON_FROM) || below(duration, STEAM_TIME_FROM);
+}
+
+/** The steam temperature a Recipe holding "Off" holds, and the steam temperature and steam time written for one (`steamHeldOff`). */
+export const STEAM_OFF_VALUE = 0;
 
 /**
  * The fields of a Recipe's content of which 0 is none (ADR-0022): its dose,

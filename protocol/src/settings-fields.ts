@@ -4,8 +4,8 @@
 //
 // Each field is named as Decaid v0.9.2's API names it. Labels, units, ranges,
 // steps and choices follow Streamline's settings page
-// (streamline-js:src/settings/settings.js at v0.2.24) where it has them, and
-// Decaid's own limits otherwise. A reported value outside a field's range is
+// (streamline-js:src/settings/settings.js at v0.2.31, in this repository's
+// sentence case) where it has them, and Decaid's own limits otherwise. A reported value outside a field's range is
 // shown as it is; only an edit must be in range.
 
 import type { CollectionName } from "./index.js";
@@ -205,8 +205,9 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     },
   ],
   machineCalibration: [
-    // The range Decaid clamps to (`calFlowEst`), in the thousandths the Machine keeps.
-    { path: "flowMultiplier", label: "Flow multiplier", kind: "number", min: 0.13, max: 2, step: 0.001, editableBy: "admin", notes: ["writtenAgainByTablet"] },
+    // The range Decaid clamps to (`calFlowEst`), in the thousandths the Machine keeps. "Flow calibration" on Streamline's page
+    // from v0.2.29, "Flow multiplier" before; Decaid's field keeps its name.
+    { path: "flowMultiplier", label: "Flow calibration", kind: "number", min: 0.13, max: 2, step: 0.001, editableBy: "admin", notes: ["writtenAgainByTablet"] },
   ],
   sensorCalibration: [
     // The band Streamline accepts for one correction (`SENSOR_CAL_RATIO_MIN` and `SENSOR_CAL_RATIO_MAX` in
@@ -244,10 +245,11 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     // Each a lead time in seconds: Decaid stops a Shot, or hot water, that long before its target at the flow it is
     // pouring (`ShotSequencer`, `HotWaterSequencer`). Decaid takes any number, and Streamline's page any of 0 or more: its
     // ± buttons' 0.1 and 0.05 are increments, not limits. Upstream sets no step; this one is chosen here, 0.01 s being
-    // 0.05 g at 5 g/s (#343).
-    { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
-    { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
-    { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+    // 0.05 g at 5 g/s (#343). From v0.2.29 Streamline names them look-aheads, on its "Shot control" page, where it named
+    // them flow multipliers; Decaid's fields keep their names.
+    { path: "weightFlowMultiplier", label: "Weight look-ahead", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+    { path: "volumeFlowMultiplier", label: "Volume look-ahead", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+    { path: "hotWaterFlowMultiplier", label: "Hot water look-ahead", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
     {
       path: "chargingMode",
       label: "Charging mode",
