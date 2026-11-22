@@ -7,8 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { type ListedShot, type Machine, type ShotPage, api } from "@/lib/api";
 import { seconds } from "@/lib/profile-words";
 
-// Choosing a Shot on a Profile's page (#578): to lay over its graph, or to
-// simulate it on that Shot's puck. Those pulled on the Profile and its
+// Choosing a Shot on a Profile's page (#578) to lay over its graph, which
+// sets the simulation to match it (#622). Those pulled on the Profile and its
 // earlier versions come first, then any Shot, the newest first, on any
 // Machine or one.
 
