@@ -132,6 +132,16 @@ export function archivedRecord(record: Readonly<Record<string, unknown>>): boole
 }
 
 /**
+ * Whether a record's field holds the same value as another, `archived` by
+ * whether it is archived, as a record without it and one holding false are
+ * both unarchived: so a guard kept against a stale save (`before_write`)
+ * holding null for a field the record lacked is met by DYE2's `false`.
+ */
+function sameFieldValue(field: string, a: unknown, b: unknown): boolean {
+  return field === ARCHIVED_FIELD ? (a === true) === (b === true) : sameValue(a, b);
+}
+
+/**
  * Whether a tablet's record of an item the map holds shows the tablet
  * archived it (true) or unarchived it (false) since the record known: undefined
  * if it is as known, or set back to what it was just before the server's
@@ -182,7 +192,9 @@ export function beforeWriteAfter(
   reported: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> | null {
   if (beforeWrite === null) return null;
-  const standing = Object.entries(beforeWrite).filter(([field, value]) => sameValue(reported[field], known[field]) || sameValue(reported[field], value));
+  const standing = Object.entries(beforeWrite).filter(
+    ([field, value]) => sameFieldValue(field, reported[field], known[field]) || sameFieldValue(field, reported[field], value),
+  );
   return standing.length === 0 ? null : Object.fromEntries(standing);
 }
 
@@ -201,7 +213,7 @@ export function heldBefore(
   written: Iterable<string>,
   previous: Readonly<Record<string, unknown>> | null = null,
 ): Record<string, unknown> | null {
-  const restoring = (field: string) => previous !== null && Object.prototype.hasOwnProperty.call(previous, field) && sameValue(record[field], previous[field]);
+  const restoring = (field: string) => previous !== null && Object.prototype.hasOwnProperty.call(previous, field) && sameFieldValue(field, record[field], previous[field]);
   const fields = new Set(written);
   const kept = Object.entries(previous ?? {}).filter(([field]) => !fields.has(field));
   const held = [...fields].filter((field) => !restoring(field)).map((field) => [field, record[field] ?? null] as const);
@@ -221,7 +233,7 @@ export function withoutSettled(
   record: Readonly<Record<string, unknown>>,
   item: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> | null {
-  const left = Object.entries(beforeWrite ?? {}).filter(([field, value]) => !(sameValue(record[field], value) && sameValue(item[field], value)));
+  const left = Object.entries(beforeWrite ?? {}).filter(([field, value]) => !(sameFieldValue(field, record[field], value) && sameFieldValue(field, item[field], value)));
   return left.length === 0 ? null : Object.fromEntries(left);
 }
 

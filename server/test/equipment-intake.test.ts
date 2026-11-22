@@ -242,6 +242,23 @@ describe("planEquipmentIntake", () => {
     expect(archiveChange(shown.record, carrying({ ...basket18, archived: true }, ITEMS[0]), { notes: "x" })).toBe(true);
   });
 
+  it("takes a second UNARCHIVE after the server archived a record lacking `archived`, and archived it again, as the barista's", () => {
+    // The record held no `archived`; the server archives it, keeping null as what it held before.
+    const plain = carrying(basket18, ITEMS[0]);
+    const archivedRecord = { ...plain, archived: true };
+    const guard = heldBefore(plain, ["archived"]);
+    expect(guard).toEqual({ archived: null });
+    // DYE2's UNARCHIVE writes false, which is what the record held before, so it is taken as a stale save.
+    const unarchived = { ...plain, archived: false };
+    expect(archiveChange(archivedRecord, unarchived, guard)).toBeUndefined();
+    const standing = beforeWriteAfter(guard, archivedRecord, unarchived);
+    expect(standing).toEqual({ archived: null });
+    // The server archives it again over that stale save, so the guard is not kept: the next UNARCHIVE is the barista's.
+    const again = heldBefore(unarchived, ["archived"], standing);
+    expect(again).toBeNull();
+    expect(archiveChange(archivedRecord, unarchived, again)).toBe(false);
+  });
+
   it("reads a record gone from the list as deleted there once a report listed it, and as a write lost otherwise", () => {
     const listed = mapped(ITEMS[2], wdt);
     const written = mapped(ITEMS[1], puckScreen, { listed: false });
