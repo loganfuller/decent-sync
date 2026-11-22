@@ -283,7 +283,7 @@ describe("A load switches steam, and Off is the Recipe's (#616)", { timeout: 180
     await quiet();
     // A change on C that DYE2 saves finds the temperature where the apply left it, and saves none of it.
     await c.changeSettings({ rinseData: { duration: 6 } });
-    await expect.poll(async () => (await recipe(two)).content.flushDuration ?? null, { timeout: 15_000 }).not.toBe(undefined);
+    await expect.poll(async () => (await recipe(two)).content.flushDuration, { timeout: 15_000 }).toBe(6);
     await quiet();
     expect([steam(c), steam(a)]).toEqual([[140, 35], [0, 35]]);
     const held = (await recipe(two)).content;
