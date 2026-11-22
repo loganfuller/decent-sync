@@ -332,7 +332,7 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
       <ShownLocationsCard
         item={item}
         path={path}
-        description="Where it is shown. Showing it at a Location writes it to the DYE2 list of each tablet there; hiding it there removes it from those lists, as DYE2 cannot hide one, and changes no other Location."
+        description="Where it is shown. Showing it at a Location writes it to the DYE2 list of each tablet there; hiding it there archives a Basket on those lists, or removes a Tool, which DYE2 cannot archive, and changes no other Location."
         archivedNote="It is Archived, so it is shown nowhere and removed from every tablet's DYE2 list. Restoring it writes it again where it is shown below."
         onChanged={changed}
       />

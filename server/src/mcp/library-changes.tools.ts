@@ -506,7 +506,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "set_location_offering",
     title: "Change what a Location offers",
-    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and sets a batch's remaining weight there; the Location's tablets are written the change. Hiding a Basket or Tool removes it from the Location's tablets. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
+    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and sets a batch's remaining weight there; the Location's tablets are written the change. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
     inputSchema: offeringInput,
     outputSchema: itemOutput,
     annotations: { ...CHANGES, idempotentHint: true },

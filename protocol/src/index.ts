@@ -891,9 +891,11 @@ export interface LibraryKindDescription {
    * For a kind DYE2 keeps (ADR-0005), the key of Decaid's store its list is
    * kept whole under, in DYE2_NAMESPACE: the plugin reads the list, changes
    * one record and posts the list back. Its records carry their global id in
-   * a top-level field of their own (`dye2GlobalIdOf`), have no edit time,
-   * and cannot be archived or hidden, so one a Location stops offering is
-   * removed from the list (`LibraryRemove`).
+   * a top-level field of their own (`dye2GlobalIdOf`), and have no edit
+   * time. A Basket a Location stops showing is archived on the list
+   * (`archived`, from DYE2 v0.1.41); a Tool, which cannot be archived, a
+   * Basket or Tool Archived in the Library, and another Location's recipe
+   * are removed from it (`LibraryRemove`).
    */
   dye2Key?: (typeof DYE2_LISTS)[Dye2List];
 }
@@ -1617,9 +1619,11 @@ export interface LibraryDelete {
 
 /**
  * Asks the plugin to remove a tablet's record of a Library item from one of
- * DYE2's lists, as its Machine's Location no longer offers the item: DYE2
- * cannot archive or hide a record (ADR-0005, ADR-0008), so the record is
- * removed, and the tablet's Shots keep the names DYE2 stored on them. The
+ * DYE2's lists, as its Machine's Location no longer offers the item: a Tool,
+ * whose records DYE2 cannot archive, a Basket or Tool Archived in the
+ * Library, or another Location's recipe (ADR-0005, ADR-0008); a Basket the
+ * Location hides is archived instead, by a `write` of `archived`. The record
+ * is removed, and the tablet's Shots keep the names DYE2 stored on them. The
  * server sends it as it sends a `write`, one at a time with them, and it is
  * answered with `removed`, `writeRefused` or `listUnrecognised`. The plugin
  * reads the list, leaves out the record and posts the list back, unless the
@@ -1739,9 +1743,8 @@ export interface ItemDeleted {
  * (ADR-0018): to archive a bean, bean batch or grinder, or hide a profile,
  * so the tablet offers only what its Location does. The record carries no
  * global id, and is never deleted, so the tablet's Shots still find it, but
- * for one of a kind DYE2 keeps, which cannot be archived or hidden: it is
- * removed from its list, and not kept (ADR-0005), and answered as set
- * aside. The
+ * for one of a kind DYE2 keeps, which is removed from its list, and not
+ * kept (ADR-0005), and answered as set aside. The
  * server sends it as it sends a `write`, one at a time with them, and it is
  * answered with `leftOut`. The plugin sets aside only a record without a
  * global id, and changes nothing else of it.

@@ -5,7 +5,18 @@ import { notify } from "../notifications.js";
 import { linkShotTools, linkShots } from "../shots/links.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
-import { type MappedEquipment, answeredEquipment, beforeWriteAfter, equipmentContent, planEquipmentIntake, readReportedEquipment, withoutSettled } from "./equipment-intake.js";
+import {
+  type MappedEquipment,
+  answeredEquipment,
+  ARCHIVED_FIELD,
+  archiveChange,
+  archivedRecord,
+  beforeWriteAfter,
+  equipmentContent,
+  planEquipmentIntake,
+  readReportedEquipment,
+  withoutSettled,
+} from "./equipment-intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
 import { tabletSource } from "./history.js";
 import {
@@ -37,12 +48,16 @@ import { markUnrecognised } from "./dye2-lists.js";
 // Library leaves out as the tablet joins the Location (left-out.ts). An edit
 // of one on a tablet is merged per field (content-edits.ts, ADR-0020),
 // timed by when the plugin first read it, as DYE2's records carry no edit
-// time, and reaches every tablet that holds it. Deleting a Tool on a tablet
-// hides it at that Location (location-state.ts); DYE2 cannot delete a
-// Basket. DYE2 cannot archive or hide a record either, so one its Location
-// does not show is removed from the tablet's list (`LibraryRemove`). Every
-// record carries its global id in a top-level field of its own, which DYE2
-// and Streamline keep when they save, beside the server's map per tablet.
+// time, and reaches every tablet that holds it. Deleting a Basket or Tool on
+// a tablet hides it at that Location (location-state.ts), and so does
+// archiving a Basket there, which DYE2 does from v0.1.41 (`archived` on its
+// record), and unarchiving it shows it there again: `archived` is the
+// Location's state, never content (equipment-intake.ts). A Basket its
+// Location does not show is archived on the tablet's list; a Tool, whose
+// records DYE2 cannot archive, is removed (`LibraryRemove`), and so is a
+// Basket Archived in the Library (holdings.ts). Every record carries its
+// global id in a top-level field of its own, which DYE2 and Streamline keep
+// when they save, beside the server's map per tablet.
 //
 // A list in a shape neither the plugin nor the server recognises
 // (`dye2Records`) is neither taken in nor written to on that tablet until it
@@ -185,6 +200,8 @@ export async function takeInEquipment(
     let itemId: string;
     /** When the record's own edit decided whether the Location shows the item, which it has seen then; null if it did not. */
     let decided: Date | null = null;
+    /** Whether the record is archived on the tablet, so not shown at its Location as it joins the Library or is linked. */
+    const archived = archivedRecord(record.record);
     if (step.kind === "add") {
       const content = equipmentContent(record.record);
       const [created] = await tx.$queryRaw<{ id: string }[]>`
@@ -193,17 +210,18 @@ export async function takeInEquipment(
         RETURNING id::text AS id`;
       itemId = created!.id;
       await recordJoined(tx, { kind, id: itemId }, content, record.updatedAt, source);
-      // New, it is shown where it was created only (ADR-0008).
-      decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
+      // New, it is shown where it was created only (ADR-0008); archived there already, it is shown nowhere.
+      decided = await showAt(tx, kind, itemId, locationId, source, !archived, record.updatedAt, null);
       writesDue = true;
     } else {
       itemId = step.itemId;
     }
     if (step.kind === "link") {
       // A linked record takes the item's content: each field it held otherwise is kept as a Conflict (ADR-0018), but as the
-      // tablet joins the Location, whose state wins, and which shows it only if it shows none of the kind yet.
+      // tablet joins the Location, whose state wins, and which shows it only if it shows none of the kind yet. One archived
+      // on the tablet is not shown there, its Location's state kept.
       if (!joining) await recordLinked(tx, { kind, id: itemId }, equipmentContent(record.record), record.updatedAt, source);
-      if (joined === null || joined === "shown") decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
+      if (!archived && (joined === null || joined === "shown")) decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
       writesDue = true;
     } else if (step.kind === "map" || (step.kind === "update" && joining)) {
       // The tablet holds it as the Location has it, or is written so: what it changed before it joined is written over.
@@ -211,6 +229,11 @@ export async function takeInEquipment(
     } else if (step.kind === "update") {
       const edit = { values: step.content, at: record.updatedAt, seenAt: contentSeenAt.get(itemId) ?? null };
       await editContent(tx, { kind, id: itemId }, edit, source);
+      // Archived or unarchived on the tablet, it is hidden or shown at its Location, timed as its edits are, and judged by what
+      // the record had seen there, as a delete is.
+      if (step.archived !== undefined) {
+        decided = await showAt(tx, kind, itemId, locationId, source, !step.archived, record.updatedAt, seenAt.get(itemId) ?? null);
+      }
       // The record changed, so may differ from the item now, as a field set back to what it held before the server's write.
       writesDue = true;
     }
@@ -245,8 +268,10 @@ async function itemContent(tx: Prisma.TransactionClient, kind: EquipmentKind, it
  * for one set back to its value before an earlier write of the server's,
  * which is taken as unchanged, as in a report, and written again, and one
  * holding the item's value, which is no edit (`answeredEquipment`). A
- * record the plugin `linked`, one of the same name entered there before the
- * tablet reported it, takes the item's content, each field it held otherwise
+ * record the tablet archived or unarchived since, where the write did not
+ * set `archived`, hides or shows the item at its Location, as in a report
+ * (`archiveChange`). A record the plugin `linked`, one of the same name
+ * entered there before the tablet reported it, takes the item's content, each field it held otherwise
  * kept as a Conflict (ADR-0018). What the record held for each field the
  * write set is kept (`before_write`), so a report setting it back is taken
  * as unchanged, but for a field the write puts back over such a report, so
@@ -275,20 +300,34 @@ export async function recordEquipmentWritten(
   return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
-    // Its row locked, as an edit of it would, for its content before this answer.
-    const [item] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;
-    if (!item) return "notTheItem";
     const [other] = await tx.$queryRaw<{ itemId: string }[]>`
       SELECT ${Prisma.raw(column)}::text AS "itemId" FROM ${Prisma.raw(map)} WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ${localId}`;
     if (other && other.itemId !== itemId.toLowerCase()) return "notTheItem";
     const locationId = await sharingLocation(tx, tablet.machineId);
-    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; listed: boolean; beforeWrite: Record<string, unknown> | null }[]>`
-      SELECT record, content_seen_at AS "contentSeenAt", listed, before_write AS "beforeWrite" FROM ${Prisma.raw(map)}
+    const [known] = await tx.$queryRaw<
+      { record: Record<string, unknown>; contentSeenAt: Date | null; seenAt: Date | null; listed: boolean; beforeWrite: Record<string, unknown> | null }[]
+    >`
+      SELECT record, content_seen_at AS "contentSeenAt", ${seenAtSql(locationId)} AS "seenAt", listed, before_write AS "beforeWrite" FROM ${Prisma.raw(map)}
       WHERE tablet_id = ${tablet.tabletId}::uuid AND ${Prisma.raw(column)} = ${itemId}::uuid`;
+    // Archived or unarchived on the tablet before the plugin wrote, unless the write set it: hidden or shown at its Location,
+    // as in a report, under the Location's lock, taken before the item's.
+    const archived = known && !written.has(ARCHIVED_FIELD) ? archiveChange(known.record, record) : undefined;
+    if (locationId !== null && archived !== undefined) await lockLocation(tx, locationId);
+    // Its row locked, as an edit of it would, for its content before this answer.
+    const [item] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;
+    if (!item) return "notTheItem";
     const at = updatedAt === null ? await transactionTime(tx) : new Date(updatedAt);
     const source = tabletSource(tablet);
     const ref = { kind, id: itemId } as const;
     let changed = false;
+    /** The decision of whether the Location shows it that the tablet's own archive made, which its record has seen. */
+    let decided: SeenDecision | null = null;
+    if (locationId !== null && archived !== undefined) {
+      // Judged by what the record had seen before; lost or not, the Location's state is to be written to the tablet.
+      const decidedAt = await showAt(tx, kind, itemId, locationId, source, !archived, at, known?.seenAt ?? null);
+      if (decidedAt !== null) decided = { at: decidedAt, locationId };
+      changed = true;
+    }
     let edited: EditOutcome | null = null;
     const content = item.content !== null && typeof item.content === "object" ? (item.content as Record<string, unknown>) : {};
     const answered = known ? answeredEquipment(known.record, record, written, known.beforeWrite, content) : null;
@@ -298,14 +337,14 @@ export async function recordEquipmentWritten(
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       edited = await editContent(tx, ref, { values: answered.values, at, seenAt: known.contentSeenAt }, source);
       stale = answered.stale && !(await holdsWrittenContent(tx, ref, equipmentContent(record), null));
-      changed = edited.writesDue || stale;
+      changed = edited.writesDue || stale || changed;
     } else if (linked) {
-      changed = await recordLinked(tx, ref, equipmentContent(record), at, source);
+      changed = (await recordLinked(tx, ref, equipmentContent(record), at, source)) || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
     const holds = contentSeen !== null && !stale && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited));
     await saveRecord(tx, kind, tablet.tabletId, itemId, localId, record, at, {
-      seen: seen?.locationId === locationId ? seen : null,
+      seen: decided ?? (seen?.locationId === locationId ? seen : null),
       contentSeen: holds ? contentSeen : null,
       listed: known?.listed ?? false,
       ...(answered ? { beforeWrite: answered.beforeWrite } : {}),

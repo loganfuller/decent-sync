@@ -1,17 +1,21 @@
 import { LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileOf, recordGlobalId, sameValue } from "@decent-sync/protocol";
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
+import { ARCHIVED_FIELD } from "./equipment-intake.js";
 import { KINDS } from "./kinds.js";
 import { heldWorkflow, lacksBeanNulls, recordValueAt, withHeldFieldFlags, withoutZeros } from "./recipe-intake.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
 // bring it there. A tablet holds only what its Location offers: each Bean,
 // Bean Batch and Grinder offered there, not archived, each batch with the
-// remaining weight entered there, and each Profile shown there, visible. What it holds
-// that the Location does not offer is archived or hidden on it, never
-// deleted, so its Shots still find it. Every record it holds is written the
-// item's content where it differs, so an edit reaches every tablet that
-// holds the item, at every Location (ADR-0020). It does no database work,
+// remaining weight entered there, each Profile shown there, visible, and each
+// Basket and Tool shown there, a Basket not archived. What it holds that the
+// Location does not offer is archived or hidden on it, never deleted, so its
+// Shots still find it, but a Tool, whose records DYE2 cannot archive, and a
+// Basket Archived in the Library, which are removed from DYE2's list. Every
+// record it holds is written the item's content where it differs, so an
+// edit reaches every tablet that holds the item, at every Location
+// (ADR-0020). It does no database work,
 // reading each kind's content and planner from its description (kinds.ts),
 // so module tests can drive it; tablet-due.ts reads what it needs.
 
@@ -117,6 +121,8 @@ export interface HeldRecord {
   content: Record<string, unknown> | null;
   /** When the latest edit of that content was decided, by PostgreSQL's clock; null if none was. */
   contentDecidedAt: Date | null;
+  /** For a Basket or Tool, whether it is Archived in the Library, so removed from DYE2's list rather than archived there. */
+  libraryArchived?: boolean;
 }
 
 /** What the tablet holds, by its map. A Profile's local id is its id. */
@@ -176,9 +182,10 @@ export interface PlannedDelete {
 }
 
 /**
- * A tablet's record of a Basket or Tool to be removed from DYE2's list, as
- * its Location no longer shows the item, or it is Archived: DYE2 cannot
- * archive or hide a record (ADR-0005).
+ * A tablet's record to be removed from DYE2's list: a Tool's its Location no
+ * longer shows, as DYE2 cannot archive one; a Basket's or Tool's Archived in
+ * the Library; or a recipe that is not of one of the Location's Recipes
+ * (ADR-0005).
  */
 export interface PlannedRemove {
   remove: true;
@@ -242,8 +249,9 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
  * or that the tablet holds hidden or deleted, made visible. Then each the
  * tablet holds visible that the Location does not show, hidden. Then each
  * Basket, and each Tool, the Location shows that the tablet lacks, created,
- * and each the tablet holds that it does not show, removed from DYE2's
- * list, as DYE2 cannot hide one (ADR-0005). Last, the Location's Recipes not
+ * or holds archived, unarchived; and each the tablet holds that it does not
+ * show, a Basket archived, a Tool, which DYE2 cannot archive, removed from
+ * DYE2's list, and so is one Archived in the Library (ADR-0005). Last, the Location's Recipes not
  * Archived, which name those items by the tablet's ids
  * (`recipeWrites`). Items in
  * `skipped` (`writeKey`) are left out, and so is a batch whose Bean the
@@ -345,22 +353,30 @@ export function profileWrites(offer: LocationOffer, held: TabletHoldings): Plann
 
 /**
  * The writes of a kind DYE2 keeps, Baskets or Tools, shown or hidden at the
- * Location: each it shows that the tablet lacks, created; each the tablet
- * holds that it does not show, as one Archived, removed from DYE2's list,
- * which can neither archive nor hide one (ADR-0005).
+ * Location: each it shows that the tablet lacks, created, or holds archived,
+ * unarchived (`archived` false, as DYE2's UNARCHIVE writes it); each the
+ * tablet holds that it does not show, a Basket archived (`archived` true,
+ * as DYE2's ARCHIVE writes it), its record kept so a barista can bring it
+ * back there, but a Tool, whose records DYE2 cannot archive, and one
+ * Archived in the Library, removed from DYE2's list (ADR-0005, #618). One
+ * the tablet lacks that the Location does not show is not created.
  */
 export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
   const key = kind === "basket" ? "baskets" : "tools";
   const writes: (PlannedWrite | PlannedRemove)[] = [];
   const records = new Map(held[key].map((record) => [record.itemId, record]));
   const shown = new Set(offer[key].map((item) => item.id));
+  const archived = (record: HeldRecord) => record.record[ARCHIVED_FIELD] === true;
   for (const item of offer[key]) {
     const record = records.get(item.id);
-    if (record) pushUpdate(writes, kind, item.id, record, {}, item.decidedAt);
+    if (record) pushUpdate(writes, kind, item.id, record, archived(record) ? { [ARCHIVED_FIELD]: false } : {}, item.decidedAt);
     else writes.push({ kind, globalId: item.id, localId: null, fields: item.content, decidedAt: item.decidedAt, contentDecidedAt: item.contentDecidedAt });
   }
   for (const record of held[key]) {
-    if (!shown.has(record.itemId)) {
+    if (shown.has(record.itemId)) continue;
+    if (kind === "basket" && !record.libraryArchived) {
+      pushUpdate(writes, kind, record.itemId, record, archived(record) ? {} : { [ARCHIVED_FIELD]: true }, record.decidedAt ?? null);
+    } else {
       writes.push({ remove: true, kind, globalId: record.itemId, localId: record.localId, decidedAt: record.decidedAt ?? null, expected: record.record });
     }
   }

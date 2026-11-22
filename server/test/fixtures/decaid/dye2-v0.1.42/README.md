@@ -128,3 +128,117 @@ tablet, server or other device was contacted.
   included, so the repair is no save of the editor's; loaded again, it
   posts nothing (`reloadedAgain`); and the strip then applies `"0"`
   (`applyRepaired`).
+
+## `baskets.json`: DYE2 v0.1.42's Basket picker archiving, editing and deleting
+
+What DYE2 v0.1.42's Basket picker (`basket-picker`, the page DYE2's
+dashboard and Edit Shot open) writes to Decaid's store as a barista
+archives, unarchives, edits an archived Basket and deletes one, recorded for
+decent-sync #618 by `record-baskets.mjs`, beside this directory's other
+files but on a Decaid of its own. As `../dye2-2cf631c/baskets.json`, a step
+is a list of exchanges, `{request: {method, path, body?}, response: {status,
+body}}`: every read and post of `/store/dye2.reaplugin/baskets` the page
+sent, in order (and every other request it sent but a read; there were
+none). Two kinds of entry are no request of the page's: an exchange with
+`"after": true`, the list as the script read it once the step was done; and
+`{"shown": [...]}`, what the picker listed then, in its order, each card's
+name, whether it was dimmed as archived (`dye-card-archived`), and its two
+lines of text.
+`server/test/support/simulated-dye2.ts` acts as this picker
+(`archiveBasketInDye2`, `editBasketInDye2`, `deleteBasketInDye2`), and
+`server/test/simulated-dye2-writes.test.ts` checks it against these steps.
+
+The list was seeded as Decent Sync's plugin adds a Basket to it
+(`writeInList`): each row the write's fields, an id from `randomUUID()`, a
+creation time and a made-up global id, `decentSyncId`:
+
+| Row | `name` | `size` | `diameterMm` | `notes` | `createdAt` |
+|---|---|---|---|---|---|
+| 1 | `Fixture 18g Precision` | `double` | 58.5 | `Fixture notes` | `2026-11-22T09:00:00.000Z` |
+| 2 | `Fixture 20g Ridgeless` | `double` | 58 | `Fixture ridgeless notes` | `2026-11-22T09:01:00.000Z` |
+
+The steps, in order, all on one picker page opened once, its sort `Recent`
+(newest `createdAt` first). A Basket's editor opens on a 800 ms hold on its
+card, or on a tap once it is archived, as the page has it:
+
+| Step | What the barista did |
+|---|---|
+| `seeded` | Not the page's: the script's `POST` of the two rows, standing for Decent Sync's plugin |
+| `opened` | The picker opened: its load read |
+| `archive18gBasket` | `Fixture 18g Precision`'s editor opened, ARCHIVE tapped, ARCHIVE tapped in the `dyeConfirm` box |
+| `pickerListed` | Not a step: the picker's list after `archive18gBasket` |
+| `editArchived18gBasket` | The archived 18g Basket's editor opened, its name changed to `Fixture 18g Precision II` and its notes to `Fixture notes, edited while archived`, SAVE tapped |
+| `unarchive18gBasket` | Its editor opened, UNARCHIVE tapped (it asks no confirmation) |
+| `archive20gBasket` | `Fixture 20g Ridgeless` archived as the 18g was |
+| `delete20gBasket` | The archived 20g Basket's editor opened, DELETE tapped, DELETE tapped in the `dyeConfirm` box |
+| `clearNotes18gBasket` | Added to the plan: the 18g Basket's editor opened, its notes emptied, SAVE tapped |
+
+### How `baskets.json` was recorded
+
+On 2026-11-22 at 20:27 (UTC), by the same Decaid v0.9.2 Linux arm64 release
+as the files above (`decaid-linux-arm64-0.9.2.tar.gz`, SHA-256
+`a2c5d0bb8c54a53bbb4923c5427f3a3a2bd6d9daaad56f78a25fb2b80e233016`, as
+`decaid-0.9.2-SHA256SUMS.txt` names it; `GET /info` answered `0.9.2`, build
+3191, commit `875b7a6a`), headless in a throwaway container of the Ubuntu
+24.04 image the earlier recordings used, started as they describe, with its
+simulated machine and scale, its data new and its port 8080 published to
+the host's `localhost:8080`. No tablet, server or other device was
+contacted. A first run a few minutes earlier, without
+`clearNotes18gBasket`, recorded the same requests for the steps it shared;
+its Decaid was removed and the file recorded again on a new one.
+
+- **The token.** Decaid was started with `DECAID_EXTENSIONS_TOKEN` set to 64
+  hexadecimal characters from `openssl rand -hex 32`. Only DYE2's install
+  carried it, and it is in no file. No request the page sent carried a
+  token, and none was refused.
+- **DYE2** v0.1.42, the latest release, installed over the bundled v0.1.37
+  by the script with `POST /api/v1/plugins/install/github-release
+  {"repo":"decentespresso/dye2"}` and Decaid's token, which Decaid answered
+  `{"message":"Plugin installed","id":"dye2.reaplugin","version":"0.1.42",
+  "loaded":true}` (logged, not kept in the file).
+- **The script**, `record-baskets.mjs`, made from `record.mjs` and
+  `../dye2-2cf631c/record.mjs`, drives the page in Playwright's headless
+  Chromium (`@playwright/test` 1.63.0, 1280x800), each request the page sent
+  fetched by Playwright and its answer handed to the page unchanged, from
+  the repository root with Node v26.13.0:
+  `DECAID_EXTENSIONS_TOKEN=<token> node
+  server/test/fixtures/decaid/dye2-v0.1.42/record-baskets.mjs <output dir>`.
+
+### Edits to `baskets.json`
+
+None. Every name, note, id and global id was made up for the recording (the
+ids and global ids by `randomUUID()` as the script ran); the rows hold no
+hardware id or address, and a search for serials, MAC and LAN addresses
+found none. The token appears nowhere.
+
+### What `baskets.json` shows
+
+- **Every change reads the list and posts it whole**, then reads it again
+  (`afterRowChange`, or the save's own reload): a read, a `POST` of the
+  whole list, a read.
+- **`updateBasket` merges; it does not replace the row.** It builds the
+  row from the page's body, the row's id and its `createdAt`, and
+  `kvUpsert` spreads that over the row held (`{ ...arr[i], ...item }`). So
+  an edit keeps every field the body leaves out: `decentSyncId` and
+  `createdAt` are kept by ARCHIVE, by UNARCHIVE and by the edit of an
+  archived row, whose body is only the form (`editArchived18gBasket`); and
+  emptying a field on the form does not clear it, as the body then leaves
+  it out (`clearNotes18gBasket` posts the row with its notes unchanged, and
+  the picker still shows them). An edit changes only the fields on the
+  form that hold a value (the name always). The list's other rows are
+  posted as read.
+- **ARCHIVE writes `archived: true`** on the row, every other field as it
+  was, added as its last key (`archive18gBasket`, `archive20gBasket`). The
+  picker then lists it dimmed, last, with `Archived · <notes>` as its second
+  line (`pickerListed`), and a tap on it opens its editor rather than
+  picking it.
+- **The edit of an archived row carries `archived: true` over**: the page
+  puts it in the body (`editingArchived`), so the row posted is still
+  archived, with the new name and notes (`editArchived18gBasket`).
+- **UNARCHIVE writes `archived: false`**, keeping the field rather than
+  dropping it (`unarchive18gBasket`); the row stays `archived: false` after
+  later edits (`clearNotes18gBasket`), since an edit of a row not archived
+  sends no `archived` and the merge keeps the `false`.
+- **DELETE posts the list without the row**, whether or not it is
+  archived: `delete20gBasket` deletes the archived 20g Basket, posting the
+  remaining row only, unchanged.

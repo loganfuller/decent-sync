@@ -9,8 +9,9 @@ import { KINDS } from "./kinds.js";
 // the server recognises (`dye2Records`) is neither taken in nor written to
 // on that tablet until it is reported in one they do, and shows in its
 // Machine's sharing status (`tablet_unrecognised_lists`); the tablet's other
-// lists keep syncing. A record DYE2 can neither archive nor hide is removed
-// from its list instead, and the tablet's map forgets it.
+// lists keep syncing. A record removed from its list (`LibraryRemove`), as
+// a Tool's or recipe's, or one Archived in the Library, is forgotten by the
+// tablet's map; a Basket its Location hides is archived there instead.
 
 /** A kind of Library item DYE2 keeps in one of its lists: Baskets, Tools (its equipment) and Recipes. */
 export type Dye2Kind = "basket" | "tool" | "recipe";

@@ -686,12 +686,15 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await expect.poll(() => slotsOn(tablet)).toEqual(["4:Unreported Two"]);
     expect((slotOn(tablet, 4)!.dashboardVariables as Record_).dose).toBe(21);
 
-    // The same for a Basket's notes changed just before it is hidden at the Location.
+    // The same for a Basket's notes changed just before it is hidden at the Location: its record is archived there (#618), the
+    // notes it holds kept and taken in.
     const baskets = (dye2List(tablet, "baskets") as Record_[]).map((record) => (record[GLOBAL_ID_KEY] === basket.id ? { ...record, notes: "v2 on the tablet" } : record));
     expect((await tablet.callApi("POST", "/store/dye2.reaplugin/baskets", baskets)).status).toBe(200);
     expect((await api.call("PUT", `/baskets/${basket.id}/locations/${lab.id}`, { shown: false })).status).toBe(200);
     await expect.poll(async () => (await api.get<{ basket: { content: Record_ } }>(`/baskets/${basket.id}`)).basket.content.notes).toBe("v2 on the tablet");
-    await expect.poll(() => (dye2List(tablet, "baskets") as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(false);
+    const held = () => (dye2List(tablet, "baskets") as Record_[]).find((record) => record[GLOBAL_ID_KEY] === basket.id);
+    await expect.poll(() => held()?.archived).toBe(true);
+    expect(held()?.notes).toBe("v2 on the tablet");
   });
 
   it("keeps an edit a tablet has not reported yet on its Recipe, not on another Recipe Staff put in its slot since", async () => {
