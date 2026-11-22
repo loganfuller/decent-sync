@@ -267,7 +267,8 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
   // and "Soup 58"'s, whose exit and temperature lane's numbers did as black tea's (#637).
   const bundled = (JSON.parse(fs.readFileSync(new URL("../server/test/fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: { profile: Fields & { title: string; steps: unknown[] } }[] })
     .bundled;
-  const phones: [number, number][] = [
+  // A phone's, a 600 px window's and a wide one's.
+  const axisWidths: [number, number][] = [
     [393, 852],
     [600, 900],
     [1280, 720],
@@ -284,11 +285,21 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
     const phone = title === "Tea portafilter/black tea" || title === "Soup 58";
     if (phone) await expect(graph.locator("[data-handle='exit']")).toBeVisible();
     drawnAt = "";
-    for (const [width, height] of phone ? phones : widths) {
+    for (const [width, height] of phone ? axisWidths : widths) {
       await page.setViewportSize({ width, height });
       await expect(drawn).not.toHaveAttribute("width", drawnAt);
       drawnAt = (await drawn.getAttribute("width"))!;
       await expect.poll(() => graphClashes(graph), { message: `${title}, at ${width} px` }).toEqual([]);
+      // The exit, held inside the plot near the bracket on its left edge, still takes the pointer at its centre.
+      if (phone) {
+        const exitHandle = graph.locator("[data-handle='exit']");
+        await exitHandle.scrollIntoViewIfNeeded();
+        const exitTakesPointer = await exitHandle.evaluate((handle) => {
+          const box = handle.getBoundingClientRect();
+          return handle.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+        });
+        expect(exitTakesPointer, `${title}'s exit at ${width} px`).toBe(true);
+      }
     }
     await page.setViewportSize({ width: 1280, height: 720 });
     expect((await page.request.delete(`/api/drafts/${id}`)).status()).toBe(204);

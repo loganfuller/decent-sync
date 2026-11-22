@@ -992,7 +992,7 @@ function Handle({
       aria-valuenow={value}
       aria-valuetext={text}
       data-handle={name}
-      className={`group absolute z-10 touch-none outline-none select-none ${point ? "cursor-ns-resize" : "cursor-ew-resize"}`}
+      className={`group absolute ${point ? "z-20 cursor-ns-resize" : "z-10 cursor-ew-resize"} touch-none outline-none select-none`}
       style={style}
       onKeyDown={onKeyDown}
       onClick={(event) => event.stopPropagation()}
@@ -1115,6 +1115,7 @@ function editHandles(layout: GraphLayout, profile: Profile, run: SimulatedRun, e
 }
 
 /** The selected step's handles, each with its tag where `placeTags` put it. */
+/** The selected step's handles, its points over its bracket, so a point held inside the plot near a bracket there still takes the pointer (#637). */
 function EditHandles({ handles, tags, editing, onHold }: { handles: EditHandle[]; tags: LabelBox[]; editing: GraphEditing; onHold(holding: boolean): void }) {
   return (
     <>

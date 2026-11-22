@@ -110,6 +110,8 @@ describe("laneTicks", () => {
     };
     expect(laneTicks("flow", [0, 12], 120)).toEqual([0, 2, 4, 6, 8, 10, 12]);
     expect(laneTicks("flow", [0, 12], 84)).toEqual([0, 4, 8, 12]);
+    // A lane capped at 20 bar or ml/s reads 0 to 22, every 5 on a phone.
+    expect(laneTicks("flow", [0, 22], 84)).toEqual([0, 5, 10, 15, 20]);
     // "Soup 58"'s temperatures.
     expect(laneTicks("temperature", [5, 85], 84)).toEqual([5, 25, 45, 65, 85]);
     expect(laneTicks("temperature", [15, 105], 120)).toEqual([15, 35, 55, 75, 95]);

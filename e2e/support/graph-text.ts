@@ -7,8 +7,9 @@ import type { Locator } from "@playwright/test";
  * in words, none where all is clear: a piece of its text over another, such
  * as an axis's numbers over each other or over a name on the cup row, a
  * Draft's handle, its tag or its bracket over a piece of text, such as an
- * axis's number (#637), or a handle's tag over another handle or its tag. A handle over another, as a target
- * standing on the bracket, and a tag over its own handle are not a pair.
+ * axis's number (#637), or a handle's tag over another handle or its tag. A
+ * handle over another, as a target standing on the bracket, and a tag over
+ * its own handle are not a pair.
  * Text is measured a little inside its line's height, which is taller than
  * its letters, so two rows that only touch are not a pair.
  */
