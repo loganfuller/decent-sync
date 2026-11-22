@@ -88,7 +88,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await expectTip(
       main,
       "Recipe",
-      "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush setting it holds, and keeps its own of each it does not.",
+      "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush setting it holds, and keeps its own of each it does not. A steam temperature turns the Machine's steam on as it loads, and one of Off turns it off, there and on every Machine that has the Recipe loaded.",
     );
     const details = samsPage.getByRole("region", { name: "Recipe", exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");

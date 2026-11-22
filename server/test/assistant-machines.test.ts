@@ -813,7 +813,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
   describe("a Machine's dial-in trail", () => {
     // Right and Left at Belmont, each with DYE2, Right's tablet the recording's, which brings the Brazil's recipe (dose
     // 19 g, grind 3, steamed by flow), given a steam time of 25 s, and Left with the Brazil's loaded. On Right:
-    // Streamline's strip loads it, which leaves its steam time to the plugin's load write; a barista dials the grind to
+    // Streamline's strip loads it during an Auto Steam session, when it leaves its steam time to the plugin's load write
+    // (from v0.2.29 it applies it otherwise); a barista dials the grind to
     // 2.8 in two steps 2 s apart; a barista on Left changes its dose to 19.5 g, which DYE2 saves into the Recipe and the
     // server writes into Right's Workflow; and a profile tapped on Streamline unloads it. Right's plugin's clock moves a
     // minute on before each step, as if they were a minute apart, so no step's changes are within 5 s of another's.
@@ -854,7 +855,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       await quiet();
       from = new Date().toISOString();
 
+      streamline.enterAutoSteam();
       expect((await streamline.applyRecipe(2)).workflow?.status).toBe(200);
+      streamline.leaveAutoSteam();
       await loads(right, brazil);
       await quiet();
       rightTablet.setPluginClockOffset(60_000);
