@@ -782,22 +782,45 @@ function writtenFrom(path: string, content: Readonly<Record<string, unknown>>): 
   return field === undefined ? [] : [field];
 }
 
+/** The fields of a Recipe's content naming items a tablet holds records of, each by the kind it names. */
+const REFERENCED: Readonly<Record<string, MappedKind>> = {
+  beanId: "bean",
+  beanBatchId: "beanBatch",
+  grinderId: "grinder",
+  basketId: "basket",
+  toolIds: "tool",
+  toolAttributes: "tool",
+};
+
+/** Whether a field of a Recipe's content names an item the tablet holds no record of (`ids`), which `recipeRecord` writes as none. */
+function namesUnmapped(field: string, value: unknown, ids: TabletIds): boolean {
+  const kind = REFERENCED[field];
+  if (kind === undefined) return false;
+  const named = typeof value === "string" ? [value] : Array.isArray(value) ? value : isObject(value) && field === "toolAttributes" ? Object.keys(value) : [];
+  return named.some((itemId) => typeof itemId === "string" && ids.local(kind, itemId) === undefined);
+}
+
 /**
  * What a tablet's last known record of a Recipe (`known`) held of each of
  * `fields`, for an edit worked out from that record (`ItemEdit.held`):
  * the Recipe's value now (`content`) of each field the record holds as that
  * content is written (`written`, the record the tablet is to hold of it,
  * `recipeRecord`). A field written to a path the record holds otherwise is
- * left out, as what it held of it is not the Recipe's value.
+ * left out, as what it held of it is not the Recipe's value; and so is one
+ * naming an item the tablet holds no record of (`ids`), which the record
+ * cannot have held though it is written as none there.
  */
 export function recipeValuesHeld(
   known: Readonly<RecipeView>,
   written: Readonly<RecipeView>,
   content: Readonly<Record<string, unknown>>,
   fields: Iterable<string>,
+  ids: TabletIds,
 ): Record<string, unknown> {
   const differing = new Set(editedPaths(changedFields(written, known)).flatMap((path) => writtenFrom(path, content)));
-  return Object.fromEntries([...fields].filter((field) => !differing.has(field)).map((field) => [field, content[field] ?? null]));
+  return Object.fromEntries(
+    [...fields].filter((field) => !differing.has(field) && !namesUnmapped(field, content[field], ids)).map((field) => [field, content[field] ?? null]),
+  );
 }
 
 /**

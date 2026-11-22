@@ -803,7 +803,12 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     releaseA();
     const lostEdits = async () => (await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/recipes/${one}/history`)).lostEdits;
     await expect.poll(lostEdits, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
-    expect(await lostEdits()).toContainEqual(expect.objectContaining({ field: "beanId", value: (await globalOf(a, "/beans", record(a, BRAZIL)!.beanId as string))! }));
+    // Each lost to C's pick, the Bean to the Bean it left the Recipe naming, though C's edit set the batch alone.
+    const lostTo = { versionId: expect.any(String), value: next };
+    expect(await lostEdits()).toContainEqual(expect.objectContaining({ field: "beanBatchId", lostTo: expect.objectContaining(lostTo) }));
+    expect(await lostEdits()).toContainEqual(
+      expect.objectContaining({ field: "beanId", value: (await globalOf(a, "/beans", record(a, BRAZIL)!.beanId as string))!, lostTo: expect.objectContaining({ value: bean }) }),
+    );
     await quiet();
     expect((await recipe(one)).content).toMatchObject({ beanId: bean, beanBatchId: next });
     // A is brought to C's pick.

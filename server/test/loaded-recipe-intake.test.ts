@@ -6,6 +6,7 @@ import {
   PARTS,
   type WorkflowParts,
   dueParts,
+  heldFromWorkflow,
   heldAlready,
   heldByRecord,
   nonePart,
@@ -518,6 +519,18 @@ describe("The dial written into a Workflow", () => {
     expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: renamed }, classic)).toEqual({ ...target, profile: undefined });
     // A record holding no profile at all, which DYE2 compares nothing with, holds nothing back.
     expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: null }, classic)).toEqual(target);
+  });
+
+  it("counts as held only the parts the Workflow last held as the Recipe's are written, its Bean with its batch, and no Grinder, Basket or batch the tablet holds no record of, though its Workflow held none (#632)", () => {
+    const content = { grinderId: "grinder", basketId: "basket", beanBatchId: "batch", beanId: "bean", dose: 18, yield: 36 };
+    const values = { grinderId: "other-grinder", basketId: "other-basket", beanBatchId: "other-batch", beanId: "other-bean", dose: 19, yield: 40 };
+    const none = Object.fromEntries(PARTS.map((part) => [part, null])) as WorkflowParts;
+    // Another tablet named items this one holds no record of yet; its Workflow held none of them, and the Recipe's dose.
+    expect(heldFromWorkflow(content, recipeParts(content, () => undefined), { ...none, dose: 18 }, values)).toEqual({ dose: 18 });
+    // Held as written under the tablet's own ids, they are held; a yield the Workflow held otherwise is not.
+    const local = (_kind: string, itemId: string) => `local-${itemId}`;
+    const held = { ...none, grinder: "local-grinder", basket: "local-basket", batch: "local-batch", dose: 18, yield: 30 };
+    expect(heldFromWorkflow(content, recipeParts(content, local), held, values)).toEqual({ grinderId: "grinder", basketId: "basket", beanBatchId: "batch", beanId: "bean", dose: 18 });
   });
 });
 

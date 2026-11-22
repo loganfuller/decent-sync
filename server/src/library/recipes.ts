@@ -355,7 +355,7 @@ export async function takeInRecipes(
         const paths = editedPaths(edits);
         if (paths.length > 0) {
           const values = withoutOwnEdits(libraryValues(view, paths, recipe.content, await context(view)), recipe.content, recipe.fieldEdits, tablet.tabletId);
-          const held = recipeValuesHeld(knownView, await recordFor(tx, ids, recipe.content, recipe.slot, itemId), recipe.content, Object.keys(values));
+          const held = recipeValuesHeld(knownView, await recordFor(tx, ids, recipe.content, recipe.slot, itemId), recipe.content, Object.keys(values), ids);
           await editContent(tx, { kind: "recipe", id: itemId }, { values, at: record.updatedAt, seenAt: known.contentSeenAt, held }, source);
         }
         const move = slotMove(itemId, known.record, record);
@@ -529,7 +529,7 @@ export async function recordRecipeWritten(
       const refused = paths.length > 0 && here && refusedPaths(view, paths, await context(view)).length > 0;
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
-      const held = recipeValuesHeld(recipeView(known.record), await recordFor(tx, ids, content, slot, itemId), content, Object.keys(values));
+      const held = recipeValuesHeld(recipeView(known.record), await recordFor(tx, ids, content, slot, itemId), content, Object.keys(values), ids);
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt, held }, source);
       const now = await recordFor(tx, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, slot, itemId);
       stale = (answered.stale || recorded.size > 0 || steamOff || refused) && !holdsRecipe(view, now);

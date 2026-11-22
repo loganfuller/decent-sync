@@ -40,6 +40,7 @@ import {
   recipeBean,
   recipeParts,
   recordProfile,
+  heldFromWorkflow,
   samePart,
   valuesFromWorkflow,
   workflowParts,
@@ -414,11 +415,7 @@ async function recordFromWorkflow(
   if (parts.length === 0) return { recorded: [], lost: [] };
   const [seen] = await tx.$queryRaw<{ contentSeenAt: Date | null }[]>`
     SELECT content_seen_at AS "contentSeenAt" FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND recipe_id = ${recipe.id}::uuid`;
-  // What the Workflow last held as the Recipe is written to it, the tablet held of the Recipe: a value it replaces there is kept as no Lost Edit.
-  const heldParts = PARTS.filter((part) => samePart(part, target[part], held[part]));
-  const heldFields = [...heldParts.map((part) => RECIPE_FIELDS[part]), ...(heldParts.includes("batch") ? ["beanId"] : [])];
-  const heldValues = Object.fromEntries(heldFields.filter((field) => Object.prototype.hasOwnProperty.call(values, field)).map((field) => [field, recipe.content[field] ?? null]));
-  const edit = { values, at: new Date(observedAt), seenAt: seen?.contentSeenAt ?? null, held: heldValues };
+  const edit = { values, at: new Date(observedAt), seenAt: seen?.contentSeenAt ?? null, held: heldFromWorkflow(recipe.content, target, held, values) };
   const edited = await editContent(tx, { kind: "recipe", id: recipe.id }, edit, tabletSource(tablet));
   if (edited.writesDue) await notify(tx, "library_changes", recipe.locationId);
   const [after] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM recipes WHERE id = ${recipe.id}::uuid`;

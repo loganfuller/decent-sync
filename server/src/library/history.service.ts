@@ -185,11 +185,17 @@ export class HistoryService {
         : await this.prisma.itemVersion.findMany({
             // Only the item's own: a version of another item is not what an edit of this one lost to.
             where: { id: { in: versionIds }, ...itemKey(item) },
-            select: { id: true, fields: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
+            select: { id: true, seq: true, locationId: true, fields: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
           })
       ).map((version) => [version.id, version]),
     );
-    return lost.map((edit) => {
+    const lostToValues = await Promise.all(
+      lost.map((edit) => {
+        const version = edit.lostToVersionId === null ? undefined : versions.get(edit.lostToVersionId);
+        return version === undefined ? null : this.valueAt(item, version, edit.field);
+      }),
+    );
+    return lost.map((edit, index) => {
       const version = edit.lostToVersionId === null ? undefined : versions.get(edit.lostToVersionId);
       return {
         id: edit.id,
@@ -202,13 +208,30 @@ export class HistoryService {
         lostTo: version
           ? {
               versionId: version.id,
-              value: isObject(version.fields) ? (version.fields[edit.field] ?? null) : null,
+              value: lostToValues[index],
               source: viewSource(version, scope),
               editedAt: version.editedAt.toISOString(),
             }
           : null,
       };
     });
+  }
+
+  /**
+   * A field's value as of one of the item's versions: the value it set, or,
+   * for a field it did not set, as for a Bean that lost with its batch to a
+   * version setting the batch alone (`mergeEdit`'s `together`), the value
+   * the latest version up to it that set the field left; null for none.
+   */
+  private async valueAt(item: ItemRef, version: { seq: bigint; locationId: string | null; fields: unknown }, field: string): Promise<unknown> {
+    if (isObject(version.fields) && Object.prototype.hasOwnProperty.call(version.fields, field)) return version.fields[field] ?? null;
+    const { kind, itemId } = itemKey(item);
+    const [row] = await this.prisma.$queryRaw<{ value: unknown }[]>`
+      SELECT fields -> ${field} AS value FROM item_versions
+      WHERE kind = ${kind} AND item_id = ${itemId} AND location_id IS NOT DISTINCT FROM ${version.locationId}::uuid
+        AND seq < ${version.seq} AND fields ? ${field}
+      ORDER BY seq DESC LIMIT 1`;
+    return row?.value ?? null;
   }
 
   /** Whether the Library has the item: it keeps versions while it does (`versioned_items`). */
