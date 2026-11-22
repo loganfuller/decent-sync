@@ -290,7 +290,7 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
       await expect(drawn).not.toHaveAttribute("width", drawnAt);
       drawnAt = (await drawn.getAttribute("width"))!;
       await expect.poll(() => graphClashes(graph), { message: `${title}, at ${width} px` }).toEqual([]);
-      // The exit, held inside the plot near the bracket on its left edge, still takes the pointer at its centre.
+      // The exit, held inside the plot, still takes the pointer at its centre, as where a bracket stands near the plot's left edge on a phone.
       if (phone) {
         const exitHandle = graph.locator("[data-handle='exit']");
         await exitHandle.scrollIntoViewIfNeeded();
