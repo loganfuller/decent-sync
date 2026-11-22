@@ -18,25 +18,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { type Shot, api } from "@/lib/api";
-import { MAX_DOSE, MAX_STOP_AT } from "@/lib/puck-ask";
 import { measure, seconds } from "@/lib/profile-words";
+import { MAX_DOSE, MAX_STOP_AT, type PuckAsk } from "@/lib/puck-ask";
 
 // The controls and figures of a Profile's simulation (#578), shared by its
 // page and the comparison of two versions: the standard puck's finer to
 // coarser control, the dose, the stop-at weight and the Machine model; the
 // run's headline figures; and a Shot read to lay over a graph.
 
-
-/** What a standard puck's simulation is asked for. */
-export interface PuckAsk {
-  /** -1, the finest, to 1, the coarsest. */
-  grind: number;
-  /** g. */
-  dose: number;
-  /** g, 0 to run until the last step ends. */
-  stopAt: number;
-  model: MachineModel;
-}
+export type { PuckAsk };
 
 /** What a simulation of a profile starts at: 18 g on the standard puck at its middle grind, stopping at the profile's stop-at weight, as the model given. */
 export function startingAsk(profile: Profile | null, model: MachineModel | undefined): PuckAsk {

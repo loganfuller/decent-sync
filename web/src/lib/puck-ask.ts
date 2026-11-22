@@ -1,8 +1,19 @@
-import { type SimulationShot, grindOf, lastRecordedWeight, shotPuck } from "@decent-sync/protocol";
-import type { PuckAsk } from "../components/profile-simulation";
+import { type MachineModel, type SimulationShot, grindOf, lastRecordedWeight, shotPuck } from "@decent-sync/protocol";
 
-// The limits of a Profile's simulation's dose and stop-at fields (#578), and
-// what a Shot laid over its graph sets them and the rest to (#622).
+// What a Profile's standard-puck simulation is asked for and the limits of
+// its dose and stop-at fields (#578), and what a Shot laid over its graph
+// sets them and the rest to (#622).
+
+/** What a standard puck's simulation is asked for. */
+export interface PuckAsk {
+  /** -1, the finest, to 1, the coarsest. */
+  grind: number;
+  /** g. */
+  dose: number;
+  /** g, 0 to run until the last step ends. */
+  stopAt: number;
+  model: MachineModel;
+}
 
 /** The most coffee a dose may be, g, as the REST API takes one. */
 export const MAX_DOSE = 50;

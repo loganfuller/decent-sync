@@ -1,4 +1,4 @@
-import { type SimulationShot, grindOf, shotPuck, simulationShotOf } from "@decent-sync/protocol";
+import { type SimulationShot, grindOf, lastRecordedWeight, shotPuck, simulationShotOf } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import classicItalian from "../../server/test/fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json" with { type: "json" };
 import { MAX_DOSE, MAX_STOP_AT, askOf } from "../src/lib/puck-ask";
@@ -40,6 +40,14 @@ describe("askOf", () => {
     expect(ask).not.toHaveProperty("dose");
     expect(ask).not.toHaveProperty("stopAt");
     expect(ask).toHaveProperty("model", "DE1");
+  });
+
+  it("keeps a dose and a stop-at weight at their fields' limits", () => {
+    const last = lastRecordedWeight(shot.samples)!.weight;
+    const ask = askOf(weighed({ ...shot, dose: MAX_DOSE }, MAX_STOP_AT / last));
+    expect(ask).toHaveProperty("dose", MAX_DOSE);
+    expect(ask).toHaveProperty("stopAt", MAX_STOP_AT);
+    expect(askOf(weighed(shot, (MAX_STOP_AT + 0.1) / last))).not.toHaveProperty("stopAt");
   });
 
   it("leaves the grind out where no puck can be worked out", () => {
