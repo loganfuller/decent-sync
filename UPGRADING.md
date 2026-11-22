@@ -52,7 +52,9 @@ latest DYE2 on each tablet by itself; a tablet whose DYE2 is pinned to an
 earlier build is moved to v0.1.42 or later by hand first. Then deploy the
 server. Nothing refuses an older DYE2, but nothing is written for what it
 does: DYE2 v0.1.41 or earlier applies a Recipe's grind setting of 0 as none,
-clearing the Machine's.
+clearing the Machine's, and DYE2 v0.1.40 or earlier, which knows no archived
+basket, offers in its pickers every Basket hidden at its Location, as such a
+Basket is now archived on its list rather than removed.
 
 ### A grind setting of 0 is a Recipe's
 

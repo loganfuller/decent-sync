@@ -1452,10 +1452,12 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   `archived` is guarded against, unlike a field of its content. Only a
   save of DYE2's form, opened on an archived record before the server
   unarchived it, archives it again unmeant, and the Basket is then hidden
-  at that Location by that tablet, as its history shows. The Location's
-  other tablets have their records archived or unarchived as the writer
-  writes the Location's state (Writing to tablets, below), and a Basket the Location shows is unarchived on a
-  tablet that holds it archived. DYE2 keeps a Workflow naming the basket as
+  at that Location by that tablet, as its history shows. A write of
+  `archived` lost to DYE2 posting the list at the same moment is taken as
+  the barista's the same way. The Location's other tablets have their
+  records archived or unarchived as the writer writes the Location's state
+  (Writing to tablets, below), and a Basket the Location shows is
+  unarchived on a tablet that holds it archived. DYE2 keeps a Workflow naming the basket as
   it was, "in the recipes and shots that name it"; Decent Sync still clears
   a joining tablet's Workflow of a Basket its Location does not show
   (Joining a Location, below), and leaves one a barista archives there
@@ -2089,7 +2091,9 @@ tablet's list of batches to show it does not.
   batch; and one the Library leaves out too, answered as set aside. Each is timed by the plugin's clock, as DYE2's records carry none.
   Its next read of the list it wrote is reported whatever it holds, so a
   write another app's rewrite of the list lost at the same moment shows up
-  there (ADR-0005); the server then writes it again.
+  there (ADR-0005); the server then writes it again, but for a Basket's
+  `archived`, whose loss is taken as the barista's archive or unarchive
+  there (Archived in DYE2, above).
 - To write a Recipe, it reads DYE2's recipes as it reads baskets and tools,
   which must be in a shape it recognises. A write names the record's fields
   by their paths, a field of its `dashboardVariables` as
