@@ -46,8 +46,8 @@ const SAVE_AFTER_MS = 500;
  * it started from, and says when another save came between. A Machine at a
  * Location marked for it follows the Draft (#581): a card says whether it
  * has the Draft's steps, and the Draft's Trial Shots are listed, the latest
- * on its steps laid over the graph as it arrives, with the simulation moved
- * to its puck. A Viewer sees no Draft.
+ * on its steps laid over the graph as it arrives, with the simulation set
+ * to match it. A Viewer sees no Draft.
  */
 export function DraftPage() {
   const { id = "" } = useParams();
@@ -93,10 +93,10 @@ function DraftEditor({ id }: { id: string }) {
     },
     [reloadTrying],
   );
-  // The Trial Shot the graph is moved to: the latest on the Draft's steps, as it arrives, or the one chosen from the list.
+  // The Trial Shot laid over the graph: the latest on the Draft's steps, as it arrives, or the one chosen from the list.
   const latestTrial = trying?.trialShots.find((trial) => trial.steps === "current")?.shot.id;
   const [usedTrial, setUsedTrial] = useState<{ shotId: string; asked: number }>();
-  const [puckShot, setPuckShot] = useState<string>();
+  const [laidOver, setLaidOver] = useState<string>();
   useEffect(() => {
     if (latestTrial) setUsedTrial((now) => (now?.shotId === latestTrial ? now : { shotId: latestTrial, asked: 0 }));
   }, [latestTrial]);
@@ -342,7 +342,7 @@ function DraftEditor({ id }: { id: string }) {
     <TrialShotsCard
       draftPath={path}
       trialShots={trying.trialShots}
-      shown={puckShot}
+      shown={laidOver}
       machineModel={draft.machineModel}
       onUse={(shotId) => setUsedTrial((now) => ({ shotId, asked: (now?.asked ?? 0) + 1 }))}
     />
@@ -437,7 +437,7 @@ function DraftEditor({ id }: { id: string }) {
         <div className="grid min-w-0 gap-4">
           <HowItRuns
             trial={usedTrial}
-            onPuckShot={setPuckShot}
+            onLaidOver={setLaidOver}
             title={profile.title.trim() || "the Draft"}
             machineModel={draft.machineModel}
             definition={profile}
@@ -447,7 +447,6 @@ function DraftEditor({ id }: { id: string }) {
             baseline={baseline}
             runLabel="This Draft, simulated"
             editing={steps > 0 ? { step: chosen, limits, onSelect: select, onChange: onHandle } : null}
-            puckUnder
           />
           {!rail && stepsCard}
           {!rail && trialsCard}

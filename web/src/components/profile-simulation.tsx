@@ -19,27 +19,14 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { type Shot, api } from "@/lib/api";
 import { measure, seconds } from "@/lib/profile-words";
+import { MAX_DOSE, MAX_STOP_AT, type PuckAsk } from "@/lib/puck-ask";
 
 // The controls and figures of a Profile's simulation (#578), shared by its
 // page and the comparison of two versions: the standard puck's finer to
 // coarser control, the dose, the stop-at weight and the Machine model; the
-// run's headline figures; and a Shot read for its puck or to lay over a graph.
+// run's headline figures; and a Shot read to lay over a graph.
 
-/** The most coffee a dose may be, g, as the REST API takes one. */
-export const MAX_DOSE = 50;
-/** The most a stop-at weight may be, g. */
-export const MAX_STOP_AT = 500;
-
-/** What a standard puck's simulation is asked for. */
-export interface PuckAsk {
-  /** -1, the finest, to 1, the coarsest. */
-  grind: number;
-  /** g. */
-  dose: number;
-  /** g, 0 to run until the last step ends. */
-  stopAt: number;
-  model: MachineModel;
-}
+export type { PuckAsk };
 
 /** What a simulation of a profile starts at: 18 g on the standard puck at its middle grind, stopping at the profile's stop-at weight, as the model given. */
 export function startingAsk(profile: Profile | null, model: MachineModel | undefined): PuckAsk {
@@ -115,7 +102,7 @@ export function ModelChoice({ model, onChange }: { model: MachineModel; onChange
       <InfoTip label="About the machine">
         <p>
           Simulated as this model runs it: a DE1&apos;s pump gives about 8 ml/s at most, and a Bengle&apos;s heater keeps up with about 15 ml/s at most. It starts as the model of the
-          Machines at the Locations showing the Profile: a Bengle where all of them are, otherwise a DE1. On a Shot&apos;s puck it starts as the model of the Shot&apos;s Machine.
+          Machines at the Locations showing the Profile: a Bengle where all of them are, otherwise a DE1. A Shot laid over the graph sets it to the model of the Shot&apos;s Machine.
         </p>
       </InfoTip>
     </div>
@@ -147,7 +134,8 @@ export function RunFigures({ run, against }: { run: SimulatedRun; against?: { la
   return (
     <dl aria-label="Simulated figures" className="flex flex-wrap gap-x-8 gap-y-3 tabular-nums">
       {figures.map((figure) => (
-        <div key={figure.term} className="grid gap-0.5">
+        // At most 12 rem wide, so a long comparison wraps under its figure and the four stay in one row beside a Draft's rail (#623).
+        <div key={figure.term} className="grid max-w-48 content-start gap-0.5">
           <dt className="text-sm text-muted-foreground">{figure.term}</dt>
           <dd className="text-2xl leading-tight font-semibold">{figure.value}</dd>
           {figure.compared && <dd className="text-xs text-muted-foreground">{figure.compared === "The same" ? `The same as ${against!.label}` : `${figure.compared} than ${against!.label}`}</dd>}
@@ -172,13 +160,13 @@ function figuresOf(samples: Sample<ShotCurve>[]): { duration: number; firstDrip:
   };
 }
 
-/** A Shot read for a Profile's graph: as the Shots list gives it, with what a simulation on its puck reads of it. */
+/** A Shot read for a Profile's graph: as the Shots list gives it, with what a simulation reads of it to match it. */
 export interface GraphShot {
   shot: Shot;
   simulation: SimulationShot;
 }
 
-/** Reads a Shot for a Profile's graph, its curves and what its puck is worked out from. */
+/** Reads a Shot for a Profile's graph: its curves, and what its dose, stop, model and puck are read from. */
 export async function loadGraphShot(id: string): Promise<GraphShot> {
   const path = `/shots/${encodeURIComponent(id)}`;
   const [{ shot }, { measurements }] = await Promise.all([api<{ shot: Shot }>("GET", path), api<{ measurements: unknown }>("GET", `${path}/measurements`)]);
