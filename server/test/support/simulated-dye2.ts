@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
-// DYE2 v0.1.40 and Streamline v0.2.31 on a simulated tablet, built from
+// DYE2 v0.1.42 and Streamline v0.2.31 on a simulated tablet, built from
 // their source at those releases (dye2:dye2-plugin/src/,
 // streamline-js:src/modules/). The plugin is not told of them, as of
 // anything else on the tablet (`SimulatedTablet.callApi`).
@@ -48,7 +48,7 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // is the whole shot, so applying one, and the Workflow it embeds, clears the
 // dose, grind setting, RPM, feed rate, Grinder, Basket, barista and drinker
 // it names none of, a dose, grind setting or RPM of 0 naming none, and sets a
-// yield of 0 where it names none; a grinder picked on the dashboard's tabs,
+// yield of 0 where it names none (but for the grind setting, below); a grinder picked on the dashboard's tabs,
 // the Grinders page or the grinder picker brings its default grind setting
 // and RPM, or none (`grinderDefaultsPatch`); the profile picker writes the
 // profile's yield and the dose at the ratio the Workflow held
@@ -58,7 +58,12 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // Favourite makes a recipe, in no slot. DYE2's
 // equipment and baskets pages were recorded at 2cf631c
 // (fixtures/decaid/dye2-2cf631c/), and save as v0.1.40's do
-// (`dye2PagesRecording`).
+// (`dye2PagesRecording`). And where fixtures/decaid/dye2-v0.1.42/ records
+// v0.1.42: a grind setting of 0 is a dial position, applied from the
+// dashboard and embedded in a recipe's Workflow as the text "0", only null
+// and an empty one naming none; and as it loads, every time, a recipe saved
+// at 0 before, holding none in its embedded Workflow, gets "0" there
+// (`dye2RestoreZeroGrindRecipeWorkflows`).
 //
 // DYE2 itself, the recipe id it reads from the Workflow and clears on a
 // profile change, its derived selection, its `record` and `save-recipe`, its
@@ -121,6 +126,7 @@ const v032Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.32")
 const v033Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.33");
 const v035Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.35");
 const v040Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.40");
+const v042Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.42");
 const streamlineV0224Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.24");
 const streamlineV0231Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.31");
 const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
@@ -148,6 +154,9 @@ export type Dye2V040File =
   | "explicit-nulls"
   | "yield-set"
   | "keys";
+
+/** The files of fixtures/decaid/dye2-v0.1.42/: what DYE2 v0.1.42 and Streamline v0.2.31 do with a grind setting of 0, on Decaid v0.9.2 (its README). */
+export type Dye2V042File = "library" | "loading" | "dashboard-applies" | "strip-applies" | "record" | "repair" | "keys";
 
 /** The files of fixtures/decaid/streamline-v0.2.24/: what Streamline v0.2.24 writes around steam, on a profile switch and from its Grind label, and DYE2 v0.1.36's Grinders page (its README). */
 export type StreamlineV0224File = "library" | "loading" | "strip" | "heater" | "tile" | "settings" | "record" | "steam-off-edit" | "settings-kept" | "profile-switch" | "grind-label" | "grinders-page" | "keys";
@@ -183,6 +192,11 @@ export function dye2V033Recording<T = Record_>(file: Dye2V033File): T {
 /** A file of fixtures/decaid/dye2-v0.1.40/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
 export function dye2V040Recording<T = Record_>(file: Dye2V040File): T {
   return expandedRecording<T>(v040Fixtures, file);
+}
+
+/** A file of fixtures/decaid/dye2-v0.1.42/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
+export function dye2V042Recording<T = Record_>(file: Dye2V042File): T {
+  return expandedRecording<T>(v042Fixtures, file);
 }
 
 /** A file of fixtures/decaid/dye2-v0.1.35/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
@@ -539,7 +553,8 @@ function asList(value: unknown): Record_[] {
 // migrations, each once its store flag says it has not
 // (`selectionMigrated`: `migrate`; `recipesMigrated`: `migrateRecipeSlots`,
 // `dropSuggestedRecipes` and `dedupeRecipeSlots`; `recipeBeansMigrated`:
-// `clearBeanlessRecipeWorkflows`), and refreshes its recent favourites,
+// `clearBeanlessRecipeWorkflows`), and on every load the repair of a recipe
+// saved at a grind setting of 0 (`healZeroGrindRecipes`), and refreshes its recent favourites,
 // pushing once done, as it does after each Shot (`refreshRecents`); recent
 // favourites themselves are not simulated, nor the favourite migrations'
 // changes (`favSlotsMigrated`, `favProfilesMigrated`, `favBeansMigrated`).
@@ -938,6 +953,21 @@ export function dye2ClearBeanlessRecipeWorkflows(recipes: Record_[]): Record_[] 
   );
 }
 
+/**
+ * Each recipe saved at a grind setting of 0 before DYE2 v0.1.42, the number
+ * 0 in its `dashboardVariables` and none in its embedded Workflow's context,
+ * given the text "0" there (`restoreZeroGrindRecipeWorkflows` in
+ * utils/recent-favs.ts at v0.1.42, decentespresso/dye2#47). The list itself
+ * where none needs it.
+ */
+export function dye2RestoreZeroGrindRecipeWorkflows(recipes: Record_[]): Record_[] {
+  if (!Array.isArray(recipes)) return recipes;
+  const context = (row: Record_) => ((row.workflow as Record_ | undefined)?.context ?? null) as Record_ | null;
+  const needs = (row: Record_) => !!row && (row.dashboardVariables as Record_ | undefined)?.grind === 0 && !!context(row) && context(row)!.grinderSetting == null;
+  if (!recipes.some(needs)) return recipes;
+  return recipes.map((row) => (needs(row) ? { ...row, workflow: { ...(row.workflow as Record_), context: { ...context(row), grinderSetting: "0" } } } : row));
+}
+
 /** The one-time healing of DYE2's recipes (`healRecipes` in plugin.ts). */
 function healRecipes(rows: Record_[]): Record_[] {
   return dye2DedupeRecipeSlots(dropSuggestedRecipes(dye2MigrateRecipeSlots(rows)));
@@ -1226,13 +1256,29 @@ export class SimulatedDye2 {
     // read, and the later one undo the other's, as only a DYE2 before v0.1.25 leaves both to run.
     const healed = flag("recipesMigrated") ? Promise.resolve() : this.runMigration("recipesMigrated", () => this.migrateRecipes(healRecipes), true);
     migrations.push(healed);
-    if (!flag("recipeBeansMigrated")) migrations.push(healed.then(() => this.runMigration("recipeBeansMigrated", () => this.migrateRecipes(dye2ClearBeanlessRecipeWorkflows), false)));
+    const beans = flag("recipeBeansMigrated") ? healed : healed.then(() => this.runMigration("recipeBeansMigrated", () => this.migrateRecipes(dye2ClearBeanlessRecipeWorkflows), false));
+    migrations.push(beans);
+    // From v0.1.42, on every load, with no flag (`healZeroGrindRecipes`): one read, and a write only where a row needs it.
+    migrations.push(beans.then(() => this.healZeroGrindRecipes()));
     // Its favourites' slots, profiles and beans are not simulated: their flags are written, and the slots' recent favourites refreshed.
     if (!flag("favBeansMigrated")) migrations.push(this.runMigration("favBeansMigrated", async () => {}, false));
     if (!flag("favSlotsMigrated")) migrations.push(this.runMigration("favSlotsMigrated", async () => {}, true));
     if (!flag("favProfilesMigrated")) migrations.push(this.runMigration("favProfilesMigrated", async () => {}, false));
     await Promise.all([cold, ...migrations]);
     await this.chain;
+  }
+
+  /** `healZeroGrindRecipes` in plugin.ts at v0.1.42: the recipes read once and posted back where `dye2RestoreZeroGrindRecipeWorkflows` changed them; a failure is logged. */
+  private async healZeroGrindRecipes(): Promise<void> {
+    try {
+      const rows = await this.kv("recipes");
+      const next = dye2RestoreZeroGrindRecipeWorkflows(rows);
+      if (next === rows) return;
+      const written = await this.api("POST", `/store/${DYE2_NAMESPACE}/recipes`, next);
+      if (written.status !== 200) throw new Error(`HTTP ${written.status} restoring zero grind settings`);
+    } catch (error) {
+      this.logs.push(`[dye2] zero grind repair failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** `migrate`: the stored selection and the Workflow's `extras.dye.selection` cleared, once. */
@@ -1670,10 +1716,11 @@ async function resolveFullProfileById(tablet: SimulatedTablet, id: unknown): Pro
 
 /**
  * The ready-to-PUT Workflow a recipe embeds (`buildRecipeWorkflow` in
- * dev-api.ts at v0.1.40). A recipe is the whole shot, not an overlay on the
+ * dev-api.ts at v0.1.42). A recipe is the whole shot, not an overlay on the
  * last one, and `PUT /workflow` merges, so it holds each of these whether
- * the recipe names one or not: its dose, grind setting, RPM and feed rate,
- * null where it names none or names 0; its yield, or its dose times its
+ * the recipe names one or not: its dose, RPM and feed rate, null where it
+ * names none or names 0; its grind setting as text, null where it names
+ * none, a 0 being a dial position; its yield, or its dose times its
  * ratio, 0 where it names neither, as Decaid refuses a null there; its
  * Grinder with its model and its Basket with its name, null for none; its
  * Bean (its coffee, roaster and batch, null for those it lacks, and all
@@ -1687,7 +1734,8 @@ async function buildRecipeWorkflow(tablet: SimulatedTablet, recipe: Record_): Pr
   const context: Record_ = {};
   const workflow: Record_ = { context };
   context.targetDoseWeight = dv.dose || null;
-  context.grinderSetting = dv.grind ? String(dv.grind) : null;
+  // A grind setting of 0 is a dial position (decentespresso/dye2#47): only null and "" name none.
+  context.grinderSetting = dv.grind != null && dv.grind !== "" ? String(dv.grind) : null;
   context.extras = { rpm: dv.rpm || null, feedRate: dv.feedRate || null };
   if (dv.drink != null) context.targetYield = dv.drink;
   else if (dv.ratio != null && dv.dose != null) context.targetYield = Math.round((dv.dose as number) * (dv.ratio as number) * 10) / 10;
@@ -2136,10 +2184,11 @@ export class Dye2Dashboard {
   }
 
   /**
-   * `applyRecipe` in dashboard.ts at v0.1.40, on the page's copy. A recipe is
+   * `applyRecipe` in dashboard.ts at v0.1.42, on the page's copy. A recipe is
    * the whole shot, so each of these is written whether it names one or not:
-   * its dose, grind setting, RPM and feed rate, null where it names none or
-   * names 0; its yield, or its dose times its ratio, 0 where it names
+   * its dose, RPM and feed rate, null where it names none or names 0; its
+   * grind setting as text, null where it names none, a 0 being a dial
+   * position; its yield, or its dose times its ratio, 0 where it names
    * neither; its Grinder with its model where the page's grinders hold it,
    * both null where it names none or one they no longer hold; its Basket with
    * its name, null for none; its Bean's coffee, roaster and batch, null for
@@ -2158,7 +2207,8 @@ export class Dye2Dashboard {
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
     const context: Record_ = { ...((live.context ?? {}) as Record_) };
     context.targetDoseWeight = dv.dose || null;
-    context.grinderSetting = dv.grind || null;
+    // A grind setting of 0 is a dial position (decentespresso/dye2#47): only null and "" name none.
+    context.grinderSetting = dv.grind != null && dv.grind !== "" ? String(dv.grind) : null;
     context.extras = { ...((context.extras ?? {}) as Record_), rpm: dv.rpm || null, feedRate: dv.feedRate || null };
     if (dv.drink != null) context.targetYield = dv.drink;
     else if (dv.ratio != null && dv.dose != null) context.targetYield = Math.round((dv.dose as number) * (dv.ratio as number) * 10) / 10;

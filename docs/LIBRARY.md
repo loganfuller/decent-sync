@@ -609,8 +609,9 @@ Conflict names is kept, still refused, so history goes on naming it
   `d992296`; GRINDER_RANGE_FIELDS in `protocol/`): `settingMin`,
   `settingMax` and `settingDefault`, and `rpmMin`, `rpmMax` and
   `rpmDefault`, each a number of any sign, blank for none, where 0 is a
-  value: a Recipe's dose, grind setting and RPM are none at 0, and these are
-  not. A tablet's steppers stop at the range, and a Machine takes the
+  value: a Recipe's dose and RPM are none at 0, and these are not. A
+  Recipe's grind setting is not read against its Grinder's range, 0 or
+  otherwise. A tablet's steppers stop at the range, and a Machine takes the
   default, or the middle of the range, as a barista picks the Grinder on it
   (ADR-0022, What DYE2 and Streamline do). DYE2 keeps them in the record's
   `extras` beside the note, so the server reads them from there and the
@@ -744,11 +745,13 @@ Conflict names is kept, still refused, so history goes on naming it
   (Steam, hot water and flush settings, below). Its grind setting is a
   number where it reads as one and otherwise the text as typed, such as a
   three-dial grinder's `1.1.0`, as DYE2 v0.1.32 keeps one (`grindSettingOf`
-  in `protocol/`), shown and edited as kept. Its dose, grind setting and RPM
-  are above 0 or none: a 0 for one is refused with 400, and clearing the
-  field says none, as DYE2 from v0.1.37 applies a recipe holding 0 for one
-  as naming none (`RECIPE_NONE_AT_ZERO` in `protocol/`, ADR-0022, #550); its
-  yield may be 0, which is stop-at-weight off. A stored 0, as 1.10.0 may
+  in `protocol/`), shown and edited as kept, 0 included: from DYE2 v0.1.42
+  a grind setting of 0 is a dial position (decentespresso/dye2#47, #617), and
+  a number below 0 is refused with 400. Its dose and RPM are above 0 or
+  none: a 0 for one is refused with 400, and clearing the field says none,
+  as DYE2 from v0.1.37 applies a recipe holding 0 for one as naming none
+  (`RECIPE_NONE_AT_ZERO` in `protocol/`, ADR-0022, #550); its yield may be
+  0, which is stop-at-weight off. A stored dose or RPM of 0, as 1.10.0 may
   take one in, is read as none, its page showing none. A Recipe is the whole
   Shot: a Machine that loads it is left with none of the dose, grind
   setting, RPM, feed rate, Grinder, Basket and Bean Batch it holds none of,
@@ -1477,9 +1480,11 @@ are never matched (ADR-0018).
   own ids, read through the tablet's map: one the map does not hold, as one
   of the tablet's own, names nothing. A record is compared and written by
   its fields' paths (`recipeView`), a field of its `dashboardVariables` as
-  `dashboardVariables.dose`. A record's dose, grind setting or RPM of 0 is
-  read as none (`noneAtZero`), as DYE2's editor saves an RPM left blank as 0
-  and DYE2 applies it as none: a 0 a tablet saves is taken in as none, and a
+  `dashboardVariables.dose`. A record's grind setting of 0, the number or
+  the text, is the Recipe's, as any other, written as the number 0 with "0"
+  in its embedded Workflow (#617). A record's dose or RPM of 0 is read as
+  none (`noneAtZero`), as DYE2's editor saves an RPM left blank as 0 and
+  DYE2 applies it as none: a 0 a tablet saves is taken in as none, and a
   record holding one is neither an edit nor written again for it, while a
   write that does change the field expects the 0 the record holds
   (`recordValueAt`, `heldValue` in `holdings.ts`). A yield of 0 is a value,
@@ -1645,19 +1650,22 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   it;
 - the names DYE2 copies, the Bean's roaster among them, and `title`,
   `subtitle` and the embedded `workflow`, built as DYE2's
-  `buildRecipeWorkflow` builds them at v0.1.40 (`recipeWorkflow`), with the Bean's name, roaster and batch
+  `buildRecipeWorkflow` builds them at v0.1.42 (`recipeWorkflow`), with the Bean's name, roaster and batch
   together, null where it holds none, and all three null for a Recipe naming
   no Bean, so applying it from Streamline's strip leaves no bean batch, as
   from DYE2's dashboard; a record that lacks them, as one the server wrote
   before DYE2 v0.1.32 did, is written them once (`lacksBeanNulls`), which the
   plugin posts though comparing records takes a null for none; a null for
   each of its dose, grind setting, RPM, feed rate, Grinder, Basket, barista
-  and drinker it holds none of, and a yield of 0 where it holds neither a
+  and drinker it holds none of, a grind setting of 0 held as "0", and a
+  yield of 0 where it holds neither a
   yield nor a dose and ratio, as a recipe is the whole shot from DYE2 v0.1.37
   (ADR-0022), though no record is written again for those alone: one whose
   embedded Workflow differs only in how it holds none, a 0 for a null or no
-  yield for a yield of 0, as one saved before v0.1.37 does, is left as it
-  is (`withoutZeros`), as Streamline's strip clears whatever it holds and
+  yield for a yield of 0, as one saved before v0.1.37 does, or in a grind
+  setting of 0 held as none beside the record's grind of 0, as DYE2 saved
+  one before v0.1.42 and repairs it as it loads (`restoreZeroGrindRecipeWorkflows`),
+  is left as it is (`heldWorkflow`, `withoutZeros`), as Streamline's strip clears whatever it holds and
   the plugin's load write covers any other Skin; the full Profile, the tablet's
   grinder id, and each steam, hot water and flush setting it holds in
   partial `steamSettings`, `hotWaterData` and `rinseData`, none where it

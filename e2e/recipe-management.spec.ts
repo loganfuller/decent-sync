@@ -112,7 +112,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await expect(edit.getByLabel("Feed rate")).toHaveValue("MF");
     // A feeder's RPM typed as a number is kept as typed.
     await edit.getByLabel("Feed rate").fill("1200");
-    // An RPM of 0 is none, as a dose or grind setting of 0 is: the form says so, and an empty field says none.
+    // An RPM of 0 is none, as a dose of 0 is: the form says so, and an empty field says none.
     await edit.getByLabel("RPM").fill("0");
     await edit.getByRole("button", { name: "Save" }).click();
     await expect(edit.getByRole("alert")).toHaveText("RPM must be above 0: leave it empty for none");
@@ -382,7 +382,7 @@ test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso (Brazil)");
 });
 
-test("a Recipe whose RPM a tablet's DYE2 saved as 0 shows no RPM, as a dose, grind setting or RPM of 0 is none, and keeps a yield of 0", async ({ page }) => {
+test("a Recipe whose RPM a tablet's DYE2 saved as 0 shows no RPM, as a dose or RPM of 0 is none, keeps a yield of 0, and takes a grind setting of 0", async ({ page }) => {
   const lab = await createLocation(page, "Zero lab");
   const tablet = await tabletAt(page, server, "Zero lab 1", lab, "45551", tabletApi);
   const recipe = await createRecipe(page, lab, 1, { name: "Zero Espresso", dose: 18, yield: 36, grindSetting: 2.5, rpm: 900 });
@@ -412,6 +412,15 @@ test("a Recipe whose RPM a tablet's DYE2 saved as 0 shows no RPM, as a dose, gri
   await expect(edit.getByRole("alert")).toHaveText("Dose (g) must be above 0: leave it empty for none");
   // The tablet's record keeps its 0: it reads as none.
   expect((slotOn(tablet, 1)!.dashboardVariables as Record_).rpm).toBe(0);
+
+  // A grind setting of 0 is a dial position, as DYE2 v0.1.42 applies one (#617): saved, shown, and written to the tablet.
+  await edit.getByLabel("Dose (g)").fill("18");
+  await edit.getByLabel("Grind setting").fill("0");
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect(field(details, "Grind setting")).toHaveText("0");
+  expect((await content()).grindSetting).toBe(0);
+  await expect.poll(() => (slotOn(tablet, 1)!.dashboardVariables as Record_).grind).toBe(0);
+  expect(((slotOn(tablet, 1)!.workflow as Record_).context as Record_).grinderSetting).toBe("0");
 });
 
 test("the form keeps a Tool Archived since as one to uncheck, beside a new one, and offers no batch of an Archived Bean", async ({ page }) => {

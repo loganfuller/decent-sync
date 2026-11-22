@@ -19,6 +19,11 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // run again on a migrated database holding what 1.10.0 left, through the
 // database, the REST API and a simulated tablet. Serials are made up, from
 // 55001.
+//
+// From #617 a grind setting of 0 is a dial position, as DYE2 v0.1.42 applies
+// one: this release takes, shows and writes one, while the migration, as
+// 1.10.1 shipped it, still clears a grind setting of 0 with the dose and RPM,
+// as it did then.
 
 type Record_ = Record<string, unknown>;
 
@@ -61,12 +66,10 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
     await expect.poll(() => [zero, kept].map(({ id }) => dial(id)), { timeout: 15_000 }).toEqual([[18, 36, 2.5, 900], [18, 0, 2.5, 900]]);
 
     // No edit sets one of 0: clearing the field says none. A yield of 0 is stop-at-weight off, which a Recipe may hold.
-    for (const [field, problem] of [["dose", "dose must be a number above 0"], ["rpm", "rpm must be a number above 0"], ["grindSetting", "grindSetting must be a number above 0, or text"]] as const) {
-      for (const value of field === "grindSetting" ? [0, "0", " 0.0 "] : [0]) {
-        const refused = await api.call("PATCH", `/recipes/${zero.id}`, { content: { [field]: value } });
-        expect(refused.status, `${field} ${String(value)}`).toBe(400);
-        expect(await refused.text()).toContain(problem);
-      }
+    for (const [field, problem] of [["dose", "dose must be a number above 0"], ["rpm", "rpm must be a number above 0"]] as const) {
+      const refused = await api.call("PATCH", `/recipes/${zero.id}`, { content: { [field]: 0 } });
+      expect(refused.status, field).toBe(400);
+      expect(await refused.text()).toContain(problem);
     }
     expect((await api.call("POST", "/recipes", { locationId: location.id, slot: 3, content: { name: "Refused", rpm: 0 } })).status).toBe(400);
     expect((await api.call("PATCH", `/recipes/${zero.id}`, { content: { yield: 0 } })).status).toBe(200);
@@ -92,13 +95,14 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
           .then(({ rows }) => rows[0]!.id);
       conflicts = { zero: await conflict(0, "OPEN"), other: await conflict(1100, "OPEN"), used: await conflict(0, "USED") };
 
-      // Read as none before the migration, by the REST API and in what its tablets are written as they connect again.
+      // Read as none before the migration, by the REST API and in what its tablets are written as they connect again; the
+      // grind setting of 0 as the dial position it is from #617.
       const read = (await recipe(zero.id)).content;
-      for (const field of ["dose", "grindSetting", "rpm"]) expect(read, field).not.toHaveProperty(field);
-      expect(read).toMatchObject({ yield: 36 });
+      for (const field of ["dose", "rpm"]) expect(read, field).not.toHaveProperty(field);
+      expect(read).toMatchObject({ yield: 36, grindSetting: 0 });
       tablet.loseNetwork();
       tablet.restoreNetwork();
-      await expect.poll(() => dial(zero.id), { timeout: 15_000 }).toEqual([null, 36, null, null]);
+      await expect.poll(() => dial(zero.id), { timeout: 15_000 }).toEqual([null, 36, 0, null]);
       expect(dial(kept.id)).toEqual([18, 0, 2.5, 900]);
       const before = await fieldEdits(zero.id);
       const shown = (await open(conflicts.other))!.current.versionId;

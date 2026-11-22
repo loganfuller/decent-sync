@@ -24,10 +24,11 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * its Profile by Decaid's id (`profileId`), and each Tool's attributes for it
  * by the Tool's global id (`toolAttributes`), as DYE2's `equipmentCustom`
  * holds them by its own, and its grind setting as a number or text
- * (`grindSetting`, as `grindSettingOf` keeps one). Its dose and RPM are
- * numbers above 0 (`aboveZero`), and its grind setting is no 0 either, as a
- * Recipe holds none of one at 0 (RECIPE_NONE_AT_ZERO in protocol/): clearing
- * the field says so. A number DYE2's recipe editor takes only within a
+ * (`grindSetting`, as `grindSettingOf` keeps one), 0 included, a dial
+ * position, as DYE2 from v0.1.42 applies one (decentespresso/dye2#47). Its
+ * dose and RPM are numbers above 0 (`aboveZero`), as a Recipe holds none of
+ * one at 0 (RECIPE_NONE_AT_ZERO in protocol/): clearing the field says so.
+ * A number DYE2's recipe editor takes only within a
  * range is read against it (`NumberRange`). A Grinder's range and defaults
  * are numbers of any sign (`anyNumber`), as DYE2's Grinders page takes them.
  * A Profile's author and notes are text Decaid holds none of as empty
@@ -177,7 +178,7 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       // As typed, or the number it reads as, as DYE2 v0.1.32 keeps one: a setting all blanks is none.
       const setting = grindSettingOf(value);
       if (typeof value === "string" && setting === null) return { value: null };
-      return (typeof setting === "number" && setting > 0) || typeof setting === "string" ? { value: setting } : "must be a number above 0, or text: clear it for none";
+      return (typeof setting === "number" && setting >= 0) || typeof setting === "string" ? { value: setting } : "must be a number of 0 or more, or text: clear it for none";
     }
   }
 }

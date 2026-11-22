@@ -191,7 +191,7 @@ function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
     case "toolAttributes":
       return { schema: z.record(z.string(), attributes) };
     case "grindSetting":
-      return { schema: z.union([z.number(), z.string()]), note: "A number above 0, or text as typed, such as 2.5 or 1.1.0: null for none." };
+      return { schema: z.union([z.number(), z.string()]), note: "A number of 0 or more, 0 being a dial position, or text as typed, such as 2.5 or 1.1.0: null for none." };
   }
 }
 

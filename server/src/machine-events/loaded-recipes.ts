@@ -555,7 +555,7 @@ const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
  * record: the Recipe's value is written back into the record and the
  * Workflow. Each is held as the Workflow holding the value saved, and one
  * that is an edit as the Workflow having taken the Recipe's new value. A
- * dose, grind setting, RPM or yield DYE2 saved as none is a 0 it saved from
+ * dose, RPM or yield DYE2 saved as none is a 0 it saved from
  * a Workflow holding 0, as it saves no clear: an edit, as a 0 from a tablet
  * is none of a Recipe's (ADR-0022), but where the Workflow held that 0
  * before, with a write of the Recipe's value still to land.

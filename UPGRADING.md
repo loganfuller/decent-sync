@@ -44,6 +44,42 @@ button on its settings page). While Decaid is closed its Machine shows
 offline in the management interface and nothing reaches its tablet, so turn
 it off on tablets that are to stay reachable.
 
+### Tablets need DYE2 v0.1.42
+
+This release follows DYE2 v0.1.42
+([ADR-0017](docs/adr/0017-supported-versions.md)). Decaid installs the
+latest DYE2 on each tablet by itself; a tablet whose DYE2 is pinned to an
+earlier build is moved to v0.1.42 or later by hand first. Then deploy the
+server. Nothing refuses an older DYE2, but nothing is written for what it
+does: DYE2 v0.1.41 or earlier applies a Recipe's grind setting of 0 as none,
+clearing the Machine's.
+
+### A grind setting of 0 is a Recipe's
+
+A grind setting of 0 is now a dial position, as DYE2 v0.1.42 applies one
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md),
+What 0 means). Saved on a tablet, or set in the management interface or
+through an assistant, it is the Recipe's: shown, written to the Location's
+other tablets, and left in a Machine's Workflow as the Recipe loads. A dose
+or RPM of 0 is still none.
+
+Nothing puts back the grind settings of 0 that 1.10.1 removed from Recipes:
+no record was kept of which Recipes held one. Where a tablet's recipe still
+holds a 0 that its Recipe holds none of, the server writes it none, as the
+Recipe holds it; set the 0 again where it was meant.
+
+As DYE2 v0.1.42 loads, it repairs each of its recipes saved at a grind
+setting of 0 before it, which then cleared the Machine's grind setting as it
+applied. That is no edit of the Recipe and writes nothing to other tablets.
+
+While the previous release still serves beside this one during the deploy,
+it takes a grind setting of 0 saved on a tablet it holds as none, as it did,
+and shows a Recipe's 0 as none. A Recipe set to 0 through this release
+then, from another setting, is written none to the tablets the previous
+release holds, and cleared from the Workflow of each of their Machines that
+has it loaded, so a Shot pulled there names no grind setting. Each is
+written the 0 again as its tablet reconnects to this release.
+
 ### Loading a Recipe turns steam on or off
 
 Steam on and off now follows the Recipe, as DYE2 and Streamline v0.2.31

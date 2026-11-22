@@ -280,7 +280,7 @@ each Machine's Loaded Recipe (ADR-0022), and ticket
 recipe its Workflow names. Ticket
 [#550](https://github.com/loganfuller/decent-sync/issues/550) makes a Recipe
 the whole Shot: a Machine that loads one is left with none of what it names
-none of. DYE2 v0.1.40 and Streamline v0.2.31, the
+none of. DYE2 v0.1.42 and Streamline v0.2.31, the
 supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
@@ -360,8 +360,10 @@ through `plugin/src/dye2.ts`, and writes what the pure
   nor a dose and ratio has the Workflow's yield set to 0, stop-at-weight
   off, as Decaid refuses a null there (`WORKFLOW_YIELD_OFF`); and one naming
   a Bean and no batch has the Workflow's batch cleared, its coffee and
-  roaster the Bean's. A dose, grind setting or RPM of 0 in the record names
-  none, and one of 0 in the Workflow is none held (`noneAtZero`), so a
+  roaster the Bean's. A dose or RPM of 0 in the record names none, and one
+  of 0 in the Workflow is none held (`noneAtZero`), while a grind setting of
+  0 is a dial position, written as the text "0", as DYE2 v0.1.42 applies
+  one (decentespresso/dye2#47), so a
   record whose RPM DYE2's editor saved as 0 is written nothing once DYE2's
   apply cleared the Workflow's. A steam, hot water or flush setting the
   record holds none of is left as the Machine has it, and so is the
@@ -695,8 +697,9 @@ parts to the Recipe's content both ways.
   the Recipe has seen (ADR-0020, `editContent`), each change from `held` of
   what DYE2 saves none of (`valuesFromWorkflow` in
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
-  setting, RPM or feed rate the Recipe holds none of, but never a 0, which
-  is none (`nonePart`), so a Recipe holding no yield takes none from a
+  setting, RPM or feed rate the Recipe holds none of, but never a dose,
+  yield or RPM of 0, which is none (`nonePart`), a grind setting of 0 being
+  a dial position, so a Recipe holding no yield takes none from a
   Workflow whose yield is 0, and takes 40 once a barista sets it; no Basket, which DYE2 v0.1.33
   saves once picked, reaching the Recipe as the tablet's
   change of its record (ADR-0022, #389); a Grinder, one of the Location's
@@ -832,8 +835,8 @@ parts to the Recipe's content both ways.
   the next change is written; a Recipe naming a batch is unchanged by
   this, and so is a rename of the Bean, which no Workflow's coffee text
   follows; while a steam time cleared from it is
-  not, staying each Machine's own; a dose, grind setting, RPM or yield of 0
-  in a Workflow being none held (`nonePart`); its Profile whole, expecting nothing, as a skin
+  not, staying each Machine's own; a dose, RPM or yield of 0 in a Workflow
+  being none held (`nonePart`), and a grind setting of 0 the value "0"; its Profile whole, expecting nothing, as a skin
   overrides parts of the one it loads, and its brew temperature
   (`profile.steps.0.temperature`, its Profile's first step's where the
   Recipe holds none), with any Profile written, and each steam, hot water

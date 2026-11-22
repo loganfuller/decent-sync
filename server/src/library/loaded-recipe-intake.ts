@@ -110,19 +110,20 @@ export function partValue(part: LoadedRecipePart, value: unknown): PartValue {
 }
 
 /**
- * The parts of which 0 is none: a dose, grind setting and RPM, as a Recipe
- * holds none of one at 0 (RECIPE_NONE_AT_ZERO in protocol/), and a yield, as
- * 0 is stop-at-weight off, which a Workflow holding none has too
- * (WORKFLOW_YIELD_OFF).
+ * The parts of which 0 is none: a dose and RPM, as a Recipe holds none of
+ * one at 0 (RECIPE_NONE_AT_ZERO in protocol/), and a yield, as 0 is
+ * stop-at-weight off, which a Workflow holding none has too
+ * (WORKFLOW_YIELD_OFF). Not a grind setting, whose 0 is a dial position
+ * (decentespresso/dye2#47).
  */
-const NONE_AT_ZERO: ReadonlySet<LoadedRecipePart> = new Set(["dose", "yield", "grind", "rpm"]);
+const NONE_AT_ZERO: ReadonlySet<LoadedRecipePart> = new Set(["dose", "yield", "rpm"]);
 
-/** Whether 0 is none of a part: a dose, yield, grind setting or RPM (`NONE_AT_ZERO`). */
+/** Whether 0 is none of a part: a dose, yield or RPM (`NONE_AT_ZERO`). */
 export function noneAtZeroPart(part: LoadedRecipePart): boolean {
   return NONE_AT_ZERO.has(part);
 }
 
-/** Whether a part's value is none: null, or 0 for a dose, yield, grind setting or RPM (`NONE_AT_ZERO`). */
+/** Whether a part's value is none: null, or 0 for a dose, yield or RPM (`NONE_AT_ZERO`). */
 export function nonePart(part: LoadedRecipePart, value: unknown): boolean {
   return value === null || value === undefined || (NONE_AT_ZERO.has(part) && isZero(value));
 }
@@ -266,8 +267,9 @@ const PICKED_WITH_GRINDER = { grind: "grindSetting", rpm: "rpm" } as const satis
  * to the one it holds now (`now`): a dose, yield, grind setting (a number, or
  * text as typed, as DYE2 v0.1.32 saves one), RPM or feed rate (text as typed,
  * which DYE2 adopts into no recipe holding none) the Recipe holds none of,
- * but one of 0, which is none (`nonePart`), so a Recipe holding no yield
- * takes none from a Workflow whose yield is 0; a Grinder, one of the
+ * but one of 0 for a dose, yield or RPM, which is none (`nonePart`), so a
+ * Recipe holding no yield takes none from a Workflow whose yield is 0, while
+ * a grind setting of 0 is the Workflow's dial position; a Grinder, one of the
  * Location's, with the grind setting and RPM the Workflow holds after it,
  * none included, as DYE2 from v0.1.37 writes the picked grinder's defaults
  * with it, or none where it declares neither (`grinderDefaultsPatch` in
@@ -331,7 +333,7 @@ export function valuesFromWorkflow(
  * brew temperature its Profile's first step's (`profileTemperature`) where
  * it holds none, as its records hold one (`recipeRecord`). A steam time of
  * 0, as 1.6.2 may have taken one in, is none (`steamTimeOf`), and so is a
- * dose, grind setting or RPM of 0, as 1.10.0 may take one in (`nonePart`).
+ * dose or RPM of 0, as 1.10.0 may take one in (`nonePart`).
  * A Recipe holding "Off" (`steamHeldOff`) is to hold steam off whole, its
  * steam temperature and steam time both STEAM_OFF_VALUE, whatever steam
  * time the Recipe keeps (ADR-0022, Steam on and off).

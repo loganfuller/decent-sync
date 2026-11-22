@@ -1989,8 +1989,8 @@ var __decentSync = (() => {
     const ratio = numberOf(variables.ratio);
     const yieldValue = numberOf(variables.drink) ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : WORKFLOW_YIELD_OFF);
     if (!sameNumber(yieldValue, numberOf(context.targetYield) ?? WORKFLOW_YIELD_OFF) && !omit.has("yield")) contextWrite.targetYield = yieldValue;
-    const grind = noneAtZero(grindOf(variables.grind));
-    if (!sameGrind(grind, noneAtZero(grindOf(context.grinderSetting))) && !omit.has("grind")) contextWrite.grinderSetting = grind;
+    const grind = grindOf(variables.grind);
+    if (!sameGrind(grind, grindOf(context.grinderSetting)) && !omit.has("grind")) contextWrite.grinderSetting = grind;
     const grinder = textOf(variables.grinderId);
     if (grinder === null) {
       if ((textOf(context.grinderId) !== null || textOf(context.grinderModel) !== null) && !omit.has("grinder")) Object.assign(contextWrite, { grinderId: null, grinderModel: null });

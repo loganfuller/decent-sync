@@ -15,7 +15,7 @@ import { latestReleaseDir, latestReleaseTag, releaseCurvesRevision, releaseWireR
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot, preheatShotFixture } from "../support/shot-fixtures.js";
-import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
+import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
 import { PluginStorage, RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
@@ -402,6 +402,59 @@ describe("the latest release beside the change", () => {
       for (const field of ["grinderId", "grindSetting", "basketId", "dose", "rpm"]) expect(await content(bare.id), `${name}: ${field}`).not.toHaveProperty(field);
       if (server === "change") expect(await content(bare.id), name).not.toHaveProperty("yield");
       else expect((await content(bare.id)).yield ?? 0, name).toBe(0);
+    }
+  });
+
+  // A grind setting of 0 is a Recipe's (#617), as DYE2 v0.1.42 applies one,
+  // where the latest release reads it as none, as DYE2 v0.1.40 did: the wire
+  // is unchanged, as each carries a 0 as a value. Beside it, a Recipe holding
+  // 0 on the change's server loads as 0 on a tablet with the latest release's
+  // plugin, whose load write reads the Workflow's 0 and the record's as none
+  // alike and so writes nothing; and on the latest release's server a 0 saved
+  // in DYE2's editor is taken as none, as it was, the tablet keeping its 0,
+  // which the change's plugin writes nothing over as it loads.
+  it("keeps a grind setting of 0 on a tablet as its Recipe loads: one the change's server holds, on the latest release's plugin; and one saved on the change's plugin, which the latest release's server takes as none", async () => {
+    type Record_ = Record<string, unknown>;
+    const ETHIOPIA = "1";
+    for (const { name, plugin, server } of [
+      { name: "the latest release's plugin", plugin: "latest release", server: "change" },
+      { name: "the change's plugin on the latest release", plugin: "change", server: "latest release" },
+    ] as const) {
+      const api = apis[server];
+      const location = await api.createLocation(`Zero grind, ${name}`, "America/Chicago");
+      const machine = await api.createMachine(`Zero grind, ${name}`, location.id);
+      const tablet = syncingTablet(machine, servers[server], { latestRelease: plugin === "latest release", api: recordedDye2MainTablet(String(serial++), `Zero grind ${server}`), dye2: new SimulatedDye2() });
+      loaded.push(tablet);
+      expect(tablet.pluginDir).toBe(pluginDirs()[plugin]);
+      await apis.change.waitForOnline(machine);
+      const record = () => ((dye2List(tablet, "recipes") as Record_[] | null) ?? []).find((entry) => entry.id === ETHIOPIA);
+      await expect.poll(() => dye2GlobalIdOf(record()), { timeout: 15_000 }).not.toBeNull();
+      const ethiopia = dye2GlobalIdOf(record())!;
+      const content = async () => (await apis.change.get<{ recipe: { content: Record_ } }>(`/recipes/${ethiopia}`)).recipe.content;
+      const recorded = () => [(record()?.dashboardVariables as Record_ | undefined)?.grind ?? null, ((record()?.workflow as Record_ | undefined)?.context as Record_ | undefined)?.grinderSetting ?? null];
+      const grind = () => (tablet.workflow().context as Record_ | undefined)?.grinderSetting ?? null;
+      const quiet = () => quiesced(api, { tablets: { tablet }, machines: { machine } });
+      const writes: unknown[] = [];
+      tablet.refuseWrites = ({ method, route, body }) => {
+        const context = (body as { context?: Record_ } | undefined)?.context;
+        if (method === "PUT" && route === "/workflow" && context && "grinderSetting" in context) writes.push(context.grinderSetting);
+        return undefined;
+      };
+
+      if (server === "change") {
+        expect((await apis.change.call("PATCH", `/recipes/${ethiopia}`, { content: { grindSetting: 0 } })).status, name).toBe(200);
+        await expect.poll(recorded, { timeout: 15_000 }).toEqual([0, "0"]);
+      } else {
+        await (await openDye2RecipeEditor(tablet, { id: ETHIOPIA })).set({ grind: 0 }).save();
+        await expect.poll(async () => (await content()).grindSetting ?? null, { timeout: 15_000 }).toBeNull();
+      }
+      await quiet();
+      expect(recorded(), name).toEqual([0, "0"]);
+      expect((await openDye2Dashboard(tablet).then((page) => page.applyRecipe(ETHIOPIA))).workflow?.status, name).toBe(200);
+      await expect.poll(() => recipeNamedInWorkflow(tablet), { timeout: 15_000 }).toBe(ethiopia);
+      await quiet();
+      expect([grind(), writes], name).toEqual(["0", []]);
+      expect((await content()).grindSetting ?? null, name).toBe(server === "change" ? 0 : null);
     }
   });
 

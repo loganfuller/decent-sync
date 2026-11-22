@@ -532,8 +532,8 @@ describe("The Recipes a Location has", () => {
     expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [holdingNulls] }))).toEqual([]);
   });
 
-  it("leaves a record holding a dose, grind setting or RPM of 0, in its fields or its embedded Workflow, as it is: a 0 there is none, and no reason to write it again (#550)", () => {
-    // What the server is to write of a Recipe holding none of them: no value, and the embedded Workflow as DYE2 v0.1.40 builds
+  it("leaves a record holding a dose or RPM of 0, in its fields or its embedded Workflow, as it is: a 0 there is none, and no reason to write it again (#550)", () => {
+    // What the server is to write of a Recipe holding none of them: no value, and the embedded Workflow as DYE2 v0.1.42 builds
     // one, a null for each and a yield of 0.
     const built = { context: { targetDoseWeight: null, grinderSetting: null, targetYield: 0, grinderId: "g1", extras: { rpm: null, feedRate: null, basketId: null, basketName: null } } };
     const due = { ...offered(UPTOWN[0], "2", "Uptown Zero", 2), record: { name: "Uptown Zero", stripSlot: 2, "dashboardVariables.dose": null, "dashboardVariables.grind": null, "dashboardVariables.rpm": null, workflow: built } };
@@ -541,7 +541,7 @@ describe("The Recipes a Location has", () => {
     // As DYE2's editor saves an RPM left blank, and as a record saved before v0.1.37 embeds it: the 0s, no yield, and no `extras` but the RPM.
     const zeros = {
       ...held,
-      record: { ...held.record, dashboardVariables: { dose: 0, grind: 0, rpm: 0 }, workflow: { context: { targetDoseWeight: 0, grinderSetting: "0", grinderId: "g1", extras: { rpm: 0 } } } },
+      record: { ...held.record, dashboardVariables: { dose: 0, rpm: 0 }, workflow: { context: { targetDoseWeight: 0, grinderId: "g1", extras: { rpm: 0 } } } },
     };
     expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [zeros] }))).toEqual([]);
     // One the server wrote before, holding no key for any, is left too.
@@ -565,6 +565,27 @@ describe("The Recipes a Location has", () => {
     // An embedded Workflow that differs in anything else is written, as a Grinder changed.
     const regrouped = { ...due, record: { ...due.record, workflow: { context: { ...built.context, grinderId: "g2" } } } };
     expect(plannedWrites(offer([], [], [], [], { recipes: [regrouped] }), holding([], [], [], [], { recipes: [zeros] }))).toMatchObject([{ fields: { workflow: regrouped.record.workflow }, expected: { workflow: zeros.record.workflow } }]);
+  });
+
+  it("writes a grind setting of 0 as a value, and leaves a record saved at 0 before DYE2 v0.1.42, holding none in its embedded Workflow, as DYE2's repair leaves it (#617)", () => {
+    const workflow = (grinderSetting: string | null) => ({ context: { targetDoseWeight: null, grinderSetting, targetYield: 0, grinderId: "g1", extras: { rpm: null, feedRate: null, basketId: null, basketName: null } } });
+    const recipe = (grind: number | null) => ({ ...offered(UPTOWN[0], "2", "Uptown Zero", 2), record: { name: "Uptown Zero", stripSlot: 2, "dashboardVariables.grind": grind, workflow: workflow(grind === null ? null : String(grind)) } });
+    const held = heldRecipe(UPTOWN[0], "2", "Uptown Zero", 2);
+    const holdingGrind = (grind: unknown, grinderSetting: string | null) => ({ ...held, record: { ...held.record, dashboardVariables: { grind }, workflow: workflow(grinderSetting) } });
+    const plan = (due: ReturnType<typeof recipe>, record: ReturnType<typeof holdingGrind>) => plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [record] }));
+
+    // Saved at 0 by DYE2 before v0.1.42: the number 0, and none in its embedded Workflow, which DYE2's repair puts back as
+    // "0". Neither is written: the repair's own change is no reason to write the record again.
+    expect(plan(recipe(0), holdingGrind(0, null))).toEqual([]);
+    expect(plan(recipe(0), holdingGrind(0, "0"))).toEqual([]);
+    // A Recipe holding another setting is written over the 0, embedded Workflow and all.
+    expect(plan(recipe(3), holdingGrind(0, null))).toMatchObject([{ fields: { "dashboardVariables.grind": 3, workflow: workflow("3") }, expected: { "dashboardVariables.grind": 0 } }]);
+    // One holding 0 is written over another setting, the 0 itself and "0" in the embedded Workflow.
+    expect(plan(recipe(0), holdingGrind(2.5, "2.5"))).toMatchObject([{ fields: { "dashboardVariables.grind": 0, workflow: workflow("0") }, expected: { "dashboardVariables.grind": 2.5 } }]);
+    // And one holding none is written over a 0, as 1.10.x took a tablet's 0 in as none and left the record holding it.
+    expect(plan(recipe(null), holdingGrind(0, "0"))).toMatchObject([{ fields: { "dashboardVariables.grind": null, workflow: workflow(null) }, expected: { "dashboardVariables.grind": 0 } }]);
+    // The text "0" in the record's own field is not DYE2's repair: its embedded Workflow's none is written.
+    expect(plan(recipe(0), holdingGrind("0", null))).toMatchObject([{ fields: { "dashboardVariables.grind": 0, workflow: workflow("0") } }]);
   });
 
   it("keeps a Recipe the tablet holds under its record id, writing only its slot where it moved", () => {
