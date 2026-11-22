@@ -2,7 +2,7 @@ import { type ProfileStep, profileOf } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -109,6 +109,8 @@ export async function takeInProfiles(
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest edit of its title, author and notes that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((profile) => [profile.profileId, profile.contentSeenAt]));
+  /** The tablet's last known record of each Profile, which its edit is worked out from. */
+  const knownRecords = new Map(mapped.map((profile) => [profile.profileId, profile]));
   /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
@@ -148,7 +150,7 @@ export async function takeInProfiles(
   }
   /**
    * Whether a record the map did not hold is of a user's Profile the Library has: linked to it, it takes its title, author
-   * and notes, each it held otherwise kept as a Conflict, but as the tablet joins the Location, whose state wins.
+   * and notes, each it held otherwise kept as a Lost Edit, but as the tablet joins the Location, whose state wins.
    */
   const linking = (step: ProfileIntakeStep): step is Extract<ProfileIntakeStep, { kind: "map" }> =>
     step.kind === "map" && !joining && !step.profile.bundled && !bundled.has(step.profileId);
@@ -166,7 +168,8 @@ export async function takeInProfiles(
       await tx.$executeRaw`DELETE FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
       // Deleted before the tablet joined, it is written again if the Location shows it.
       if (!joining) {
-        await showProfileAt(tx, step.profileId, locationId, source, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
+        const at = deletedAt(await transactionTime(tx), step.updatedAt);
+        await showProfileAt(tx, step.profileId, locationId, source, false, at, seenAt.get(step.profileId) ?? null, knownRecords.get(step.profileId)?.visible);
       }
       writesDue = true;
       continue;
@@ -198,7 +201,7 @@ export async function takeInProfiles(
         ON CONFLICT (id) DO NOTHING`;
       if (added > 0) await recordJoined(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
     }
-    // A user's Profile the Library has takes its title, author and notes: each the record held otherwise is kept as a Conflict (ADR-0018).
+    // A user's Profile the Library has takes its title, author and notes: each the record held otherwise is kept as a Lost Edit (ADR-0018).
     if (linking(step)) await recordLinked(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
     /** When the record's own edit decided the Profile's state at the Location, which it has seen then; null if it did not. */
     let decided: Date | null = null;
@@ -206,9 +209,10 @@ export async function takeInProfiles(
       // What it changed before it joined is written over.
       writesDue = true;
     } else if (step.kind === "update") {
-      if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
+      const known = knownRecords.get(profile.id);
+      if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null, known?.visible);
       writesDue = decided !== null || writesDue;
-      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null };
+      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null, ...(known ? { held: heldIn(profileText(known.record), step.content) } : {}) };
       writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)).writesDue || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it. A user's
@@ -291,7 +295,7 @@ export async function recordProfileWritten(
     if (here !== null && shown !== undefined) {
       await lockLocation(tx, here);
       // Shown or hidden on the tablet before Decaid answered: judged by what the record had seen before.
-      const decidedAt = await showProfileAt(tx, profileId, here, source, shown, at ?? (await transactionTime(tx)), known?.seenAt ?? null);
+      const decidedAt = await showProfileAt(tx, profileId, here, source, shown, at ?? (await transactionTime(tx)), known?.seenAt ?? null, knownVisibility?.visible);
       // Lost or not, the Location's state is to be written to the tablet.
       await notify(tx, "library_changes", here);
       if (decidedAt !== null) decided = { at: decidedAt, locationId: here };
@@ -300,7 +304,8 @@ export async function recordProfileWritten(
     if (known && !library.bundled) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(profileText(known.record), profileText(record))).filter(([field]) => !written.has(field)));
-      edited = await editContent(tx, { kind: "profile", id: profileId }, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, held: heldIn(profileText(known.record), values) };
+      edited = await editContent(tx, { kind: "profile", id: profileId }, edit, source);
       if (edited.writesDue && here !== null) await notify(tx, "library_changes", here);
     }
     // A bundled Profile's title, author and notes are never edited.

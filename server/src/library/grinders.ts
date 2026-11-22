@@ -5,7 +5,7 @@ import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkShots } from "../shots/links.js";
 import { archivingInAnswer } from "./bean-intake.js";
-import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, takeInUnseen, unseenOf } from "./content-edits.js";
+import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined, takeInUnseen, unseenOf } from "./content-edits.js";
 import { type ReportedGrinder, grinderContent, planGrinderIntake, readReportedGrinders } from "./grinder-intake.js";
 import { tabletSource } from "./history.js";
 import {
@@ -78,6 +78,8 @@ export async function takeInGrinders(
     FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((grinder) => [grinder.grinderId, grinder.contentSeenAt]));
+  /** The tablet's last known record of each Grinder, which its edit is worked out from. */
+  const knownRecords = new Map(mapped.map((grinder) => [grinder.grinderId, grinder]));
   const mappedIds = new Set(mapped.map((grinder) => grinder.localId));
   // Records of items an Admin hard-deleted are deleted on the tablet rather than taken in.
   const screened = await setAsideDeleted(tx, tablet.tabletId, "grinder", read, listedIds(value), mappedIds);
@@ -125,7 +127,13 @@ export async function takeInGrinders(
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid AND grinder_id = ${step.grinderId}::uuid`;
       if (step.archived && here.has(step.grinderId)) {
-        const edit = { values: { archived: true }, at: deletedAt(await transactionTime(tx), step.updatedAt), seenAt: contentSeenAt.get(step.grinderId) ?? null };
+        const known = knownRecords.get(step.grinderId);
+        const edit = {
+          values: { archived: true },
+          at: deletedAt(await transactionTime(tx), step.updatedAt),
+          seenAt: contentSeenAt.get(step.grinderId) ?? null,
+          ...(known ? { held: { archived: known.archived } } : {}),
+        };
         await editContent(tx, { kind: "grinder", id: step.grinderId }, edit, source);
       }
       writesDue = true;
@@ -155,7 +163,9 @@ export async function takeInGrinders(
     if (step.kind === "update" && !joining) {
       // Archiving or un-archiving it changes it only at its own Location: a moved tablet's record of it is only written over.
       const values = { ...step.content, ...(step.archived !== undefined && here.has(grinderId) ? { archived: step.archived } : {}) };
-      writesDue = (await editContent(tx, { kind: "grinder", id: grinderId }, { values, at: grinder.updatedAt, seenAt: contentSeenAt.get(grinderId) ?? null }, source)).writesDue || writesDue;
+      const known = knownRecords.get(grinderId);
+      const held = known ? { held: heldIn({ ...grinderContent(known.record), archived: known.archived }, values) } : {};
+      writesDue = (await editContent(tx, { kind: "grinder", id: grinderId }, { values, at: grinder.updatedAt, seenAt: contentSeenAt.get(grinderId) ?? null, ...held }, source)).writesDue || writesDue;
       if (step.archived !== undefined && !here.has(grinderId)) writesDue = true;
     }
     // A record whose global id is lost has it written back.
@@ -245,7 +255,7 @@ export async function recordGrinderWritten(
       const belongs = archived !== undefined && locationId !== null && (await tx.grinder.count({ where: { id: grinderId, locationId } })) > 0;
       if (belongs) values.archived = archived;
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
-      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, held: heldIn({ ...grinderContent(known.record), archived: known.archived }, values) };
       edited = await editContent(tx, { kind: "grinder", id: grinderId }, edit, tabletSource(tablet));
       // Archived or un-archived there though it belongs to another Location, as on a moved tablet, it is written back.
       const writtenBack = archived !== undefined && !belongs;

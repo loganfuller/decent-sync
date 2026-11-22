@@ -48,8 +48,6 @@ import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
 import { recordFollowedDraftWritten } from "./draft-following.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
-import { addBatchAt, enterRemainingWeight, finishBatchAt, showAt, showProfileAt } from "./location-state.js";
-import { refuseUnrunnableAt } from "./profile-reach.js";
 import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 import { recordProfileWritten, takeInProfiles } from "./profiles.js";
@@ -61,7 +59,7 @@ import { heldRecipes, offeredRecipes, recordRecipeWritten, takeInRecipes } from 
 // Profiles, Baskets, Tools and Recipes, in the order of LIBRARY_ITEM_KINDS (protocol/), the
 // clearing of a Workflow's grinder, batch and Basket, and a Workflow's Loaded
 // Recipe. What the server does to every kind alike
-// (its versions and Conflicts, the edits of its content, what a tablet is
+// (its versions and Lost Edits, the edits of its content, what a tablet is
 // due, its hard deletes, what a joining tablet brings) reads each kind's
 // table, columns, content and SQL from here, and what only one kind does is
 // in its own modules (beans.ts, bean-batches.ts, grinders.ts, profiles.ts,
@@ -95,7 +93,7 @@ export interface WrittenKindDescription {
   name: string;
   /**
    * What the management interface names each of the items with these ids
-   * by (`ChangedItemView`, `ConflictItemView`): a Bean's roaster and name, a
+   * by (`ChangedItemView`): a Bean's roaster and name, a
    * batch's Bean and roast date, a Grinder's model, a Profile's title, a
    * Workflow's "Grinder and
    * batch"; null where its content has none. A Library item the server no
@@ -106,7 +104,7 @@ export interface WrittenKindDescription {
   recordWritten(prisma: PrismaService, tablet: AnsweringTablet, answer: WrittenAnswer): Promise<AnswerRecorded>;
 }
 
-/** An item as a Conflict about it reads it now: its name, its values as edits merge them, and their latest edits. */
+/** An item as its history reads it now: its name, its values as edits merge them, and their latest edits. */
 export interface VersionedItem {
   name: string | null;
   /** Its content as edits merge it (`LibraryKindDescription.values`). */
@@ -116,37 +114,13 @@ export interface VersionedItem {
   locationId?: string | null;
 }
 
-/** What the server says of every kind that keeps versions and Conflicts (ADR-0020): the Library's kinds. */
+/** What the server says of every kind that keeps versions and Lost Edits (ADR-0020, ADR-0033): the Library's kinds. */
 export interface VersionedKindDescription extends WrittenKindDescription {
   /** Its table, whose rows `versioned_items` keeps a row for (the migration's triggers), and the type of their `id`. */
   table: string;
   idType: "uuid" | "text";
-  /** The items with these ids as Conflicts about them read them; an item the server no longer has is left out. */
+  /** The items with these ids as their history reads them; an item the server no longer has is left out. */
   read(db: Prisma.TransactionClient, ids: readonly string[]): Promise<Map<string, VersionedItem>>;
-}
-
-/**
- * A field of a Location's state of an item (ADR-0020), such as whether a
- * batch is at the Location: its value now, and the version that set it.
- */
-export interface StateValue {
-  value: unknown;
-  versionId: string | null;
-}
-
-/** A Location's own state of the items of a kind (location-state.ts), each part a field of its own with versions and Conflicts. */
-export interface LocationStateDescription {
-  /** Each field of a Location's state of an item, as versions and Conflicts name it. */
-  fields: readonly string[];
-  /** Each field's value now at each Location, in the order given; a field the Location never decided is as it reads without a decision. */
-  current(db: Prisma.TransactionClient, fields: readonly { itemId: string; locationId: string; field: string }[]): Promise<StateValue[]>;
-  /**
-   * Makes a value of a field of the Location's state the field's latest
-   * edit, by `source`, made over the value now, which has seen every
-   * decision made there before `seenAt`, under the Location's lock. Throws
-   * for a value the field cannot take, which no Conflict about it holds.
-   */
-  use(tx: Prisma.TransactionClient, itemId: string, locationId: string, field: string, value: unknown, at: Date, seenAt: Date, source: EditSource): Promise<void>;
 }
 
 /** What the planner of a tablet's writes reads of a kind (holdings.ts): its part of what a Location offers and of what the tablet holds. */
@@ -224,8 +198,6 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   keepDeletion(tx: Prisma.TransactionClient, id: string): Promise<void>;
   /** Whether a delete due of the tablet's record `due` (`tablet_deletions`) is held back, its record kept on the tablet, as one a Shot names. */
   deleteHeldSql(due: Prisma.Sql): Prisma.Sql;
-  /** A Location's own state of its items, for a kind whose state differs by Location; absent for one that has none. */
-  state?: LocationStateDescription;
   /** Takes a tablet's report of its list into the Library, in the transaction storing it, and says where (`standing`), or null where it was taken in nowhere. */
   takeIn(tx: Prisma.TransactionClient, tablet: PlannedTablet, value: unknown, updatedAt: readonly (string | null)[] | undefined): Promise<string | null>;
 }
@@ -323,7 +295,9 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * but for the barista and drinker, which a Recipe never carries, its steam
  * and hot water modes, which are only which value DYE2's stepper shows, and
  * its ratio, kept while its yield is its dose times it
- * (recipe-edits.service.ts). Its Bean is its Bean Batch's. Its grind
+ * (recipe-edits.service.ts). Its Bean is its Bean Batch's, or one set
+ * alone (`beanId`), as a Bean picked in DYE2 with no batch is, which takes
+ * a batch of that Bean where its Location has one (`recipeEditValues`). Its grind
  * setting is a number, or text as typed, as DYE2 v0.1.32 keeps one
  * (`grindSettingOf`), 0 or more, as DYE2 from v0.1.42 applies a grind
  * setting of 0 as a dial position (decentespresso/dye2#47). Its dose and
@@ -345,6 +319,7 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
 const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   name: "text",
   beverage: "text",
+  beanId: "id",
   beanBatchId: "id",
   profileId: "profileId",
   dose: "aboveZero",
@@ -500,34 +475,6 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     undeletable: async () => null,
     keepDeletion: (tx, id) => keepRecordDeletions(tx, "beanBatch", id),
     deleteHeldSql: (due) => Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE shots.bean_batch_id = ${due}.local_id)`,
-    state: {
-      fields: ["atLocation", "remainingWeight"],
-      current: async (db, wanted) => {
-        const rows = await db.$queryRaw<{ itemId: string; locationId: string; at: boolean; remainingWeight: number | null; presenceVersionId: string | null; weightVersionId: string | null }[]>`
-          SELECT batch_id::text AS "itemId", location_id::text AS "locationId", (added_at IS NOT NULL AND finished_at IS NULL) AS at, remaining_weight AS "remainingWeight",
-            presence_version_id::text AS "presenceVersionId", remaining_weight_version_id::text AS "weightVersionId"
-          FROM batch_locations
-          WHERE (batch_id, location_id) IN (SELECT * FROM unnest(${uuidsOf(wanted, "itemId")}::uuid[], ${uuidsOf(wanted, "locationId")}::uuid[]))`;
-        const states = new Map(rows.map((row) => [`${row.itemId}/${row.locationId}`, row]));
-        return wanted.map(({ itemId, locationId, field }) => {
-          const here = states.get(`${itemId.toLowerCase()}/${locationId.toLowerCase()}`);
-          if (field === "remainingWeight") return { value: here?.remainingWeight ?? null, versionId: here?.weightVersionId ?? null };
-          // A batch never added at the Location is not there.
-          return { value: here?.at ?? false, versionId: here?.presenceVersionId ?? null };
-        });
-      },
-      use: async (tx, batchId, locationId, field, value, at, seenAt, source) => {
-        if (field === "atLocation" && typeof value === "boolean") {
-          await (value ? addBatchAt : finishBatchAt)(tx, batchId, locationId, at, seenAt, source);
-        } else if (field === "remainingWeight" && (typeof value === "number" || value === null)) {
-          const [here] = await tx.$queryRaw<{ weight: number | null }[]>`
-            SELECT remaining_weight AS weight FROM batch_locations WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
-          await enterRemainingWeight(tx, batchId, locationId, { value, had: here?.weight ?? null }, at, source);
-        } else {
-          throw new Error(`A Conflict about ${field} at a Location cannot be used`);
-        }
-      },
-    },
     read: async (db, ids) =>
       versionedRows(
         await db.$queryRaw<(ItemRow & { beanContent: unknown })[]>`
@@ -664,27 +611,6 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
       -- Joined the Library again: the record is the Library's Profile's.
       OR EXISTS (SELECT 1 FROM profiles WHERE profiles.id = ${due}.local_id)
     )`,
-    state: {
-      fields: ["shown"],
-      current: async (db, wanted) => {
-        const rows = await db.$queryRaw<{ itemId: string; locationId: string; shown: boolean; versionId: string | null }[]>`
-          SELECT profile_id AS "itemId", location_id::text AS "locationId", shown, version_id::text AS "versionId"
-          FROM profile_locations
-          WHERE (profile_id, location_id) IN (SELECT * FROM unnest(${wanted.map((row) => row.itemId)}::text[], ${uuidsOf(wanted, "locationId")}::uuid[]))`;
-        const states = new Map(rows.map((row) => [`${row.itemId}/${row.locationId}`, row]));
-        // A Profile its Location never decided is not shown there.
-        return wanted.map(({ itemId, locationId }) => {
-          const here = states.get(`${itemId}/${locationId.toLowerCase()}`);
-          return { value: here?.shown ?? false, versionId: here?.versionId ?? null };
-        });
-      },
-      use: async (tx, profileId, locationId, field, value, at, seenAt, source) => {
-        if (field !== "shown" || typeof value !== "boolean") throw new Error(`A Conflict about ${field} at a Location cannot be used`);
-        // A Profile reaches only the Machines that can run it (#588).
-        if (value) await refuseUnrunnableAt(tx, profileId, locationId);
-        await showProfileAt(tx, profileId, locationId, source, value, at, seenAt);
-      },
-    },
     read: async (db, ids) =>
       versionedRows(
         await db.$queryRaw<ItemRow[]>`SELECT id, content, field_edits AS "fieldEdits" FROM profiles WHERE id = ANY(${[...ids]}::text[])`,
@@ -829,25 +755,6 @@ function equipmentKind(
       kind === "basket"
         ? Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE shots.basket_id = ${due}.local_id)`
         : Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE shots.tool_ids @> ARRAY[${due}.local_id])`,
-    state: {
-      fields: ["shown"],
-      current: async (db, wanted) => {
-        const rows = await db.$queryRaw<{ itemId: string; locationId: string; shown: boolean; versionId: string | null }[]>`
-          SELECT ${column}::text AS "itemId", location_id::text AS "locationId", shown, version_id::text AS "versionId"
-          FROM ${shown}
-          WHERE (${column}, location_id) IN (SELECT * FROM unnest(${uuidsOf(wanted, "itemId")}::uuid[], ${uuidsOf(wanted, "locationId")}::uuid[]))`;
-        const states = new Map(rows.map((row) => [`${row.itemId}/${row.locationId}`, row]));
-        // One its Location never decided is not shown there.
-        return wanted.map(({ itemId, locationId }) => {
-          const here = states.get(`${itemId.toLowerCase()}/${locationId.toLowerCase()}`);
-          return { value: here?.shown ?? false, versionId: here?.versionId ?? null };
-        });
-      },
-      use: async (tx, itemId, locationId, field, value, at, seenAt, source) => {
-        if (field !== "shown" || typeof value !== "boolean") throw new Error(`A Conflict about ${field} at a Location cannot be used`);
-        await showAt(tx, kind, itemId, locationId, source, value, at, seenAt);
-      },
-    },
     read: async (db, ids) =>
       versionedRows(
         await db.$queryRaw<ItemRow[]>`SELECT id::text AS id, content, field_edits AS "fieldEdits" FROM ${table} WHERE id = ANY(${uuids(ids)}::uuid[])`,
@@ -995,19 +902,19 @@ function heldRecord({ content, fieldEdits, ...row }: HeldRow, values: (content: 
   return { ...row, content: content === null ? null : values(content), contentDecidedAt: latestDecision(readFieldEdits(fieldEdits)) };
 }
 
-/** An item's row as a Conflict reads it. */
+/** An item's row as its history reads it. */
 interface ItemRow {
   id: string;
   content: unknown;
   fieldEdits: unknown;
 }
 
-/** Items read for Conflicts, by id. */
+/** Items read for their history, by id. */
 function versionedRows<T extends { id: string; fieldEdits: unknown }>(rows: readonly T[], read: (row: T) => Omit<VersionedItem, "fieldEdits">): Map<string, VersionedItem> {
   return new Map(rows.map((row) => [row.id, { ...read(row), fieldEdits: readFieldEdits(row.fieldEdits) }]));
 }
 
-/** The names of a kind's items, read as Conflicts read them, by the ids given, as given. */
+/** The names of a kind's items, read as their history reads them, by the ids given, as given. */
 async function namesOf(kind: LibraryKindDescription, db: Prisma.TransactionClient, ids: readonly string[]): Promise<Map<string, string | null>> {
   const items = await kind.read(db, ids);
   const names = new Map<string, string | null>();
@@ -1022,11 +929,6 @@ async function namesOf(kind: LibraryKindDescription, db: Prisma.TransactionClien
 /** The ids that are UUIDs, which a kind of UUID ids can have: any other, as a refusal's or a plugin's mistake may name, is none of its items. */
 function uuids(ids: readonly string[]): string[] {
   return ids.filter((id) => UUID.test(id));
-}
-
-/** The UUIDs a key of each row holds, in order; anything else, which no row can match, as a UUID none has. */
-function uuidsOf<K extends string>(rows: readonly Record<K, string>[], key: K): string[] {
-  return rows.map((row) => (UUID.test(row[key]) ? row[key] : NO_UUID));
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

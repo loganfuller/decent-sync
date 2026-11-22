@@ -4,7 +4,7 @@ import { sameValue } from "@decent-sync/protocol";
 // content, field by field (ADR-0020): the fields an edit changed, and which of
 // them it decides, each against the edit that set the field last. Two edits
 // conflict only when both changed the same field without seeing each other:
-// the later one wins, and the other is kept as a Conflict. Pure, so module
+// the later one wins, and the other is kept as a Lost Edit (ADR-0033). Pure, so module
 // tests can drive it; content-edits.ts reads what it needs and carries the
 // merge out.
 
@@ -32,17 +32,29 @@ export interface ContentEdit {
   tabletId: string | null;
   /** The latest edit of the item's content that its record had seen, by PostgreSQL's clock; null if none. */
   seenAt: Date | null;
+  /**
+   * What the tablet's last known record of the item, which the edit was
+   * worked out from, held of the fields it changes, by the field's name
+   * (`heldIn`); absent where the server holds no such record, and without
+   * a field that record is not known to have held a value of. A value it
+   * held is replaced unkept (ADR-0033), whether or not the tablet is known
+   * to have seen the edit that set it. It never decides who wins.
+   */
+  held?: Readonly<Record<string, unknown>>;
 }
 
 /** What an edit decides, field by field. */
 export interface Merged {
   /** The fields it decides, with their values: each the field's latest edit from now on, even one it leaves as it was. */
   applied: Record<string, unknown>;
-  /** The fields where it lost to a later edit its tablet had not seen, with the values it lost: Conflicts. */
+  /** The fields where it lost to a later edit its tablet had not seen, with the values it lost: Lost Edits. */
   lost: Record<string, unknown>;
+  /** The version each of those fields lost to: the field's latest edit, or for one that lost with another (`together`), that other's. */
+  lostTo: Record<string, string>;
   /**
    * The values it replaced that its tablet had not seen, each set by an edit
-   * made before it (`versionId`), which also had not seen it: Conflicts.
+   * made before it (`versionId`), which also had not seen it: Lost Edits,
+   * but for a value its tablet's last known record held (`held`).
    */
   overwritten: { field: string; value: unknown; versionId: string }[];
 }
@@ -68,8 +80,9 @@ export function changedFields(known: Readonly<Record<string, unknown>>, now: Rea
  * decided by when its record last had what the server wrote it
  * (`seenAt`). Otherwise edit times decide (ADR-0003): an edit made no
  * earlier than the field's latest decides it, and the value it replaces, if
- * another, is kept as a Conflict; one made earlier loses, and its value, if
- * another, is kept as a Conflict.
+ * another, and not one its tablet's last known record held (`held`), is
+ * kept as a Lost Edit; one made earlier loses, and its value, if another,
+ * is kept as a Lost Edit, whatever that record held.
  *
  * Fields that name one choice together (`together`), as a Recipe's Bean and
  * its Bean Batch, are decided as one where the edit holds all of them: if it
@@ -80,7 +93,7 @@ export function changedFields(known: Readonly<Record<string, unknown>>, now: Rea
  * changes neither the value the field ends with nor that every other
  * tablet's last value is kept. It does change whether a tablet's own earlier
  * value is: one that another tablet's edit overwrote before its tablet's
- * next arrived stays a Conflict, though its tablet has since replaced it,
+ * next arrived stays a Lost Edit, though its tablet has since replaced it,
  * where its tablet's next arriving first would have replaced it unkept.
  */
 export function mergeEdit(
@@ -89,7 +102,8 @@ export function mergeEdit(
   edit: ContentEdit,
   together: readonly (readonly string[])[] = [],
 ): Merged {
-  const merged: Merged = { applied: {}, lost: {}, overwritten: [] };
+  const merged: Merged = { applied: {}, lost: {}, lostTo: {}, overwritten: [] };
+  const held = edit.held;
   for (const [field, value] of Object.entries(edit.values)) {
     const latest = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field] : undefined;
     const same = sameValue(current[field], value);
@@ -97,18 +111,25 @@ export function mergeEdit(
       merged.applied[field] = value;
     } else if (edit.at.getTime() >= new Date(latest.at).getTime()) {
       merged.applied[field] = value;
-      if (!same) merged.overwritten.push({ field, value: current[field] ?? null, versionId: latest.versionId });
+      const replaced = current[field] ?? null;
+      // A value the tablet's record held, it replaced knowingly: nothing is kept of it.
+      const heldIt = held !== undefined && Object.prototype.hasOwnProperty.call(held, field) && sameValue(held[field] ?? null, replaced);
+      if (!same && !heldIt) merged.overwritten.push({ field, value: replaced, versionId: latest.versionId });
     } else if (!same) {
       merged.lost[field] = value;
+      merged.lostTo[field] = latest.versionId;
     }
   }
   for (const fields of together) {
     if (!fields.every((field) => Object.prototype.hasOwnProperty.call(edit.values, field))) continue;
-    if (!fields.some((field) => Object.prototype.hasOwnProperty.call(merged.lost, field))) continue;
+    const loser = fields.find((field) => Object.prototype.hasOwnProperty.call(merged.lost, field));
+    if (loser === undefined) continue;
     for (const field of fields) {
       if (!Object.prototype.hasOwnProperty.call(merged.applied, field)) continue;
       delete merged.applied[field];
-      if (!sameValue(current[field], edit.values[field])) merged.lost[field] = edit.values[field];
+      if (sameValue(current[field], edit.values[field])) continue;
+      merged.lost[field] = edit.values[field];
+      merged.lostTo[field] = merged.lostTo[loser]!;
     }
     merged.overwritten = merged.overwritten.filter((replaced) => !fields.includes(replaced.field));
   }

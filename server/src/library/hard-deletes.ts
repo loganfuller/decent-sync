@@ -24,7 +24,7 @@ import { lockLocation } from "./location-state.js";
 // Decaid's bundled Profiles, which every tablet has and Decaid refuses to
 // delete, are never deleted.
 //
-// The item is gone from the Library at once, with its versions, Conflicts
+// The item is gone from the Library at once, with its versions, Lost Edits
 // and each Location's state of it. Its global id is kept (`deleted_items`),
 // and so is each tablet's record of it (`tablet_deletions`), which that
 // tablet's writer deletes (tablet-due.ts), now or once the tablet connects
@@ -38,8 +38,9 @@ import { lockLocation } from "./location-state.js";
 // once the Profile joins it again, the tablet's record is the Library's.
 //
 // Locks, in the order every other change takes them, so none waits on
-// another in turn: the item's open Conflicts, which resolving one locks
-// before its Location's lock; the tablets that hold it, whose reports lock
+// another in turn: the item's Lost Edits that the release before this one
+// still shows as open Conflicts, which its resolving one locks before its
+// Location's lock, while it runs beside this one (ADR-0025, #642); the tablets that hold it, whose reports lock
 // them before their Location's; the Locations whose state of it changes;
 // then the items.
 
@@ -126,7 +127,7 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
 /** The item and what goes with it, the items of the kinds made under it, as a Bean's batches; null if the Library does not have it. */
 async function deletedWith(tx: Prisma.TransactionClient, kind: DeletedKind, id: string): Promise<Deleted[] | null> {
   const description = KINDS[kind];
-  // Its id as PostgreSQL writes it, as versions and Conflicts name it.
+  // Its id as PostgreSQL writes it, as versions and Lost Edits name it.
   const [found] = await tx.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, id)}`;
   if (!found) return null;
   const children: Deleted[] = [];

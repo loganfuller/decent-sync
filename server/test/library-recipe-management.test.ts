@@ -100,6 +100,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   const recipe = (id: string) => api.get<{ recipe: RecipeView }>(`/recipes/${id}`).then((read) => read.recipe);
   const recipesAt = (location: LocationView) => api.get<{ recipes: RecipeView[] }>(`/locations/${location.id}/recipes`).then((read) => read.recipes);
   const versions = async (id: string) => (await api.get<{ versions: VersionView[] }>(`/recipes/${id}/history`)).versions;
+  /** The Lost Edits in a Recipe's history. */
+  const lostEdits = async (id: string) => (await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/recipes/${id}/history`)).lostEdits;
 
   /** A Bean with a batch at each Location given, and a Grinder of the first. */
   async function library(scenario: string, grinderAt: LocationView, batchAt: LocationView[]) {
@@ -330,19 +332,19 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(cleared.content.toolAttributes).toEqual({});
   });
 
-  it("keeps a Recipe's Bean its batch's when a Conflict's batch of another Bean is used", async () => {
-    const lab = await locationWith("Conflicted batch lab", 45061, [server, other]);
-    const start = await library("Conflicted Start", lab.location, [lab.location]);
-    const brazil = await library("Conflicted Brazil", lab.location, [lab.location]);
-    const kenya = await library("Conflicted Kenya", lab.location, [lab.location]);
-    const created = await create(lab.location, 1, { name: "Conflicted Espresso", beanBatchId: start.batch.id });
+  it("keeps a Recipe's Bean its batch's when a batch of another Bean that lost is set again by an edit", async () => {
+    const lab = await locationWith("Lost batch lab", 45061, [server, other]);
+    const start = await library("Lost Start", lab.location, [lab.location]);
+    const brazil = await library("Lost Brazil", lab.location, [lab.location]);
+    const kenya = await library("Lost Kenya", lab.location, [lab.location]);
+    const created = await create(lab.location, 1, { name: "Lost Espresso", beanBatchId: start.batch.id });
     const [one, two] = lab.tablets as [SimulatedTablet, SimulatedTablet];
     for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
     await expect.poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
     await expect.poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
 
     // Offline, one tablet's DYE2 editor picks the Brazil and the other, later, the Kenya: the Kenya and its batch win, and
-    // the Brazil and its batch, replaced without being seen, are kept as Conflicts. A pick is timed when its tablet's
+    // the Brazil and its batch, replaced without being seen, are kept as Lost Edits. A pick is timed when its tablet's
     // plugin first reads it (ADR-0005), which may be before the plugin hears that its connection is lost, so the Kenya
     // is picked once the Brazil has reached the Library: it is then timed no earlier, whenever it is read.
     const pick = async (tablet: SimulatedTablet, beanId: unknown) => {
@@ -357,20 +359,19 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await pick(two, localId(two.beans(), kenya.bean.id));
     two.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
-    type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
-    const conflicts = async () => (await api.get<{ conflicts: Open[] }>(`/recipes/${created.id}/conflicts`)).conflicts;
-    await expect.poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId"]);
+    await expect.poll(async () => (await lostEdits(created.id)).map((lost) => lost.field).sort()).toEqual(["beanBatchId", "beanId"]);
 
-    // Using the Brazil's batch makes the Brazil the Recipe's Bean too, rather than leaving the Kenya beside it.
-    const batchConflict = (await conflicts()).find((conflict) => conflict.field === "beanBatchId")!;
-    expect(batchConflict.value).toBe(brazil.batch.id);
-    await api.send("POST", `/conflicts/${batchConflict.id}/use`, { seen: batchConflict.current.versionId });
+    // Setting the Brazil's batch again, as its Lost Edit holds it, makes the Brazil the Recipe's Bean too, rather than
+    // leaving the Kenya beside it.
+    const lostBatch = (await lostEdits(created.id)).find((lost) => lost.field === "beanBatchId")!;
+    expect(lostBatch.value).toBe(brazil.batch.id);
+    await edit(created.id, { beanBatchId: lostBatch.value });
     expect((await recipe(created.id)).content).toMatchObject({ beanId: brazil.bean.id, beanBatchId: brazil.batch.id });
     for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), brazil.bean.id));
   });
 
-  it("keeps a Bean used from a Conflict though it has no batch at the Location, and sets the yield from a ratio used", async () => {
-    const lab = await locationWith("Conflicted bean lab", 45071, [server, other]);
+  it("keeps a Bean set alone, as a Lost Edit holds one, though it has no batch at the Location", async () => {
+    const lab = await locationWith("Lost bean lab", 45071, [server, other]);
     const start = await library("Bean-only Start", lab.location, [lab.location]);
     const brazil = await library("Bean-only Brazil", lab.location, [lab.location]);
     const kenya = await library("Bean-only Kenya", lab.location, [lab.location]);
@@ -396,17 +397,13 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await save(two, localId(two.beans(), kenya.bean.id), 2.5);
     two.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
-    type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
-    const conflicts = async () => (await api.get<{ conflicts: Open[] }>(`/recipes/${created.id}/conflicts`)).conflicts;
-    await expect.poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId", "ratio"]);
-    const use = async (field: string) => {
-      const conflict = (await conflicts()).find((open) => open.field === field)!;
-      await api.send("POST", `/conflicts/${conflict.id}/use`, { seen: conflict.current.versionId });
-    };
+    await expect.poll(async () => (await lostEdits(created.id)).map((lost) => lost.field).sort()).toEqual(["beanBatchId", "beanId", "ratio"]);
+    const lostBean = (await lostEdits(created.id)).find((lost) => lost.field === "beanId")!;
+    expect(lostBean.value).toBe(brazil.bean.id);
 
-    // With the Brazil's batch finished here, using the Brazil alone keeps it, with no batch, rather than clearing it.
+    // With the Brazil's batch finished here, setting the Brazil alone keeps it, with no batch, rather than clearing it.
     expect((await api.call("PUT", `/bean-batches/${brazil.batch.id}/locations/${lab.location.id}`, { atLocation: false })).status).toBe(200);
-    await use("beanId");
+    await edit(created.id, { beanId: lostBean.value });
     const kept = (await recipe(created.id)).content;
     expect(kept.beanId).toBe(brazil.bean.id);
     expect(kept).not.toHaveProperty("beanBatchId");
@@ -416,19 +413,16 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBe(localId(tablet.beans(), brazil.bean.id) ?? "none");
     }
 
-    // A ratio cannot be used on a Recipe with no dose: the Conflict stays open until one is set.
-    await edit(created.id, { dose: null });
-    const ratioConflict = (await conflicts()).find((open) => open.field === "ratio")!;
-    const refused = await api.call("POST", `/conflicts/${ratioConflict.id}/use`, { seen: ratioConflict.current.versionId });
-    expect(refused.status).toBe(409);
-    expect(((await refused.json()) as { message: string }).message).toContain("no dose");
-    expect((await conflicts()).map((open) => open.field)).toContain("ratio");
-    await edit(created.id, { dose: 18 });
-
-    // Using the 1:3 ratio sets the yield to the dose times it, as picking it in DYE2's editor does.
-    await use("ratio");
-    expect((await recipe(created.id)).content).toMatchObject({ dose: 18, yield: 54, ratio: 3 });
-    for (const tablet of [one, two]) await expect.poll(() => (slotOn(tablet, 1)?.dashboardVariables as Record_ | undefined)?.drink).toBe(54);
+    // Set with a batch of another Bean, the batch decides the Bean; and a Bean the Library does not have, or an Archived
+    // one, is refused.
+    expect((await edit(created.id, { beanId: brazil.bean.id, beanBatchId: kenya.batch.id })).content).toMatchObject({ beanId: kenya.bean.id, beanBatchId: kenya.batch.id });
+    expect((await api.call("PATCH", `/recipes/${created.id}`, { content: { beanId: "00000000-0000-4000-8000-000000000000" } })).status).toBe(400);
+    // Cleared alone, the Recipe names neither.
+    const cleared = (await edit(created.id, { beanId: null })).content;
+    expect(cleared).not.toHaveProperty("beanId");
+    expect(cleared).not.toHaveProperty("beanBatchId");
+    // Nothing was lost by any of these edits, each made over the Recipe as it stood.
+    expect((await lostEdits(created.id)).map((lost) => lost.field).sort()).toEqual(["beanBatchId", "beanId", "ratio"]);
   });
 
   it("clears DYE2's ratio when an edit leaves the yield other than the dose times it", async () => {
@@ -661,7 +655,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       ["Offline Four", 2],
       ["Offline Two", 4],
     ]);
-    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${two.id}/conflicts`)).conflicts).toEqual([]);
+    expect(await lostEdits(two.id)).toEqual([]);
   });
 
   it("keeps an edit a tablet has not reported yet when its Recipe is moved, or its Basket hidden, before the plugin reads its lists again", async () => {
@@ -714,14 +708,14 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const fresh = await create(lab, 2, { name: "New Filter", dose: 15 });
     expect((await recipe(old.id)).slot).toBeNull();
 
-    // The dose is the edited Recipe's, kept in no slot; the new one keeps what Staff entered, with no Conflict, and holds slot
+    // The dose is the edited Recipe's, kept in no slot; the new one keeps what Staff entered, with no Lost Edit, and holds slot
     // 2 on the tablet under a record of its own.
     await expect.poll(async () => (await recipe(old.id)).content.dose).toBe(21);
     await expect.poll(() => slotsOn(tablet)).toEqual(["-:Old Espresso", "2:New Filter"]);
     expect(await recipe(fresh.id)).toMatchObject({ name: "New Filter", slot: 2, content: { dose: 15 } });
     expect((slotOn(tablet, 2)!.dashboardVariables as Record_).dose).toBe(15);
     expect((recordOf(tablet, old.id)!.dashboardVariables as Record_).dose).toBe(21);
-    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${fresh.id}/conflicts`)).conflicts).toEqual([]);
+    expect(await lostEdits(fresh.id)).toEqual([]);
     expect((await recipesAt(lab)).map((listed) => [listed.name, listed.slot])).toEqual([
       ["New Filter", 2],
       ["Old Espresso", null],
@@ -924,7 +918,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     tablet.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content, { timeout: 15_000 }).toMatchObject({ name: "Late Espresso v2", dose: 19 });
     await expect.poll(() => recordOf(tablet, created.id)?.name, { timeout: 15_000 }).toBe("Late Espresso v2");
-    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${created.id}/conflicts`)).conflicts).toEqual([]);
+    expect(await lostEdits(created.id)).toEqual([]);
   });
 
   it("lets Staff change Recipes only at the Locations they work at", async () => {

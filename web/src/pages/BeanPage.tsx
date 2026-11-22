@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
-import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
+import { ItemHistoryCard } from "@/components/item-history";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
@@ -39,7 +39,7 @@ function BeanDetails({ id }: { id: string }) {
   const [bean, setBean] = useState<Bean>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value, or an edit here, changes the item, so it is loaded again, with its history.
+  // An edit here changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const [editing, setEditing] = useState(false);
   const changed = () => setChanges((count) => count + 1);
@@ -102,7 +102,6 @@ function BeanDetails({ id }: { id: string }) {
         </div>
       )}
 
-      <ItemConflictsCard kind="bean" id={id} onResolved={changed} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

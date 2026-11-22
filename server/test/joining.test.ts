@@ -337,7 +337,7 @@ describe("Joining a Location", () => {
     const roest24 = tablet.beans().find((bean) => bean.name === "Left out traveller Roest #24 Eth")!;
     expect(globalIdOf(roest24)).toBe(uptownBean);
     expect(roest24.notes).toBe("Uptown's notes");
-    expect((await read<{ conflicts: unknown[] }>(`/beans/${uptownBean}/conflicts`)).conflicts).toEqual([]);
+    expect((await read<{ lostEdits: unknown[] }>(`/beans/${uptownBean}/history`)).lostEdits).toEqual([]);
     // Everything else it held stays out of the Library, archived or hidden on it, never deleted.
     const own = (records: Record_[]) => records.filter((record) => globalIdOf(record) === null);
     await expect.poll(() => own(tablet.beans()).filter((bean) => bean.archived !== true).length).toBe(0);

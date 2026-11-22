@@ -211,13 +211,13 @@ describe("The capture-only switch", () => {
     expect(tablet.profiles().some((record) => record.id === profile.id)).toBe(true);
 
     // Back on, Uptown's state wins: the Bean's notes and the Grinder are written back as the Library has them, with no
-    // Conflict, and the Profile is deleted from it.
+    // Lost Edit, and the Profile is deleted from it.
     expect((await switchSharing(switched, true)).status).toBe(200);
     await expect.poll(tabletNotes).toBe("Floral");
     await expect.poll(() => tablet.grinders().find((record) => record.id === grinder.id)!.archived).toBe(false);
     await expect.poll(() => tablet.profiles().some((record) => record.id === profile.id)).toBe(false);
     expect(await notes()).toBe("Floral");
-    expect((await read<{ conflicts: unknown[] }>(`/beans/${beanId}/conflicts`)).conflicts).toEqual([]);
+    expect((await read<{ lostEdits: unknown[] }>(`/beans/${beanId}/history`)).lostEdits).toEqual([]);
   });
 
   it("shows why a Machine is capture-only, and lets only Admins switch it", async () => {

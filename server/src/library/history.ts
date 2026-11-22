@@ -1,16 +1,16 @@
-import type { LibraryKind } from "@decent-sync/protocol";
+import { type LibraryKind, sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ReportingTablet } from "./intake.js";
 import { KINDS } from "./kinds.js";
 
-// Each Library item's versions and Conflicts (ADR-0020). Every accepted edit
-// is kept as a version: the fields it set, with their values, the Machine and
+// Each Library item's history (ADR-0020, ADR-0033). Every accepted edit is
+// kept as a version: the fields it set, with their values, the Machine and
 // tablet or the account it came from, with the Connected App the account made
 // it through, if one (ADR-0026), when it was made and when the server took it
 // in. An edit of a Location's state of the item names that Location.
 // An edit that lost to another of the same field made without seeing it, or
-// that such an edit replaced, is kept as a Conflict, open until someone uses
-// its value, which makes it a new edit, or dismisses it (conflicts.service.ts).
+// that such an edit replaced, is kept as a Lost Edit, with the version it
+// lost to: read with the item's versions, and never changed.
 
 /** A Library item: its kind, and its global id, or a Profile's id. */
 export interface ItemRef {
@@ -53,14 +53,14 @@ export function accountSource({ accountId, connectedAppId }: Editor): EditSource
 }
 
 /**
- * The item's kind and id as a version or Conflict names it (`VersionedItem`
+ * The item's kind and id as a version or Lost Edit names it (`VersionedItem`
  * in the schema): an id of UUIDs in lower case, as PostgreSQL writes it.
  */
 export function itemKey(item: ItemRef): { kind: LibraryKind; itemId: string } {
   return { kind: item.kind, itemId: KINDS[item.kind].idType === "uuid" ? item.id.toLowerCase() : item.id };
 }
 
-/** A value as a version or Conflict keeps it: null where the edit cleared the field. */
+/** A value as a version or Lost Edit keeps it: null where the edit cleared the field. */
 function jsonValue(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return value === null || value === undefined ? Prisma.DbNull : (value as Prisma.InputJsonValue);
 }
@@ -99,8 +99,12 @@ export async function recordVersion(
   return version.id;
 }
 
-/** Keeps an edit's value of one field that lost to a later edit its maker had not seen as a Conflict. */
-export async function recordConflict(
+/**
+ * Keeps an edit's value of one field that lost to a later edit its maker had
+ * not seen as a Lost Edit: `lostTo` is that edit's version, null if it is
+ * not known.
+ */
+export async function recordLostEdit(
   tx: Prisma.TransactionClient,
   item: ItemRef,
   locationId: string | null,
@@ -108,14 +112,16 @@ export async function recordConflict(
   value: unknown,
   source: EditSource,
   editedAt: Date,
+  lostTo: string | null,
 ): Promise<void> {
-  await tx.conflict.create({ data: { ...itemKey(item), locationId, field, value: jsonValue(value), ...source, editedAt } });
+  await tx.lostEdit.create({ data: { ...itemKey(item), locationId, field, value: jsonValue(value), ...source, editedAt, lostToVersionId: lostTo } });
 }
 
 /**
  * Keeps a value an edit replaced, which version `versionId` had set without
- * seeing that edit, as a Conflict, from where and when that version came.
- * Nothing is kept if the version is not known.
+ * seeing that edit, as a Lost Edit, from where and when that version came,
+ * lost to the edit that replaced it (`lostTo`, its version). Nothing is kept
+ * if the version is not known.
  */
 export async function recordReplaced(
   tx: Prisma.TransactionClient,
@@ -124,6 +130,7 @@ export async function recordReplaced(
   field: string,
   value: unknown,
   versionId: string | null,
+  lostTo: string,
 ): Promise<void> {
   if (versionId === null) return;
   const version = await tx.itemVersion.findUnique({
@@ -132,5 +139,15 @@ export async function recordReplaced(
   });
   if (!version) return;
   const { editedAt, ...source } = version;
-  await recordConflict(tx, item, locationId, field, value, source, editedAt);
+  await recordLostEdit(tx, item, locationId, field, value, source, editedAt, lostTo);
+}
+
+/**
+ * Whether the editing tablet's last known record of an item held a value,
+ * so that replacing it loses nothing worth keeping (ADR-0033): the tablet
+ * replaced what it had. `held` is what that record held of the field, or
+ * undefined where the server holds no such record, which holds nothing.
+ */
+export function heldValue(held: unknown, value: unknown): boolean {
+  return held !== undefined && sameValue(held ?? null, value ?? null);
 }

@@ -47,7 +47,7 @@ import { refuseUnrunnableAt } from "./profile-reach.js";
 //
 // A Recipe's Reference Shot (ADR-0029) is its own too, not its content: a
 // change of it is a version of its own, as a slot change is, so it makes no
-// Conflict, and it is no part of the record written to tablets. Each tablet
+// Lost Edit, and it is no part of the record written to tablets. Each tablet
 // at its Location keeps a copy of the Shot while the Recipe is in a slot
 // (ADR-0030, shots/location-references.ts), so a change of it commits with
 // the `NOTIFY` too. A copy of a Recipe starts with the Recipe's. A tablet at
@@ -214,7 +214,7 @@ export class RecipeEditsService {
    * put in no slot. A change is announced to the Recipe's Location, whose
    * tablets keep a copy of the Reference Shot of each Recipe in a slot
    * (ADR-0030, amending ADR-0029), though it is no content edit: it makes
-   * no Conflict (ADR-0020), and is no part of DYE2's recipe record. 404 for no such Recipe, 403 for Staff elsewhere, 400 for
+   * no Lost Edit (ADR-0020), and is no part of DYE2's recipe record. 404 for no such Recipe, 403 for Staff elsewhere, 400 for
    * a Shot the list doesn't list, 409 for choosing one for an Archived
    * Recipe.
    */
@@ -399,18 +399,18 @@ async function withoutDeleted(tx: Prisma.TransactionClient, content: Readonly<Re
 
 /**
  * What an account's edit of a Recipe at the Location setting `values` over
- * its content now (`current`) sets, as the management interface makes one
- * and using a Conflict's value does (conflicts.service.ts), so the Recipe's
- * fields stay consistent however they are set:
+ * its content now (`current`) sets, as the management interface or an
+ * assistant makes one, so the Recipe's fields stay consistent however they
+ * are set:
  *
  * - what it uses checked and offered at the Location (`setUses`);
- * - a Bean set alone, as a Conflict about it holds, takes the Recipe's batch
+ * - a Bean set alone (`beanId` without `beanBatchId`) takes the Recipe's batch
  *   if it is of that Bean, or else that Bean's batch most recently added at
  *   the Location, or none, keeping the Bean, as a Bean picked in DYE2 does
  *   (ADR-0005), and offered at the Location then (`offerBeanAt`): 400 for a
  *   Bean the Library does not have, 409 for one Archived;
  * - DYE2's ratio kept only while the yield is the dose times it, and a ratio
- *   set, as a Conflict about it holds, setting the yield (`ratioValues`).
+ *   set alone setting the yield (`ratioValues`).
  */
 export async function recipeEditValues(
   tx: Prisma.TransactionClient,

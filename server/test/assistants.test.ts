@@ -148,7 +148,6 @@ describe("connecting an assistant", () => {
         "get_shot",
         "get_shot_samples",
         "get_steam_record",
-        "list_conflicts",
         "list_drafts",
         "list_locations",
         "list_machines",
@@ -184,7 +183,6 @@ describe("connecting an assistant", () => {
         "follow_draft",
         "move_machine",
         "publish_draft",
-        "resolve_conflict",
         "return_to_profile_version",
         "set_archived",
         "set_location_offering",
@@ -569,7 +567,7 @@ describe("connecting an assistant", () => {
       const lapsed = await approvedCode(lapsing.cookie);
       const lapsedTokens = await exchange(server.url, lapsed.code, lapsed.verifier);
       // A lapsed Connected App that changed the Library is kept, so its history still names it, but refused, its refresh
-      // token gone; and one that only a Conflict names, as an edit of its that lost to a later one leaves.
+      // token gone; and one that only a Lost Edit names, as an edit of its that lost to a later one leaves.
       const changing = await person("ch@example.com", "staff", [uptown]);
       const changer = await Assistant.connect(server.url, app, changing.cookie);
       const { bean } = await changer.call<{ bean: { id: string } }>("create_bean", { roaster: "Roux", name: "Kept through a lapsed app" });

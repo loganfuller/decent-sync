@@ -28,7 +28,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // notes far longer than any typed, and strings heavy with what JSON escapes.
 // Records are sent as raw frames, but for a simulated tablet's Machine, whose
 // Workflow, settings and Profiles its plugin reports; Library items are made
-// through the REST API; Settings Edits and Conflicts, which a tablet makes one
+// through the REST API; Settings Edits and Lost Edits, which a tablet makes one
 // at a time, are copied in PostgreSQL from ones made the usual way. Serials
 // are made up, from 43101.
 
@@ -841,7 +841,6 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           kind: "recipe",
           id: recipe,
           history: true,
-          conflicts: true,
           limit: 50,
         });
         expect(result).not.toHaveProperty("cut");
@@ -856,9 +855,9 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         for (const row of rows.result.shots) expect(row.referenceOf, row.id as string).toEqual([row.recipe]);
         const { profiles } = await api.get<{ profiles: { id: string; title: string }[] }>("/profiles");
         const adaptive = profiles.find((profile) => profile.title === "Adaptive v3")!;
-        const profile = await assistant.callWithinBudget<Fields>("get_library_item", { kind: "profile", id: adaptive.id, history: true, conflicts: true, limit: 50 });
+        const profile = await assistant.callWithinBudget<Fields>("get_library_item", { kind: "profile", id: adaptive.id, history: true, limit: 50 });
         expect(profile.result).not.toHaveProperty("cut");
-        await assistant.callWithinBudget("get_library_item", { kind: "bean", id: made.beans![0]!, history: true, conflicts: true, limit: 50 });
+        await assistant.callWithinBudget("get_library_item", { kind: "bean", id: made.beans![0]!, history: true, limit: 50 });
       });
 
       it("simulates the longest-running bundled Profile run out, and a Profile on a Shot's puck, with every curve, its steps whole", async () => {
@@ -887,25 +886,6 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         const onShot = await assistant.callWithinBudget<{ fit: { shot: { steps: unknown[] } } | null }>("simulate_profile", { profileId: adaptive.id, shotId: "simulated-blooming", curves: true });
         expect(onShot.result).not.toHaveProperty("cut");
         expect(onShot.result.fit!.shot.steps.length).toBeGreaterThan(3);
-      });
-
-      it("lists 55 open Conflicts a page at a time", async () => {
-        // A Bean's notes edited offline on a tablet, each losing to the management interface's: as list_conflicts finds
-        // them, copied in PostgreSQL, one for each Bean.
-        const database = await server.connectDatabase();
-        try {
-          await database.query(
-            `INSERT INTO conflicts (id, kind, item_id, field, value, account_id, edited_at)
-             SELECT gen_random_uuid(), 'bean', id::text, 'notes', to_jsonb('Peach and jasmine, a little brighter than last week.'::text),
-               (SELECT id FROM accounts WHERE email = $2), transaction_timestamp() - interval '1 hour'
-             FROM beans WHERE id = ANY($1::uuid[])`,
-            [made.beans, admin.email],
-          );
-        } finally {
-          await database.end();
-        }
-        const { ids } = await everyPage("list_conflicts", "conflicts", {});
-        expect(ids.length).toBeGreaterThanOrEqual(55);
       });
     });
   });
@@ -1320,7 +1300,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       await assistant.callWithinBudget("list_machines");
     });
 
-    it("lists Conflicts whose values run long with each value cut, and reads their Bean with them", async () => {
+    it("reads a Bean whose Lost Edits' values run long with its history, its text cut", async () => {
       const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: hostile(2_000), name: hostile(2_000), notes: hostile(30_000) } }, 201)).bean.id;
       const database = await server.connectDatabase();
       try {
@@ -1332,19 +1312,15 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       } finally {
         await database.end();
       }
-      const listed = await assistant.callWithinBudget<Page & { cut: string; conflicts: { value: unknown; item: { name: unknown } }[] }>("list_conflicts", { limit: 50 });
-      expect(listed.result.cut).toBeDefined();
-      const theirs = listed.result.conflicts.filter((conflict) => cut(conflict.value));
-      expect(theirs.length).toBeGreaterThan(0);
-      const read = await assistant.callWithinBudget<{ bean: { content: Fields; roaster: unknown }; conflicts: { entries: { value: unknown }[] } }>("get_library_item", {
-        kind: "bean",
-        id: bean,
-        history: true,
-        conflicts: true,
-        limit: 50,
-      });
+      const read = await assistant.callWithinBudget<{ cut: string; bean: { content: Fields; roaster: unknown }; history: { entries: { lost: boolean; fields: Fields }[] } }>(
+        "get_library_item",
+        { kind: "bean", id: bean, history: true, limit: 50 },
+      );
+      expect(read.result.cut).toBeDefined();
       expect([read.result.bean.content.notes, read.result.bean.roaster].every(cut)).toBe(true);
-      expect(read.result.conflicts.entries.length).toBeGreaterThan(0);
+      const lost = read.result.history.entries.filter((entry) => entry.lost);
+      expect(lost.length).toBeGreaterThan(0);
+      expect(lost.some((entry) => cut(entry.fields.notes))).toBe(true);
 
       // An assistant that edits the notes it read cut, adding to them, is refused, and the notes are kept whole.
       const changer = await Assistant.connect(server.url, app, await signIn(server.url, admin));

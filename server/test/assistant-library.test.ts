@@ -16,7 +16,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // built server, each tool's result matching what the REST API gives the same
 // account. Items come from a simulated tablet at Uptown, the built plugin on a
 // tablet with DYE2 as recorded in fixtures/decaid/dye2-v0.1.26/, and from the
-// REST API at Harbor; Conflicts from the tablet's edits made offline, which
+// REST API at Harbor; Lost Edits from the tablet's edits made offline, which
 // lose to the REST API's made after them. Serials are made up, from 40901.
 
 type Record_ = Record<string, unknown>;
@@ -58,6 +58,29 @@ const UTC_TIME = /Z$/;
  * 8601 time as its instant, since the REST API gives them in UTC and the
  * tools with a Location's offset.
  */
+/**
+ * An item's history as get_library_item gives it, from the REST API's: its versions and its Lost Edits together, the
+ * latest taken in or lost first, a Lost Edit as an entry holding the one field that lost, with the edit it lost to.
+ */
+function historyEntries(rest: Record_): Record_[] {
+  const { versions, lostEdits } = rest as { versions: Record_[]; lostEdits: Record_[] };
+  const entries = [
+    ...versions.map((version) => ({ ...version, lost: false, lostTo: null })),
+    ...lostEdits.map(({ id, field, value, location, source, editedAt, lostAt, lostTo }) => ({
+      id,
+      fields: { [field as string]: value },
+      location,
+      source,
+      editedAt,
+      receivedAt: lostAt,
+      copiedFrom: null,
+      lost: true,
+      lostTo,
+    })),
+  ] as Record_[];
+  return entries.sort((a, b) => Date.parse(b.receivedAt as string) - Date.parse(a.receivedAt as string));
+}
+
 function comparable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "string" && ISO_TIME.test(field) ? Date.parse(field) : field));
 }
@@ -103,8 +126,8 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
   let tablet: SimulatedTablet;
   /** Harbor's Library, made through the REST API. */
   let made: { bean: string; batch: string; grinder: string; basket: string; tool: string; espresso: string; retired: string };
-  /** The tablet's Bean and Grinder whose edits made offline lost, each kept as a Conflict. */
-  let conflicted: { bean: string; grinder: string };
+  /** The tablet's Bean and Grinder whose edits made offline lost, each kept as a Lost Edit. */
+  let lostOn: { bean: string; grinder: string };
   /** A Staff member at Harbor and a Viewer, each with an assistant connected as them, and their REST API. */
   let sam: Person;
   let vic: Person;
@@ -148,8 +171,8 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     return (await Promise.all(locations.map(async (location) => (await as.get<{ recipes: Record_[] }>(`/locations/${location.id}/recipes`)).recipes))).flat();
   }
 
-  /** One item as the REST API returns it, or its history or open Conflicts. */
-  async function restItem(kind: Kind, id: string, part: "" | "/history" | "/conflicts" = "", as = api): Promise<Record_> {
+  /** One item as the REST API returns it, or its history. */
+  async function restItem(kind: Kind, id: string, part: "" | "/history" = "", as = api): Promise<Record_> {
     return as.get<Record_>(`${KINDS[kind].path}/${encodeURIComponent(id)}${part}`);
   }
 
@@ -169,7 +192,7 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
 
   const held = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id);
 
-  it("has Uptown's Library from its tablet's DYE2, Harbor's made through the REST API, and two Conflicts from Uptown's tablet's edits made offline", async () => {
+  it("has Uptown's Library from its tablet's DYE2, Harbor's made through the REST API, and two Lost Edits from Uptown's tablet's edits made offline", async () => {
     bar = await api.createMachine("Uptown bar", uptown.id);
     tablet = tablets.syncing(bar, server, { api: recordedDye2MainTablet("40901", "Uptown"), dye2: new SimulatedDye2() });
     await api.waitForOnline(bar);
@@ -212,19 +235,20 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     // Uptown's tablet, offline, edits a Bean's notes and a Grinder's burrs; the Admin edits both after, which win.
     const beans = await restList("bean");
     const grinders = await restList("grinder");
-    conflicted = {
+    lostOn = {
       bean: beans.find((found) => found.name === "Uptown Fixture Brazil")!.id as string,
       grinder: grinders.find((found) => found.model === "Fixture Grinder 83")!.id as string,
     };
     tablet.loseNetwork();
-    await tablet.editBean(held(tablet.beans(), conflicted.bean)!.id, { notes: "Offline notes" });
-    await tablet.editGrinder(held(tablet.grinders(), conflicted.grinder)!.id, { burrs: "Offline burrs" });
+    await tablet.editBean(held(tablet.beans(), lostOn.bean)!.id, { notes: "Offline notes" });
+    await tablet.editGrinder(held(tablet.grinders(), lostOn.grinder)!.id, { burrs: "Offline burrs" });
     // Well after them, whatever the drift between the tablet's clock and PostgreSQL's.
     await delay(1_000);
-    await api.send("PATCH", `/beans/${conflicted.bean}`, { content: { notes: "Management notes" } });
-    await api.send("PATCH", `/grinders/${conflicted.grinder}`, { content: { burrs: "Management burrs" } });
+    await api.send("PATCH", `/beans/${lostOn.bean}`, { content: { notes: "Management notes" } });
+    await api.send("PATCH", `/grinders/${lostOn.grinder}`, { content: { burrs: "Management burrs" } });
     tablet.restoreNetwork();
-    await expect.poll(async () => (await api.get<{ conflicts: Record_[] }>("/conflicts")).conflicts.length, { timeout: 15_000 }).toBe(2);
+    const lost = async () => [((await restItem("bean", lostOn.bean, "/history")).lostEdits as unknown[]).length, ((await restItem("grinder", lostOn.grinder, "/history")).lostEdits as unknown[]).length];
+    await expect.poll(lost, { timeout: 15_000 }).toEqual([1, 1]);
     // Nothing left under way, so what the REST API and the assistant read next stays as it is.
     await quiesced(api, { tablets: { tablet }, machines: { machine: bar } });
   });
@@ -343,10 +367,10 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
 
   it("reads one item of each kind as the REST API returns it", async () => {
     const ids: Record<Kind, string> = {
-      bean: conflicted.bean,
+      bean: lostOn.bean,
       beanBatch: made.batch,
       profile: ((await restList("profile")).find((profile) => profile.title === "Adaptive v3")!.id as string),
-      grinder: conflicted.grinder,
+      grinder: lostOn.grinder,
       basket: made.basket,
       tool: made.tool,
       recipe: made.espresso,
@@ -373,17 +397,12 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     expect(await toolError("get_library_item", { kind: "profile", id: "" })).toBe("No such Profile");
   });
 
-  it("reads a Recipe's history and Conflicts when asked for, as the REST API gives them: what changed and who changed it, on the clock of its Location", async () => {
-    const read = await assistant.call<{ recipe: Record_; history: Paged<Record_>; conflicts: Paged<Record_> }>("get_library_item", {
-      kind: "recipe",
-      id: made.espresso,
-      history: true,
-      conflicts: true,
-    });
-    const { versions } = (await restItem("recipe", made.espresso, "/history")) as { versions: Record_[] };
+  it("reads a Recipe's history when asked for, as the REST API gives it: what changed and who changed it, on the clock of its Location", async () => {
+    const read = await assistant.call<{ recipe: Record_; history: Paged<Record_> }>("get_library_item", { kind: "recipe", id: made.espresso, history: true });
+    const versions = historyEntries(await restItem("recipe", made.espresso, "/history"));
     expect(comparable(read.history.entries)).toEqual(comparable(versions));
     expect(read.history).toMatchObject({ total: 4, offset: 0, more: false });
-    expect(read.conflicts).toEqual({ entries: [], total: 0, offset: 0, more: false });
+    expect(read.history.entries.map((entry) => entry.lost)).toEqual([false, false, false, false]);
     const adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
     const samId = (await sam.api.get<{ account: { id: string } }>("/session")).account.id;
     // The latest first: the yield changed by Harbor's Staff member, the dose by the Admin, and the Recipe made in slot 1, each named to an Admin.
@@ -394,12 +413,11 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
       { fields: { slot: 1 }, source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: expect.objectContaining({ name: "Harbor Espresso", dose: 18 }), source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
     ]);
-    // Paged, without asking for its Conflicts.
+    // Paged.
     const second = await assistant.call<Record_ & { history: Paged<Record_> }>("get_library_item", { kind: "recipe", id: made.espresso, history: true, limit: 1, offset: 1 });
-    expect(second).not.toHaveProperty("conflicts");
     expect(comparable(second.history.entries)).toEqual(comparable(versions.slice(1, 2)));
     expect(second.history).toMatchObject({ total: 4, offset: 1, more: true });
-    // Neither unless asked for.
+    // Not unless asked for.
     expect(Object.keys(await assistant.call<Record_>("get_library_item", { kind: "recipe", id: made.espresso }))).toEqual(["recipe"]);
   });
 
@@ -412,18 +430,17 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     expect(await filtered("noSuchField")).toEqual([]);
     // A field alone asks for the history, paged as the whole history is.
     const read = await assistant.call<Record_ & { history: Paged<Record_> }>("get_library_item", { kind: "recipe", id: made.espresso, historyField: "dose" });
-    expect(comparable(read.history.entries)).toEqual(comparable(dose));
+    expect(comparable(read.history.entries)).toEqual(comparable(historyEntries({ versions: dose, lostEdits: [] })));
     expect(read.history).toMatchObject({ total: 2, offset: 0, more: false });
-    expect(read).not.toHaveProperty("conflicts");
     const paged = await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind: "recipe", id: made.espresso, history: true, historyField: "yield", limit: 1 });
-    expect(comparable(paged.history.entries)).toEqual(comparable((await filtered("yield")).slice(0, 1)));
+    expect(comparable(paged.history.entries)).toEqual(comparable(historyEntries({ versions: (await filtered("yield")).slice(0, 1), lostEdits: [] })));
     expect(paged.history).toMatchObject({ total: 2, offset: 0, more: true });
     // A Location's state of an item is filtered by its fields too: the Bean Batch's remaining weight at Harbor.
     const weights = (await api.get<{ versions: Record_[] }>(`/bean-batches/${made.batch}/history?field=remainingWeight`)).versions;
     expect(weights.length).toBeGreaterThan(0);
     expect(weights.every((version) => "remainingWeight" in (version.fields as Record_) && (version.location as LocationView).name === "Harbor")).toBe(true);
     const { history } = await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind: "beanBatch", id: made.batch, historyField: "remainingWeight" });
-    expect(comparable(history.entries)).toEqual(comparable(weights));
+    expect(comparable(history.entries)).toEqual(comparable(historyEntries({ versions: weights, lostEdits: [] })));
 
     for (const query of ["field=", "field=dose&field=yield", `field=${"f".repeat(201)}`]) {
       const response = await api.call("GET", `/recipes/${made.espresso}/history?${query}`);
@@ -437,8 +454,7 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     const adaptive = (await restList("profile")).find((profile) => profile.title === "Adaptive v3")!.id as string;
     for (const [kind, id] of [["beanBatch", made.batch], ["profile", adaptive]] as const) {
       const { history } = await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind, id, history: true });
-      const { versions } = (await restItem(kind, id, "/history")) as { versions: Record_[] };
-      expect(comparable(history.entries), kind).toEqual(comparable(versions));
+      expect(comparable(history.entries), kind).toEqual(comparable(historyEntries(await restItem(kind, id, "/history"))));
       const where = history.entries.map((entry) => (entry.location as LocationView | null)?.name ?? null);
       // Its joining the Library, and its batch added at Harbor with its weight there, or the Profile shown there.
       expect(where, kind).toEqual(expect.arrayContaining([null, "Harbor"]));
@@ -449,61 +465,60 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     }
   });
 
-  it("lists the open Conflicts, and an item's, as the REST API gives them, each on the clock of the Location its item belongs to, or in UTC", async () => {
-    const { conflicts } = await api.get<{ conflicts: Record_[] }>("/conflicts");
-    const listed = await assistant.call<{ conflicts: Record_[] } & Page>("list_conflicts");
-    expect(comparable(listed.conflicts)).toEqual(comparable(conflicts));
-    expect(listed).toMatchObject({ total: 2, offset: 0, more: false });
+  it("reads an item's Lost Edits among its history, as the REST API gives them, each with the edit it lost to, on the clock of the Location its item belongs to, or in UTC", async () => {
+    const read = async (kind: Kind, id: string, input: Record_ = {}) =>
+      (await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind, id, history: true, ...input })).history;
     // A Grinder's, Uptown's, and a Bean's, which belongs to no Location.
-    const about = (id: string) => listed.conflicts.find((conflict) => (conflict.item as Record_).id === id)!;
-    const onClock = (time: RegExp) => ({ editedAt: expect.stringMatching(time), createdAt: expect.stringMatching(time) });
-    expect(about(conflicted.grinder)).toMatchObject({
-      item: { kind: "grinder", name: "Fixture Grinder 83" },
-      field: "burrs",
-      value: "Offline burrs",
+    const onClock = (time: RegExp) => ({ editedAt: expect.stringMatching(time), receivedAt: expect.stringMatching(time) });
+    const grinder = await read("grinder", lostOn.grinder);
+    expect(comparable(grinder.entries)).toEqual(comparable(historyEntries(await restItem("grinder", lostOn.grinder, "/history"))));
+    // The edit that lost was taken in after the one it lost to, so it is the latest.
+    expect(grinder.entries[0]).toMatchObject({
+      lost: true,
+      fields: { burrs: "Offline burrs" },
       location: null,
       source: { machine: { id: bar.machine.id, name: "Uptown bar" }, tabletId: expect.any(String), account: null },
-      current: { value: "Management burrs", source: { machine: null, account: { name: "Ada Admin" } }, editedAt: expect.stringMatching(UPTOWN_TIME) },
-      resolvable: true,
+      lostTo: { versionId: grinder.entries[1]!.id, value: "Management burrs", source: { machine: null, account: { name: "Ada Admin" } }, editedAt: expect.stringMatching(UPTOWN_TIME) },
       ...onClock(UPTOWN_TIME),
     });
-    expect(about(conflicted.bean)).toMatchObject({
-      item: { kind: "bean", name: "Fixture Roasters Uptown Fixture Brazil" },
-      field: "notes",
-      value: "Offline notes",
-      current: { value: "Management notes", editedAt: expect.stringMatching(UTC_TIME) },
+    expect(grinder.entries[1]).toMatchObject({ lost: false, lostTo: null, fields: { burrs: "Management burrs" } });
+    expect(grinder.entries.filter((entry) => entry.lost)).toHaveLength(1);
+    const bean = await read("bean", lostOn.bean);
+    expect(comparable(bean.entries)).toEqual(comparable(historyEntries(await restItem("bean", lostOn.bean, "/history"))));
+    expect(bean.entries[0]).toMatchObject({
+      lost: true,
+      fields: { notes: "Offline notes" },
+      lostTo: { value: "Management notes", editedAt: expect.stringMatching(UTC_TIME) },
       ...onClock(UTC_TIME),
     });
 
-    const page = await assistant.call<{ conflicts: Record_[] } & Page>("list_conflicts", { limit: 1, offset: 1 });
-    expect(comparable(page.conflicts)).toEqual(comparable(conflicts.slice(1)));
-    expect(page).toMatchObject({ total: 2, offset: 1, more: false });
-
-    for (const [kind, id] of [["bean", conflicted.bean], ["grinder", conflicted.grinder]] as const) {
-      const read = await assistant.call<{ conflicts: Paged<Record_> }>("get_library_item", { kind, id, conflicts: true });
-      expect(read.conflicts.entries).toEqual([about(id)]);
-      expect(comparable(read.conflicts.entries)).toEqual(comparable((await restItem(kind, id, "/conflicts")).conflicts));
-    }
+    // A field's history has its Lost Edits, and no other field's; and they are paged with the versions.
+    const notes = await read("bean", lostOn.bean, { historyField: "notes" });
+    expect(notes.entries.map((entry) => entry.lost)).toEqual([true, false]);
+    expect((await read("bean", lostOn.bean, { historyField: "country" })).entries.every((entry) => entry.lost === false)).toBe(true);
+    const page = await read("bean", lostOn.bean, { limit: 1, offset: 1 });
+    expect(page.entries).toEqual([bean.entries[1]]);
+    expect(page).toMatchObject({ total: bean.total, offset: 1, more: bean.total > 2 });
   });
 
-  it("gives Staff and Viewers what the REST API gives them: other accounts unnamed, and only the Conflicts they may resolve marked so", async () => {
-    for (const [who, { assistant: theirs, api: rest }, resolves] of [
-      // Harbor's Staff member resolves the Bean's anywhere, but not Uptown's Grinder's; a Viewer neither.
-      ["Staff", sam, { bean: true, grinder: false }],
-      ["Viewer", vic, { bean: false, grinder: false }],
+  it("gives Staff and Viewers what the REST API gives them: other accounts unnamed, in an item's history and in what its Lost Edits lost to", async () => {
+    for (const [who, { assistant: theirs, api: rest }] of [
+      ["Staff", sam],
+      ["Viewer", vic],
     ] as const) {
-      const { conflicts } = await rest.get<{ conflicts: Record_[] }>("/conflicts");
-      const listed = await theirs.call<{ conflicts: Record_[] }>("list_conflicts");
-      expect(comparable(listed.conflicts), who).toEqual(comparable(conflicts));
-      expect(Object.fromEntries(listed.conflicts.map((conflict) => [(conflict.item as Record_).kind, conflict.resolvable])), who).toEqual(resolves);
-      expect(listed.conflicts.map((conflict) => (conflict.current as { source: { account: Record_ } }).source.account.name), who).toEqual([null, null]);
+      for (const [kind, id] of [["bean", lostOn.bean], ["grinder", lostOn.grinder]] as const) {
+        const { history } = await theirs.call<{ history: Paged<Record_> }>("get_library_item", { kind, id, history: true });
+        expect(comparable(history.entries), who).toEqual(comparable(historyEntries(await restItem(kind, id, "/history", rest))));
+        const [lost] = history.entries.filter((entry) => entry.lost);
+        expect((lost!.lostTo as { source: { account: Record_ } }).source.account.name, who).toBeNull();
+      }
 
       const read = await theirs.call<{ recipe: Record_; history: Paged<{ source: { account: Record_ | null } }> }>("get_library_item", {
         kind: "recipe",
         id: made.espresso,
         history: true,
       });
-      expect(comparable(read.history.entries), who).toEqual(comparable(((await restItem("recipe", made.espresso, "/history", rest)) as { versions: unknown[] }).versions));
+      expect(comparable(read.history.entries), who).toEqual(comparable(historyEntries(await restItem("recipe", made.espresso, "/history", rest))));
       expect(read.history.entries.slice(0, 2).map((version) => version.source.account?.name), who).toEqual([null, null]);
       for (const kind of EVERY_KIND) expect(comparable((await find(kind, {}, theirs)).items), `${who} ${kind}`).toEqual(comparable(await restList(kind, rest)));
     }

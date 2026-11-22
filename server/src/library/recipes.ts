@@ -42,6 +42,7 @@ import {
   editedPaths,
   holdsRecipe,
   holdsRecipeAsDecided,
+  recipeValuesHeld,
   libraryValues,
   planRecipeIntake,
   readReportedRecipes,
@@ -336,7 +337,7 @@ export async function takeInRecipes(
     // A record the map holds whose Recipe this tablet joined with is written over, not taken in.
     const recipe = recipes.get(itemId);
     if (step.kind === "edit" && recipe) {
-      // Saved under its id without having seen the Recipe there: each field it holds otherwise is its edit, merged with Conflicts.
+      // Saved under its id without having seen the Recipe there: each field it holds otherwise is its edit, merged as any is, with Lost Edits.
       const values = libraryValues(view, EDITED_PATHS, recipe.content, await context(view));
       const changed = Object.fromEntries(Object.entries(values).filter(([field, value]) => !sameValue(recipe.content[field], value)));
       await editContent(tx, { kind: "recipe", id: itemId }, { values: changed, at: record.updatedAt, seenAt: null }, source);
@@ -354,7 +355,8 @@ export async function takeInRecipes(
         const paths = editedPaths(edits);
         if (paths.length > 0) {
           const values = withoutOwnEdits(libraryValues(view, paths, recipe.content, await context(view)), recipe.content, recipe.fieldEdits, tablet.tabletId);
-          await editContent(tx, { kind: "recipe", id: itemId }, { values, at: record.updatedAt, seenAt: known.contentSeenAt }, source);
+          const held = recipeValuesHeld(knownView, await recordFor(tx, ids, recipe.content, recipe.slot, itemId), recipe.content, Object.keys(values));
+          await editContent(tx, { kind: "recipe", id: itemId }, { values, at: record.updatedAt, seenAt: known.contentSeenAt, held }, source);
         }
         const move = slotMove(itemId, known.record, record);
         if (move) moves.push(move);
@@ -460,7 +462,7 @@ async function takeOutOfSlot(tx: Prisma.TransactionClient, recipeId: string, loc
  * is no edit (`recordedByDye2`), which is written again.
  * A record the plugin `linked`, saved under its id before the tablet
  * reported it, is an edit of the Recipe, each field it holds otherwise
- * merged with Conflicts, but for one the Library left out as the tablet
+ * merged as any is, with Lost Edits, but for one the Library left out as the tablet
  * joined, which the Recipe is written over. Recorded only while the
  * answering connection holds its Machine, under the Machine's and the
  * tablet's locks, then the Recipe's Location's and its row's. Nothing is
@@ -527,7 +529,8 @@ export async function recordRecipeWritten(
       const refused = paths.length > 0 && here && refusedPaths(view, paths, await context(view)).length > 0;
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
-      edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
+      const held = recipeValuesHeld(recipeView(known.record), await recordFor(tx, ids, content, slot, itemId), content, Object.keys(values));
+      edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt, held }, source);
       const now = await recordFor(tx, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, slot, itemId);
       stale = (answered.stale || recorded.size > 0 || steamOff || refused) && !holdsRecipe(view, now);
       // Moved on the tablet since its last report, as the write set neither its slot nor whether it is shown.
@@ -544,7 +547,7 @@ export async function recordRecipeWritten(
       // the Recipe is written over it, so the record has not seen its content.
       edited = { writesDue: true, lost: true };
     } else {
-      // Saved under its id before the tablet reported it: each field it holds otherwise is its edit, merged with Conflicts.
+      // Saved under its id before the tablet reported it: each field it holds otherwise is its edit, merged as any is, with Lost Edits.
       const values = libraryValues(view, EDITED_PATHS, content, await context(view));
       const changed = Object.fromEntries(Object.entries(values).filter(([field, value]) => !sameValue(content[field], value)));
       edited = await editContent(tx, ref, { values: changed, at, seenAt: null }, source);

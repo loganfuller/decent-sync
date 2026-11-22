@@ -1,6 +1,6 @@
 import { sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
+import { type EditSource, type ItemRef, heldValue, recordLostEdit, recordReplaced, recordVersion } from "./history.js";
 
 // Each Location's state of the Library's Beans, Bean Batches, Grinders,
 // Profiles, Baskets and Tools (ADR-0008): whether a batch is at the Location and its remaining
@@ -22,14 +22,17 @@ import { type EditSource, type ItemRef, recordConflict, recordReplaced, recordVe
 // one its own edit made). Otherwise, as from a tablet that was offline, it
 // applies only if it is timed no earlier than the edit that set the field,
 // and else loses to it, and the Location's state is written back to that
-// tablet, and kept as a Conflict. One that applies over a value its tablet
-// had not seen, set by another tablet's edit, keeps that value as a Conflict
-// instead, as neither edit saw the other (ADR-0020). An edit that applies
-// decides the field even when it leaves the value as it was, since it is the
-// field's latest edit, and is kept as a version of the item (history.ts),
-// whose id the field keeps, so a Conflict it becomes knows where it came
-// from. Each change says when it decided the field, or null if it did not,
-// so the tablet's record can be known to have seen that.
+// tablet, and kept as a Lost Edit (ADR-0033). One that applies over a value
+// its tablet had not seen, set by another tablet's edit, keeps that value as
+// a Lost Edit instead, as neither edit saw the other (ADR-0020), unless the
+// tablet's last known record of the item held that value (`held`): it
+// replaced what it had, though the server cannot show it saw the edit that
+// set it. An edit that applies decides the field even when it leaves the
+// value as it was, since it is the field's latest edit, and is kept as a
+// version of the item (history.ts), whose id the field keeps, so a Lost
+// Edit it becomes knows where it came from, and one it wins over knows what
+// it lost to. Each change says when it decided the field, or null if it did
+// not, so the tablet's record can be known to have seen that.
 //
 // Every change to a Location's state runs under that Location's advisory
 // lock, taken after the reporting tablet's row lock, so origins are kept to
@@ -56,8 +59,9 @@ export async function lockLocation(tx: Prisma.TransactionClient, locationId: str
  * is. One already there is added again, as the field's latest edit, if that
  * edit wins as one changing it would (ADR-0020), so an older edit the tablet
  * had not seen cannot undo it. It is never added before it was finished,
- * whatever the clock that timed the edit. Says when it decided it, or null
- * if the edit lost.
+ * whatever the clock that timed the edit. `held` is whether the tablet's
+ * last known record of the batch had it there, absent where the server
+ * holds no such record. Says when it decided it, or null if the edit lost.
  */
 export async function addBatchAt(
   tx: Prisma.TransactionClient,
@@ -66,6 +70,7 @@ export async function addBatchAt(
   at: Date,
   seenAt: Date | null,
   source: EditSource,
+  held?: boolean,
 ): Promise<Date | null> {
   const before = await presenceAt(tx, batchId, locationId);
   const [added] = await tx.$queryRaw<{ decidedAt: Date }[]>`
@@ -79,7 +84,7 @@ export async function addBatchAt(
         OR COALESCE(batch_locations.finished_at, batch_locations.added_at) <= EXCLUDED.added_at
         OR batch_locations.presence_decided_at <= ${seenAt}::timestamptz
     RETURNING presence_decided_at AS "decidedAt"`;
-  await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at);
+  await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at, held);
   await tx.$executeRaw`
     DELETE FROM bean_origins
     WHERE location_id = ${locationId}::uuid AND bean_id = (SELECT bean_id FROM bean_batches WHERE id = ${batchId}::uuid AND NOT archived)
@@ -95,8 +100,9 @@ export async function addBatchAt(
  * there by an edit its tablet had not seen (`seenAt`, as `addBatchAt` reads
  * it) and timed later. One finished there already is finished again, as
  * `addBatchAt` adds one there again. It is never finished before it was
- * added, whatever the clock that timed the edit. Says when it decided it, or
- * null if it was never added there or the edit lost.
+ * added, whatever the clock that timed the edit. `held` is as `addBatchAt`
+ * reads it. Says when it decided it, or null if it was never added there or
+ * the edit lost.
  */
 export async function finishBatchAt(
   tx: Prisma.TransactionClient,
@@ -105,6 +111,7 @@ export async function finishBatchAt(
   at: Date,
   seenAt: Date | null,
   source: EditSource,
+  held?: boolean,
 ): Promise<Date | null> {
   const before = await presenceAt(tx, batchId, locationId);
   const [finished] = await tx.$queryRaw<{ decidedAt: Date }[]>`
@@ -112,7 +119,7 @@ export async function finishBatchAt(
     WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid AND added_at IS NOT NULL
       AND (COALESCE(finished_at, added_at) <= ${at}::timestamptz OR presence_decided_at <= ${seenAt}::timestamptz)
     RETURNING presence_decided_at AS "decidedAt"`;
-  await keepPresenceEdit(tx, batchId, locationId, false, before, finished?.decidedAt ?? null, seenAt, source, at);
+  await keepPresenceEdit(tx, batchId, locationId, false, before, finished?.decidedAt ?? null, seenAt, source, at, held);
   return finished?.decidedAt ?? null;
 }
 
@@ -137,8 +144,10 @@ async function presenceAt(tx: Prisma.TransactionClient, batchId: string, locatio
 /**
  * Keeps an edit of whether a batch is at a Location (`value`): as a version
  * if it decided it (at `decidedAt`), else, if it would have changed it, as a
- * Conflict. One that decided it over another tablet's edit its own had not
- * seen, which it changed, keeps that edit's value as a Conflict.
+ * Lost Edit, lost to the edit that decided it last. One that decided it
+ * over another tablet's edit its own had not seen, which it changed, keeps
+ * that edit's value as a Lost Edit, lost to this one, unless the tablet's
+ * last known record held that value (`held`).
  */
 async function keepPresenceEdit(
   tx: Prisma.TransactionClient,
@@ -150,17 +159,20 @@ async function keepPresenceEdit(
   seenAt: Date | null,
   source: EditSource,
   at: Date,
+  held: boolean | undefined,
 ): Promise<void> {
   const item: ItemRef = { kind: "beanBatch", id: batchId };
   const was = before?.at ?? null;
   if (decidedAt === null) {
-    if (was !== null && was !== value) await recordConflict(tx, item, locationId, "atLocation", value, source, at);
+    if (was !== null && was !== value) await recordLostEdit(tx, item, locationId, "atLocation", value, source, at, before!.versionId);
     return;
   }
   const versionId = await recordVersion(tx, item, locationId, { atLocation: value }, source, at);
   await tx.$executeRaw`
     UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
-  if (was !== null && was !== value && unseen(before!, seenAt, source)) await recordReplaced(tx, item, locationId, "atLocation", was, before!.versionId);
+  if (was !== null && was !== value && unseen(before!, seenAt, source) && !heldValue(held, was)) {
+    await recordReplaced(tx, item, locationId, "atLocation", was, before!.versionId, versionId);
+  }
 }
 
 /** Whether a field's latest decision was another tablet's, which the editing tablet's record had not seen (`seenAt`). */
@@ -202,7 +214,7 @@ export async function enterRemainingWeight(
   const item: ItemRef = { kind: "beanBatch", id: batchId };
   const known = before?.enteredAt ? before : null;
   if (entered === 0) {
-    if (known && !sameValue(known.value, weight.value)) await recordConflict(tx, item, locationId, "remainingWeight", weight.value, source, at);
+    if (known && !sameValue(known.value, weight.value)) await recordLostEdit(tx, item, locationId, "remainingWeight", weight.value, source, at, known.versionId);
     return false;
   }
   const versionId = await recordVersion(tx, item, locationId, { remainingWeight: weight.value }, source, at);
@@ -210,7 +222,7 @@ export async function enterRemainingWeight(
     UPDATE batch_locations SET remaining_weight_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
   // A value the tablet had not had, entered by another tablet before this one, is replaced without either seeing the other.
   if (known && !sameValue(known.value, weight.had) && !sameValue(known.value, weight.value) && known.tabletId !== source.tabletId) {
-    await recordReplaced(tx, item, locationId, "remainingWeight", known.value, known.versionId);
+    await recordReplaced(tx, item, locationId, "remainingWeight", known.value, known.versionId, versionId);
   }
   return true;
 }
@@ -223,7 +235,9 @@ export async function enterRemainingWeight(
  * added there by an edit the tablet had not seen, as of `seenAt`, the latest
  * decision of its batches' presence there that the tablet's record of the
  * Bean has seen, and timed later, stays. What its records of the batches
- * have seen says nothing of when the Bean was archived. Its batches finished
+ * have seen says nothing of when the Bean was archived, nor does what they
+ * held: the edit was worked out from its record of the Bean, so a batch's
+ * presence it replaces unseen is kept as a Lost Edit whatever they held. Its batches finished
  * there already are finished again, as `finishBatchAt` finishes one, where
  * the archiving wins. Says whether anything changed.
  */
@@ -300,9 +314,11 @@ const SHOWN: Readonly<Record<ShownKind, { table: string; column: string; idType:
  * unless the Location's state was decided by an edit the tablet had not seen
  * (as of `seenAt`, the latest decision its record of the Profile has seen,
  * or none) and timed later: that wins, and is written back to the tablet,
- * and the edit, if it would have changed it, is kept as a Conflict. One that
- * wins over another tablet's decision it had not seen, which it changes,
- * keeps that decision as a Conflict. One shown or hidden there as the edit
+ * and the edit, if it would have changed it, is kept as a Lost Edit. One
+ * that wins over another tablet's decision it had not seen, which it
+ * changes, keeps that decision as a Lost Edit, unless the tablet's last
+ * known record of the Profile held it so (`held`, whether that record had
+ * it shown; absent where the server holds no such record). One shown or hidden there as the edit
  * has it is decided again, as the field's latest edit, if that edit wins as
  * one changing it would, so an older edit the tablet had not seen cannot
  * undo it. The decision keeps the tablet that made it (`source`) and its
@@ -316,8 +332,9 @@ export function showProfileAt(
   shown: boolean,
   at: Date,
   seenAt: Date | null,
+  held?: boolean,
 ): Promise<Date | null> {
-  return showAt(tx, "profile", profileId, locationId, source, shown, at, seenAt);
+  return showAt(tx, "profile", profileId, locationId, source, shown, at, seenAt, held);
 }
 
 /** Shows or hides an item of a kind shown per Location at the Location, as `showProfileAt` does a Profile. */
@@ -330,6 +347,7 @@ export async function showAt(
   shown: boolean,
   at: Date,
   seenAt: Date | null,
+  held?: boolean,
 ): Promise<Date | null> {
   const { table, column, idType } = shownSql(kind);
   const [before] = await tx.$queryRaw<{ shown: boolean; decidedAt: Date; versionId: string | null; tabletId: string | null }[]>`
@@ -346,20 +364,23 @@ export async function showAt(
     RETURNING decided_at AS "decidedAt"`;
   const item: ItemRef = { kind, id: itemId };
   if (!changed) {
-    if (before && before.shown !== shown) await recordConflict(tx, item, locationId, "shown", shown, source, at);
+    if (before && before.shown !== shown) await recordLostEdit(tx, item, locationId, "shown", shown, source, at, before.versionId);
     return null;
   }
-  await keepShownVersion(tx, kind, itemId, locationId, shown, source, at);
-  if (before && before.shown !== shown && unseen(before, seenAt, source)) await recordReplaced(tx, item, locationId, "shown", before.shown, before.versionId);
+  const versionId = await keepShownVersion(tx, kind, itemId, locationId, shown, source, at);
+  if (before && before.shown !== shown && unseen(before, seenAt, source) && !heldValue(held, before.shown)) {
+    await recordReplaced(tx, item, locationId, "shown", before.shown, before.versionId, versionId);
+  }
   return changed.decidedAt;
 }
 
-/** Keeps a decision of whether the item is shown at the Location as a version, whose id the decision keeps. */
-async function keepShownVersion(tx: Prisma.TransactionClient, kind: ShownKind, itemId: string, locationId: string, shown: boolean, source: EditSource, at: Date): Promise<void> {
+/** Keeps a decision of whether the item is shown at the Location as a version, whose id the decision keeps, and returns. */
+async function keepShownVersion(tx: Prisma.TransactionClient, kind: ShownKind, itemId: string, locationId: string, shown: boolean, source: EditSource, at: Date): Promise<string> {
   const { table, column, idType } = shownSql(kind);
   const versionId = await recordVersion(tx, { kind, id: itemId }, locationId, { shown }, source, at);
   await tx.$executeRaw`
     UPDATE ${table} SET version_id = ${versionId}::uuid WHERE ${column} = ${itemId}::${idType} AND location_id = ${locationId}::uuid`;
+  return versionId;
 }
 
 /**

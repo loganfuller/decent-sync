@@ -77,15 +77,10 @@ describe("Beans in the Library", () => {
   const holds = (tablet: SimulatedTablet, name: string, id: string) =>
     expect.poll(() => heldAs(tablet, name)).toEqual([id]);
   const locations = (bean: BeanSummary) => bean.offeredAt.map((location) => location.name);
-  /** The open Conflicts about a Bean, each as its field, losing value and the Machine it came from, by field. */
-  async function conflictsOf(beanId: string): Promise<{ field: string; value: unknown; machine: string | undefined }[]> {
-    const { conflicts } = (await (await api.call("GET", "/conflicts")).json()) as {
-      conflicts: { item: { id: string }; field: string; value: unknown; source: { machine: { name: string } | null } }[];
-    };
-    return conflicts
-      .filter((conflict) => conflict.item.id === beanId)
-      .map((conflict) => ({ field: conflict.field, value: conflict.value, machine: conflict.source.machine?.name }))
-      .sort((a, b) => a.field.localeCompare(b.field));
+  /** The Lost Edits in a Bean's history, each as its field, losing value and the Machine it came from, by field. */
+  async function lostEditsOf(beanId: string): Promise<{ field: string; value: unknown; machine: string | undefined }[]> {
+    const { lostEdits } = await api.get<{ lostEdits: { field: string; value: unknown; source: { machine: { name: string } | null } }[] }>(`/beans/${beanId}/history`);
+    return lostEdits.map((lost) => ({ field: lost.field, value: lost.value, machine: lost.source.machine?.name })).sort((a, b) => a.field.localeCompare(b.field));
   }
 
   it("changes nothing when a tablet reports back the plugin's own write", async () => {
@@ -147,12 +142,12 @@ describe("Beans in the Library", () => {
     await uptownTablet.addBean({ roaster: "  roux bakehouse ", name: "LAUNCH DAY BLEND  ", notes: "Entered at Uptown" });
     await expect.poll(async () => locations((await beansNamed("Launch Day Blend"))[0]!)).toEqual(["Matching lab", "Matching Uptown"]);
     expect(await libraryBeans()).not.toContainEqual(expect.objectContaining({ name: "LAUNCH DAY BLEND  " }));
-    // Uptown's record carries the Bean's global id and takes its content; what was entered there otherwise is kept as Conflicts (ADR-0018).
+    // Uptown's record carries the Bean's global id and takes its content; what was entered there otherwise is kept as Lost Edits (ADR-0018).
     await expect.poll(() => uptownTablet.beans().map(globalIdOf)).toEqual([bean.id]);
     await expect.poll(() => uptownTablet.beans()[0]!.name).toBe("Launch Day Blend");
     expect(uptownTablet.beans()[0]).toMatchObject({ roaster: "Roux Bakehouse", country: "Brazil" });
     expect(uptownTablet.beans()[0]).not.toHaveProperty("notes");
-    expect(await conflictsOf(bean.id)).toEqual([
+    expect(await lostEditsOf(bean.id)).toEqual([
       { field: "name", value: "LAUNCH DAY BLEND  ", machine: "Matching Uptown group" },
       { field: "notes", value: "Entered at Uptown", machine: "Matching Uptown group" },
       { field: "roaster", value: "  roux bakehouse ", machine: "Matching Uptown group" },
@@ -178,7 +173,7 @@ describe("Beans in the Library", () => {
     expect(two.beans()[0]).not.toHaveProperty("notes");
     // Its Workflow's batch, one of its own the lab leaves out, is cleared too.
     expect(two.writes.filter((write) => write !== "PUT /workflow")).toEqual([`PUT /beans/${String(own[0]!.id)}`]);
-    expect(await conflictsOf(bean.id)).toEqual([]);
+    expect(await lostEditsOf(bean.id)).toEqual([]);
     expect(await beansNamed("Already Here")).toHaveLength(1);
     // Its first write came only once its report of its beans was acknowledged, so taken in.
     const report = two.sent.find((frame) => (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "beans") as {
@@ -205,12 +200,12 @@ describe("Beans in the Library", () => {
     await one.addBean({ roaster: "Roux", name: "Launch Race" });
     const bean = await libraryBean("Launch Race");
     await expect.poll(() => two.beans().map(globalIdOf)).toEqual([bean.id]);
-    // The plugin linked it, writing only the global id; it then takes the Bean's content, what it held otherwise kept as Conflicts.
+    // The plugin linked it, writing only the global id; it then takes the Bean's content, what it held otherwise kept as Lost Edits.
     await expect.poll(() => two.beans()[0]!.name).toBe("Launch Race");
     expect(two.beans()[0]).toMatchObject({ id: entered.id });
     expect(two.beans()[0]).not.toHaveProperty("notes");
     expect(two.writes).toEqual([`PUT /beans/${String(entered.id)}`, `PUT /beans/${String(entered.id)}`]);
-    expect(await conflictsOf(bean.id)).toEqual([
+    expect(await lostEditsOf(bean.id)).toEqual([
       { field: "name", value: "launch race ", machine: "Race 2" },
       { field: "notes", value: "Entered on group 2", machine: "Race 2" },
     ]);

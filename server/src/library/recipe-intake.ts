@@ -518,7 +518,7 @@ export function editedPaths(changed: Readonly<Record<string, unknown>>): string[
  * What else an edit setting `values` over a Recipe's content (`current`)
  * sets of its dose, yield and DYE2's ratio, which DYE2's editor keeps only
  * while the yield is the dose times it, to a tenth of a gram: a ratio set
- * without a yield, as a Conflict about it holds, sets the yield to the dose
+ * without a yield sets the yield to the dose
  * times it, as picking a ratio in DYE2's editor does, and is refused
  * (`NoDoseForRatio`) for a Recipe with no dose, which it cannot be applied
  * to; and a ratio the edit leaves otherwise than the yield is cleared.
@@ -783,6 +783,24 @@ function writtenFrom(path: string, content: Readonly<Record<string, unknown>>): 
 }
 
 /**
+ * What a tablet's last known record of a Recipe (`known`) held of each of
+ * `fields`, for an edit worked out from that record (`ItemEdit.held`):
+ * the Recipe's value now (`content`) of each field the record holds as that
+ * content is written (`written`, the record the tablet is to hold of it,
+ * `recipeRecord`). A field written to a path the record holds otherwise is
+ * left out, as what it held of it is not the Recipe's value.
+ */
+export function recipeValuesHeld(
+  known: Readonly<RecipeView>,
+  written: Readonly<RecipeView>,
+  content: Readonly<Record<string, unknown>>,
+  fields: Iterable<string>,
+): Record<string, unknown> {
+  const differing = new Set(editedPaths(changedFields(written, known)).flatMap((path) => writtenFrom(path, content)));
+  return Object.fromEntries([...fields].filter((field) => !differing.has(field)).map((field) => [field, content[field] ?? null]));
+}
+
+/**
  * Whether a tablet's record of a Recipe, as Decaid returned it for a write
  * the map held no earlier record of, holds the Recipe's content as it stood
  * when the write's content was decided (`contentDecidedAt`), as
@@ -815,7 +833,7 @@ export type RecipeIntakeStep =
    * global id, or is of another Location's Recipe.
    */
   | { kind: "map"; itemId: string; reported: ReportedRecipe }
-  /** A record the map does not hold under the record id of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field with Conflicts. */
+  /** A record the map does not hold under the record id of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field as any is, with Lost Edits. */
   | { kind: "edit"; itemId: string; reported: ReportedRecipe }
   /** A record the map does not hold, of an id no Recipe of the Location has: a new Recipe there, with that record id. */
   | { kind: "add"; reported: ReportedRecipe }

@@ -71,7 +71,7 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
     let conflicts: { zero: string; twenty: string; used: string };
     const fieldEdit = async (id: string) =>
       (await database.query<{ edit: Record_ | null }>(`SELECT field_edits -> 'steamDuration' AS edit FROM recipes WHERE id = $1`, [id])).rows[0]!.edit;
-    const open = async (id: string) => (await api.get<{ conflicts: { id: string; current: { value: unknown; versionId: string | null } }[] }>("/conflicts")).conflicts.find((conflict) => conflict.id === id);
+    const lostEdits = async (id: string) => (await api.get<{ lostEdits: { id: string }[] }>(`/recipes/${id}/history`)).lostEdits.map((lost) => lost.id).sort();
     try {
       await database.query(`UPDATE recipes SET content = content || '{"steamDuration": 0}'::jsonb WHERE id = $1`, [zero.id]);
       const conflict = (value: number, state: string) =>
@@ -91,8 +91,6 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
       await expect.poll(() => steamTime(zero.id), { timeout: 15_000 }).toBeNull();
       expect(steamTime(kept.id)).toBe(45);
       const before = await fieldEdit(zero.id);
-      const shown = (await open(conflicts.twenty))!.current.versionId;
-      expect(shown).toBe(before!.versionId);
 
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
 
@@ -108,9 +106,8 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
       expect(new Date(String(after.decidedAt)).getTime()).toBeGreaterThan(new Date(String(before!.decidedAt)).getTime());
       expect((await fieldEdit(kept.id))!.versionId).not.toBe(version!.id);
 
-      // The open Conflict offering 20 shows none as the value now, and is refused where it names the value shown before.
-      expect((await open(conflicts.twenty))!.current).toMatchObject({ value: null, versionId: version!.id });
-      expect((await api.call("POST", `/conflicts/${conflicts.twenty}/use`, { seen: shown })).status).toBe(409);
+      // The one it dismissed is no Lost Edit in the Recipe's history (ADR-0033); the others are.
+      expect(await lostEdits(zero.id)).toEqual([conflicts.twenty, conflicts.used].sort());
     } finally {
       await database.end();
     }
@@ -120,8 +117,8 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
     // The other has no version of the migration's.
     const versions = async (id: string) => (await api.get<{ versions: { fields: Record_ }[] }>(`/recipes/${id}/history`)).versions;
     expect((await versions(kept.id)).filter((version) => version.fields.steamDuration === null)).toEqual([]);
-    // Its value used over the one now: a steam time from 1 s is an edit as before, written to the tablet.
-    expect((await api.call("POST", `/conflicts/${conflicts.twenty}/use`, { seen: (await open(conflicts.twenty))!.current.versionId })).status).toBe(200);
+    // A steam time from 1 s is an edit as before, written to the tablet.
+    expect((await api.call("PATCH", `/recipes/${zero.id}`, { content: { steamDuration: 20 } })).status).toBe(200);
     expect((await recipe(zero.id)).content).toMatchObject({ steamDuration: 20 });
     await expect.poll(() => steamTime(zero.id), { timeout: 15_000 }).toBe(20);
   });

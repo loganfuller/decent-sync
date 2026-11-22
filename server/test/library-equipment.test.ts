@@ -246,7 +246,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect(await named("baskets", "Fixture 20g High-flow")).toHaveLength(1);
   });
 
-  it("writes an edit of a Tool's attributes on one tablet to every tablet that holds it, and keeps two edits made without seeing each other as a Conflict", async () => {
+  it("writes an edit of a Tool's attributes on one tablet to every tablet that holds it, and keeps two edits made without seeing each other as a Lost Edit", async () => {
     const lab = await api.createLocation("Edited lab", "America/Chicago");
     const cafe = await api.createLocation("Edited cafe", "America/Chicago");
     const machines = [await api.createMachine("Edited lab 1", lab.id), await api.createMachine("Edited lab 2", lab.id), await api.createMachine("Edited cafe 1", cafe.id)] as const;
@@ -287,11 +287,11 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await setNeedles(one, "14");
     await expect.poll(() => needles(two)).toBe("14");
     await setNeedles(cafeTablet, "12");
-    // Back online, the cafe's edit, made and read after the lab's, wins, and the lab's value is kept as a Conflict.
+    // Back online, the cafe's edit, made and read after the lab's, wins, and the lab's value is kept as a Lost Edit.
     cafeTablet.restoreNetwork();
     for (const tablet of [one, two]) await expect.poll(() => needles(tablet)).toBe("12");
-    const conflicts = (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/tools/${tool!.id}/conflicts`)).conflicts;
-    expect(conflicts).toEqual([
+    const { lostEdits } = await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/tools/${tool!.id}/history`);
+    expect(lostEdits).toEqual([
       expect.objectContaining({
         field: "custom",
         value: [
@@ -521,7 +521,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.7 });
     expect((await view("tools", tool!.id)).content).toMatchObject({ name: "Stale Fixture WDT", custom: needles });
     for (const [kind, id] of [["baskets", basket!.id], ["tools", tool!.id]] as const) {
-      expect((await api.get<{ conflicts: unknown[] }>(`/${kind}/${id}/conflicts`)).conflicts).toEqual([]);
+      expect((await api.get<{ lostEdits: unknown[] }>(`/${kind}/${id}/history`)).lostEdits).toEqual([]);
     }
 
     // The second tablet changes the diameter again, to 58.9 mm, so the first held 58.7 just before the server's latest write
@@ -565,7 +565,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
 
     // Lost again, the write is then undone on the first tablet, so the second holds the Basket's notes, as its answer to the
     // write putting them back shows: it has seen them, and its barista's edit of them, taken in from the answer to a
-    // write of the diameter, is no Conflict.
+    // write of the diameter, is no Lost Edit.
     const lostAgain = loseNextWrite(two, "baskets");
     await set(one, "notes", "Edited twice on one");
     await lostAgain.taken();
@@ -577,7 +577,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await set(one, "diameterMm", 58.9);
     await expect.poll(() => recordNamed(one, "baskets", name)?.notes).toBe("Edited on two");
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Edited on two", diameterMm: 58.9 });
-    expect((await api.get<{ conflicts: unknown[] }>(`/baskets/${basket!.id}/conflicts`)).conflicts).toEqual([]);
+    expect((await api.get<{ lostEdits: unknown[] }>(`/baskets/${basket!.id}/history`)).lostEdits).toEqual([]);
   });
 
   it("keeps a restored tablet's Baskets and Tools linked by its tablet id, writing back a global id its record lost", async () => {

@@ -29,11 +29,10 @@ interface VersionView {
   source: { machine: { id: string } | null; tabletId: string | null; account: { id: string; name: string } | null };
 }
 
-interface ConflictView {
-  item: { kind: string; id: string };
+interface LostEditView {
   field: string;
   value: unknown;
-  current: { value: unknown };
+  lostTo: { value: unknown } | null;
 }
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
@@ -82,7 +81,7 @@ describe("A Profile's title, author and notes edited in the management interface
   const viewProfile = async (id: string) => (await api.get<{ profile: ProfileView }>(profilePath(id))).profile;
   const edit = (id: string, content: Record_, as: AdminApi = api) => as.call("PATCH", profilePath(id), { content });
   const history = async (id: string) => (await api.get<{ versions: VersionView[] }>(`${profilePath(id)}/history`)).versions;
-  const conflictsOf = async (id: string) => (await api.get<{ conflicts: ConflictView[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === id);
+  const lostEditsOf = async (id: string) => (await api.get<{ lostEdits: LostEditView[] }>(`/profiles/${encodeURIComponent(id)}/history`)).lostEdits;
   const show = (id: string, location: LocationView) => api.send("PUT", `${profilePath(id)}/locations/${location.id}`, { shown: true });
 
   /** The tablet's record of the Profile's `profile`, or undefined if it holds none. */
@@ -136,10 +135,10 @@ describe("A Profile's title, author and notes edited in the management interface
     const [latest] = await history(id);
     expect(latest!.fields).toEqual(edited);
     expect(latest!.source).toMatchObject({ machine: null, tabletId: null, account: { id: adminId } });
-    expect(await conflictsOf(id)).toEqual([]);
+    expect(await lostEditsOf(id)).toEqual([]);
   });
 
-  it("merges it per field with a tablet's own edit, and keeps a tablet's earlier edit of the same field that arrives later as a Conflict", async () => {
+  it("merges it per field with a tablet's own edit, and keeps a tablet's earlier edit of the same field that arrives later as a Lost Edit", async () => {
     const { cafe, cafeMachine, labTablet, cafeTablet } = await labAndCafe("Merge", 57611);
     const id = await sharedProfile(labTablet, cafeTablet, cafe, "Merge Bloom", 7.25);
     await answerStored(cafeMachine, id);
@@ -155,14 +154,14 @@ describe("A Profile's title, author and notes edited in the management interface
     for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => textOn(tablet, id), { timeout: 15_000 }).toEqual(merged);
 
     // The lab, offline, retitles it before the edit here, which reaches the server first: the lab's earlier title loses,
-    // is kept as a Conflict, and the lab is written the Library's.
+    // is kept as a Lost Edit, and the lab is written the Library's.
     labTablet.loseNetwork();
     await labTablet.editProfile(id, { ...heldOn(labTablet, id)!, title: "Lab title" });
     // Well before the edit here: the tablet's clock and PostgreSQL's may differ by tens of milliseconds (AI_BUILD_NOTES.md).
     await delay(1000);
     expect((await edit(id, { title: "Merge Bloom v3" })).status).toBe(200);
     labTablet.restoreNetwork();
-    await expect.poll(async () => (await conflictsOf(id)).map(({ field, value }) => ({ field, value })), { timeout: 15_000 }).toEqual([{ field: "title", value: "Lab title" }]);
+    await expect.poll(async () => (await lostEditsOf(id)).map(({ field, value }) => ({ field, value })), { timeout: 15_000 }).toEqual([{ field: "title", value: "Lab title" }]);
     for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => textOn(tablet, id)?.title, { timeout: 15_000 }).toBe("Merge Bloom v3");
     expect((await viewProfile(id)).profile).toMatchObject({ title: "Merge Bloom v3", author: "Lab", notes: "Cafe notes" });
   });
@@ -190,9 +189,30 @@ describe("A Profile's title, author and notes edited in the management interface
       const merged = { title: `Late Bloom ${serial} v2`, author: "Lab", notes: "Cafe notes" };
       for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => textOn(tablet, id), { timeout: 15_000 }).toEqual(merged);
       expect((await viewProfile(id)).profile).toMatchObject(merged);
-      expect((await conflictsOf(id)).map(({ field, value }) => ({ field, value }))).toEqual([]);
+      expect((await lostEditsOf(id)).map(({ field, value }) => ({ field, value }))).toEqual([]);
     });
   }
+
+  it("keeps no Lost Edit when a tablet whose record of a Profile was linked from its report, and so never written, changes a title its record held (#632)", async () => {
+    const { cafe, labTablet, cafeTablet } = await labAndCafe("Linked", 57681);
+    // The lab saves a Profile, shown at the lab alone. The cafe's barista saves the same one there: its id is Decaid's, of
+    // its steps, so the cafe's record is the Library's Profile's, linked as it is reported, holding the same title, author
+    // and notes. A Profile's record carries no global id to be written, so nothing shows the cafe's tablet saw the lab's edit.
+    const saved = { ...derivedProfile("Linked Bloom", 4.35), author: "Lab", notes: "First notes" };
+    const id = String((await labTablet.addProfile(saved)).id);
+    await expect.poll(async () => (await api.call("GET", profilePath(id))).status).toBe(200);
+    expect(String((await cafeTablet.addProfile(saved)).id)).toBe(id);
+    const shownAt = async () => (await api.get<{ profile: { shownAt: { location: LocationView }[] } }>(profilePath(id))).profile.shownAt.map((here) => here.location.id);
+    await expect.poll(shownAt, { timeout: 15_000 }).toContain(cafe.id);
+    expect(await lostEditsOf(id)).toEqual([]);
+
+    // Its barista retitles it, later: the edit wins over the lab's, unseen, and replaces a title its own record held.
+    await delay(50);
+    await cafeTablet.editProfile(id, { ...heldOn(cafeTablet, id)!, title: "Linked Bloom v2" });
+    await expect.poll(() => textOn(labTablet, id)?.title, { timeout: 15_000 }).toBe("Linked Bloom v2");
+    expect((await viewProfile(id)).profile).toMatchObject({ title: "Linked Bloom v2", author: "Lab", notes: "First notes" });
+    expect(await lostEditsOf(id)).toEqual([]);
+  });
 
   it("clears an author or notes as Decaid holds none, empty, and refuses a title cleared or another Profile's, a field it does not set, and a bundled Profile's", async () => {
     const { cafe, labTablet, cafeTablet } = await labAndCafe("Refusals", 57621, { bundled: true });

@@ -1,17 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { type LibraryKind, isLibraryKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
-import type { ConflictState, Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { queryValue } from "../record-filters.js";
-import { mayResolve } from "./conflict-access.js";
 import { type ItemRef, itemKey } from "./history.js";
-import { KINDS, type LocationStateDescription, type StateValue, type VersionedItem } from "./kinds.js";
+import { KINDS, type VersionedItem } from "./kinds.js";
 import { isObject } from "./listed.js";
 
 /**
- * Where a version or a Conflict came from: a Machine's tablet, or an account
+ * Where a version or a Lost Edit came from: a Machine's tablet, or an account
  * in the management interface or through a Connected App (ADR-0026). An
  * account is named to Admins; to Staff by its id only, as other accounts'
  * names are personal information that Staff do not see.
@@ -58,55 +55,43 @@ export interface VersionView {
   copiedFrom: { id: string; name: string | null; location: LocationView | null } | null;
 }
 
-/** A Library item a Conflict is about. */
-export interface ConflictItemView {
-  kind: LibraryKind;
-  /** Its global id, or a Profile's id. */
+/**
+ * A Lost Edit (ADR-0033), as the REST API returns it: an edit to a field of
+ * a Library item that did not apply, kept in the item's history. It is
+ * read, never changed: to bring its value back, someone edits the item.
+ */
+export interface LostEditView {
   id: string;
-  /**
-   * What the management interface names it by: a Bean's roaster and name, a
-   * batch's Bean and roast date, a Grinder's model, a Profile's title; null
-   * where its content has none.
-   */
-  name: string | null;
-}
-
-/** A Conflict, as the REST API returns it. */
-export interface ConflictView {
-  id: string;
-  item: ConflictItemView;
   field: string;
   /** The losing value; null where the edit cleared the field. */
   value: unknown;
   /** The Location whose state of the item the field is; null for the item's content. */
   location: LocationView | null;
+  /** Who or which Machine made the losing edit. */
   source: SourceView;
   /** When the losing edit was made. */
   editedAt: string;
-  /** When it became a Conflict, by PostgreSQL's clock. */
-  createdAt: string;
-  /** Open, or closed: its value used, which made it a new edit, or dismissed. */
-  state: "open" | "used" | "dismissed";
-  /** The field's value now, which the losing value lost to or was replaced by, and where and when it came from. */
-  current: CurrentValueView;
-  /**
-   * Whether the signed-in account may use its value or dismiss it: an Admin
-   * may any, and Staff one about an item's shared content anywhere, or about
-   * a Location's state or a Grinder's content only at their own Locations.
-   */
-  resolvable: boolean;
+  /** When it lost, by PostgreSQL's clock. */
+  lostAt: string;
+  /** The edit it lost to; null where that is not known, as for one kept by the release before this one. */
+  lostTo: LostToView | null;
 }
 
-/** A field's value now, and the edit that set it. */
-export interface CurrentValueView {
-  /** Null where nothing set it, or the edit that set it last cleared it. A batch never added at the Location is not there (false), as is a Profile its Location never decided (not shown). */
+/** The edit a Lost Edit lost to: one of the item's versions. */
+export interface LostToView {
+  /** That version's id, as the item's `versions` list it. */
+  versionId: string;
+  /** The value it set the field to; null where it cleared it. */
   value: unknown;
-  /** Where the edit that set it came from; null if that is not known, as for a field nothing has set. */
-  source: SourceView | null;
-  /** When that edit was made; null if it is not known. */
-  editedAt: string | null;
-  /** That edit's version, which using the Conflict's value names as the value it replaces (`seen`); null if it is not known. */
-  versionId: string | null;
+  source: SourceView;
+  /** When it was made. */
+  editedAt: string;
+}
+
+/** An item's history: its versions and its Lost Edits. */
+export interface HistoryView {
+  versions: VersionView[];
+  lostEdits: LostEditView[];
 }
 
 const connectedApp = { select: { id: true, name: true, clientHost: true } } as const;
@@ -128,7 +113,7 @@ export function readHistoryField(query: Record<string, unknown>): string | undef
   return field;
 }
 
-/** Each Library item's history and its Conflicts (ADR-0020), which Staff read as Admins do. */
+/** Each Library item's history (ADR-0020, ADR-0033): its versions and its Lost Edits, which Staff read as Admins do. */
 @Injectable()
 export class HistoryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -171,55 +156,57 @@ export class HistoryService {
     }));
   }
 
-  /** The open Conflicts, the latest first: all of them, or those about one item, 404 if the Library does not have it. */
-  async openConflicts(scope: Scope, item?: ItemRef): Promise<ConflictView[]> {
-    if (item && !(await this.exists(item))) throw new NotFoundException(`No such ${KINDS[item.kind].name}`);
-    return this.conflicts({ state: "OPEN", ...(item ? itemKey(item) : {}) }, scope);
+  /** The item's history: its versions and its Lost Edits, each as `versions` and `lostEdits` read them. */
+  async history(item: ItemRef, scope: Scope, field?: string): Promise<HistoryView> {
+    const versions = await this.versions(item, scope, field);
+    return { versions, lostEdits: await this.lostEdits(item, scope, field) };
   }
 
-  /** One Conflict, open or not; 404 if there is no such Conflict. */
-  async conflict(id: string, scope: Scope): Promise<ConflictView> {
-    const [conflict] = await this.conflicts({ id }, scope);
-    if (!conflict) throw new NotFoundException("No such Conflict");
-    return conflict;
-  }
-
-  private async conflicts(where: Prisma.ConflictWhereInput, scope: Scope): Promise<ConflictView[]> {
-    const conflicts = (
-      await this.prisma.conflict.findMany({ where, include: withSource, orderBy: [{ createdAt: "desc" }, { seq: "desc" }] })
-    ).filter((conflict): conflict is typeof conflict & { kind: LibraryKind } => isLibraryKind(conflict.kind));
-    const items = await readItems(this.prisma, conflicts);
-    const currents = await currentValues(this.prisma, conflicts, items);
-    const versionIds = [...new Set(currents.flatMap((current) => (current.versionId === null ? [] : [current.versionId])))];
+  /**
+   * The item's Lost Edits, the latest lost first, or, given a field, those
+   * of it, each with the edit it lost to, of the item's content or of its
+   * state at a Location; 404 if the Library does not have it. One the
+   * release before this one dismissed as a Conflict is left out.
+   */
+  async lostEdits(item: ItemRef, scope: Scope, field?: string): Promise<LostEditView[]> {
+    const [lost, exists] = await Promise.all([
+      this.prisma.lostEdit.findMany({
+        where: { ...itemKey(item), state: { not: "DISMISSED" }, ...(field === undefined ? {} : { field }) },
+        include: withSource,
+        orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
+      }),
+      this.exists(item),
+    ]);
+    if (!exists) throw new NotFoundException(`No such ${KINDS[item.kind].name}`);
+    const versionIds = [...new Set(lost.flatMap((edit) => (edit.lostToVersionId === null ? [] : [edit.lostToVersionId])))];
     const versions = new Map(
-      (
-        await this.prisma.itemVersion.findMany({
-          where: { id: { in: versionIds } },
-          select: { id: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
-        })
+      (versionIds.length === 0
+        ? []
+        : await this.prisma.itemVersion.findMany({
+            // Only the item's own: a version of another item is not what an edit of this one lost to.
+            where: { id: { in: versionIds }, ...itemKey(item) },
+            select: { id: true, fields: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
+          })
       ).map((version) => [version.id, version]),
     );
-    return conflicts.map((conflict, index) => {
-      const { value, versionId } = currents[index]!;
-      const version = versionId === null ? undefined : versions.get(versionId);
-      const item = items.get(`${conflict.kind}:${conflict.itemId}`);
+    return lost.map((edit) => {
+      const version = edit.lostToVersionId === null ? undefined : versions.get(edit.lostToVersionId);
       return {
-        id: conflict.id,
-        item: { kind: conflict.kind, id: conflict.itemId, name: item?.name ?? null },
-        field: conflict.field,
-        value: conflict.value,
-        location: conflict.location ? viewLocation(conflict.location) : null,
-        source: viewSource(conflict, scope),
-        editedAt: conflict.editedAt.toISOString(),
-        createdAt: conflict.createdAt.toISOString(),
-        state: STATES[conflict.state],
-        current: {
-          value,
-          source: version ? viewSource(version, scope) : null,
-          editedAt: version ? version.editedAt.toISOString() : null,
-          versionId: version ? version.id : null,
-        },
-        resolvable: mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, itemLocationId: item?.locationId }),
+        id: edit.id,
+        field: edit.field,
+        value: edit.value,
+        location: edit.location ? viewLocation(edit.location) : null,
+        source: viewSource(edit, scope),
+        editedAt: edit.editedAt.toISOString(),
+        lostAt: edit.createdAt.toISOString(),
+        lostTo: version
+          ? {
+              versionId: version.id,
+              value: isObject(version.fields) ? (version.fields[edit.field] ?? null) : null,
+              source: viewSource(version, scope),
+              editedAt: version.editedAt.toISOString(),
+            }
+          : null,
       };
     });
   }
@@ -228,65 +215,6 @@ export class HistoryService {
   private async exists(item: ItemRef): Promise<boolean> {
     return (await this.prisma.versionedItem.count({ where: itemKey(item) })) > 0;
   }
-}
-
-const STATES: Readonly<Record<ConflictState, ConflictView["state"]>> = { OPEN: "open", USED: "used", DISMISSED: "dismissed" };
-
-/** A Conflict as its item and its field's value now are read for it. */
-interface ConflictAbout {
-  kind: LibraryKind;
-  itemId: string;
-  field: string;
-  locationId: string | null;
-}
-
-/** The items the Conflicts are about, each as its kind reads it, by `kind:id`; an item the server no longer has is absent. */
-async function readItems(db: PrismaService, conflicts: readonly ConflictAbout[]): Promise<Map<string, VersionedItem>> {
-  const items = new Map<string, VersionedItem>();
-  for (const [kind, ids] of grouped(conflicts, (conflict) => conflict.kind)) {
-    const read = await KINDS[kind].read(db, [...new Set(ids.map((conflict) => conflict.itemId))]);
-    for (const [id, item] of read) items.set(`${kind}:${id}`, item);
-  }
-  return items;
-}
-
-/**
- * Each Conflict's field's value now, and the version that set it, if one is
- * known, in order: of a Location's state of its item, for a kind that has
- * one (`LocationStateDescription`), at the Location it names; otherwise of
- * its item's content.
- */
-async function currentValues(db: PrismaService, conflicts: readonly ConflictAbout[], items: ReadonlyMap<string, VersionedItem>): Promise<StateValue[]> {
-  const values: StateValue[] = conflicts.map((conflict) => {
-    const item = items.get(`${conflict.kind}:${conflict.itemId}`);
-    const versionId = item && Object.prototype.hasOwnProperty.call(item.fieldEdits, conflict.field) ? item.fieldEdits[conflict.field]!.versionId : null;
-    return { value: item?.values[conflict.field] ?? null, versionId };
-  });
-  const atLocations = conflicts.flatMap((conflict, index) => {
-    const state = conflict.locationId === null ? undefined : versionedState(conflict.kind);
-    return state ? [{ index, state, itemId: conflict.itemId, locationId: conflict.locationId!, field: conflict.field }] : [];
-  });
-  for (const [state, wanted] of grouped(atLocations, (conflict) => conflict.state)) {
-    const current = await state.current(db, wanted);
-    wanted.forEach(({ index }, at) => (values[index] = current[at]!));
-  }
-  return values;
-}
-
-/** A kind's Location's state, if it has one. */
-function versionedState(kind: LibraryKind): LocationStateDescription | undefined {
-  return KINDS[kind].state;
-}
-
-/** Values grouped by a key, in the order each key is first met. */
-function grouped<T, K>(values: readonly T[], key: (value: T) => K): Map<K, T[]> {
-  const groups = new Map<K, T[]>();
-  for (const value of values) {
-    const group = groups.get(key(value));
-    if (group) group.push(value);
-    else groups.set(key(value), [value]);
-  }
-  return groups;
 }
 
 export function viewSource(

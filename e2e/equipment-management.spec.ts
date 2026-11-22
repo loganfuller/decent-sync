@@ -11,7 +11,7 @@ import { expectTip } from "./support/tooltips.js";
 // Baskets and Tools in the management interface (ticket #139): created at a
 // Location, shown at others, edited, Archived and restored there, which
 // reaches the DYE2 lists of the simulated tablets running the built plugin at
-// each Location showing them; their history and Conflicts; and what Staff may
+// each Location showing them; their history, Lost Edits among it; and what Staff may
 // change. Serials are made up, from 43101.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
@@ -139,16 +139,16 @@ test("a Tool's attributes are edited, and its history lists the edit", async ({ 
   await expect(history).toHaveCount(4);
 });
 
-test("a Conflict over a Basket's notes, made on two tablets offline, is shown on its page, and using its value makes it current on every tablet", async ({ page }) => {
-  const lab = await createLocation(page, "Conflict lab");
-  const one = await tabletAt(page, server, "Conflict lab 1", lab, "43121", tabletApi);
-  const two = await tabletAt(page, server, "Conflict lab 2", lab, "43122", tabletApi);
-  const created = await page.request.post("/api/baskets", { data: { locationId: lab.id, content: { name: "Conflict 18g Precision", notes: "New" } } });
+test("a Basket's notes that lost, saved on two tablets offline, are shown in its History with the notes they lost to", async ({ page }) => {
+  const lab = await createLocation(page, "Lost lab");
+  const one = await tabletAt(page, server, "Lost lab 1", lab, "43121", tabletApi);
+  const two = await tabletAt(page, server, "Lost lab 2", lab, "43122", tabletApi);
+  const created = await page.request.post("/api/baskets", { data: { locationId: lab.id, content: { name: "Lost 18g Precision", notes: "New" } } });
   expect(created.status()).toBe(201);
   const { id } = ((await created.json()) as { basket: { id: string } }).basket;
   for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("New");
 
-  // Offline, each tablet's DYE2 page saves notes of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
+  // Offline, each tablet's DYE2 page saves notes of its own: the later wins on reconnecting, the earlier is kept as a Lost Edit.
   // A save is timed when its tablet's plugin first reads it (ADR-0005), which may be before the plugin hears that its
   // connection is lost, so the later is saved once the earlier has reached the Library: it is then timed no earlier,
   // whenever it is read.
@@ -160,24 +160,16 @@ test("a Conflict over a Basket's notes, made on two tablets offline, is shown on
   await saveNotes(two, id, "Fast flow");
   two.restoreNetwork();
   for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("Fast flow");
-  await expect.poll(async () => ((await (await page.request.get(`/api/baskets/${id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts.length).toBe(1);
+  await expect.poll(async () => ((await (await page.request.get(`/api/baskets/${id}/history`)).json()) as { lostEdits: unknown[] }).lostEdits.length).toBe(1);
 
-  await page.goto("/library/conflicts");
-  await rows(page.getByRole("table", { name: "Conflicts" })).filter({ hasText: "Conflict 18g Precision" }).getByRole("link", { name: "Conflict 18g Precision" }).click();
-  await expect(page.getByRole("heading", { name: "Conflict 18g Precision", level: 1 })).toBeVisible();
-  const open = page.getByRole("region", { name: "Open Conflicts" });
-  const conflict = rows(open.getByRole("table", { name: "Conflicts" }));
-  await expect(conflict).toHaveCount(1);
-  await expect(conflict.getByRole("cell").nth(0)).toHaveText("Notes");
-  await expect(conflict.getByRole("cell").nth(1)).toContainText("Tight puck");
-  await expect(conflict.getByRole("cell").nth(1)).toContainText("Conflict lab 1");
-  await expect(conflict.getByRole("cell").nth(2)).toContainText("Fast flow");
-
-  await open.getByRole("button", { name: "Use the losing value of Notes" }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Use this value" }).click();
-  await expect(open).toBeHidden();
-  await expect(field(page.getByLabel("Basket", { exact: true }), "Notes")).toHaveText("Tight puck");
-  for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("Tight puck");
+  await page.goto(`/library/baskets/${id}`);
+  await expect(page.getByRole("heading", { name: "Lost 18g Precision", level: 1 })).toBeVisible();
+  const lost = rows(page.getByRole("table", { name: "History" })).filter({ hasText: "Lost Edit" });
+  await expect(lost).toHaveCount(1);
+  await expect(lost.getByRole("cell").nth(1)).toHaveText("Lost lab 1");
+  await expect(lost.getByRole("cell").nth(2)).toContainText("NotesTight puck");
+  await expect(lost.getByRole("cell").nth(2)).toContainText("Lost to Fast flow, by Lost lab 2,");
+  await expect(field(page.getByLabel("Basket", { exact: true }), "Notes")).toHaveText("Fast flow");
 });
 
 test("Staff edit a Basket's content, but cannot show or hide it at a Location they do not work at", async ({ page, browser }) => {

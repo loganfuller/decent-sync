@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type ReportedBean, archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
-import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -97,6 +97,8 @@ export async function takeInBeans(
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt",
       content_seen_at AS "contentSeenAt"
     FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid`;
+  /** The content of the tablet's last known record of each Bean, which its edit is worked out from. */
+  const knownContent = new Map(mapped.map((bean) => [bean.beanId, beanContent(bean.record)]));
   /** The latest decision of its batches' presence at the Location that each record the map holds has seen there. */
   const seenAt = new Map(mapped.map((bean) => [bean.beanId, bean.seenAt]));
   /** The latest edit of its content that each record the map holds has seen. */
@@ -172,11 +174,12 @@ export async function takeInBeans(
     } else {
       beanId = step.beanId;
     }
-    // A linked record takes the Bean's content: each field it held otherwise is kept as a Conflict (ADR-0018), but as the
+    // A linked record takes the Bean's content: each field it held otherwise is kept as a Lost Edit (ADR-0018), but as the
     // tablet joins the Location, whose state wins.
     if (step.kind === "link" && !joining) await recordLinked(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);
     if (step.kind === "update" && !joining) {
-      const edit = { values: step.content, at: bean.updatedAt, seenAt: contentSeenAt.get(beanId) ?? null };
+      const known = knownContent.get(beanId);
+      const edit = { values: step.content, at: bean.updatedAt, seenAt: contentSeenAt.get(beanId) ?? null, ...(known ? { held: heldIn(known, step.content) } : {}) };
       writesDue = (await editContent(tx, { kind: "bean", id: beanId }, edit, source)).writesDue || writesDue;
     }
     if (step.kind === "add" || (step.kind === "link" && (bringing || !joining))) {
@@ -224,7 +227,7 @@ function leftOutRecord(bean: ReportedBean): { localId: string; setAside: boolean
  * report, and is merged as a report's edit would be (ADR-0020). A record the
  * plugin `linked` to the Bean, a bean of the same roaster and name entered
  * there before the tablet reported it, takes the Bean's content, each field
- * it held otherwise kept as a Conflict (ADR-0018). Nothing is recorded when
+ * it held otherwise kept as a Lost Edit (ADR-0018). Nothing is recorded when
  * the record does not carry the
  * Bean's global id, when the map holds the record as another Bean's, or when
  * the Library no longer has the Bean, and writing the Bean again would
@@ -270,7 +273,7 @@ export async function recordBeanWritten(
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(beanContent(known.record), beanContent(record))).filter(([field]) => !written.has(field)));
-      edited = await editContent(tx, item, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      edited = await editContent(tx, item, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, held: heldIn(beanContent(known.record), values) }, source);
       contentChanged = edited.writesDue;
     } else if (linked) {
       contentChanged = await recordLinked(tx, item, beanContent(record), at ?? (await transactionTime(tx)), source);

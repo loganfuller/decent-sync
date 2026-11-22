@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { BatchBadges, batchName, roastDateText } from "@/components/bean-batches";
-import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
+import { ItemHistoryCard } from "@/components/item-history";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
@@ -41,7 +41,7 @@ function BeanBatchDetails({ id }: { id: string }) {
   const [batch, setBatch] = useState<BeanBatch>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value, or an edit here, changes the item, so it is loaded again, with its history.
+  // An edit here changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const [editing, setEditing] = useState(false);
   const changed = () => setChanges((count) => count + 1);
@@ -109,7 +109,6 @@ function BeanBatchDetails({ id }: { id: string }) {
         </div>
       )}
 
-      <ItemConflictsCard kind="beanBatch" id={id} onResolved={changed} />
 
       <BatchLocationsCard batch={batch} onChanged={changed} />
 

@@ -13,7 +13,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for #412 (#405, ADR-0026): Grinders, Baskets, Tools and Recipes
 // created and edited through an assistant, Recipes put in Recipe Slots and
-// copied to another Location, and Conflicts' values used and dismissed, by a
+// copied to another Location, by a
 // test app on the MCP SDK's client connected as a Connected App, against the
 // built server. Each result matches the REST API's; each change shows in the
 // REST API as the account's, through that Connected App, and reaches a
@@ -61,17 +61,7 @@ interface Version {
   copiedFrom: { id: string; name: string | null; location: LocationView | null } | null;
 }
 
-interface Conflict {
-  id: string;
-  field: string;
-  value: unknown;
-  source: Source;
-  state: string;
-  current: { value: unknown; source: Source | null; editedAt: string | null; versionId: string | null };
-  resolvable: boolean;
-}
-
-describe("Changing equipment, Recipes and Conflicts through an assistant", { timeout: 120_000 }, () => {
+describe("Changing equipment and Recipes through an assistant", { timeout: 120_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -408,7 +398,6 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
       ["edit_recipe", { id: "not-an-id", dose: 18 }, "PATCH", "/recipes/not-an-id", { content: { dose: 18 } }, 404],
       ["create_recipe", { locationId: uptown.id, profileId: "profile:none" }, "POST", "/recipes", { locationId: uptown.id, content: { profileId: "profile:none" } }, 400],
       ["copy_recipe", { id: nowhere, locationId: harbor.id, grinderId: null }, "POST", `/recipes/${nowhere}/copies`, { locationId: harbor.id, grinderId: null }, 404],
-      ["resolve_conflict", { id: nowhere, resolution: "dismiss" }, "POST", `/conflicts/${nowhere}/dismiss`, {}, 404],
       // A name the Library has, ignoring case, and a model left blank.
       ["create_basket", { locationId: uptown.id, name: " assistant 18G " }, "POST", "/baskets", { locationId: uptown.id, content: { name: " assistant 18G " } }, 409],
       ["create_tool", { locationId: harbor.id, name: "ASSISTANT SCREEN" }, "POST", "/tools", { locationId: harbor.id, content: { name: "ASSISTANT SCREEN" } }, 409],
@@ -445,12 +434,11 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     expect(await toolError(assistant, "edit_recipe", { id: made.recipe })).toBe("Give at least one field to change");
     expect(await toolError(assistant, "edit_grinder", { id: made.grinder })).toBe("Give at least one field to change");
     expect(await toolError(assistant, "create_recipe", { locationId: uptown.id, ratio: 2 })).toContain("ratio");
-    expect(await toolError(assistant, "create_recipe", { locationId: uptown.id, beanId: library.bean })).toContain("beanId");
+    expect(await toolError(assistant, "create_recipe", { locationId: uptown.id, beanId: "not-an-id" })).toContain("beanId");
     expect(await toolError(assistant, "create_grinder", { locationId: uptown.id })).toContain("model");
     expect(await toolError(assistant, "edit_basket", { id: made.basket, name: null })).toContain("name");
     expect(await toolError(assistant, "set_recipe_slot", { id: made.recipe })).toContain("slot");
     expect(await toolError(assistant, "copy_recipe", { id: made.recipe, locationId: harbor.id })).toContain("grinderId");
-    expect(await toolError(assistant, "resolve_conflict", { id: nowhere, resolution: "keep" })).toContain("resolution");
     // Nothing of these changed.
     expect(await counts()).toEqual(before);
     expect(await restItem("recipe", made.ristretto)).toEqual({ ...ristretto, archived: false });
@@ -491,55 +479,6 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     expect((await restItem("grinder", made.grinder)).content).toMatchObject({ notes: "New burrs" });
   });
 
-  it("uses one Conflict's value over the value now the person was shown, and dismisses another, each as the REST API would, refusing what it refuses", async () => {
-    // An edit of Uptown's Grinder through the assistant that the tablet's later edit, made offline without seeing it, replaces.
-    await quiesced(api, { tablets: { tablet }, machines: { machine } });
-    const local = held(tablet.grinders(), made.grinder)!.id;
-    tablet.loseNetwork();
-    await assistant.call("edit_grinder", { id: made.grinder, notes: "Assistant notes", burrs: "Assistant burrs" });
-    // Well after it, whatever the drift between the tablet's clock and PostgreSQL's.
-    await delay(1_000);
-    await tablet.editGrinder(local, { notes: "Tablet notes", burrs: "Tablet burrs" });
-    tablet.restoreNetwork();
-    const open = async () => (await api.get<{ conflicts: Conflict[] }>(`/grinders/${made.grinder}/conflicts`)).conflicts;
-    await expect.poll(async () => (await open()).map((entry) => [entry.field, entry.value, entry.source]).sort(), { timeout: 15_000 }).toEqual([
-      ["burrs", "Assistant burrs", throughApp],
-      ["notes", "Assistant notes", throughApp],
-    ]);
-    const [burrs, notes] = (await open()).sort((a, b) => a.field.localeCompare(b.field)) as [Conflict, Conflict];
-
-    // A Staff member elsewhere, the version shown missing or since replaced, refused as the REST API refuses them.
-    const harborStaff = await person("hal-412@example.com", "staff", [harbor]);
-    expect(await toolError(harborStaff.assistant, "resolve_conflict", { id: notes.id, resolution: "dismiss" })).toBe(
-      await restRefusal(harborStaff.api, "POST", `/conflicts/${notes.id}/dismiss`, {}, 403),
-    );
-    expect(await toolError(harborStaff.assistant, "resolve_conflict", { id: notes.id, resolution: "use", seen: notes.current.versionId })).toBe(
-      await restRefusal(harborStaff.api, "POST", `/conflicts/${notes.id}/use`, { seen: notes.current.versionId }, 403),
-    );
-    expect(await toolError(assistant, "resolve_conflict", { id: notes.id, resolution: "use" })).toBe(await restRefusal(api, "POST", `/conflicts/${notes.id}/use`, {}, 400));
-    expect(await toolError(assistant, "resolve_conflict", { id: notes.id, resolution: "use", seen: randomUUID() })).toBe(
-      await restRefusal(api, "POST", `/conflicts/${notes.id}/use`, { seen: randomUUID() }, 409),
-    );
-
-    // Its value used over the value now, which the person was shown: a new edit through the Connected App, on the tablet.
-    const { conflict: used } = await assistant.call<{ conflict: Conflict }>("resolve_conflict", { id: notes.id, resolution: "use", seen: notes.current.versionId });
-    const [latest] = await versions("grinder", made.grinder);
-    expect(latest).toMatchObject({ fields: { notes: "Assistant notes" }, source: throughApp });
-    expect(comparable(used)).toEqual(comparable({ ...notes, state: "used", current: { value: "Assistant notes", source: throughApp, editedAt: latest!.editedAt, versionId: latest!.id } }));
-    await expect.poll(() => held(tablet.grinders(), made.grinder)?.notes).toBe("Assistant notes");
-    // Dismissed, closed with nothing else changed.
-    const { conflict: dismissed } = await assistant.call<{ conflict: Conflict }>("resolve_conflict", { id: burrs.id, resolution: "dismiss" });
-    expect(comparable(dismissed)).toEqual(comparable({ ...burrs, state: "dismissed" }));
-    expect((await restItem("grinder", made.grinder)).content).toMatchObject({ notes: "Assistant notes", burrs: "Tablet burrs" });
-    expect((await versions("grinder", made.grinder))[0]!.id).toBe(latest!.id);
-    expect(await open()).toEqual([]);
-    // Each closed once.
-    expect(await toolError(assistant, "resolve_conflict", { id: notes.id, resolution: "dismiss" })).toBe(await restRefusal(api, "POST", `/conflicts/${notes.id}/dismiss`, {}, 409));
-    expect(await toolError(assistant, "resolve_conflict", { id: burrs.id, resolution: "use", seen: null })).toBe(
-      await restRefusal(api, "POST", `/conflicts/${burrs.id}/use`, { seen: null }, 409),
-    );
-  });
-
   it("refuses each of these tools, from a Connected App that may only read and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
     const recipes = async () => (await api.get<{ recipes: unknown[] }>(`/locations/${uptown.id}/recipes`)).recipes;
     const before = {
@@ -561,7 +500,6 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
       ["edit_recipe", { id: made.recipe, name }],
       ["set_recipe_slot", { id: made.recipe, slot: null }],
       ["copy_recipe", { id: made.recipe, locationId: harbor.id, grinderId: null }],
-      ["resolve_conflict", { id: randomUUID(), resolution: "dismiss" }],
     ];
     const refuse = async (accessToken: string, who: string) => {
       for (const [name, args] of calls(who)) {

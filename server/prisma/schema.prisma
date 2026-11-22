@@ -51,7 +51,7 @@ model Account {
   /// The password reset link issued for it, if any.
   passwordReset PasswordReset?
   itemVersions  ItemVersion[]
-  conflicts     Conflict[]
+  lostEdits     LostEdit[]
   settingsEdits SettingsEdit[]
   shotEdits     ShotEdit[]
   connectedApps ConnectedApp[]
@@ -194,7 +194,7 @@ model ConnectedApp {
   /// The Library's versions and Conflicts, the Settings Edits and the edits
   /// of Shots it made, which keep it once it lapses (cleanup.ts).
   itemVersions       ItemVersion[]
-  conflicts          Conflict[]
+  lostEdits          LostEdit[]
   settingsEdits      SettingsEdit[]
   shotEdits          ShotEdit[]
   drafts             Draft[]
@@ -316,7 +316,7 @@ model Location {
   grinders        Grinder[]
   itemVersions    ItemVersion[]        @relation("VersionLocation")
   copiesFrom      ItemVersion[]        @relation("VersionCopiedFrom")
-  conflicts       Conflict[]
+  lostEdits       LostEdit[]
   workflowClears  WorkflowClear[]
 
   @@map("locations")
@@ -402,7 +402,7 @@ model Machine {
   tablets            MachineTablet[]
   setAsideDeliveries SetAsideDelivery[]
   itemVersions       ItemVersion[]
-  conflicts          Conflict[]
+  lostEdits          LostEdit[]
   takeover           Takeover?
   loadedRecipes      LoadedRecipe[]
   settingsEdits      SettingsEdit[]
@@ -508,7 +508,7 @@ model Tablet {
   recipes        TabletRecipe[]
   unrecognised   TabletUnrecognisedList[]
   itemVersions   ItemVersion[]
-  conflicts      Conflict[]
+  lostEdits      LostEdit[]
   deletions      TabletDeletion[]
   reports        TabletReport[]
   workflow       WorkflowClear?
@@ -1985,7 +1985,7 @@ model VersionedItem {
   /// The item's id as text: a global id, or a Profile's id.
   itemId    String        @map("item_id")
   versions  ItemVersion[]
-  conflicts Conflict[]
+  lostEdits LostEdit[]
 
   @@id([kind, itemId])
   @@map("versioned_items")
@@ -2047,8 +2047,11 @@ model ItemVersion {
   @@map("item_versions")
 }
 
-/// What became of a Conflict.
-enum ConflictState {
+/// What the release before Lost Edits made of a Conflict, as a Lost Edit
+/// was until ADR-0033: that release still writes it beside this one
+/// (ADR-0025). A Lost Edit is kept `OPEN`, and one that release dismissed
+/// is not shown.
+enum LostEditState {
   OPEN
   /// Someone used its value, which made it a new edit.
   USED
@@ -2057,38 +2060,47 @@ enum ConflictState {
   @@map("conflict_state")
 }
 
-/// An edit to a field of a Library item that lost to another edit of the
-/// same field made without seeing it (ADR-0020), kept until someone uses its
-/// value or dismisses it: the item, the field, the losing value, where it
-/// came from, and when it was made. Like `ItemVersion`, it names its item by
-/// kind and id, and a field of a Location's state names that Location.
-model Conflict {
-  id             String        @id @default(uuid(7)) @db.Uuid
+/// A Lost Edit (ADR-0033): an edit to a field of a Library item that did not
+/// apply, because it lost to another edit of the same field made without
+/// seeing it (ADR-0020), or because a joining tablet's value differed from
+/// the Library's (ADR-0018), kept in the item's history: the item, the
+/// field, the losing value, where it came from, when it was made, and the
+/// edit it lost to. Like `ItemVersion`, it names its item by kind and id,
+/// and a field of a Location's state names that Location. Its table is the
+/// one Conflicts were kept in, which the release before still writes them
+/// to.
+model LostEdit {
+  id              String        @id @default(uuid(7)) @db.Uuid
   /// The item's kind and id (`VersionedItem`).
-  kind           String
-  itemId         String        @map("item_id")
-  item           VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
-  locationId     String?       @map("location_id") @db.Uuid
-  location       Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  field          String
+  kind            String
+  itemId          String        @map("item_id")
+  item            VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
+  locationId      String?       @map("location_id") @db.Uuid
+  location        Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  field           String
   /// The losing value; null where the edit cleared the field.
-  value          Json?         @db.JsonB
-  machineId      String?       @map("machine_id") @db.Uuid
-  machine        Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  tabletId       String?       @map("tablet_id") @db.Uuid
-  tablet         Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
-  accountId      String?       @map("account_id") @db.Uuid
-  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  value           Json?         @db.JsonB
+  machineId       String?       @map("machine_id") @db.Uuid
+  machine         Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  tabletId        String?       @map("tablet_id") @db.Uuid
+  tablet          Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  accountId       String?       @map("account_id") @db.Uuid
+  account         Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// The Connected App the losing edit came through, as `ItemVersion.connectedAppId`.
-  connectedAppId String?       @map("connected_app_id") @db.Uuid
-  connectedApp   ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
+  connectedAppId  String?       @map("connected_app_id") @db.Uuid
+  connectedApp    ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
   /// When the losing edit was made, timed as `ItemVersion.editedAt` is.
-  editedAt       DateTime      @map("edited_at") @db.Timestamptz(3)
-  /// When it became a Conflict, by PostgreSQL's clock.
-  createdAt      DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
-  /// The order it became a Conflict, which `createdAt` cannot tell apart within one transaction.
-  seq            BigInt        @default(autoincrement())
-  state          ConflictState @default(OPEN)
+  editedAt        DateTime      @map("edited_at") @db.Timestamptz(3)
+  /// When it lost, by PostgreSQL's clock.
+  createdAt       DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  /// The order it lost in, which `createdAt` cannot tell apart within one transaction.
+  seq             BigInt        @default(autoincrement())
+  state           LostEditState @default(OPEN)
+  /// The version of the item (`ItemVersion`) it lost to: the edit that kept
+  /// or took the field. Null where that is not known, as for one the
+  /// release before wrote. No foreign key: the version goes only with the
+  /// item, which takes this with it.
+  lostToVersionId String?       @map("lost_to_version_id") @db.Uuid
 
   @@index([state, createdAt])
   @@index([kind, itemId])

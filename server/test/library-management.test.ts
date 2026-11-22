@@ -153,7 +153,7 @@ describe("Editing the Library in the management interface", () => {
     const versions = (await api.get<{ versions: { fields: Record_; source: { account: { id: string } | null } }[] }>(`/beans/${bean.id}/history`)).versions;
     expect(versions[0]).toMatchObject({ fields: { notes: "Blackcurrant, cola", region: "Nyeri" }, source: { account: { id: expect.any(String) } } });
 
-    // A barista's edit made offline before it, which arrives after, loses to it, and is kept as a Conflict.
+    // A barista's edit made offline before it, which arrives after, loses to it, and is kept as a Lost Edit.
     const tablet = north.tablets[0]!;
     tablet.loseNetwork();
     await tablet.editBean(heldBean(tablet, bean.id)!.id, { notes: "Offline notes" });
@@ -162,7 +162,7 @@ describe("Editing the Library in the management interface", () => {
     await api.send("PATCH", `/beans/${bean.id}`, { content: { notes: "Management notes" } });
     tablet.restoreNetwork();
     await expect.poll(() => heldBean(tablet, bean.id)?.notes).toBe("Management notes");
-    await expect.poll(async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/beans/${bean.id}/conflicts`)).conflicts).toEqual([
+    await expect.poll(async () => (await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/beans/${bean.id}/history`)).lostEdits).toEqual([
       expect.objectContaining({ field: "notes", value: "Offline notes" }),
     ]);
   });

@@ -12,7 +12,7 @@ const CLEANUP_BATCH = 1_000;
  * What expires, by PostgreSQL's clock: requests to connect that were never
  * answered, codes never exchanged, access tokens, and Connected Apps that
  * lapsed, with their tokens. A disconnected Connected App is kept, refused,
- * until it lapses. A lapsed one that the Library's history, a Conflict, a
+ * until it lapses. A lapsed one that the Library's history, a Lost Edit in it, a
  * Settings Edit or an edit of a Shot names is kept, refused, without its
  * refresh tokens, so they go on showing the change as made through it.
  */

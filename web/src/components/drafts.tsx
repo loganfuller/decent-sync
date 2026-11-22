@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { SourceText } from "@/components/conflicts";
+import { SourceText } from "@/components/item-history";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { FormError, failure } from "@/components/library-forms";
 import { ConfirmButton } from "@/components/machines";

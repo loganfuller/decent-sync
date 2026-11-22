@@ -4,7 +4,7 @@ import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import { linkShotTools, linkShots } from "../shots/links.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type EditOutcome, editContent, holdsItemContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { type EditOutcome, editContent, heldIn, holdsItemContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import {
   type MappedEquipment,
   answeredEquipment,
@@ -184,7 +184,8 @@ export async function takeInEquipment(
       await tx.$executeRaw`DELETE FROM ${Prisma.raw(map)} WHERE tablet_id = ${tablet.tabletId}::uuid AND ${Prisma.raw(column)} = ${step.itemId}::uuid`;
       // Deleted before the tablet joined, it is written again if the Location shows it; lost as it was written, it is written again.
       if (step.kind === "delete" && !joining) {
-        await showAt(tx, kind, step.itemId, locationId, source, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.itemId) ?? null);
+        const at = deletedAt(await transactionTime(tx), step.updatedAt);
+        await showAt(tx, kind, step.itemId, locationId, source, false, at, seenAt.get(step.itemId) ?? null, shownOn(mappedById.get(step.itemId)));
       }
       writesDue = true;
       continue;
@@ -217,7 +218,7 @@ export async function takeInEquipment(
       itemId = step.itemId;
     }
     if (step.kind === "link") {
-      // A linked record takes the item's content: each field it held otherwise is kept as a Conflict (ADR-0018), but as the
+      // A linked record takes the item's content: each field it held otherwise is kept as a Lost Edit (ADR-0018), but as the
       // tablet joins the Location, whose state wins, and which shows it only if it shows none of the kind yet. One archived
       // on the tablet is not shown there, its Location's state kept.
       if (!joining) await recordLinked(tx, { kind, id: itemId }, equipmentContent(record.record), record.updatedAt, source);
@@ -227,12 +228,13 @@ export async function takeInEquipment(
       // The tablet holds it as the Location has it, or is written so: what it changed before it joined is written over.
       writesDue = true;
     } else if (step.kind === "update") {
-      const edit = { values: step.content, at: record.updatedAt, seenAt: contentSeenAt.get(itemId) ?? null };
+      const known = mappedById.get(itemId);
+      const edit = { values: step.content, at: record.updatedAt, seenAt: contentSeenAt.get(itemId) ?? null, ...(known ? { held: heldIn(equipmentContent(known.record), step.content) } : {}) };
       await editContent(tx, { kind, id: itemId }, edit, source);
       // Archived or unarchived on the tablet, it is hidden or shown at its Location, timed as its edits are, and judged by what
       // the record had seen there, as a delete is.
       if (step.archived !== undefined) {
-        decided = await showAt(tx, kind, itemId, locationId, source, !step.archived, record.updatedAt, seenAt.get(itemId) ?? null);
+        decided = await showAt(tx, kind, itemId, locationId, source, !step.archived, record.updatedAt, seenAt.get(itemId) ?? null, shownOn(known));
       }
       // The record changed, so may differ from the item now, as a field set back to what it held before the server's write.
       writesDue = true;
@@ -272,7 +274,7 @@ async function itemContent(tx: Prisma.TransactionClient, kind: EquipmentKind, it
  * set `archived`, hides or shows the item at its Location, as in a report
  * (`archiveChange`). A record the plugin `linked`, one of the same name
  * entered there before the tablet reported it, takes the item's content, each field it held otherwise
- * kept as a Conflict (ADR-0018). What the record held for each field the
+ * kept as a Lost Edit (ADR-0018). What the record held for each field the
  * write set is kept (`before_write`), so a report setting it back is taken
  * as unchanged, but for a field the write puts back over such a report, so
  * that setting it back again is an edit (`heldBefore`). A record the write
@@ -324,7 +326,7 @@ export async function recordEquipmentWritten(
     let decided: SeenDecision | null = null;
     if (locationId !== null && archived !== undefined) {
       // Judged by what the record had seen before; lost or not, the Location's state is to be written to the tablet.
-      const decidedAt = await showAt(tx, kind, itemId, locationId, source, !archived, at, known?.seenAt ?? null);
+      const decidedAt = await showAt(tx, kind, itemId, locationId, source, !archived, at, known?.seenAt ?? null, shownOn(known));
       if (decidedAt !== null) decided = { at: decidedAt, locationId };
       changed = true;
     }
@@ -335,7 +337,7 @@ export async function recordEquipmentWritten(
     let stale = false;
     if (known && answered) {
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
-      edited = await editContent(tx, ref, { values: answered.values, at, seenAt: known.contentSeenAt }, source);
+      edited = await editContent(tx, ref, { values: answered.values, at, seenAt: known.contentSeenAt, held: heldIn(equipmentContent(known.record), answered.values) }, source);
       stale = answered.stale && !(await holdsItemContent(tx, ref, equipmentContent(record)));
       changed = edited.writesDue || stale || changed;
     } else if (linked) {
@@ -387,4 +389,9 @@ async function saveRecord(
     await linkShots(tx, "basket", tabletId, itemId, localId);
     await linkWorkflowChanges(tx, "basket", tabletId, itemId, localId);
   } else await linkShotTools(tx, tabletId, itemId, localId);
+}
+
+/** Whether a tablet's record of a Basket or Tool (`known`) had it shown at its Location, as one not archived is; undefined without one. */
+function shownOn(known: { record: Record<string, unknown> } | undefined): boolean | undefined {
+  return known === undefined ? undefined : !archivedRecord(known.record);
 }

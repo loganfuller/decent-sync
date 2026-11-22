@@ -210,7 +210,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
 
     // The assistant reads its history as the REST API gives it.
     const { history } = await assistant.call<{ history: { entries: unknown[] } }>("get_library_item", { kind: "beanBatch", id: batch, history: true });
-    expect(comparable(history.entries)).toEqual(comparable(batchVersions));
+    expect(comparable(history.entries)).toEqual(comparable(batchVersions.map((version) => ({ ...version, lost: false, lostTo: null }))));
   });
 
   it("edits a Profile's title, author and notes, keeping its id and steps, as the Admin's through the Connected App, and on Uptown's tablet (#576)", async () => {
@@ -448,7 +448,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(await restItem("beanBatch", made.batch)).toEqual(before.batch);
   });
 
-  it("keeps a change through the assistant that a tablet's later edit, made without seeing it, replaced, as a Conflict through the Connected App", async () => {
+  it("keeps a change through the assistant that a tablet's later edit, made without seeing it, replaced, as a Lost Edit through the Connected App, which the assistant reads in the item's history", async () => {
     // Nothing left under way, so the tablet's record has seen every change before the assistant's.
     await quiesced(api, { tablets: { tablet }, machines: { machine } });
     const local = held(tablet.beans(), made.bean)!.id;
@@ -458,11 +458,15 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     await delay(1_000);
     await tablet.editBean(local, { notes: "Tablet notes" });
     tablet.restoreNetwork();
-    await expect.poll(async () => (await api.get<{ conflicts: Record_[] }>(`/beans/${made.bean}/conflicts`)).conflicts, { timeout: 15_000 }).toEqual([
-      expect.objectContaining({ field: "notes", value: "Assistant notes", source: throughApp, current: expect.objectContaining({ value: "Tablet notes" }) }),
+    const lostEdits = async () => (await api.get<{ lostEdits: Record_[] }>(`/beans/${made.bean}/history`)).lostEdits;
+    await expect.poll(lostEdits, { timeout: 15_000 }).toEqual([
+      expect.objectContaining({ field: "notes", value: "Assistant notes", source: throughApp, lostTo: expect.objectContaining({ value: "Tablet notes" }) }),
     ]);
     expect(held(tablet.beans(), made.bean)?.notes).toBe("Tablet notes");
-    const { conflicts } = await api.get<{ conflicts: Record_[] }>("/conflicts");
-    expect(comparable((await assistant.call<{ conflicts: Record_[] }>("list_conflicts")).conflicts)).toEqual(comparable(conflicts));
+    // The assistant reads it among the Bean's history, after the edit it lost to, with that edit.
+    const { history } = await assistant.call<{ history: { entries: Record_[] } }>("get_library_item", { kind: "bean", id: made.bean, historyField: "notes" });
+    const lost = history.entries.filter((entry) => entry.lost === true);
+    expect(lost).toEqual([expect.objectContaining({ fields: { notes: "Assistant notes" }, lostTo: expect.objectContaining({ value: "Tablet notes" }) })]);
+    expect(history.entries.find((entry) => entry.lost === false)).toMatchObject({ id: (lost[0]!.lostTo as Record_).versionId, fields: { notes: "Tablet notes" }, lostTo: null });
   });
 });
