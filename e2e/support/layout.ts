@@ -2,7 +2,7 @@ import type { Locator } from "@playwright/test";
 
 // Where elements are on the page, measured against each other (#635).
 
-/** An element's box as Playwright's `boundingBox()` gives it: in CSS pixels, from the viewport's top left corner. */
+/** An element's box as Playwright's `boundingBox()` gives it for an element in the page's main frame: in CSS pixels, from the viewport's top left corner. */
 export interface Box {
   x: number;
   y: number;
@@ -17,6 +17,8 @@ export interface Box {
  * between two of them: a tab whose content shrinks while it loads pulls the
  * page's scroll position up and back, moving whatever is measured second.
  * Each locator must match one element, and is waited for until it does.
+ * Main frame only: inside an iframe, `getBoundingClientRect()` is from that
+ * frame's corner, so the box would be off by where the frame is.
  * As with `boundingBox()`, an element that isn't laid out, as one hidden by
  * `display: none` or no longer on the page, has no box: null.
  */
