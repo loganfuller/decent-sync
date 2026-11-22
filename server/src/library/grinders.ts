@@ -251,7 +251,7 @@ export async function recordGrinderWritten(
       const writtenBack = archived !== undefined && !belongs;
       if ((edited.writesDue || writtenBack) && locationId !== null) await notify(tx, "library_changes", locationId);
     }
-    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "grinder", id: grinderId }, grinderContent(record), edited));
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "grinder", id: grinderId }, grinderContent(record), edited, contentSeen));
     await saveRecord(tx, tablet.tabletId, grinderId, localId, record, at, holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);

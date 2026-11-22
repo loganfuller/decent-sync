@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
-import { type SimulatedTablet, de1ProOnDecaid092, derivedProfile } from "./support/simulated-tablet.js";
+import { type SimulatedTablet, type SimulatedTabletOptions, de1ProOnDecaid092, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // The REST API for ticket #576: a Profile's title, author and notes edited
@@ -10,7 +10,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // (ADR-0020), listed in its history with who made the edit, and written to
 // every tablet that holds it, through the built plugin in simulated tablets,
 // on two server instances sharing PostgreSQL. A bundled Profile's are
-// refused. Serials are made up, from 57601.
+// refused. A tablet's answer to a write that reaches the server only after a
+// reconnect is judged against the Profile as it stood when the write's content
+// was decided (#629). Serials are made up, from 57601.
 
 type Record_ = Record<string, unknown>;
 
@@ -54,22 +56,26 @@ describe("A Profile's title, author and notes edited in the management interface
     await server?.stop();
   });
 
+  /** How a cafe's tablet is loaded: its Decaid's clock, and frames of the plugin's held back from the server. */
+  type CafeOptions = Pick<SimulatedTabletOptions, "decaidClockOffsetMs" | "stallUpload">;
+
   /** The built plugin on a tablet of the Machine, its Decaid's Library empty, or with Decaid's bundled Profiles. */
-  function load(machine: CreatedMachine, serial: string, instance: TestServer, options: { bundled?: boolean } = {}): SimulatedTablet {
-    const profiles = options.bundled ? (de1ProOnDecaid092()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
-    return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles } });
+  function load(machine: CreatedMachine, serial: string, instance: TestServer, options: { bundled?: boolean } & CafeOptions = {}): SimulatedTablet {
+    const { bundled, ...rest } = options;
+    const profiles = bundled ? (de1ProOnDecaid092()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
+    return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles }, ...rest });
   }
 
   /** A lab and a cafe, each with a Machine whose tablet is online, the lab's on one instance and the cafe's on the other. */
-  async function labAndCafe(name: string, serial: number, options: { bundled?: boolean } = {}) {
+  async function labAndCafe(name: string, serial: number, options: { bundled?: boolean; cafe?: CafeOptions } = {}) {
     const lab = await api.createLocation(`${name} lab`, "America/Chicago");
     const cafe = await api.createLocation(`${name} cafe`, "America/Chicago");
     const labMachine = await api.createMachine(`${name} lab 1`, lab.id);
     const cafeMachine = await api.createMachine(`${name} cafe 1`, cafe.id);
-    const labTablet = load(labMachine, String(serial), server, options);
-    const cafeTablet = load(cafeMachine, String(serial + 1), other, options);
+    const labTablet = load(labMachine, String(serial), server, { bundled: options.bundled });
+    const cafeTablet = load(cafeMachine, String(serial + 1), other, { bundled: options.bundled, ...options.cafe });
     await api.waitForOnline(labMachine, cafeMachine);
-    return { lab, cafe, labTablet, cafeTablet };
+    return { lab, cafe, cafeMachine, labTablet, cafeTablet };
   }
 
   const profilePath = (id: string) => `/profiles/${encodeURIComponent(id)}`;
@@ -94,6 +100,16 @@ describe("A Profile's title, author and notes edited in the management interface
     await show(id, cafe);
     await expect.poll(() => textOn(cafeTablet, id)).toEqual({ title, author: "Lab", notes: "First notes" });
     return id;
+  }
+
+  /**
+   * Resolves once the server has stored the tablet's answer to the Profile's write, which its Machine's sharing status
+   * shows: the gateway records a write applied only after storing its answer.
+   */
+  async function answerStored(machine: CreatedMachine, id: string): Promise<void> {
+    const status = async () =>
+      (await api.get<{ status: { waiting: number | null; lastApplied: Record_ | null } }>(`/machines/${machine.machine.id}/sharing-status`)).status;
+    await expect.poll(status, { timeout: 15_000 }).toMatchObject({ waiting: 0, lastApplied: { change: "write", kind: "profile", item: { id } } });
   }
 
   it("writes the edit to every tablet that holds the Profile, at every Location, keeping its id, as one edit in its history from the account", async () => {
@@ -124,8 +140,9 @@ describe("A Profile's title, author and notes edited in the management interface
   });
 
   it("merges it per field with a tablet's own edit, and keeps a tablet's earlier edit of the same field that arrives later as a Conflict", async () => {
-    const { cafe, labTablet, cafeTablet } = await labAndCafe("Merge", 57611);
+    const { cafe, cafeMachine, labTablet, cafeTablet } = await labAndCafe("Merge", 57611);
     const id = await sharedProfile(labTablet, cafeTablet, cafe, "Merge Bloom", 7.25);
+    await answerStored(cafeMachine, id);
 
     // The cafe, offline, changes the notes on its tablet while the title is edited here, its report reaching the server
     // after the edit: each field keeps its own edit.
@@ -149,6 +166,33 @@ describe("A Profile's title, author and notes edited in the management interface
     for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => textOn(tablet, id)?.title, { timeout: 15_000 }).toBe("Merge Bloom v3");
     expect((await viewProfile(id)).profile).toMatchObject({ title: "Merge Bloom v3", author: "Lab", notes: "Cafe notes" });
   });
+
+  for (const { clock, offsetMs, serial, pressure } of [
+    { clock: "", offsetMs: 0, serial: 57651, pressure: 6.75 },
+    { clock: ", and applies its next edit timed before an edit it had seen", offsetMs: -10 * 60_000, serial: 57661, pressure: 6.5 },
+  ]) {
+    it(`counts a tablet's answer that reached the server only after a reconnect as having seen what its write carried, though a field was edited since${clock}`, async () => {
+      // The cafe's answers to writes wait in its outbox while held, until it reconnects: answers to no write awaited
+      // then. With its Decaid's clock slow, its edits are timed before the lab's.
+      let holding = true;
+      const stallUpload = (frame: unknown) => holding && (frame as { type?: unknown }).type === "written";
+      const { cafe, labTablet, cafeTablet } = await labAndCafe(`Late ${serial}`, serial, { cafe: { stallUpload, decaidClockOffsetMs: offsetMs } });
+      const id = await sharedProfile(labTablet, cafeTablet, cafe, `Late Bloom ${serial}`, pressure);
+
+      // Its Wi-Fi drops before its answer to the Profile's write is sent; the title is edited here meanwhile, then its
+      // barista changes the notes it was written.
+      cafeTablet.loseNetwork();
+      holding = false;
+      expect((await edit(id, { title: `Late Bloom ${serial} v2` })).status).toBe(200);
+      await delay(1000);
+      await cafeTablet.editProfile(id, { ...heldOn(cafeTablet, id)!, notes: "Cafe notes" });
+      cafeTablet.restoreNetwork();
+      const merged = { title: `Late Bloom ${serial} v2`, author: "Lab", notes: "Cafe notes" };
+      for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => textOn(tablet, id), { timeout: 15_000 }).toEqual(merged);
+      expect((await viewProfile(id)).profile).toMatchObject(merged);
+      expect((await conflictsOf(id)).map(({ field, value }) => ({ field, value }))).toEqual([]);
+    });
+  }
 
   it("clears an author or notes as Decaid holds none, empty, and refuses a title cleared or another Profile's, a field it does not set, and a bundled Profile's", async () => {
     const { cafe, labTablet, cafeTablet } = await labAndCafe("Refusals", 57621, { bundled: true });

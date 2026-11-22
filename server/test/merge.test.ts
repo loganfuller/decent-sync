@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit } from "../src/library/merge.js";
+import { type FieldEdits, changedFields, editsAfter, holdsContentAsDecided, latestDecision, mergeEdit } from "../src/library/merge.js";
 
 // The per-field merge of Library edits and its Conflicts (ADR-0020), through
 // the pure module's interface: which fields an edit changed, which of them it
@@ -119,6 +119,40 @@ describe("editsAfter", () => {
   it("gives the latest decision of an item's fields, which a record written its content then has seen", () => {
     expect(latestDecision(edits)).toEqual(at("10:01:00.000"));
     expect(latestDecision({})).toBeNull();
+  });
+});
+
+// A tablet's record as Decaid returned it for a write whose answer the
+// server took in with no earlier record of the tablet's to judge it by, as
+// one that reached it only after a reconnect: judged against the item as it
+// stood when the write's content was decided (ticket #629).
+
+describe("holdsContentAsDecided", () => {
+  // The write carried the content as decided at 10:01, the notes' latest edit.
+  const written = at("10:01:00.000");
+
+  it("holds the content written though a field was edited after the write's content was decided, and has then seen the edits decided by then", () => {
+    const retitled: FieldEdits = { ...edits, name: { at: "2026-10-08T10:05:00.000Z", decidedAt: "2026-10-08T10:05:00.500Z", tabletId: null, versionId: VERSION } };
+    expect(holdsContentAsDecided({ ...current, name: "Guji Hambela Natural" }, retitled, current, written)).toBe(true);
+    // Its next edit of the notes, timed before Uptown's, which it had seen, applies.
+    expect(mergeEdit(current, retitled, { values: { notes: "Jasmine" }, at: at("09:59:00.000"), tabletId: BELMONT, seenAt: written })).toEqual({
+      applied: { notes: "Jasmine" },
+      lost: {},
+      overwritten: [],
+    });
+  });
+
+  it("does not hold it when the record differs in a field not edited since, whatever else was", () => {
+    const retitled: FieldEdits = { ...edits, name: { at: "2026-10-08T10:05:00.000Z", decidedAt: "2026-10-08T10:05:00.500Z", tabletId: null, versionId: VERSION } };
+    expect(holdsContentAsDecided({ ...current, name: "Guji Hambela Natural" }, retitled, { ...current, country: "Kenya" }, written)).toBe(false);
+    // A field nobody has edited is held as the item holds it.
+    expect(holdsContentAsDecided({ ...current, process: "Washed" }, edits, current, written)).toBe(false);
+    // Nor when the field was last decided exactly then, as the write carried that edit.
+    expect(holdsContentAsDecided(current, edits, { ...current, notes: "Apricot" }, written)).toBe(false);
+  });
+
+  it("does not hold it when the answer repeats no time its content was decided", () => {
+    expect(holdsContentAsDecided(current, edits, current, null)).toBe(false);
   });
 });
 

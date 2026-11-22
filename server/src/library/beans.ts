@@ -276,7 +276,7 @@ export async function recordBeanWritten(
       contentChanged = await recordLinked(tx, item, beanContent(record), at ?? (await transactionTime(tx)), source);
     }
     if (contentChanged && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && (await holdsWrittenContent(tx, item, beanContent(record), edited));
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, item, beanContent(record), edited, contentSeen));
     await saveRecord(tx, tablet.tabletId, beanId, localId, record, at, seen?.locationId === locationId ? seen : null, holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);

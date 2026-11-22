@@ -41,6 +41,7 @@ import {
   type WriteContext,
   editedPaths,
   holdsRecipe,
+  holdsRecipeAsDecided,
   libraryValues,
   planRecipeIntake,
   readReportedRecipes,
@@ -549,7 +550,11 @@ export async function recordRecipeWritten(
       edited = await editContent(tx, ref, { values: changed, at, seenAt: null }, source);
     }
     if (((edited?.writesDue ?? false) || stale) && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, ids, content, slot, itemId)));
+    // A record the map did not hold, as a create's or one answered only after a reconnect, is judged by the Recipe as it stood when the write's content was decided.
+    const holds =
+      contentSeen !== null &&
+      !stale &&
+      (edited !== null ? !edited.lost : holdsRecipeAsDecided(view, await recordFor(tx, ids, content, slot, itemId), content, readFieldEdits(item.fieldEdits), contentSeen));
     await saveRecord(tx, tablet.tabletId, itemId, localId, record, at, { contentSeen: holds ? contentSeen : null, listed: known?.listed ?? false });
     if (!known && here) await recordMapped(tx, tablet, itemId, localId);
     return "recorded";

@@ -21,7 +21,7 @@ import {
   workflowPatch,
 } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
-import { type FieldEdits, changedFields } from "./merge.js";
+import { type FieldEdits, changedFields, decidedSince } from "./merge.js";
 
 // How a DYE2 recipe record on a tablet maps to a Recipe, both ways
 // (ADR-0005). Pure, so module tests can drive it; recipes.ts reads what it
@@ -755,6 +755,54 @@ export function lacksBeanNulls(view: Readonly<RecipeView>, held: Readonly<Record
 /** Whether a tablet's record holds a Recipe's content as written to it (`recipeRecord`): every path a barista edits the same. */
 export function holdsRecipe(view: Readonly<RecipeView>, written: Readonly<RecipeView>): boolean {
   return editedPaths(changedFields(written, view)).length === 0;
+}
+
+/** The fields of a Recipe's content that a path a barista edits is written from (`recipeRecord`), beside those in EDITED. */
+const WRITTEN_FROM: Readonly<Record<string, string>> = {
+  beanId: "beanId",
+  beanBatchId: "beanBatchId",
+  profileId: "profileId",
+  profileSnapshot: "profileId",
+  [`${DV}.grinderId`]: "grinderId",
+  [`${DV}.basketId`]: "basketId",
+  [`${DV}.equipmentIds`]: "toolIds",
+  [`${DV}.equipmentCustom`]: "toolAttributes",
+};
+
+/**
+ * The fields of a Recipe's content (`content`) that `recipeRecord` writes a
+ * path a barista edits from: its brew temperature from the Profile's first
+ * step where the Recipe holds none, and its steam time as "Off" by its steam
+ * temperature, from that alone while the Recipe holds "Off".
+ */
+function writtenFrom(path: string, content: Readonly<Record<string, unknown>>): string[] {
+  if (path === `${DV}.brewC`) return typeof content.brewTemperature === "number" ? ["brewTemperature"] : ["brewTemperature", "profileId"];
+  if (path === STEAM_TIME_PATH) return steamHeldOff(content.steamTemperature, null) ? ["steamTemperature"] : ["steamDuration", "steamTemperature"];
+  const field = EDITED[path] ?? WRITTEN_FROM[path];
+  return field === undefined ? [] : [field];
+}
+
+/**
+ * Whether a tablet's record of a Recipe, as Decaid returned it for a write
+ * the map held no earlier record of, holds the Recipe's content as it stood
+ * when the write's content was decided (`contentDecidedAt`), as
+ * `holdsContentAsDecided` judges other kinds: `written` is the record the
+ * Recipe's content now (`content`, its fields' latest edits in `edits`)
+ * writes, and each path a barista edits where the record holds otherwise
+ * must be written from a field decided since. A path written from two
+ * fields, one decided since, may differ in the other too, which then counts
+ * as held. Nothing if the answer repeats no such time.
+ */
+export function holdsRecipeAsDecided(
+  view: Readonly<RecipeView>,
+  written: Readonly<RecipeView>,
+  content: Readonly<Record<string, unknown>>,
+  edits: FieldEdits,
+  contentDecidedAt: Date | null,
+): boolean {
+  if (contentDecidedAt === null) return false;
+  const since = decidedSince(edits, contentDecidedAt);
+  return editedPaths(changedFields(written, view)).every((path) => writtenFrom(path, content).some((field) => since.has(field)));
 }
 
 /** One thing a report of a tablet's recipes changes. */

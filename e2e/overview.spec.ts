@@ -465,7 +465,7 @@ test("on a phone, with three Machines or more the page still fits: the table scr
     // Measured with boxes() throughout, as the Recipe column's width is compared exactly with one measured that way below.
     const [headingBefore, columnBefore] = await boxes(heading, lastColumn);
     await scroller.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
-    await expect.poll(async () => (await boxes(lastColumn))[0]!.x).toBe(columnBefore!.x - overflow);
+    await expect.poll(async () => (await boxes(lastColumn))[0]?.x).toBe(columnBefore!.x - overflow);
     // The cells moved under the Recipe column, which is where it was, and the page still fits.
     expect((await boxes(heading))[0]!.x).toBe(headingBefore!.x);
     await heading.scrollIntoViewIfNeeded();

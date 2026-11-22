@@ -4,7 +4,7 @@ import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import { linkShotTools, linkShots } from "../shots/links.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { type EditOutcome, editContent, holdsItemContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import {
   type MappedEquipment,
   answeredEquipment,
@@ -336,13 +336,13 @@ export async function recordEquipmentWritten(
     if (known && answered) {
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       edited = await editContent(tx, ref, { values: answered.values, at, seenAt: known.contentSeenAt }, source);
-      stale = answered.stale && !(await holdsWrittenContent(tx, ref, equipmentContent(record), null));
+      stale = answered.stale && !(await holdsItemContent(tx, ref, equipmentContent(record)));
       changed = edited.writesDue || stale || changed;
     } else if (linked) {
       changed = (await recordLinked(tx, ref, equipmentContent(record), at, source)) || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && !stale && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited));
+    const holds = contentSeen !== null && !stale && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited, contentSeen));
     await saveRecord(tx, kind, tablet.tabletId, itemId, localId, record, at, {
       seen: decided ?? (seen?.locationId === locationId ? seen : null),
       contentSeen: holds ? contentSeen : null,

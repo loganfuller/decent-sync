@@ -417,7 +417,7 @@ test("in a wide window a Draft's steps are a rail left of the graph, under it in
 
   // The inspector, taller than the window, stays in it once the page scrolls, and scrolls within itself to its last buttons.
   await page.evaluate(() => window.scrollTo(0, 400));
-  await expect.poll(async () => (await inspector(page).boundingBox())!.y).toBe(16);
+  await expect.poll(async () => (await inspector(page).boundingBox())?.y).toBe(16);
   expect((await inspector(page).boundingBox())!.height).toBeLessThanOrEqual(720 - 32);
   expect(await inspector(page).evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await inspector(page).evaluate((element) => element.scrollTo(0, element.scrollHeight));
