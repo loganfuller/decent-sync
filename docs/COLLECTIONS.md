@@ -119,7 +119,7 @@ or what sets it for a read-only field, and its notes: kept by the Tablet, so
 a replacement Tablet or a reset of Decaid's data puts Decaid's default back
 (ADR-0023); written again by the Tablet as the Machine connects, where it
 was last written through that Tablet, so a value set from elsewhere lasts
-only until then, the flow multiplier's (ADR-0023); or to restart the Machine
+only until then, the flow calibration's (ADR-0023); or to restart the Machine
 after a change. Decaid's automatic update checks are read-only, managed in
 Decaid on the Tablet: Decaid v0.9.2 turns them on only with a token, which
 the plugin has none of, so an edit could turn them off and not back on
@@ -127,8 +127,13 @@ the plugin has none of, so an edit could turn them off and not back on
 page no longer puts back a fan threshold of 50 or a refill kit of
 Auto-Detect from v0.2.22 on Decaid v0.9.1, so no note says it does.
 Labels, units, ranges, steps and choices follow Streamline's settings page at
-v0.2.24, and Decaid's own limits where it has none. A ±
-button's increment is no step: Streamline's move the flow multipliers of the
+v0.2.31, in this repository's sentence case, and Decaid's own limits where it
+has none: from v0.2.29 it names the weight, volume and hot water flow
+multipliers "Weight look-ahead", "Volume look-ahead" and "Hot water
+look-ahead", on its "Shot control" page, and the flow multiplier "Flow
+calibration", as the management interface does, while Decaid's field names
+are unchanged. A ±
+button's increment is no step: Streamline's move the look-aheads of the
 Tablet Settings by 0.1 and 0.05, but its text boxes and Decaid take any value
 of 0 or more, so their step of 0.01 is chosen here (ticket
 [#343](https://github.com/loganfuller/decent-sync/issues/343)). A
@@ -587,7 +592,7 @@ Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. Streamline's calibration page edits it too, from
 v0.2.23 (`0cb60bb`), through `POST /api/v1/machine/calibration`, the route
-the Flow multiplier Settings Edit uses, and only as a barista changes it
+the Flow calibration Settings Edit uses, and only as a barista changes it
 there: its ± buttons step it by 0.01, and it rounds what is typed to 0.01,
 within 0.13 to 2.0 (`clampFlowMultiplier` and `FLOW_MULTIPLIER_STEP` in
 `streamline-js:src/modules/sensor-cal.js`), where the field takes a
@@ -595,7 +600,7 @@ thousandth. Opening the page writes nothing, so a value set here between two
 of its steps stands until a barista changes it there. The `volumeFlowMultiplier`,
 `hotWaterFlowMultiplier` and `weightFlowMultiplier` in `appSettings` are not
 calibration but Decaid's lookahead times, in seconds, for stopping at a volume
-or weight (`ShotSequencer`, `HotWaterSequencer`).
+or weight (`ShotSequencer`, `HotWaterSequencer`), labelled the look-aheads.
 
 `sensorCalibration` is the firmware's own calibration of the machine's flow,
 pressure and temperature sensors, separate from the flow estimation
@@ -705,10 +710,10 @@ module tests in `server/test/tablet-versions.test.ts`):
   `server/test/fixtures/decaid/dye2-v0.1.33/skins.json`), which the row shows
   as it is, with "main build". Streamline Cafe's version is the Streamline
   version it contains, `-cafe.` and a counter that restarts with each
-  Streamline release it adopts, such as `0.2.27-cafe.1`, and a build of its
+  Streamline release it adopts, such as `0.2.31-cafe.1`, and a build of its
   `main` adds `.dev.`, the run's number and its commit, such as
-  `0.2.27-cafe.1.dev.12.a1b2c3d`. The row shows it as "Streamline Cafe
-  0.2.27-cafe.1 (release), built on Streamline 0.2.27"; a Streamline Cafe
+  `0.2.31-cafe.1.dev.12.a1b2c3d`. The row shows it as "Streamline Cafe
+  0.2.31-cafe.1 (release), built on Streamline 0.2.31"; a Streamline Cafe
   version not of that form is shown as reported, with no Streamline version.
 
 Neither row is anything until its collection is reported. The recording in

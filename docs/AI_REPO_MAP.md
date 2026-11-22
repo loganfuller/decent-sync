@@ -89,9 +89,11 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/connected-apps/`: the OAuth authorization server and Connected Apps.
 - `src/mcp/`: the MCP endpoint and its tools.
 - `test/`: Seam 1 tests, one file per area.
+- `test/recipe-steam-switch.test.ts`: a load switching steam, and a Recipe holding "Off" (#616).
 - `test/support/`: the test server, simulated tablet, simulated DYE2 and Streamline, Decaid stand-ins, proxies and fixtures.
 - `test/latest-release/`: the tests against the latest release, the mixed-versions suite among them.
 - `test/fixtures/decaid/`: records Decaid, DYE2 and Streamline produced, by version.
+- `test/fixtures/decaid/streamline-v0.2.31/`: Streamline v0.2.31 and DYE2 v0.1.42 on Decaid v0.9.2 applying a recipe with steam on and off; its README says what each file holds.
 
 ### `web/`
 

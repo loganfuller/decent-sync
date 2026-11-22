@@ -150,7 +150,7 @@ A shot pulled with a draft's steps on a machine following it, kept with the step
 _Avoid_: Test shot, draft shot
 
 **Recipe**:
-A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds. It is the whole shot: a machine that loads it is left with none of what the recipe names none of, such as a bean batch, grinder, grind setting, basket, dose or yield. Only for the steam, hot water and flush settings it holds none of does the machine keep its own. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
+A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds. It is the whole shot: a machine that loads it is left with none of what the recipe names none of, such as a bean batch, grinder, grind setting, basket, dose or yield. Only for the steam, hot water and flush settings it holds none of does the machine keep its own. Its steam temperature may be "Off", which turns steam off on a machine that loads it, as one it holds turns steam on. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:
@@ -162,7 +162,7 @@ The recipe a barista last applied on a machine, while they are still dialling it
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:
-What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and flush settings, which loading a recipe sets, so machines at one location with different recipes loaded steam differently. Turning steam off never changes a recipe, and turning it back on takes the loaded recipe's steam temperature.
+What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and flush settings, which loading a recipe sets, steam turned on or off as the recipe holds it, so machines at one location with different recipes loaded steam differently. Turning steam off at the machine never changes a recipe, and turning it back on takes the loaded recipe's steam temperature.
 _Avoid_: Recipe (a recipe is saved; a workflow is current); rinse settings (Decaid's name for the flush settings)
 
 **Shot**:

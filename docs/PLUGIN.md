@@ -22,7 +22,7 @@ what the server holds.
 |---|---|---|
 | Decaid | v0.9.2 | Everything |
 | DYE2 | v0.1.40 | Following Recipes |
-| Streamline | v0.2.27 | Following Recipes, where Streamline is the skin |
+| Streamline | v0.2.31 | Following Recipes, where Streamline is the skin |
 
 The server refuses a tablet running an older Decaid, and the Machine's page
 says why ([ADR-0017](adr/0017-supported-versions.md)).
@@ -304,7 +304,7 @@ recipe that DYE2 and Streamline name in its Workflow when a barista applies
 one. The plugin has DYE2 save each change made on the Machine into that
 recipe ([ADR-0022](adr/0022-loaded-recipe-worked-out-from-the-workflow.md)).
 That is why a Machine that follows Recipes needs DYE2 v0.1.40 or newer, and
-Streamline v0.2.27 or newer where Streamline is its skin.
+Streamline v0.2.31 or newer where Streamline is its skin.
 
 A Recipe is the whole Shot. As a Machine loads one, the plugin brings its
 Workflow to the Recipe: it writes what the Recipe names, and clears the dose,
@@ -314,6 +314,14 @@ Streamline clear them as they apply a recipe, so the plugin then finds
 nothing to write, and a Skin that applies a recipe by naming it in the
 Workflow needs no clearing of its own. The steam, hot water and flush
 settings the Recipe holds none of are left as the Machine has them.
+
+Loading a Recipe switches the Machine's steam as the Recipe holds it: on at
+its steam temperature and time, or off where it holds "Off", the same from
+DYE2's dashboard, Streamline's strip and the plugin's own write. A Recipe
+holding neither a steam temperature nor a steam time leaves steam as it is.
+Steam turned off at the Machine changes no Recipe, and an edit to a Recipe
+made elsewhere never turns a Machine's steam on; an edit to "Off" turns it
+off on every Machine with the Recipe loaded.
 
 A bean batch picked on a Machine with a Recipe loaded becomes the Recipe's
 Bean and batch, of another Bean too, on every Machine that has it loaded.
