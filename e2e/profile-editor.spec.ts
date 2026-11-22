@@ -252,8 +252,10 @@ test("the checks, a status beside Publish, count what stops it and the advice, a
   await advice.getByRole("button", { name: /^Step 2 ends at a weight/ }).click();
   await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toBeInViewport();
   await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toBeFocused();
-  // Closed without a choice, the focus returns to the status.
+  // Closed without a choice, the focus returns to the status. Opened afresh, once the list has gone, so its focus moves into it first.
+  await expect(checks(page)).toHaveCount(0);
   await checksStatus(page).click();
+  await expect(checks(page).locator(":focus")).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(checksStatus(page)).toBeFocused();
   await page.setViewportSize(viewport);
@@ -286,7 +288,13 @@ test("in a wide window a Draft's steps are a rail left of the graph, under it in
 
   // At 1280 the steps go under the graph, which is as wide as before the rail (712 px).
   await page.setViewportSize({ width: 1280, height: 720 });
-  await expect.poll(async () => (await stepsCard(page).boundingBox())!.y).toBeGreaterThanOrEqual((await graph.boundingBox())!.y + (await graph.boundingBox())!.height);
+  // The steps card moves to another parent, so it can be gone for a moment while it is measured.
+  await expect
+    .poll(async () => {
+      const [steps, drawn] = [await stepsCard(page).boundingBox(), await graph.boundingBox()];
+      return steps && drawn ? steps.y - (drawn.y + drawn.height) : -1;
+    })
+    .toBeGreaterThanOrEqual(0);
   expect((await graph.locator("svg[data-graph-end]").boundingBox())!.width).toBeGreaterThanOrEqual(712);
 
   // The inspector, taller than the window, stays in it once the page scrolls, and scrolls within itself to its last buttons.

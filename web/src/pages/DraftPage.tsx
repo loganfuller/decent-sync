@@ -284,9 +284,9 @@ function DraftEditor({ id }: { id: string }) {
         const card = inspector.current;
         if (!card) return;
         card.scrollTo({ top: 0 });
-        const { top } = card.getBoundingClientRect();
-        if (top < 0 || top > window.innerHeight) card.scrollIntoView({ block: "start" });
-        card.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus({ preventScroll: true });
+        const tab = card.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
+        if (card.getBoundingClientRect().top < 0 || (tab ?? card).getBoundingClientRect().bottom > window.innerHeight) card.scrollIntoView({ block: "start" });
+        tab?.focus({ preventScroll: true });
       });
     },
     [select],
