@@ -1,6 +1,7 @@
 import { type BrowserContextOptions, expect, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { type JudgedShots, seedJudgedShots } from "./support/judged-shots.js";
+import { boxes } from "./support/layout.js";
 import { openCard, recipeActions, rows } from "./support/locators.js";
 import { signInAsAdmin } from "./support/seed.js";
 
@@ -224,9 +225,9 @@ test("on a phone the page's cards stack, By Machine is a block for each Machine,
     );
     await expect(byMachine.getByRole("table")).toBeHidden();
     await expect(blocks.locator("[data-slot=spec-mark]")).toHaveText(["Out of spec: +3.5 s vs reference"]);
-    const [above, below] = [(await reference.boundingBox())!, (await byMachine.boundingBox())!];
-    expect(above.y + above.height).toBeLessThanOrEqual(below.y);
-    expect([above.x, above.width]).toEqual([below.x, below.width]);
+    const [above, below] = await boxes(reference, byMachine);
+    expect(above!.y + above!.height).toBeLessThanOrEqual(below!.y);
+    expect([above!.x, above!.width]).toEqual([below!.x, below!.width]);
 
     // The trend's three numbers are in a row of their own, which scrolls where they don't fit, as with longer names
     // or a narrower screen; the page doesn't.

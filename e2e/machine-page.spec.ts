@@ -2,6 +2,7 @@ import { type BrowserContextOptions, expect, type Locator, type Page, test } fro
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { type JudgedShots, dateText, emptyLibrary, seedJudgedShots } from "./support/judged-shots.js";
+import { boxes } from "./support/layout.js";
 import { datesPreset, field, filterChip, machineRow, openCard, openMachineTab, rows } from "./support/locators.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
@@ -226,8 +227,8 @@ test("what needs attention stays above the tabs, whichever is open: a new token"
   for (const tab of ["Now", "Activity", "Settings", "Setup"] as const) {
     await openMachineTab(page, tab);
     await expect(notice).toBeVisible();
-    // Above the tabs.
-    const [noticeBox, tabsBox] = await Promise.all([notice.boundingBox(), page.getByRole("navigation", { name: "Machine" }).boundingBox()]);
+    // Above the tabs, the two measured in one layout: Settings shrinks the page while it loads, pulling its scroll position up and back (#635).
+    const [noticeBox, tabsBox] = await boxes(notice, page.getByRole("navigation", { name: "Machine" }));
     expect(noticeBox!.y + noticeBox!.height).toBeLessThanOrEqual(tabsBox!.y);
   }
 });
@@ -400,7 +401,7 @@ test.describe("on a phone", () => {
   }
 
   /** Each element's left edge and top, to the pixel. */
-  const corners = async (elements: Locator) => (await elements.all()).reduce(async (found, each) => [...(await found), await each.boundingBox().then((box) => ({ x: Math.round(box!.x), y: Math.round(box!.y) }))], Promise.resolve([] as { x: number; y: number }[]));
+  const corners = async (elements: Locator) => (await boxes(...(await elements.all()))).map((box) => ({ x: Math.round(box!.x), y: Math.round(box!.y) }));
 
   test("the four tabs fit one row, each tab fits the screen, the Live View's tiles are two to a row and the Shots card is a block for each Recipe", async ({ page }) => {
     await page.goto(`/machines/${benchId}`);

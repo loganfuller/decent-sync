@@ -3,6 +3,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { graphClashes } from "./support/graph-text.js";
+import { boxes } from "./support/layout.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -139,8 +140,7 @@ test("the selected step's handles move with the keyboard and by dragging, its ma
   const bracket = graph.getByRole("slider", { name: "Fill's maximum time, s" });
   await expect(bracket).toHaveAttribute("aria-valuenow", "15");
   // The fill exits over 4 bar long before its 15 s: its bracket sits past its band's end.
-  const band = await graph.locator('[data-step-band="0"]').boundingBox();
-  const bracketBox = await bracket.boundingBox();
+  const [band, bracketBox] = await boxes(graph.locator('[data-step-band="0"]'), bracket);
   expect(bracketBox!.x).toBeGreaterThan(band!.x + band!.width);
 
   await target.focus();
@@ -214,15 +214,14 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
     await expect(drawn).not.toHaveAttribute("width", drawnAt);
     drawnAt = (await drawn.getAttribute("width"))!;
     await expect.poll(() => graphClashes(graph), { message: `at ${width} px` }).toEqual([]);
-    const tagBox = (await tag.boundingBox())!;
-    const next = (await graph.locator("[data-step-band='1']").boundingBox())!;
-    const bracketBox = (await graph.getByRole("slider", { name: "Pre-brew's maximum time, s" }).boundingBox())!;
-    expect(bracketBox.x).toBeGreaterThan(next.x);
     const texts = graph.locator("[data-step-band] text");
     expect(await texts.count()).toBe(4);
-    for (const text of await texts.all()) {
-      const box = (await text.boundingBox())!;
-      expect(tagBox.y, `${await text.textContent()} at ${width} px`).toBeGreaterThanOrEqual(box.y + box.height);
+    const each = await texts.all();
+    const bracket = graph.getByRole("slider", { name: "Pre-brew's maximum time, s" });
+    const [tagBox, next, bracketBox, ...textBoxes] = await boxes(tag, graph.locator("[data-step-band='1']"), bracket, ...each);
+    expect(bracketBox!.x).toBeGreaterThan(next!.x);
+    for (const [index, box] of textBoxes.entries()) {
+      expect(tagBox!.y, `${await each[index]!.textContent()} at ${width} px`).toBeGreaterThanOrEqual(box!.y + box!.height);
     }
   }
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -398,23 +397,19 @@ test("in a wide window a Draft's steps are a rail left of the graph, under it in
   const graph = page.getByRole("region", { name: "How it runs" });
   await expect(graph.locator("svg[data-graph-end]")).toBeVisible();
   // The page and the header grow together, to 1600 px.
-  const main = (await page.locator("main").boundingBox())!;
-  const bar = (await page.getByRole("banner").locator("> div").boundingBox())!;
-  expect(main.width).toBe(1600);
-  expect([bar.x, bar.width]).toEqual([main.x, main.width]);
-  const steps = (await stepsCard(page).boundingBox())!;
-  const drawn = (await graph.boundingBox())!;
-  const fields = (await inspector(page).boundingBox())!;
-  expect(steps.x + steps.width).toBeLessThanOrEqual(drawn.x);
-  expect(Math.abs(steps.y - drawn.y)).toBeLessThan(1);
-  expect(drawn.x + drawn.width).toBeLessThanOrEqual(fields.x);
+  const [main, bar, steps, drawn, fields] = await boxes(page.locator("main"), page.getByRole("banner").locator("> div"), stepsCard(page), graph, inspector(page));
+  expect(main!.width).toBe(1600);
+  expect([bar!.x, bar!.width]).toEqual([main!.x, main!.width]);
+  expect(steps!.x + steps!.width).toBeLessThanOrEqual(drawn!.x);
+  expect(Math.abs(steps!.y - drawn!.y)).toBeLessThan(1);
+  expect(drawn!.x + drawn!.width).toBeLessThanOrEqual(fields!.x);
 
   // At 1280 the steps go under the graph, which is as wide as before the rail (712 px).
   await page.setViewportSize({ width: 1280, height: 720 });
   // The steps card moves to another parent, so it can be gone for a moment while it is measured.
   await expect
     .poll(async () => {
-      const [steps, drawn] = [await stepsCard(page).boundingBox(), await graph.boundingBox()];
+      const [steps, drawn] = await boxes(stepsCard(page), graph);
       return steps && drawn ? steps.y - (drawn.y + drawn.height) : -1;
     })
     .toBeGreaterThanOrEqual(0);
@@ -492,9 +487,8 @@ test("the Library lists Drafts above its Profiles, each with what it will become
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
   await expect(drafts.getByRole("listitem")).toHaveCount(3);
   // Above the Profiles.
-  const draftsBox = (await drafts.boundingBox())!;
-  const profilesBox = (await page.getByRole("table", { name: "Profiles" }).boundingBox())!;
-  expect(draftsBox.y).toBeLessThan(profilesBox.y);
+  const [draftsBox, profilesBox] = await boxes(drafts, page.getByRole("table", { name: "Profiles" }));
+  expect(draftsBox!.y).toBeLessThan(profilesBox!.y);
 
   // From its own page, too, back to the Library.
   await drafts.getByRole("link", { name: "Open the Draft From a file" }).click();

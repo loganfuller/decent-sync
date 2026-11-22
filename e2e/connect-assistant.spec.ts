@@ -3,6 +3,7 @@ import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
 import { ASSISTANT_ENV, type TestApp, authorizationUrl, pkce, serveTestApp } from "../server/test/support/test-app.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { boxes } from "./support/layout.js";
 import { openCard, rows } from "./support/locators.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
@@ -92,7 +93,8 @@ test("someone signed out signs in first and comes back to see the app's host abo
     const host = person.getByText(new URL(app.clientId).host, { exact: true });
     await expect(heading).toBeVisible();
     // The host, which no app chooses, above the name, which any app does.
-    expect((await host.boundingBox())!.y).toBeLessThan((await heading.boundingBox())!.y);
+    const [hostBox, headingBox] = await boxes(host, heading);
+    expect(hostBox!.y).toBeLessThan(headingBox!.y);
     await expect(person.getByText(`It will act as you, ${admin.name} (${admin.email}), within what your account may do.`)).toBeVisible();
 
     const choice = person.getByRole("radiogroup", { name: "What it may do" });
