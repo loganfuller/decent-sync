@@ -3,6 +3,7 @@ import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { graphClashes } from "./support/graph-text.js";
 import { rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
@@ -98,6 +99,8 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await expect(svg.locator("[data-stop]")).toContainText(/^Stops at \d+\.\d s/);
   await expect(svg.locator("[data-cup-mark]")).toHaveText(["First drip", "10 g", "20 g", "30 g"]);
   await expect(svg.locator("[data-preinfusion]")).toContainText("Preinfusion");
+  // None of what it writes is over another piece of it (#621).
+  expect(await graphClashes(graph)).toEqual([]);
   const figures = graph.getByRole("definition");
   const time = async () => Number((await graph.getByLabel("Simulated figures").getByRole("definition").first().textContent())!.replace(" s", ""));
   await expect(figures.first()).toHaveText(/^\d+\.\d s$/);
@@ -167,6 +170,7 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await expect(both).toHaveAccessibleName(/^Simulated run of Version 2/);
   await expect(both.locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
   await expect(both.locator("[data-compared-stop]")).toContainText("Version 1 stops");
+  expect(await graphClashes(page.getByRole("region", { name: "How each runs" }))).toEqual([]);
 });
 
 test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weight, Machine and puck to match it, each changeable after", async ({ page }) => {
@@ -210,6 +214,9 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
   await expect(graph.getByRole("radio", { name: "DE1" })).toBeChecked();
   await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(imitating, 6);
   await expect(graph.getByRole("figure", { name: /^Simulated run of Classic Italian espresso on a standard puck\./ })).toBeVisible();
+  // Where the Shot stopped is named beside its line, clear of where the run stops and the rest of what the graph writes (#621).
+  await expect(graph.locator("[data-compared-stop]")).toContainText("The Shot stopped");
+  await expect.poll(() => graphClashes(graph)).toEqual([]);
   // Its figures are the run's alone, with no table of how close it comes.
   await expect(graph.getByLabel("Simulated figures")).not.toContainText("than the Shot");
   await expect(graph.getByRole("table")).toHaveCount(0);

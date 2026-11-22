@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { graphClashes } from "./support/graph-text.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -12,7 +13,8 @@ import { tabletAt } from "./support/tablets.js";
 // handle dragged on the graph, its steps added, moved and deleted, checked,
 // undone and redone; New Profile starts others from a starting shape, a
 // duplicate and a file; the Library lists them; a Viewer sees none. Serials
-// are made up, from 57951.
+// are made up, from 57951. What the graph writes is measured against the
+// selected step's handles, their tags and the bracket (#621).
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Fields = Record<string, unknown>;
@@ -159,6 +161,72 @@ test("the selected step's handles move with the keyboard and by dragging, its ma
   const raised = Number(await exit.getAttribute("aria-valuenow"));
   expect(raised).toBeGreaterThan(4);
   expect((await saved(page)).profile.steps[0]).toMatchObject({ exit: { type: "pressure", condition: "over", value: raised } });
+});
+
+test("a Draft's graph writes nothing under a handle, its tag or the bracket, whose tag covers no band's text, and says a selected step's exit once", async ({ page }) => {
+  // #621's Draft: a flow step of at most 40 s that moves on over 4 bar, then 9 bar.
+  const step = (fields: Fields) => ({ transition: "fast", exit: null, volume: 0, weight: null, temperature: 93, sensor: "coffee", limiter: null, ...fields });
+  const file = {
+    title: "Long pre-brew",
+    author: "Decent Sync fixtures",
+    notes: "",
+    beverage_type: "espresso",
+    version: "2",
+    steps: [step({ name: "Pre-brew", pump: "flow", flow: 1.5, seconds: 40, exit: { type: "pressure", condition: "over", value: 4 } }), step({ name: "Full brew", pump: "pressure", pressure: 9, seconds: 60 })],
+    target_volume: null,
+    target_weight: 36,
+    target_volume_count_start: 1,
+    tank_temperature: 0,
+  };
+  const created = await page.request.post("/api/drafts", { data: { file } });
+  expect(created.status()).toBe(201);
+  const { draft } = (await created.json()) as { draft: { id: string } };
+  await page.goto(`/library/drafts/${draft.id}`);
+  const graph = page.getByRole("region", { name: "How it runs" });
+  await expect(graph.locator("svg[data-graph-end]")).toBeVisible();
+
+  // Its second step selected, the first's exit is named in its lane.
+  await stepsCard(page).getByRole("button", { name: "Select step 2, Full brew" }).click();
+  await expect(graph.getByRole("slider", { name: "Full brew's target, bar" })).toBeVisible();
+  await expect(graph.locator("[data-exit='0'] text")).toHaveText("Moves on over 4 bar");
+  expect(await graphClashes(graph)).toEqual([]);
+
+  // Selected, its exit is said by its handle's tag alone, on its threshold.
+  await stepsCard(page).getByRole("button", { name: "Select step 1, Pre-brew" }).click();
+  await expect(graph.locator("[data-handle-tag='exit']")).toHaveText("Over 4 bar");
+  await expect(graph.locator("[data-exit='0'] line")).toHaveCount(1);
+  await expect(graph.locator("[data-exit='0'] text")).toHaveCount(0);
+  await expect(graph.getByText(/over 4 bar$/i)).toHaveText(["35.1 s · over 4 bar", "Over 4 bar"]);
+
+  // The maximum time's bracket stands past its band, in the next: its tag is under the first lane, below each band's name and outcome.
+  const tag = graph.locator("[data-handle-tag='seconds']");
+  await expect(tag).toHaveText("At most 40.0 s");
+  const widths: [number, number][] = [
+    [1280, 720],
+    [393, 852],
+    [1710, 985],
+  ];
+  const drawn = graph.locator("svg[data-graph-end]");
+  let drawnAt = "";
+  for (const [width, height] of widths) {
+    await page.setViewportSize({ width, height });
+    // Laid out again at its new width, nothing is over anything.
+    await expect(drawn).not.toHaveAttribute("width", drawnAt);
+    drawnAt = (await drawn.getAttribute("width"))!;
+    await expect.poll(() => graphClashes(graph), { message: `at ${width} px` }).toEqual([]);
+    const tagBox = (await tag.boundingBox())!;
+    const next = (await graph.locator("[data-step-band='1']").boundingBox())!;
+    const bracketBox = (await graph.getByRole("slider", { name: "Pre-brew's maximum time, s" }).boundingBox())!;
+    expect(bracketBox.x).toBeGreaterThan(next.x);
+    const texts = graph.locator("[data-step-band] text");
+    expect(await texts.count()).toBe(4);
+    for (const text of await texts.all()) {
+      const box = (await text.boundingBox())!;
+      expect(tagBox.y, `${await text.textContent()} at ${width} px`).toBeGreaterThanOrEqual(box.y + box.height);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  expect((await page.request.delete(`/api/drafts/${draft.id}`)).status()).toBe(204);
 });
 
 test("steps are added, duplicated, moved and deleted, with preinfusion kept on its step, and every change undone and redone", async ({ page }) => {
