@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { derivedShot, preheatShotFixture, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { boxes } from "./support/layout.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { chooseFilter, datesPreset, field, openCard } from "./support/locators.js";
 import { expectTip, tap } from "./support/tooltips.js";
@@ -209,7 +210,8 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(inferred).toContainText(
     "This Shot recorded no machine hardware, so it is credited to Uptown 1, whose tablet reported it. Its Location, Uptown, comes from that Machine's Location History, so it is inferred too.",
   );
-  expect((await inferred.boundingBox())!.y).toBeLessThan((await went.boundingBox())!.y);
+  const [inferredBox, wentBox] = await boxes(inferred, went);
+  expect(inferredBox!.y).toBeLessThan(wentBox!.y);
   await expect(field(await openCard(page, "Details"), "Machine, as recorded")).toHaveText("It recorded no machine hardware");
 
   // One a Pending Machine holds names its hardware, and says what holds it.

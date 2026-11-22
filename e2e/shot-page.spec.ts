@@ -3,6 +3,7 @@ import { preheatShotFixture, withShots } from "../server/test/support/shot-fixtu
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { type Fields, type JudgedShots, LEFT, ZONE_NAME, at, emptyLibrary, seedJudgedShots, shotOf } from "./support/judged-shots.js";
+import { boxes } from "./support/layout.js";
 import { field, openCard, rows } from "./support/locators.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
@@ -126,9 +127,7 @@ for (const [width, phone] of WIDTHS) {
       if (!phone) return;
       // On a phone the figures are two to a row, and its rating and note a row of their own under them.
       await shown.goto(`/shots/${FAST}`);
-      const [duration, yielded, dose, stopped, rating] = await Promise.all(
-        ["Duration", "Yield", "Dose", "Stopped", "Rating"].map(async (term) => (await went.locator("dt", { hasText: new RegExp(`^${term}$`) }).boundingBox())!),
-      );
+      const [duration, yielded, dose, stopped, rating] = await boxes(...["Duration", "Yield", "Dose", "Stopped", "Rating"].map((term) => went.locator("dt", { hasText: new RegExp(`^${term}$`) })));
       expect(yielded!.y).toBe(duration!.y);
       expect(yielded!.x).toBeGreaterThan(duration!.x);
       expect(dose!.y).toBeGreaterThan(duration!.y);
@@ -197,7 +196,8 @@ for (const [width, phone] of WIDTHS) {
       await expect(choice.getByRole("radio", { name: "Reference Shot" })).toBeChecked();
       const row = choice.locator("xpath=..");
       expect(await row.evaluate((scrolled) => scrolled.scrollWidth > scrolled.clientWidth)).toBe(true);
-      expect((await row.boundingBox())!.y).toBeGreaterThan((await curves.getByRole("heading", { name: "Curves" }).boundingBox())!.y + 10);
+      const [rowBox, headingBox] = await boxes(row, curves.getByRole("heading", { name: "Curves" }));
+      expect(rowBox!.y).toBeGreaterThan(headingBox!.y + 10);
       // Its last choice is past the row's end until the row is scrolled to it.
       await expect(choice.getByRole("radio", { name: "Nothing" })).not.toBeInViewport({ ratio: 0.95 });
       await choice.getByRole("radio", { name: "Nothing" }).scrollIntoViewIfNeeded();

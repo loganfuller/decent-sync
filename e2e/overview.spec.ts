@@ -3,6 +3,7 @@ import { withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { DEPOT_1, type Fields, type JudgedShots, ZONE_NAME, at, emptyLibrary, seedJudgedShots, shotOf } from "./support/judged-shots.js";
+import { boxes } from "./support/layout.js";
 import { datesPreset, field, filterChip } from "./support/locators.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { expectTip, tap } from "./support/tooltips.js";
@@ -285,7 +286,7 @@ test("on a phone, nothing scrolls sideways with two Machines: the status cards s
     await page.keyboard.press("Escape");
 
     // The cards one under the other, each as wide as the block.
-    const [first, second] = await Promise.all([card(page, "Lab", "Lab Left").boundingBox(), card(page, "Lab", "Lab Right").boundingBox()]);
+    const [first, second] = await boxes(card(page, "Lab", "Lab Left"), card(page, "Lab", "Lab Right"));
     expect(second!.x).toBe(first!.x);
     expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height);
     await expect(mark(card(page, "Lab", "Lab Left")).filter({ hasText: "Offline" })).toBeVisible();
@@ -461,15 +462,16 @@ test("on a phone, with three Machines or more the page still fits: the table scr
     expect(overflow).toBeGreaterThan(0);
     const heading = harborTable.getByRole("rowheader").first();
     const lastColumn = harborTable.getByRole("columnheader", { name: "Lab Right" });
-    const before = { heading: await heading.boundingBox(), column: await lastColumn.boundingBox() };
+    // Measured with boxes() throughout, as the Recipe column's width is compared exactly with one measured that way below.
+    const [headingBefore, columnBefore] = await boxes(heading, lastColumn);
     await scroller.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
-    await expect.poll(async () => (await lastColumn.boundingBox())?.x).toBe(before.column!.x - overflow);
+    await expect.poll(async () => (await boxes(lastColumn))[0]?.x).toBe(columnBefore!.x - overflow);
     // The cells moved under the Recipe column, which is where it was, and the page still fits.
-    expect((await heading.boundingBox())!.x).toBe(before.heading!.x);
+    expect((await boxes(heading))[0]!.x).toBe(headingBefore!.x);
     await heading.scrollIntoViewIfNeeded();
     await expect(heading).toBeInViewport({ ratio: 1 });
     await expectFits(phone);
-    const recipeWidth = before.heading!.width;
+    const recipeWidth = headingBefore!.width;
 
     // Five more Machines, eight in all: the Recipe column is as wide as it was, so scrolled to the end the last
     // Machine's column is whole beside it, not under it.
@@ -483,7 +485,7 @@ test("on a phone, with three Machines or more the page still fits: the table scr
     await expect(harborTable.getByRole("columnheader")).toHaveCount(9);
     await expectFits(phone);
     await scroller.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
-    const [pinned, last] = await Promise.all([heading.boundingBox(), harborTable.getByRole("columnheader").last().boundingBox()]);
+    const [pinned, last] = await boxes(heading, harborTable.getByRole("columnheader").last());
     expect(pinned!.width).toBe(recipeWidth);
     expect(last!.x).toBeGreaterThanOrEqual(pinned!.x + pinned!.width);
     await harborTable.getByRole("columnheader").last().scrollIntoViewIfNeeded();
