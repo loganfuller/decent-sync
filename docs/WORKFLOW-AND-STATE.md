@@ -786,11 +786,12 @@ parts to the Recipe's content both ways.
   135 to 170 °C, none, or "Off", a steam temperature of 0
   (`STEAM_OFF_VALUE`, `steamHeldOff` in `protocol/`). A record saved with
   a steam temperature below 135 °C, as DYE2's editor saves "Off" as 0 with
-  a steam time of 0 from v0.1.35, or with only its steam time changed, to
+  a steam time of 0 from v0.1.35, or, outside Flow mode, a steam time
   below 1 s, is the Recipe's edit to "Off" (`libraryValues` in
-  `recipe-intake.ts`), and a steam temperature saved over a steam time of
-  0 the record held already is an edit to that temperature (ADR-0022);
-  the steam time of 0 beside "Off" is no steam time of
+  `recipe-intake.ts`), as Streamline's strip applies either; in Flow mode,
+  where DYE2's editor shows no steam time, a steam temperature saved over
+  "Off" is an edit to that temperature (ADR-0022); the steam time of 0
+  beside "Off" is no steam time of
   the Recipe's, which keeps the one it held, and a Recipe holding "Off" is
   written to every tablet as a steam temperature and a steam time of 0
   (`recipeRecord`). A stored steam time of 0, as 1.6.2 may take one in, is

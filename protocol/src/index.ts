@@ -1309,9 +1309,8 @@ export function steamTimeOf(value: unknown): number | null {
  * (`recipeMachineSettings` in dye2:dye2-plugin/src/utils/dev-api.ts at
  * v0.1.42), and Streamline's strip a steam time below 1 s only for a recipe
  * not in Flow mode (`recipeSteamPatch` in
- * streamline-js:src/modules/steam-mode.js at v0.2.31), so which half a
- * tablet's save makes the Recipe's "Off" is the server's intake's to say
- * (`libraryValues`). One holding neither, or only values that leave steam on, does
+ * streamline-js:src/modules/steam-mode.js at v0.2.31), which the server's
+ * intake follows (`libraryValues`). One holding neither, or only values that leave steam on, does
  * not: null and anything but a number is none held. A Recipe holding "Off"
  * turns a Machine's steam off as it loads (ADR-0022, Steam on and off).
  */

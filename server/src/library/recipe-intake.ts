@@ -119,6 +119,15 @@ const STEAM_TEMPERATURE_PATH = `${DV}.${RECIPE_SETTINGS.steamTemperature.dye2}`;
 /** The path of a recipe record holding its steam time, which DYE2's editor saves as 0, steam off from Streamline v0.2.22. */
 const STEAM_TIME_PATH = `${DV}.${RECIPE_SETTINGS.steamDuration.dye2}`;
 
+/**
+ * Whether a recipe record is in Flow mode for steam, as Streamline's strip
+ * reads one: its `steamMode`, else Flow where it holds a steam flow
+ * (`recipeSteamPatch` in streamline-js:src/modules/steam-mode.js at v0.2.31).
+ */
+function steamFlowMode(view: Readonly<Record<string, unknown>>): boolean {
+  return (view[`${DV}.steamMode`] || (view[`${DV}.${RECIPE_SETTINGS.steamFlow.dye2}`] != null ? "flow" : "time")) === "flow";
+}
+
 /** The paths a barista edits, which are taken in as edits of the Recipe: but those DYE2 derives, the barista and drinker, and the server's own field. */
 export const EDITED_PATHS: ReadonlySet<string> = new Set([
   ...Object.keys(EDITED),
@@ -333,14 +342,13 @@ export function refusedPaths(view: Readonly<RecipeView>, fields: Iterable<string
  *   written, where they were;
  * - its steam temperature, and "Off" as STEAM_OFF_VALUE where the record
  *   holds a steam temperature below STEAM_ON_FROM, as DYE2's editor saves
- *   "Off" as 0 with a steam time of 0, or where the save changed its steam
- *   time to one below STEAM_TIME_FROM and left its steam temperature, as
- *   DYE2 applies one as steam off whole (`steamHeldOff`); a steam time of 0
- *   the record held already, as beside "Off", is none, so a steam
- *   temperature saved over "Off" holds steam on with the steam time the
- *   Recipe kept, a Flow-mode recipe in DYE2's editor showing no steam time:
- *   "Off" is the Recipe's, which turns steam off on every Machine with it
- *   loaded (ADR-0022); and its steam time, but one
+ *   "Off" as 0 with a steam time of 0, or, outside Flow mode, a steam time
+ *   below STEAM_TIME_FROM, as Streamline's strip applies either as steam
+ *   off whole (`steamHeldOff`, `steamFlowMode`); in Flow mode DYE2's editor
+ *   shows no steam time, so a steam temperature saved there over "Off" is
+ *   that temperature, the Recipe keeping its steam time: "Off" is the
+ *   Recipe's, which turns steam off on every Machine with it loaded
+ *   (ADR-0022); and its steam time, but one
  *   below STEAM_TIME_FROM, which is the other half of "Off" and no time of
  *   the Recipe's, which keeps its own for when it holds a steam temperature
  *   again; a steam time above STEAM_TIME_TO, which DYE2's editor also
@@ -383,13 +391,10 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
-  // "Off" is the Recipe's steam temperature of STEAM_OFF_VALUE: a steam temperature below STEAM_ON_FROM, or a steam time
-  // below STEAM_TIME_FROM that is the save's change, its steam temperature left as it was. A steam time of 0 the record
-  // held already, as the server writes beside "Off", is no request: in a Flow-mode recipe neither DYE2's editor shows it
-  // nor Streamline's strip applies it as steam off, so a steam temperature saved over it holds steam on (`recipeSteamPatch`).
-  const temperatureOff = steamHeldOff(view[STEAM_TEMPERATURE_PATH], null);
-  const timeOff = steamHeldOff(null, view[STEAM_TIME_PATH]) && changed.has(STEAM_TIME_PATH) && !changed.has(STEAM_TEMPERATURE_PATH);
-  if ((temperatureOff && (changed.has(STEAM_TEMPERATURE_PATH) || changed.has(STEAM_TIME_PATH))) || timeOff) values.steamTemperature = STEAM_OFF_VALUE;
+  // "Off" is the Recipe's steam temperature of STEAM_OFF_VALUE, held by either half as Streamline's strip applies a record:
+  // a steam time below STEAM_TIME_FROM only outside Flow mode, where DYE2's editor shows no steam time (`recipeSteamPatch`).
+  const steamOffBy = steamHeldOff(view[STEAM_TEMPERATURE_PATH], steamFlowMode(view) ? null : view[STEAM_TIME_PATH]);
+  if (steamOffBy && (changed.has(STEAM_TEMPERATURE_PATH) || changed.has(STEAM_TIME_PATH))) values.steamTemperature = STEAM_OFF_VALUE;
   // A steam time of 0 is the other half of "Off", none of the Recipe's; one above the DE1's longest, which DYE2's editor
   // saves, is the longest (`steamTimeOf`), and written back so.
   if (typeof values.steamDuration === "number") {
@@ -481,7 +486,7 @@ export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext
  * steam time of STEAM_OFF_VALUE (`recipeRecord`), and one holding a steam
  * temperature with the steam time it kept, so a record holding one half
  * alone is written as the Recipe holds it (ADR-0022); which half is the
- * Recipe's edit, `libraryValues` says.
+ * Recipe's edit, by the record's steam mode, `libraryValues` says.
  */
 export function holdsSteamOff(view: Readonly<Record<string, unknown>>): boolean {
   return steamHeldOff(view[STEAM_TEMPERATURE_PATH], view[STEAM_TIME_PATH]);

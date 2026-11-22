@@ -1502,11 +1502,11 @@ are never matched (ADR-0018).
   field of it in `dashboardVariables`, as `steamTempC`, one the record holds
   none of holding none (`RECIPE_SETTINGS` in `protocol/`). A record saved
   with a steam temperature below 135 °C (`STEAM_ON_FROM`), as DYE2's editor
-  saves "Off" as 0 with a steam time of 0, or with only its steam time
-  changed, to 0, is the Recipe's edit to "Off", a steam temperature of 0
-  (`libraryValues`). A steam time of 0 the record held already is none, as
-  DYE2's editor shows no steam time for a Flow-mode recipe, so a steam
-  temperature saved over "Off" is an edit to that temperature. The steam
+  saves "Off" as 0 with a steam time of 0, or, outside Flow mode, a steam
+  time below 1 s, is the Recipe's edit to "Off", a steam temperature of 0
+  (`libraryValues`), as Streamline's strip applies either. DYE2's editor
+  shows no steam time for a Flow-mode recipe, so a steam temperature saved
+  over "Off" there is an edit to that temperature. The steam
   time of 0 beside "Off" is no steam time of the Recipe's, which keeps the
   one it held. A Recipe holding "Off" is written to every tablet as a steam
   temperature and a steam time of 0, in the record and its embedded
@@ -2206,12 +2206,12 @@ writer might, as 255 s, which is written back (`steamTimeOf`).
   as a steam temperature of 0 with a steam time of 0, and DYE2 applies a
   record holding either half as steam off whole (`recipeMachineSettings`,
   decentespresso/dye2#46), as Streamline's strip does but for a steam time
-  of 0 in a Flow-mode recipe (`recipeSteamPatch`). So a tablet's save of a
-  steam temperature below 135 °C, or of only a steam time of 0, is the
+  of 0 in a Flow-mode recipe (`recipeSteamPatch`). So a tablet's record
+  saved holding either half, as Streamline's strip applies it, is the
   Recipe's edit to "Off" (`libraryValues` in `recipe-intake.ts`), which
-  keeps the steam time it held, a steam temperature saved over "Off" brings
-  it back, and a Recipe holding "Off" is written to every tablet as a steam
-  temperature and a steam time of 0 (`recipeRecord`).
+  keeps the steam time it held, a steam temperature saved over "Off" in
+  Flow mode brings it back, and a Recipe holding "Off" is written to every
+  tablet as a steam temperature and a steam time of 0 (`recipeRecord`).
 - **A load switches steam.** A Machine loading a Recipe holding a steam
   temperature has its steam turned on at the Recipe's steam temperature and
   time, and one loading a Recipe holding "Off" has it turned off whole,
