@@ -316,8 +316,10 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   later, if the record holds that content: no change of the content its
   answer shows, which the write did not set, lost, as a field the plugin left
   as the tablet had changed it may (one that won is the tablet's own latest
-  edit of the field); or, for a record the map did not hold, as a create's,
-  its content is the item's (`holdsWrittenContent`). A write carries that time (`contentDecidedAt`), and its answer
+  edit of the field); or, for a record the map did not hold, as a create's or
+  one whose answer reached the server only after a reconnect, its content is
+  the item's as it stood when the write's content was decided, a field decided
+  since being free to differ (`holdsWrittenContent`, `holdsContentAsDecided`). A write carries that time (`contentDecidedAt`), and its answer
   repeats it, so an answer that comes after its write stopped being awaited,
   as across a reconnect, says what its record has seen of the content too. A
   reset tablet has a new tablet id, so it starts with nothing here.
@@ -1857,7 +1859,8 @@ the Location's locks, rather than written back over; and so are the fields of
 its content the write did not set that differ from the record known, merged
 as edits under the item's row lock (Edits, above), judged by what the record
 had seen before the write. The record has then seen the content the write
-carried (`content_seen_at`, above), if its write was awaited. An answer the
+carried (`content_seen_at`, above), whether or not its write was still
+awaited, as its answer repeats `contentDecidedAt`. An answer the
 plugin marks `linked`, to a create it carried out by writing the global id to
 a bean of the same roaster and name entered there before the tablet reported
 it, links that record: it takes the Bean's content, each field it held
