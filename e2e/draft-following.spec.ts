@@ -139,6 +139,7 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   for (const box of row) expect(Math.abs(box.y + box.height / 2 - (row[0]!.y + row[0]!.height / 2))).toBeLessThan(4);
 
   // In a laptop's window the steps, the whole graph and the inspector show without scrolling, the steps and Trial Shots a rail left of the graph.
+  // The graph's end has about 2 px to spare here (#623): anything added above the graph on a Draft's page needs that room found first.
   await page.setViewportSize({ width: 1710, height: 985 });
   await page.evaluate(() => window.scrollTo(0, 0));
   const steps = page.getByRole("region", { name: "Steps" });
