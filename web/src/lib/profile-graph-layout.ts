@@ -354,9 +354,9 @@ export function handleBox(shape: HandleShape): LabelBox {
  * at that lane's foot, as a pause's target at 0 bar, it moves aside, off the
  * point. A point's is beside it, level with it but held inside its lane, so
  * out of that gap and the band text above the plot: on its right, unless
- * that leaves the graph, runs into the lanes' values or covers a handle or a
- * tag, and its left does so less; else beside the handle in its way, the
- * nearest such place first.
+ * that runs into the lanes' values or covers a handle or a tag, and its left
+ * does so less; else beside the handle or tag in its way, the nearest such
+ * place first; each held inside the graph, right of the lanes' values.
  */
 export function placeTags(layout: Pick<GraphLayout, "width" | "lanes" | "plot">, handles: readonly { shape: HandleShape; width: number }[]): LabelBox[] {
   const within = { left: layout.plot.left, right: layout.width, top: -Infinity, bottom: Infinity };
@@ -381,14 +381,17 @@ export function placeTags(layout: Pick<GraphLayout, "width" | "lanes" | "plot">,
     const lane = Object.values(layout.lanes).find((each) => shape.y >= each.top && shape.y <= each.bottom);
     const level = shape.y - TAG_HEIGHT / 2;
     const top = lane ? Math.max(lane.top, Math.min(level, lane.bottom - TAG_HEIGHT)) : level;
-    const beside = (left: number) => ({ left, right: left + width, top, bottom: top + TAG_HEIGHT });
+    const beside = (left: number) => {
+      const held = Math.max(layout.plot.left, Math.min(left, layout.width - width));
+      return { left: held, right: held + width, top, bottom: top + TAG_HEIGHT };
+    };
     const centred = shape.x - width / 2;
-    const aside = boxes
-      .filter((_, at) => at !== index)
+    const placed = tags.filter(Boolean);
+    const aside = [...boxes.filter((_, at) => at !== index), ...placed]
       .flatMap((other) => [other.right + LINE_GAP, other.left - LINE_GAP - width])
       .sort((one, other) => Math.abs(one - centred) - Math.abs(other - centred));
     const candidates = [shape.x + POINT_SIZE / 2 + LINE_GAP, shape.x - POINT_SIZE / 2 - LINE_GAP - width, ...aside].map(beside);
-    tags[index] = candidates[clearest(candidates, within, [], [...boxes, ...tags.filter(Boolean)])]!;
+    tags[index] = candidates[clearest(candidates, within, [], [...boxes, ...placed])]!;
   });
   return tags;
 }

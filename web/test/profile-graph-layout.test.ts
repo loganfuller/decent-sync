@@ -321,6 +321,36 @@ describe("where labels go among what is drawn", () => {
       for (const tag of tags) for (const handle of handles) expect(overlaps(tag, handleBox(handle.shape))).toBe(false);
     });
 
+    it("keeps a point's tag inside the graph, beside another tag in its way, as a short ramp's target and exit a bar apart on a phone", () => {
+      // A first step ramping smoothly to 9 bar over 5 s that moves on over 8 bar, then 9 bar.
+      const ramp: Profile = {
+        ...profile,
+        steps: [step({ name: "Ramp", transition: "smooth", seconds: 5, exit: { type: "pressure", condition: "over", value: 8 } }), step({ name: "Brew" })],
+      };
+      const ran = simulateProfile({ profile: ramp, puck: standardPuck(0), dose: 18, stopAt: 36, model: "DE1" });
+      const phone = graphLayout({ width: 361, end: 60, tick: 10, ranges: laneRanges(ramp, ran) });
+      const { start, end } = ran.steps[0]!;
+      // As the editor places them: the target at the step's maximum time, the exit 30% along its band, the bracket at its maximum time.
+      const shapes = [
+        { kind: "point" as const, x: phone.x(start! + 5), y: phone.y("pressure", 9) },
+        { kind: "point" as const, x: phone.x(start!) + (phone.x(end!) - phone.x(start!)) * 0.3, y: phone.y("pressure", 8) },
+        { kind: "bracket" as const, x: phone.x(start! + 5), top: phone.plot.top, bottom: phone.plot.bottom },
+      ];
+      const tags = placeTags(phone, [
+        { shape: shapes[0]!, width: 44 },
+        { shape: shapes[1]!, width: 66 },
+        { shape: shapes[2]!, width: 86 },
+      ]);
+      tags.forEach((tag, index) => {
+        expect(tag.left).toBeGreaterThanOrEqual(phone.plot.left);
+        expect(tag.right).toBeLessThanOrEqual(phone.width);
+        for (const other of tags.slice(index + 1)) expect(overlaps(tag, other)).toBe(false);
+        shapes.forEach((shape, at) => {
+          if (at !== index) expect(overlaps(tag, handleBox(shape))).toBe(false);
+        });
+      });
+    });
+
     it("keeps a point's tag inside its lane, off the bracket and its tag, as a pause's target at 0 bar beside a short step's bracket", () => {
       const { pressure, flow } = layout.lanes;
       // A 5 s pause: its target at 0 bar, 62% along, and its bracket at its end.
