@@ -298,8 +298,13 @@ describe("DYE2's recipes as Recipes", () => {
     }
     // Its steam time of 0 is the other half of "Off", none of the Recipe's, which keeps the one it holds.
     expect(libraryValues(steaming(0, 0), steamPaths, { steamDuration: 40 }, intake())).toEqual({ steamTemperature: 0, steamStopTemperature: 0 });
-    // A steam time of 0 alone is "Off" too, as DYE2 and Streamline apply one as steam off whole, whatever its temperature.
+    // A steam time changed to 0 alone is "Off" too, as DYE2 applies one as steam off whole, whatever its temperature.
     expect(libraryValues(steaming(150, 0), ["dashboardVariables.steamTimeS"], { steamTemperature: 150, steamDuration: 40 }, intake())).toEqual({ steamTemperature: 0 });
+    // A steam temperature saved over a steam time of 0 the record held, as over "Off" in a Flow-mode recipe, whose editor
+    // shows no steam time, is that temperature, with the steam time the Recipe kept; and so where both changed.
+    const overOff = { steamTemperature: 0, steamDuration: 40 };
+    expect(libraryValues(steaming(155, 0), ["dashboardVariables.steamTempC"], overOff, intake())).toEqual({ steamTemperature: 155 });
+    expect(libraryValues(steaming(155, 0), ["dashboardVariables.steamTempC", "dashboardVariables.steamTimeS"], overOff, intake())).toEqual({ steamTemperature: 155 });
     expect(libraryValues(steaming(150, 40), steamPaths, {}, intake())).toEqual({ steamTemperature: 150, steamDuration: 40, steamStopTemperature: 0 });
     expect(recipeContent(steaming(0, 0), intake())).toMatchObject({ steamTemperature: 0 });
     expect(recipeContent(steaming(0, 0), intake())).not.toHaveProperty("steamDuration");

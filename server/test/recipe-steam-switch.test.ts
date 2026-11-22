@@ -210,7 +210,7 @@ describe("A load switches steam, and Off is the Recipe's (#616)", { timeout: 180
     expect(steam(b)).toEqual([0, 0]);
   });
 
-  it("takes Off saved in DYE2's editor as the Recipe's, turning steam off on every Machine with it loaded, once; an edit from Off to a steam temperature turns none back on; and Off set in the management interface turns them off again", async () => {
+  it("takes Off saved in DYE2's editor as the Recipe's, turning steam off on every Machine with it loaded, once; an edit from Off to a steam temperature turns none back on; Off set in the management interface turns them off again; a steam temperature saved over Off where the editor shows no steam time is the Recipe's, with the steam time it kept; and a steam time of 0 saved alone is Off", async () => {
     const { machines, a, b, c, one, two, streamline, load, quiet } = await lab("Editor", 61021);
     await load(a, machines.a, LIBRARY, one, "dashboard");
     await load(b, machines.b, BRAZIL, two, "dashboard");
@@ -255,6 +255,26 @@ describe("A load switches steam, and Off is the Recipe's (#616)", { timeout: 180
     await quiet();
     expect([steam(a), steam(c), steam(b)]).toEqual([[0, 0], [0, 0], ownOnB]);
     expect([recorded(a, LIBRARY), recorded(c, LIBRARY)]).toEqual([[0, 0], [0, 0]]);
+    expect((await recipe(one)).content).toMatchObject({ steamTemperature: 0, steamDuration: 30 });
+
+    // DYE2's editor on B, where it is not loaded, opens the recipe in Flow mode, as it holds a steam flow, showing no steam
+    // time: a steam temperature saved over "Off" there is the Recipe's, with the steam time it kept, and no Machine's steam
+    // comes on.
+    await apart();
+    const over = await (await openDye2RecipeEditor(b, { id: LIBRARY })).set({ steamTempC: 155 }).save();
+    // The save changes the steam temperature alone: the record keeps the steam time of 0 "Off" was written with.
+    expect(over.patch.dashboardVariables).toEqual({ steamTempC: 155 });
+    for (const tablet of [a, b, c]) await expect.poll(() => recorded(tablet, LIBRARY), { timeout: 15_000 }).toEqual([155, 30]);
+    await quiet();
+    expect([steam(a), steam(c), steam(b)]).toEqual([[0, 0], [0, 0], ownOnB]);
+    expect((await recipe(one)).content).toMatchObject({ steamTemperature: 155, steamDuration: 30 });
+
+    // A steam time of 0 saved in its Time mode, the steam temperature left, is "Off", written to every tablet as two zeros.
+    await apart();
+    await (await openDye2RecipeEditor(b, { id: LIBRARY })).set({ steam: { mode: "time", value: 0 } }).save();
+    await expect.poll(async () => (await recipe(one)).content.steamTemperature, { timeout: 15_000 }).toBe(0);
+    for (const tablet of [a, b, c]) await expect.poll(() => recorded(tablet, LIBRARY), { timeout: 15_000 }).toEqual([0, 0]);
+    await quiet();
     expect((await recipe(one)).content).toMatchObject({ steamTemperature: 0, steamDuration: 30 });
 
     // Cleared, the steam temperature is each Machine's own again: nothing is written, and its records hold the steam time.

@@ -332,11 +332,15 @@ export function refusedPaths(view: Readonly<RecipeView>, fields: Iterable<string
  *   of the Recipe's the tablet holds no record of, which it was never
  *   written, where they were;
  * - its steam temperature, and "Off" as STEAM_OFF_VALUE where the record
- *   holds it by either half, a steam temperature below STEAM_ON_FROM, as
- *   DYE2's editor saves "Off" as 0 with a steam time of 0, or a steam time
- *   below STEAM_TIME_FROM, as DYE2 and Streamline apply either as steam off
- *   whole (`steamHeldOff`): "Off" is the Recipe's, which turns steam off on
- *   every Machine with it loaded (ADR-0022); and its steam time, but one
+ *   holds a steam temperature below STEAM_ON_FROM, as DYE2's editor saves
+ *   "Off" as 0 with a steam time of 0, or where the save changed its steam
+ *   time to one below STEAM_TIME_FROM and left its steam temperature, as
+ *   DYE2 applies one as steam off whole (`steamHeldOff`); a steam time of 0
+ *   the record held already, as beside "Off", is none, so a steam
+ *   temperature saved over "Off" holds steam on with the steam time the
+ *   Recipe kept, a Flow-mode recipe in DYE2's editor showing no steam time:
+ *   "Off" is the Recipe's, which turns steam off on every Machine with it
+ *   loaded (ADR-0022); and its steam time, but one
  *   below STEAM_TIME_FROM, which is the other half of "Off" and no time of
  *   the Recipe's, which keeps its own for when it holds a steam temperature
  *   again; a steam time above STEAM_TIME_TO, which DYE2's editor also
@@ -379,8 +383,13 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
-  // "Off" by either half is the Recipe's steam temperature of STEAM_OFF_VALUE, as the record is applied as steam off whole.
-  if (holdsSteamOff(view) && (changed.has(STEAM_TEMPERATURE_PATH) || changed.has(STEAM_TIME_PATH))) values.steamTemperature = STEAM_OFF_VALUE;
+  // "Off" is the Recipe's steam temperature of STEAM_OFF_VALUE: a steam temperature below STEAM_ON_FROM, or a steam time
+  // below STEAM_TIME_FROM that is the save's change, its steam temperature left as it was. A steam time of 0 the record
+  // held already, as the server writes beside "Off", is no request: in a Flow-mode recipe neither DYE2's editor shows it
+  // nor Streamline's strip applies it as steam off, so a steam temperature saved over it holds steam on (`recipeSteamPatch`).
+  const temperatureOff = steamHeldOff(view[STEAM_TEMPERATURE_PATH], null);
+  const timeOff = steamHeldOff(null, view[STEAM_TIME_PATH]) && changed.has(STEAM_TIME_PATH) && !changed.has(STEAM_TEMPERATURE_PATH);
+  if ((temperatureOff && (changed.has(STEAM_TEMPERATURE_PATH) || changed.has(STEAM_TIME_PATH))) || timeOff) values.steamTemperature = STEAM_OFF_VALUE;
   // A steam time of 0 is the other half of "Off", none of the Recipe's; one above the DE1's longest, which DYE2's editor
   // saves, is the longest (`steamTimeOf`), and written back so.
   if (typeof values.steamDuration === "number") {
@@ -467,10 +476,12 @@ export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext
 /**
  * Whether a tablet's record of a recipe holds "Off" (`steamHeldOff`): a
  * steam temperature below STEAM_ON_FROM, as DYE2's editor saves 0 for it
- * with a steam time of 0, or a steam time below STEAM_TIME_FROM. It is the
- * Recipe's (`libraryValues`), written to every tablet as a steam temperature
- * and a steam time of STEAM_OFF_VALUE (`recipeRecord`), so a record holding
- * it otherwise, as one half alone, is written so (ADR-0022).
+ * with a steam time of 0, or a steam time below STEAM_TIME_FROM. A Recipe
+ * holding "Off" is written to every tablet as a steam temperature and a
+ * steam time of STEAM_OFF_VALUE (`recipeRecord`), and one holding a steam
+ * temperature with the steam time it kept, so a record holding one half
+ * alone is written as the Recipe holds it (ADR-0022); which half is the
+ * Recipe's edit, `libraryValues` says.
  */
 export function holdsSteamOff(view: Readonly<Record<string, unknown>>): boolean {
   return steamHeldOff(view[STEAM_TEMPERATURE_PATH], view[STEAM_TIME_PATH]);

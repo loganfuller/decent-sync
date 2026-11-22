@@ -12,7 +12,7 @@ import {
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { clearRecipe, loadWrite, loadable, movedBeanOrProfile, profileKey, steamBackOnWrite, steamOnWith, vacatedIds } from "../src/loaded-recipe-rules.js";
+import { clearRecipe, loadWrite, loadable, movedBeanOrProfile, profileKey, steamBackOnWrite, steamOffPaired, steamOnWith, vacatedIds } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as it loads a
 // Recipe the Workflow names, or as steam is turned back on with one loaded
@@ -344,6 +344,16 @@ describe("recording a load", () => {
       expect(loadWrite(workflow, holding({ steamTimeS: 35 }), { profile })?.steamSettings).toEqual({ duration: 35 });
       expect(loadWrite(workflow, holding({}), { profile })?.steamSettings).toBeUndefined();
     }
+  });
+
+  it("pairs a steam temperature of Off in a Loaded Recipe write with a steam time of 0, as the previous server sends the Recipe's kept steam time beside it, or leaves the time out with the temperature (#616)", () => {
+    const [temperature, time] = ["steamSettings.targetTemperature", "steamSettings.duration"];
+    const previous = { [temperature]: 0, [time]: 30, "steamSettings.flow": 1.5 };
+    expect(steamOffPaired({ ...previous }, previous)).toEqual({ [temperature]: 0, [time]: 0, "steamSettings.flow": 1.5 });
+    expect(steamOffPaired({ "steamSettings.flow": 1.5, [time]: 30 }, previous)).toEqual({ "steamSettings.flow": 1.5 });
+    const on = { [temperature]: 150, [time]: 30 };
+    expect(steamOffPaired({ ...on }, on)).toEqual(on);
+    expect(steamOffPaired({ [time]: 30 }, { [time]: 30 })).toEqual({ [time]: 30 });
   });
 
   it("turns steam off whole for a recipe holding Off, by either half, as DYE2's editor saves a steam temperature and time of 0, and writes nothing of it into a Workflow whose steam is off already", () => {

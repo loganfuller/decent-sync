@@ -249,6 +249,25 @@ export function steamBackOnWrite(workflow: Record<string, unknown>, record: Reco
   return Object.keys(fields).length > 0 ? workflowPatch(fields) : null;
 }
 
+/**
+ * The fields of a write of the Loaded Recipe into the Workflow (`fields`,
+ * of those the server sent, `sent`) with its steam time paired to a steam
+ * temperature that is steam off, below STEAM_ON_FROM, as a Recipe edited to
+ * "Off" carries: written with it as STEAM_OFF_VALUE, or left out where the
+ * temperature is left out, so steam is never left on with a steam time of 0.
+ * The server sends both as STEAM_OFF_VALUE; the previous release's server
+ * sends the Recipe's steam time beside it (ADR-0025).
+ */
+export function steamOffPaired(fields: Record<string, unknown>, sent: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const [temperaturePath, timePath] = [RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow];
+  const temperature = sent[temperaturePath];
+  if (typeof temperature !== "number" || temperature >= STEAM_ON_FROM) return fields;
+  if (temperaturePath in fields) return { ...fields, [timePath]: STEAM_OFF_VALUE };
+  const kept = { ...fields };
+  delete kept[timePath];
+  return kept;
+}
+
 /** The Workflow's fields naming its Bean and batch, which a recipe naming no Bean clears. */
 const WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"] as const;
 

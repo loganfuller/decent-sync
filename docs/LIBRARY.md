@@ -1500,16 +1500,18 @@ are never matched (ADR-0018).
   is written back blank.
 - **Steam, hot water and flush.** Each setting is taken in from DYE2's
   field of it in `dashboardVariables`, as `steamTempC`, one the record holds
-  none of holding none (`RECIPE_SETTINGS` in `protocol/`). A record
-  holding either half of "Off", a steam temperature below 135 °C
-  (`STEAM_ON_FROM`) or a steam time of 0, as DYE2's editor saves both as 0
-  for "Off", is the Recipe's edit to "Off", a steam temperature of 0
-  (`holdsSteamOff`, `libraryValues`), as DYE2 and Streamline apply either as
-  steam off whole. The steam time of 0 beside it is no steam time of the
-  Recipe's, which keeps the one it held. A Recipe holding "Off" is written
-  to every tablet as a steam temperature and a steam time of 0, in the
-  record and its embedded Workflow (`recipeRecord`), so a record holding it
-  by one half alone is written so. Steam turned off at a Machine is no edit,
+  none of holding none (`RECIPE_SETTINGS` in `protocol/`). A record saved
+  with a steam temperature below 135 °C (`STEAM_ON_FROM`), as DYE2's editor
+  saves "Off" as 0 with a steam time of 0, or with only its steam time
+  changed, to 0, is the Recipe's edit to "Off", a steam temperature of 0
+  (`libraryValues`). A steam time of 0 the record held already is none, as
+  DYE2's editor shows no steam time for a Flow-mode recipe, so a steam
+  temperature saved over "Off" is an edit to that temperature. The steam
+  time of 0 beside "Off" is no steam time of the Recipe's, which keeps the
+  one it held. A Recipe holding "Off" is written to every tablet as a steam
+  temperature and a steam time of 0, in the record and its embedded
+  Workflow (`recipeRecord`), and a record holding one half alone is written
+  as the Recipe holds it. Steam turned off at a Machine is no edit,
   as DYE2 saves no steam temperature or steam time from a Workflow whose
   steam is off (`WORKFLOW-AND-STATE.md`, The Loaded Recipe). The steam
   and hot water modes (`steamMode`, `hotWaterMode`) are DYE2's display
@@ -2201,13 +2203,15 @@ writer might, as 255 s, which is written back (`steamTimeOf`).
 - **"Off" is the Recipe's.** A Recipe holds a steam temperature of 135 to
   170 °C, none, or "Off", a steam temperature of 0 (`STEAM_OFF_VALUE`,
   `steamHeldOff` in `protocol/`). From v0.1.35 DYE2's editor saves "Off"
-  as a steam temperature of 0 with a steam time of 0, and DYE2 and
-  Streamline apply a record holding either half as steam off whole
-  (`recipeMachineSettings`, decentespresso/dye2#46; `recipeSteamPatch`). So
-  a tablet's record holding either half is the Recipe's edit to "Off"
-  (`holdsSteamOff`, `libraryValues` in `recipe-intake.ts`), which keeps the
-  steam time it held, and a Recipe holding "Off" is written to every tablet
-  as a steam temperature and a steam time of 0 (`recipeRecord`).
+  as a steam temperature of 0 with a steam time of 0, and DYE2 applies a
+  record holding either half as steam off whole (`recipeMachineSettings`,
+  decentespresso/dye2#46), as Streamline's strip does but for a steam time
+  of 0 in a Flow-mode recipe (`recipeSteamPatch`). So a tablet's save of a
+  steam temperature below 135 °C, or of only a steam time of 0, is the
+  Recipe's edit to "Off" (`libraryValues` in `recipe-intake.ts`), which
+  keeps the steam time it held, a steam temperature saved over "Off" brings
+  it back, and a Recipe holding "Off" is written to every tablet as a steam
+  temperature and a steam time of 0 (`recipeRecord`).
 - **A load switches steam.** A Machine loading a Recipe holding a steam
   temperature has its steam turned on at the Recipe's steam temperature and
   time, and one loading a Recipe holding "Off" has it turned off whole,

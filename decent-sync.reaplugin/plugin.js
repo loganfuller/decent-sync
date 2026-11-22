@@ -2060,6 +2060,15 @@ var __decentSync = (() => {
     }
     return Object.keys(fields).length > 0 ? workflowPatch(fields) : null;
   }
+  function steamOffPaired(fields, sent) {
+    const [temperaturePath, timePath] = [RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow];
+    const temperature = sent[temperaturePath];
+    if (typeof temperature !== "number" || temperature >= STEAM_ON_FROM) return fields;
+    if (temperaturePath in fields) return { ...fields, [timePath]: STEAM_OFF_VALUE };
+    const kept = { ...fields };
+    delete kept[timePath];
+    return kept;
+  }
   var WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"];
   function numberOf(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -3237,13 +3246,7 @@ var __decentSync = (() => {
     return patch;
   }
   function loadedRecipeFields(write, workflow, machineSettings) {
-    const fields = loadedRecipeFieldsByPart(write, workflow, machineSettings);
-    const temperature = write.fields[STEAM_TEMPERATURE_FIELD];
-    if (typeof temperature === "number" && temperature < STEAM_ON_FROM) {
-      if (STEAM_TEMPERATURE_FIELD in fields) fields[STEAM_TIME_FIELD] = STEAM_OFF_VALUE;
-      else delete fields[STEAM_TIME_FIELD];
-    }
-    return fields;
+    return steamOffPaired(loadedRecipeFieldsByPart(write, workflow, machineSettings), write.fields);
   }
   function loadedRecipeFieldsByPart(write, workflow, machineSettings) {
     return Object.fromEntries(
