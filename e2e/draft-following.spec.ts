@@ -84,6 +84,15 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await expect(graph(page).getByRole("radio", { name: "The Trial Shot's puck" })).toBeChecked();
   await expect(graph(page)).toContainText("The Trial Shot, as it ran");
   await expect(trials(page).getByRole("listitem").getByRole("button")).toHaveAttribute("aria-current", "true");
+  // Beside the inspector the graph keeps its width, wider than a phone's 560 px: the Shot's cards go under it, side by side, not beside it.
+  const drawn = (await graph(page).locator("svg[data-graph-end]").first().boundingBox())!;
+  const puck = graph(page).getByRole("complementary", { name: "The puck" });
+  const another = (await puck.getByRole("button", { name: "Choose another Shot" }).boundingBox())!;
+  const fit = (await puck.getByRole("region", { name: "How close the simulation is" }).boundingBox())!;
+  expect(drawn.width).toBeGreaterThanOrEqual(560);
+  expect(fit.y).toBeGreaterThanOrEqual(drawn.y + drawn.height);
+  expect(fit.y).toBeLessThan(another.y);
+  expect(fit.x).toBeGreaterThanOrEqual(another.x + another.width);
 
   // A change of the Draft's steps makes that trial one on earlier steps, which opens against the steps it ran.
   await page.getByRole("region", { name: "Steps" }).getByRole("button", { name: "Add a step" }).click();
@@ -91,6 +100,7 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await trials(page).getByRole("listitem").getByRole("button").click();
   const earlier = page.getByRole("dialog", { name: /^Trial Shot of .*, on earlier steps$/ });
   await expect(earlier.getByRole("region", { name: "How it runs" })).toContainText("The Trial Shot, as it ran");
+  expect((await earlier.locator("svg[data-graph-end]").first().boundingBox())!.width).toBeGreaterThanOrEqual(560);
   await expect(earlier.getByRole("link", { name: "Open the Shot" })).toHaveAttribute("href", "/shots/trial-shot-58151");
   await page.keyboard.press("Escape");
 

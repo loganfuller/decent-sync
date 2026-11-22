@@ -202,6 +202,9 @@ test("a Profile simulated on a Shot's puck says how close the simulation comes, 
   const fit = puck.getByRole("table", { name: "The simulation against the Shot" });
   await expect(rows(fit).first()).toHaveText(/^Duration\d+\.\d s\d+\.\d s$/);
   await expect(graph.getByLabel("Simulated figures")).toContainText("than the Shot");
+  // The card is as wide as the page here, so the Shot's cards are beside the graph.
+  const drawn = (await graph.locator("svg[data-graph-end]").first().boundingBox())!;
+  expect((await puck.boundingBox())!.x).toBeGreaterThanOrEqual(drawn.x + drawn.width);
 
   // A Shot whose puck can't be worked out leaves another to be chosen.
   const flat = await tabletAt(page, server, "Flat lab group", lab, "57812", { ...tabletApi, "/profiles": [classic] });
