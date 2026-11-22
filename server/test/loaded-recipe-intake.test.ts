@@ -531,6 +531,13 @@ describe("The dial written into a Workflow", () => {
     const local = (_kind: string, itemId: string) => `local-${itemId}`;
     const held = { ...none, grinder: "local-grinder", basket: "local-basket", batch: "local-batch", dose: 18, yield: 30 };
     expect(heldFromWorkflow(content, recipeParts(content, local), held, values)).toEqual({ grinderId: "grinder", basketId: "basket", beanBatchId: "batch", beanId: "bean", dose: 18 });
+    // A Recipe naming a Bean and no batch: the Workflow holding no batch held none, but shows nothing of the Bean.
+    const batchless = { ...content, beanBatchId: undefined };
+    expect(heldFromWorkflow(batchless, recipeParts(batchless, local), { ...held, batch: null }, values)).toEqual({ grinderId: "grinder", basketId: "basket", beanBatchId: null, dose: 18 });
+    // A Recipe holding "Off" is written a steam time of 0 whatever its own is: a Workflow holding 0 held none of it.
+    const off = { ...content, steamTemperature: 0, steamDuration: 40 };
+    const steam = { steamTemperature: 150, steamDuration: 50 };
+    expect(heldFromWorkflow(off, recipeParts(off, local), { ...held, steamTemperature: 0, steamDuration: 0 }, steam)).toEqual({ steamTemperature: 0 });
   });
 });
 

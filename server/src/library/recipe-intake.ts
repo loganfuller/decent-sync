@@ -808,7 +808,8 @@ function namesUnmapped(field: string, value: unknown, ids: TabletIds): boolean {
  * `recipeRecord`). A field written to a path the record holds otherwise is
  * left out, as what it held of it is not the Recipe's value; and so is one
  * naming an item the tablet holds no record of (`ids`), which the record
- * cannot have held though it is written as none there.
+ * cannot have held though it is written as none there, and the steam time
+ * of a Recipe holding "Off", which is written as 0 whatever it is.
  */
 export function recipeValuesHeld(
   known: Readonly<RecipeView>,
@@ -819,7 +820,9 @@ export function recipeValuesHeld(
 ): Record<string, unknown> {
   const differing = new Set(editedPaths(changedFields(written, known)).flatMap((path) => writtenFrom(path, content)));
   return Object.fromEntries(
-    [...fields].filter((field) => !differing.has(field) && !namesUnmapped(field, content[field], ids)).map((field) => [field, content[field] ?? null]),
+    [...fields]
+      .filter((field) => !differing.has(field) && !namesUnmapped(field, content[field], ids) && !(field === "steamDuration" && steamHeldOff(content.steamTemperature, null)))
+      .map((field) => [field, content[field] ?? null]),
   );
 }
 

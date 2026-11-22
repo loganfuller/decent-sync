@@ -567,6 +567,10 @@ describe("DYE2's recipes as Recipes", () => {
       ...(["grinder", "basket", "tool"] as const).map((kind) => ({ kind, itemId: unmapped, localId: `local-${kind}` })),
     ]);
     const mapped = recipeRecord(content, 1, writing(withUnmapped), GLOBAL.recipe);
+    // A Recipe holding "Off" is written a steam time of 0 whatever its own is, so a record holding 0 held none of it.
+    const off = { ...slot1Content, steamTemperature: 0, steamDuration: 40 };
+    const offWritten = recipeRecord(off, 1, writing(recordedIds), GLOBAL.recipe);
+    expect(recipeValuesHeld(offWritten, offWritten, off, ["steamTemperature", "steamDuration"], recordedIds)).toEqual({ steamTemperature: 0 });
     expect(recipeValuesHeld(mapped, mapped, content, fields, withUnmapped)).toEqual({
       grinderId: unmapped,
       basketId: unmapped,
