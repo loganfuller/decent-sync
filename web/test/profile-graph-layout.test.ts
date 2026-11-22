@@ -2,6 +2,7 @@ import { type Profile, simulateProfile, standardPuck } from "@decent-sync/protoc
 import { describe, expect, it } from "vitest";
 import {
   LANE_CEILING,
+  LANE_VALUES_GAP,
   type LabelBox,
   TAG_HEIGHT,
   besideLine,
@@ -19,6 +20,7 @@ import {
   movedLeft,
   placeLabels,
   placeTags,
+  pointInPlot,
   spaced,
   timeAxis,
 } from "../src/lib/profile-graph-layout";
@@ -94,10 +96,27 @@ describe("laneRanges", () => {
 
 describe("laneTicks", () => {
   it("steps by 2 or 4, 5 or 10, and never gives more than a dozen or so", () => {
-    expect(laneTicks("pressure", [0, 10])).toEqual([0, 2, 4, 6, 8, 10]);
-    expect(laneTicks("pressure", [0, 16])).toEqual([0, 4, 8, 12, 16]);
-    expect(laneTicks("temperature", [85, 95])).toEqual([85, 90, 95]);
-    expect(laneTicks("flow", [0, 1e9]).length).toBeLessThanOrEqual(13);
+    expect(laneTicks("pressure", [0, 10], 120)).toEqual([0, 2, 4, 6, 8, 10]);
+    expect(laneTicks("pressure", [0, 16], 120)).toEqual([0, 4, 8, 12, 16]);
+    expect(laneTicks("temperature", [85, 95], 120)).toEqual([85, 90, 95]);
+    expect(laneTicks("flow", [0, 1e9], 120).length).toBeLessThanOrEqual(13);
+  });
+
+  // #637: on a phone a lane is 84 px tall, and 12 px numbers every 2 ml/s or 10 °C ran into each other.
+  it("keeps to as many values as fit at the lane's height without touching, on a rounder step", () => {
+    const apart = (lane: "flow" | "temperature", range: [number, number], height: number) => {
+      const ticks = laneTicks(lane, range, height);
+      return Math.min(...ticks.slice(1).map((value, index) => ((value - ticks[index]!) / (range[1] - range[0])) * height));
+    };
+    expect(laneTicks("flow", [0, 12], 120)).toEqual([0, 2, 4, 6, 8, 10, 12]);
+    expect(laneTicks("flow", [0, 12], 84)).toEqual([0, 4, 8, 12]);
+    // "Soup 58"'s temperatures.
+    expect(laneTicks("temperature", [5, 85], 84)).toEqual([5, 25, 45, 65, 85]);
+    expect(laneTicks("temperature", [15, 105], 120)).toEqual([15, 35, 55, 75, 95]);
+    for (const height of [84, 120]) {
+      for (const top of [4, 6, 10, 12, 14, 16, 20]) expect(apart("flow", [0, top], height)).toBeGreaterThanOrEqual(16);
+      for (const [low, high] of [[85, 95], [80, 100], [60, 95], [5, 85], [0, 110]] as [number, number][]) expect(apart("temperature", [low, high], height)).toBeGreaterThanOrEqual(16);
+    }
   });
 });
 
@@ -287,6 +306,15 @@ describe("where labels go among what is drawn", () => {
   describe("a Draft's handles and their tags", () => {
     const layout = graphLayout({ width: 712, end: 60, tick: 10, ranges: laneRanges(profile, run) });
     const bracket = { kind: "bracket" as const, x: layout.x(40), top: layout.plot.top, bottom: layout.plot.bottom };
+
+    // #637: a short first band's exit on a phone stood over the pressure lane's values left of the plot.
+    it("holds a point's circle inside the plot, off the lanes' values, and the values clear of a bracket on the plot's left edge", () => {
+      const { plot } = layout;
+      expect(handleBox({ kind: "point", x: pointInPlot(plot, plot.left + 2), y: 80 }).left).toBe(plot.left);
+      expect(handleBox({ kind: "point", x: pointInPlot(plot, plot.right), y: 80 }).right).toBe(plot.right);
+      expect(pointInPlot(plot, layout.x(30))).toBe(layout.x(30));
+      expect(plot.left - LANE_VALUES_GAP).toBeLessThan(handleBox({ kind: "bracket", x: plot.left, top: plot.top, bottom: plot.bottom }).left);
+    });
 
     it("covers a point's circle, and a bracket's line down the plot with the room either side that takes the pointer", () => {
       expect(handleBox({ kind: "point", x: 100, y: 80 })).toEqual({ left: 91, right: 109, top: 71, bottom: 89 });

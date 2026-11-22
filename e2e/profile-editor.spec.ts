@@ -14,7 +14,8 @@ import { tabletAt } from "./support/tablets.js";
 // undone and redone; New Profile starts others from a starting shape, a
 // duplicate and a file; the Library lists them; a Viewer sees none. Serials
 // are made up, from 57951. What the graph writes is measured against the
-// selected step's handles, their tags and the bracket (#621).
+// selected step's handles, their tags and the bracket (#621), and the axes'
+// numbers against those handles, each other and the cup row's names (#637).
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Fields = Record<string, unknown>;
@@ -163,7 +164,7 @@ test("the selected step's handles move with the keyboard and by dragging, its ma
   expect((await saved(page)).profile.steps[0]).toMatchObject({ exit: { type: "pressure", condition: "over", value: raised } });
 });
 
-test("a Draft's graph writes nothing under a handle, its tag or the bracket, whose tag covers no band's text, and says a selected step's exit once", async ({ page }) => {
+test("a Draft's graph writes nothing under a handle, its tag or the bracket, whose tag covers no band's text, and says a selected step's exit once, its axes' numbers clear on a phone", async ({ page }) => {
   // #621's Draft: a flow step of at most 40 s that moves on over 4 bar, then 9 bar.
   const step = (fields: Fields) => ({ transition: "fast", exit: null, volume: 0, weight: null, temperature: 93, sensor: "coffee", limiter: null, ...fields });
   const file = {
@@ -259,11 +260,19 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
     expect((await page.request.delete(`/api/drafts/${id}`)).status()).toBe(204);
   }
 
-  // Two of Decaid's bundled Profiles: "Extractamundo Dos!"'s first step, whose target's tag stands where "Preinfusion" is,
-  // and "7g basket"'s last, whose bracket stands on the line where the run ends.
+  // Decaid's bundled Profiles: "Extractamundo Dos!"'s first step, whose target's tag stands where "Preinfusion" is,
+  // and "7g basket"'s last, whose bracket stands on the line where the run ends (#621);
+  // "Tea portafilter/black tea"'s first step, whose exit in a short band stood over the pressure lane's numbers on a phone,
+  // whose temperature lane's numbers ran into each other at a phone's and a 600 px window, and whose "Drip" or "First drip" stood over that lane's lowest,
+  // and "Soup 58"'s, whose exit and temperature lane's numbers did as black tea's (#637).
   const bundled = (JSON.parse(fs.readFileSync(new URL("../server/test/fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: { profile: Fields & { title: string; steps: unknown[] } }[] })
     .bundled;
-  for (const title of ["Extractamundo Dos!", "7g basket"]) {
+  const phones: [number, number][] = [
+    [393, 852],
+    [600, 900],
+    [1280, 720],
+  ];
+  for (const title of ["Extractamundo Dos!", "7g basket", "Tea portafilter/black tea", "Soup 58"]) {
     const record = bundled.find((each) => each.profile.title === title)!.profile;
     const posted = await page.request.post("/api/drafts", { data: { file: record } });
     expect(posted.status()).toBe(201);
@@ -272,8 +281,10 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
     const selected = title === "7g basket" ? record.steps.length : 1;
     await stepsCard(page).getByRole("button", { name: new RegExp(`^Select step ${selected},`) }).click();
     await expect(graph.locator("[data-handle='seconds']")).toBeVisible();
+    const phone = title === "Tea portafilter/black tea" || title === "Soup 58";
+    if (phone) await expect(graph.locator("[data-handle='exit']")).toBeVisible();
     drawnAt = "";
-    for (const [width, height] of widths) {
+    for (const [width, height] of phone ? phones : widths) {
       await page.setViewportSize({ width, height });
       await expect(drawn).not.toHaveAttribute("width", drawnAt);
       drawnAt = (await drawn.getAttribute("width"))!;

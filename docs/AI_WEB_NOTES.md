@@ -15,6 +15,7 @@ Conventions of the management interface (`web/`) that no single file states.
 
 - What the graph writes in its plot is placed by `web/src/lib/profile-graph-layout.ts` (`clearest`, `placeLabels`, `besideLine`, `movedLeft`) against what is already there: other text, the curves, and a Draft's handles, their tags and the bracket (`handleBox`, `placeTags`). Text added to the plot goes through it too, rather than at a fixed place.
 - A handle's tag is HTML over the graph, sized and placed by `placeTags`; the bracket's sits in the gap under the pressure lane, as the band names and outcomes fill the margin above the plot.
+- The axes' numbers keep clear of what is drawn near them: a lane writes as many values as fit at its height without touching (`laneTicks`), a Draft's point handles stand inside the plot (`pointInPlot`), the lanes' values end `LANE_VALUES_GAP` left of the plot, clear of a bracket on its edge, and the cup row's names are held right of them.
 - `graphClashes` (`e2e/support/graph-text.ts`) lists each piece of the graph's text drawn over another, or under a handle, its tag or the bracket; a spec that draws a new state of the graph expects it empty.
 
 ## Phone width

@@ -9,6 +9,7 @@ import {
   type Lane,
   type LaneLabel,
   type LaneRanges,
+  LANE_VALUES_GAP,
   TAG_HEIGHT,
   besideLine,
   besideUpright,
@@ -25,6 +26,7 @@ import {
   laneTicks,
   placeLabels,
   placeTags,
+  pointInPlot,
   spaced,
   timeAxis,
 } from "@/lib/profile-graph-layout";
@@ -413,13 +415,14 @@ export function ProfileGraph({
       grams += gramStep;
     }
   }
-  // A mark's name is left out where it would run into the one before it, and a time where it would run into the axis's end, as on a phone.
-  const cupNames = spaced(
-    cupMarks.map((mark) => {
-      const [drip, wide] = [mark.text === "First drip", textWidth(short && mark.text === "First drip" ? "Drip" : mark.text, 11)];
-      return drip ? { left: x(mark.at) + 2 - wide, right: x(mark.at) + 2 } : { left: x(mark.at) - wide / 2, right: x(mark.at) + wide / 2 };
-    }),
-  );
+  // A mark's name is held right of the lanes' values, as a first drip's soon after the start is, and left out where it would run into the one before it,
+  // and a time where it would run into the axis's end, as on a phone.
+  const cupBoxes = cupMarks.map((mark) => {
+    const [drip, wide] = [mark.text === "First drip", textWidth(short && mark.text === "First drip" ? "Drip" : mark.text, 11)];
+    const left = Math.max(plot.left, drip ? x(mark.at) + 2 - wide : x(mark.at) - wide / 2);
+    return { left, right: left + wide };
+  });
+  const cupNames = spaced(cupBoxes);
   const times = layout.timeTicks();
   const timesWritten = spaced(
     times
@@ -541,10 +544,10 @@ export function ProfileGraph({
               {/* Each lane's grid, values and name. */}
               {LANES.map((lane) => (
                 <g key={lane.key} data-lane={lane.key}>
-                  {laneTicks(lane.key, ranges[lane.key]).map((value) => (
+                  {laneTicks(lane.key, ranges[lane.key], lanes[lane.key].bottom - lanes[lane.key].top).map((value) => (
                     <g key={value}>
                       <line x1={plot.left} x2={plot.right} y1={y(lane.key, value)} y2={y(lane.key, value)} className="stroke-border" strokeWidth={value === ranges[lane.key][0] ? 1 : 0.5} />
-                      <text x={plot.left - 6} y={y(lane.key, value) + 4} textAnchor="end" className="fill-muted-foreground">
+                      <text x={plot.left - LANE_VALUES_GAP} y={y(lane.key, value) + 4} textAnchor="end" className="fill-muted-foreground" data-lane-value>
                         {measure(value)}
                       </text>
                     </g>
@@ -683,7 +686,7 @@ export function ProfileGraph({
                     <g key={mark.text} data-cup-mark={mark.text}>
                       <line x1={x(mark.at)} x2={x(mark.at)} y1={cupY - 4} y2={cupY + 4} className="stroke-foreground" />
                       {cupNames[index] && (
-                        <text x={x(mark.at) + (drip ? 2 : 0)} y={cupY - 8} textAnchor={drip ? "end" : "middle"} className="fill-muted-foreground text-[11px]">
+                        <text x={drip ? cupBoxes[index]!.right : (cupBoxes[index]!.left + cupBoxes[index]!.right) / 2} y={cupY - 8} textAnchor={drip ? "end" : "middle"} className="fill-muted-foreground text-[11px]">
                           {short && drip ? "Drip" : mark.text}
                         </text>
                       )}
@@ -697,7 +700,7 @@ export function ProfileGraph({
 
               {/* The time axis. */}
               {times.map((at, index) => timesWritten[index] && (
-                <text key={at} x={x(at)} y={height - 6} textAnchor={at === end ? "end" : "middle"} className="fill-muted-foreground">
+                <text key={at} x={x(at)} y={height - 6} textAnchor={at === end ? "end" : "middle"} className="fill-muted-foreground" data-time-value>
                   {at === end ? `${at} s` : at}
                 </text>
               ))}
@@ -1054,7 +1057,7 @@ interface EditHandle {
   valueAt(x: number, y: number): number;
 }
 
-/** The selected step's handles: its target, its exit where it has one, and its maximum time; none for a step the run never came to. A step of no length keeps them, at its start, so its maximum time can be brought back. */
+/** The selected step's handles: its target, its exit where it has one, and its maximum time; none for a step the run never came to. A step of no length keeps them, at its start, so its maximum time can be brought back. Its points stand inside the plot, off the lanes' values (`pointInPlot`). */
 function editHandles(layout: GraphLayout, profile: Profile, run: SimulatedRun, editing: GraphEditing): EditHandle[] {
   const ran = run.steps[editing.step];
   const step = profile.steps[editing.step];
@@ -1066,7 +1069,7 @@ function editHandles(layout: GraphLayout, profile: Profile, run: SimulatedRun, e
   const target = stepTarget(step);
   const targetLimits = targetRange(step, editing.limits);
   // A step that gets to its target over the whole step gets there at its maximum time.
-  const targetX = step.transition === "smooth" ? layout.x(start + step.seconds) : along(0.62);
+  const targetX = pointInPlot(layout.plot, step.transition === "smooth" ? layout.x(start + step.seconds) : along(0.62));
   const exit = step.exit && step.seconds > 0 ? step.exit : null;
   const timeRange = editing.limits.seconds;
   const offAxis = start + step.seconds > layout.end;
@@ -1086,7 +1089,7 @@ function editHandles(layout: GraphLayout, profile: Profile, run: SimulatedRun, e
       ? [
           {
             name: "exit" as const,
-            shape: { kind: "point" as const, x: along(0.3), y: layout.y(exit.type, exit.value) },
+            shape: { kind: "point" as const, x: pointInPlot(layout.plot, along(0.3)), y: layout.y(exit.type, exit.value) },
             label: `${name}'s exit, ${exit.type} ${exit.condition}, ${unit(exit.type)}`,
             value: exit.value,
             range: exitRange(exit.type, editing.limits),
