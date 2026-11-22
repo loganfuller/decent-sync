@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -147,8 +147,14 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await page.setViewportSize({ width: 1710, height: 985 });
   await page.evaluate(() => window.scrollTo(0, 0));
   const steps = page.getByRole("region", { name: "Steps" });
-  await expect.poll(async () => (await steps.boundingBox())!.x + (await steps.boundingBox())!.width).toBeLessThanOrEqual((await graph(page).boundingBox())!.x);
-  expect((await trials(page).boundingBox())!.x).toBe((await steps.boundingBox())!.x);
+  // The page lays itself out again at the new width, and a region can have no box for a moment (#634): each poll reads its boxes together and gives null until both are there,
+  // as a callback that throws ends expect.poll at once while a matcher that fails is tried again.
+  const bothBoxes = async (a: Locator, b: Locator) => {
+    const [boxA, boxB] = await Promise.all([a.boundingBox(), b.boundingBox()]);
+    return boxA && boxB ? { a: boxA, b: boxB } : null;
+  };
+  await expect.poll(async () => { const boxes = await bothBoxes(steps, graph(page)); return boxes && boxes.b.x - (boxes.a.x + boxes.a.width); }).toBeGreaterThanOrEqual(0);
+  await expect.poll(async () => { const boxes = await bothBoxes(steps, trials(page)); return boxes && boxes.b.x - boxes.a.x; }).toBe(0);
   for (const shown of [steps, graph(page).locator("svg[data-graph-end]").first(), page.getByRole("region", { name: "Inspector" })]) await expect(shown).toBeInViewport({ ratio: 1 });
   await page.setViewportSize({ width: 1280, height: 720 });
   await onMachine(page).getByRole("button", { name: "Follow again" }).click();
