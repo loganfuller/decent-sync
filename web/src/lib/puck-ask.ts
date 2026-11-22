@@ -1,4 +1,4 @@
-import { type MachineModel, type SimulationShot, grindOf, lastRecordedWeight, shotPuck } from "@decent-sync/protocol";
+import { type MachineModel, type SimulationShot, lastRecordedWeight, shotGrind } from "@decent-sync/protocol";
 
 // What a Profile's standard-puck simulation is asked for and the limits of
 // its dose and stop-at fields (#578), and what a Shot laid over its graph
@@ -23,19 +23,20 @@ export const MAX_STOP_AT = 500;
 /**
  * What a Shot laid over the run sets the simulation to: its dose, as weighed
  * or else as set; the weight it stopped at; its Machine's model; and the
- * grind at which the standard puck has its puck's open resistance. Each it
- * can't give is left out, and stays as it was: no dose recorded, or one past
- * what the dose field takes; no weight, or one past the stop-at field's
- * limit; no model; or no puck that can be worked out from it.
+ * grind of the standard puck that best imitates it (`shotGrind`), so that
+ * moving the control from there says how the Shot would likely shift. Each
+ * it can't give is left out, and stays as it was: no dose recorded, or one
+ * past what the dose field takes; no weight, or one past the stop-at field's
+ * limit; no model; or no puck that can be read from its pressure and flow.
  */
 export function askOf(simulation: SimulationShot): Partial<PuckAsk> {
   const stopped = lastRecordedWeight(simulation.samples)?.weight;
   const stopAt = stopped === undefined ? 0 : Math.round(stopped * 10) / 10;
-  const puck = shotPuck(simulation);
+  const grind = shotGrind(simulation);
   return {
     ...(simulation.dose !== null && simulation.dose <= MAX_DOSE && { dose: simulation.dose }),
     ...(stopAt > 0 && stopAt <= MAX_STOP_AT && { stopAt }),
     ...(simulation.model !== null && { model: simulation.model }),
-    ...(puck && { grind: grindOf(puck) }),
+    ...(grind !== null && { grind }),
   };
 }

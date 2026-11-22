@@ -469,8 +469,8 @@ export function HowItRuns({
         <CardTitleWithInfo title="How it runs, simulated">
           <p>
             A simulation of what a Machine does with this Profile, not a measurement: pressure and flow on a standard puck, with the plan, what each step asks the Machine for,
-            dashed behind them. The puck has one control from finer to coarser. A Shot laid over it sets the dose, the stop-at weight, the Machine and the puck to match the Shot,
-            and each can be changed after. Temperature is not simulated, so its lane draws the plan. Each step is a band named at the top with how long it ran and why it ended.
+            dashed behind them. The puck has one control from finer to coarser. A Shot laid over it sets the dose, the stop-at weight and the Machine to the Shot&apos;s, and the puck to the
+            grind that best imitates it, so a finer or coarser grind from there shows how that Shot would likely shift; each can be changed after. Temperature is not simulated, so its lane draws the plan. Each step is a band named at the top with how long it ran and why it ended.
           </p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -560,7 +560,7 @@ export function HowItRuns({
         open={picking}
         onOpenChange={setPicking}
         title="Lay a Shot over the graph"
-        description="The Shot's pressure, flow and temperature are drawn over the simulation, which takes the Shot's dose, the weight it stopped at, its Machine's model and the puck nearest its own."
+        description="The Shot's pressure, flow and temperature are drawn over the simulation, which takes the Shot's dose, the weight it stopped at, its Machine's model and the grind of the puck that best imitates it."
         profileIds={shotProfileIds}
         onPick={(shot) => layOver(shot.id)}
       />

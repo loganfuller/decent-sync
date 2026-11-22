@@ -2706,9 +2706,15 @@ Shot's full record and measurements, as the server stores them and as
 `GET /api/shots/:id` and `/measurements` give them. On the server,
 `simulateOnShot` runs a profile on a Shot's puck and fits the Shot's own
 steps to it, worked out for each request. The Profile page simulates on
-the standard puck only (#622): it works a Shot's puck out once, when the
-Shot is laid over the run, for the grind at which the standard puck has
-that puck's open resistance at the standard dose (`grindOf`), held to the
+the standard puck only (#622). When a Shot is laid over the run it works
+out once the grind that best imitates the Shot (`shotGrind`): the grind of
+the standard puck at which the Shot's own steps, run at its dose as its
+Machine's model and stopped as it stopped (`fitToShot`), come closest to it
+by the fit's measure (`shotMiss`), tried every 0.1 from end to end of the
+control and narrowed by golden section about the best. Where the Shot's
+own steps can't be run as it ran (`shotPuck`'s conditions), it takes the
+grind at which the standard puck has the open resistance the Shot's
+samples show, at the standard dose (`readPuck`, `grindOf`), held to the
 control's ends.
 
 ## The Profile page
@@ -2725,11 +2731,14 @@ title and steps table it had:
   any Shot (#622). Laying one over sets, once, the dose to the Shot's, as
   weighed or else as set; the stop-at weight to the weight it stopped at
   (`lastRecordedWeight`); the Machine model to its Machine's; and the
-  control to the grind its puck gives (`grindOf`, above). One the Shot
-  can't give, as it recorded no dose, no weight or no model, or no puck can
-  be worked out from it, stays as it was, and each can be changed after.
-  The run is still the standard puck's, which holds and opens as it always
-  does, so it comes near the Shot without tracing it; how close a fit comes
+  control to the grind that best imitates the Shot (`shotGrind`, above), so
+  that a finer or coarser grind from there says how that Shot would likely
+  shift. One the Shot can't give, as it recorded no dose, or one past the
+  field's limit, no weight, or one past its limit, no model, or no puck
+  that can be read from its pressure and flow, stays as it was, and each
+  can be changed after. The run is still the standard puck's, which holds
+  and opens as it always does, so it comes near the Shot without tracing
+  it; how close a fit comes
   is the scorecard's question (`scripts/test/simulation-scorecard.test.ts`),
   and the REST route's and the MCP tools' with a Shot (below), not the
   page's. The headline figures are the run's time, time to first drip, peak

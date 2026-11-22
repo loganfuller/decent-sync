@@ -98,7 +98,7 @@ Each server has one owner: a household, or a business with all of its sites.
   the run, each step a band saying how long it ran and why it ended, its
   exits and limits drawn where they act, and the first drip and each 10 g
   marked. Lay any Shot over it, and the simulation takes that Shot's dose,
-  the weight it stopped at, its Machine and the puck nearest its own. Its steps are listed in plain
+  the weight it stopped at, its Machine and the grind that best imitates it, so a finer or coarser grind shows how that Shot would likely shift. Its steps are listed in plain
   words, with what a Recipe replaces. Its versions, each Profile saved from
   the one before, are listed with who saved each, and any two compared, each
   simulated on the same puck. It lists the Recipes on it, with the Machines

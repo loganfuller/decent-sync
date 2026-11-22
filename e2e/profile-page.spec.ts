@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { grindOf, shotPuck, simulationShotOf } from "@decent-sync/protocol";
+import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -179,9 +179,9 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
   const workflow = recorded.workflow as Fields;
   tablet.pullShot({ ...recorded, id: SHOT, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57811" } } });
   await expect.poll(async () => (await page.request.get(`/api/shots/${SHOT}`)).status()).toBe(200);
-  // What the Shot gives: 18 g weighed, stopped at 33.4 g on a DE1Pro, and the grind at which the standard puck has its puck's resistance.
-  const shotGrind = grindOf(shotPuck(simulationShotOf(recorded, recorded.measurements))!);
-  expect(Math.abs(shotGrind)).toBeLessThan(0.5);
+  // What the Shot gives: 18 g weighed, stopped at 33.4 g on a DE1Pro, and the grind of the standard puck that best imitates it.
+  const imitating = shotGrind(simulationShotOf(recorded, recorded.measurements))!;
+  expect(Math.abs(imitating)).toBeLessThan(0.5);
 
   await page.goto(profilePage(CLASSIC));
   const graph = page.getByRole("region", { name: "How it runs" });
@@ -208,7 +208,7 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
   await expect(graph.getByRole("figure").locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
   await expect(graph.getByText(/^18 g in, stopping at 33\.4 g, on a DE1, with the Shot of .* on Puck lab group over it$/)).toBeVisible();
   await expect(graph.getByRole("radio", { name: "DE1" })).toBeChecked();
-  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(shotGrind, 6);
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(imitating, 6);
   await expect(graph.getByRole("figure", { name: /^Simulated run of Classic Italian espresso on a standard puck\./ })).toBeVisible();
   // Its figures are the run's alone, with no table of how close it comes.
   await expect(graph.getByLabel("Simulated figures")).not.toContainText("than the Shot");
@@ -221,7 +221,7 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
   await puck.focus();
   await page.keyboard.press("PageDown");
   await expect(graph.getByText(/^19 g in, stopping at 35 g, on a DE1, with the Shot of /)).toBeVisible();
-  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeLessThan(shotGrind);
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeLessThan(imitating);
 
   // A Shot whose puck can't be worked out sets what it can give, and leaves the puck where it was.
   const flat = await tabletAt(page, server, "Flat lab group", lab, "57812", { ...tabletApi, "/profiles": [classic] });
@@ -239,7 +239,7 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
   await graph.getByRole("button", { name: "Lay another Shot over it" }).click();
   await picker.getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
   await expect(graph.getByText(/, with the Shot of .* on Puck lab group over it$/)).toBeVisible();
-  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(shotGrind, 6);
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(imitating, 6);
 
   // At the end of whichever ran longer, the other reads as stopped, not as its last values.
   // The graph's time slider takes the arrow keys, and says what the readout shows.

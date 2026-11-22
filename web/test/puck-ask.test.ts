@@ -1,4 +1,4 @@
-import { type SimulationShot, grindOf, lastRecordedWeight, shotPuck, simulationShotOf } from "@decent-sync/protocol";
+import { type SimulationShot, lastRecordedWeight, shotGrind, shotPuck, simulationShotOf } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import classicItalian from "../../server/test/fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json" with { type: "json" };
 import { MAX_DOSE, MAX_STOP_AT, askOf } from "../src/lib/puck-ask";
@@ -22,8 +22,9 @@ function weighed(simulation: SimulationShot, by: number | null): SimulationShot 
 }
 
 describe("askOf", () => {
-  it("sets the dose, the weight the Shot stopped at, its Machine's model and the grind its puck gives", () => {
-    const grind = grindOf(shotPuck(shot)!);
+  it("sets the dose, the weight the Shot stopped at, its Machine's model and the grind that best imitates it", () => {
+    const grind = shotGrind(shot);
+    expect(grind).not.toBeNull();
     expect(askOf(shot)).toEqual({ dose: 18, stopAt: 33.4, model: "DE1", grind });
   });
 

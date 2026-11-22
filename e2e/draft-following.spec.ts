@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { grindOf, shotPuck, simulationShotOf } from "@decent-sync/protocol";
+import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
@@ -87,14 +87,14 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
 
   // A Shot pulled on it arrives by itself: listed, and laid over the graph on the standard puck, the simulation set to match it, with no tap.
   const trialShot = shotOf(tablet, "trial-shot-58151");
-  const trialGrind = grindOf(shotPuck(simulationShotOf(trialShot, trialShot.measurements))!);
+  const trialGrind = shotGrind(simulationShotOf(trialShot, trialShot.measurements))!;
   tablet.pullShot(trialShot);
   await expect(trials(page).getByRole("listitem")).toHaveCount(1, { timeout: 15_000 });
   await expect(trials(page)).toContainText("On these steps");
   await expect(trials(page)).toContainText("Trial Shots · 1 on Trial lab group");
   await expect(graph(page)).toContainText("The Trial Shot, as it ran");
   await expect(trials(page).getByRole("listitem").getByRole("button")).toHaveAttribute("aria-current", "true");
-  // Its 18 g weighed, the 32.5 g it stopped at, its DE1Pro, and the puck nearest its own.
+  // Its 18 g weighed, the 32.5 g it stopped at, its DE1Pro, and the grind that best imitates it.
   await expect(graph(page).getByText(/^18 g in, stopping at 32\.5 g, on a DE1, with the Shot of .* on Trial lab group over it$/)).toBeVisible();
   await expect(graph(page).getByRole("radio", { name: "DE1" })).toBeChecked();
   expect(trialGrind).toBeGreaterThan(-1);

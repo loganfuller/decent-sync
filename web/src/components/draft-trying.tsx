@@ -269,7 +269,7 @@ function EarlierTrial({ draftPath, trial, machineModel, onClose }: { draftPath: 
         <DialogHeader>
           <DialogTitle>{`Trial Shot of ${shotTime(trial.shot)}, on earlier steps`}</DialogTitle>
           <DialogDescription>
-            The steps the Draft had when this Shot was pulled, simulated with the Shot&apos;s dose, stop-at weight and Machine on the puck nearest its own, with the Shot as it
+            The steps the Draft had when this Shot was pulled, simulated with the Shot&apos;s dose, stop-at weight and Machine at the grind that best imitates it, with the Shot as it
             ran laid over them.{" "}
             <Link to={`/shots/${encodeURIComponent(trial.shot.id)}`} className="underline underline-offset-4">
               Open the Shot
