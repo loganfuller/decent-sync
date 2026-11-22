@@ -18,6 +18,7 @@ import {
   dye2V033Recording,
   dye2V035Recording,
   dye2V040Recording,
+  dye2V042Recording,
   openDye2Dashboard,
   openDye2RecipeEditor,
   pickBasketInDye2,
@@ -269,12 +270,36 @@ function asSaved(step: Dye2Step, id?: string): void {
 }
 
 /**
+ * What was made again and what was recorded, but for the grind setting of
+ * each recorded `PUT /workflow` holding it as a number, left out of that
+ * write and of the one made again in its place: DYE2's dashboard before
+ * v0.1.42 applied a recipe's number, which its copy of the Workflow, holding
+ * Decaid's text (`grinderSetting`), read as a change and sent, while from
+ * v0.1.42 it applies the text, a 0 included, and so sends it only where it
+ * changed (`applyRecipe` in dye2:dye2-plugin/src/pages/dashboard.ts,
+ * decentespresso/dye2#47). The Workflow read after the step still compares
+ * the grind setting Decaid holds. A grinder's pick, which writes its
+ * default as a number, is compared the same way.
+ */
+function withoutNumberGrinds(made: Dye2Exchange[], recorded: Dye2Exchange[]): [Dye2Exchange[], Dye2Exchange[]] {
+  const context = (exchange: Dye2Exchange | undefined) =>
+    exchange?.request.method === "PUT" && exchange.request.path === "/workflow" ? (exchange.request.body as { context?: Record<string, unknown> } | undefined)?.context : undefined;
+  const without = (exchange: Dye2Exchange) => {
+    const body = exchange.request.body as { context: Record<string, unknown> };
+    const { grinderSetting: _, ...rest } = body.context;
+    return { ...exchange, request: { ...exchange.request, body: { ...body, context: rest } } };
+  };
+  const numbered = new Set(recorded.flatMap((exchange, index) => (typeof context(exchange)?.grinderSetting === "number" ? [index] : [])));
+  return [made.map((exchange, index) => (numbered.has(index) && context(exchange) ? without(exchange) : exchange)), recorded.map((exchange, index) => (numbered.has(index) ? without(exchange) : exchange))];
+}
+
+/**
  * A simulated tablet with this API and DYE2 loaded, whose steps a recording's
  * are made again on: the requests made through `proxy`, as the pages and the
  * script made them, with Decaid's answers (`made`), and the context of each
  * Workflow change (`events`).
  */
-function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unnamed, { exact = false }: { exact?: boolean } = {}) {
+function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unnamed, { exact = false, sinceV042 = false }: { exact?: boolean; sinceV042?: boolean } = {}) {
   /** A recording made before DYE2 v0.1.37 is compared but for what a recipe's apply clears since (`sinceV0137`); one made since, as it is (`exact`). */
   const since = <T,>(madeAgain: T, recorded: T, contexts = false): [T, T] => (exact ? [madeAgain, recorded] : sinceV0137(madeAgain, recorded, contexts));
   const dye2 = new SimulatedDye2();
@@ -330,7 +355,9 @@ function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unname
     const from = { made: made.length, pushes: dye2.pushes.length, events: events.length };
     await act();
     await settled();
-    const [writes, recordedWrites] = since(made.slice(from.made).filter(compared), step.exchanges.filter(compared));
+    // A recording made with DYE2 v0.1.42 or later is compared with its grind settings as recorded (`withoutNumberGrinds`).
+    const [madeWrites, recordedSteps] = [made.slice(from.made).filter(compared), step.exchanges.filter(compared)];
+    const [writes, recordedWrites] = since(...(sinceV042 ? ([madeWrites, recordedSteps] as const) : withoutNumberGrinds(madeWrites, recordedSteps)));
     expect(view(writes), `${name}: writes`).toEqual(view(recordedWrites));
     const after: DecaidAnswer[] = [];
     for (const { request } of step.after) after.push(await tablet.callApi(request.method, request.path));
@@ -1138,6 +1165,100 @@ describe("The simulated DYE2 v0.1.40 and Streamline v0.2.27, made again as they 
       applyBare: strip("2"),
       drinkPlus: () => pages.streamline!.setYield(1),
     });
+    pages.streamline!.stop();
+  });
+});
+
+describe("The simulated DYE2 v0.1.42 and Streamline v0.2.31, made again as they were recorded with a grind setting of 0 (dye2-v0.1.42/)", () => {
+  runAsSteps();
+  // From the state DYE2 v0.1.42's install left (dye2-v0.1.42/loading.json), each file's steps in the recording's order, on
+  // one tablet, as the recording carried its Workflow from one file to the next, compared as recorded (#617).
+  const library = dye2V042Recording<Record_>("library");
+  const loading = dye2V042Recording<{ values: Record<string, unknown>; workflow: Record_ }>("loading");
+  const api: DecaidApi = {
+    ...dye2NeverUsed("10009"),
+    "/beans": library.beans,
+    "/bean-batches": library.beanBatches,
+    "/grinders": library.grinders,
+    "/profiles": library.profiles,
+    // As in dye2-v0.1.40/: Decaid's simulated machine's settings as dye2-v0.1.35/ recorded them.
+    "/machine/settings": dye2V035Recording<Record_>("library").machineSettings,
+    "/workflow": loading.workflow,
+  };
+  for (const [key, value] of Object.entries(loading.values)) api[`/store/${DYE2_NAMESPACE}/${key}`] = value;
+  const { proxy, pages, script, settled, again } = replaying(api, (value) => value, { exact: true, sinceV042: true });
+  const generated = { ...dye2Generated };
+  afterEach(() => Object.assign(dye2Generated, generated));
+  /** A recorded step with only the requests the simulated pages make, as the dye2-v0.1.40/ replay takes them. */
+  const stepOf = (value: unknown): Dye2Step | null => {
+    const step = value as Dye2Step | null;
+    if (!step || typeof step !== "object" || !Array.isArray(step.exchanges)) return null;
+    const simulated = ({ request }: Dye2Exchange) =>
+      request !== undefined && /^\/(workflow$|plugins\/dye2\.reaplugin\/|store\/dye2\.reaplugin\/|grinders)/.test(request.path) && !request.path.endsWith("/recent-favs");
+    return { ...step, exchanges: step.exchanges.filter(simulated) };
+  };
+  const steps = (file: Record_) => Object.entries(file).flatMap(([name, value]) => (stepOf(value) ? [[name, stepOf(value)!] as const] : []));
+  const pill = (id: string) => async () => (await openDye2Dashboard(proxy)).applyRecipe(id);
+  const strip = (id: string) => async () => pages.streamline!.applyRecipe(id);
+  const sent = (step: Dye2Step) => () => script(step, ({ request }) => request.method !== "GET");
+  const started = async () => {
+    pages.streamline?.stop();
+    pages.streamline = await startStreamline(proxy);
+  };
+  /** Makes each step of the file again, as `acts` says for each by its name, and otherwise sends its requests as recorded; a step `restarts` names loads DYE2 again, whose socket heard nothing while it was away. */
+  async function made(file: Record_, acts: Record<string, (step: Dye2Step) => Promise<unknown>>, restarts: readonly string[] = []) {
+    await settled();
+    for (const [name, step] of steps(file)) await again(step, () => (acts[name] ? acts[name](step) : sent(step)()), name, restarts.includes(name));
+  }
+  const grinder = (model: string) => String((library.grinders as Record_[]).find((record) => record.model === model)!.id);
+
+  it("applies a grind setting of 0 from DYE2's dashboard as the text \"0\", the number and the text alike, and none for a recipe holding none, and its editor saves a recipe at 0 as it holds it (dashboard-applies.json)", async () => {
+    await made(dye2V042Recording<Record_>("dashboard-applies"), {
+      applyFull: pill("1"),
+      applyFullAgain: pill("1"),
+      applyFullThird: pill("1"),
+      applyFullFourth: pill("1"),
+      applyZero: pill("2"),
+      applyZeroAgain: pill("2"),
+      applyZeroSaved: pill("2"),
+      applyNoGrind: pill("4"),
+      applyZeroText: pill("5"),
+      editorSavedZero: (step) => (asSaved(step, "2"), openDye2RecipeEditor(proxy, { id: "2" }).then((editor) => editor.set({}).save())),
+    });
+  });
+
+  it("applies the same recipes from Streamline's strip, keeping the \"0\" a record's Workflow holds (strip-applies.json)", async () => {
+    await made(dye2V042Recording<Record_>("strip-applies"), {
+      started,
+      applyFull: strip("1"),
+      applyFullAgain: strip("1"),
+      applyZero: strip("2"),
+      applyZeroAgain: strip("2"),
+      applyNoGrind: strip("4"),
+      applyZeroText: strip("5"),
+    });
+  });
+
+  it("has DYE2's record save a Workflow's grind setting of 0, the text or the number, into a recipe as the number 0 with \"0\" in its embedded Workflow, and a grinder picked with a default of 0 bring it (record.json)", async () => {
+    let dashboard: Awaited<ReturnType<typeof openDye2Dashboard>> | undefined;
+    const applied = (id: string) => async () => {
+      dashboard = await openDye2Dashboard(proxy);
+      return dashboard.applyRecipe(id);
+    };
+    await made(dye2V042Recording<Record_>("record"), {
+      applyFull: applied("1"),
+      applyZero: applied("2"),
+      applyFullAgain: applied("1"),
+      pickedZeroDefault: () => dashboard!.pickGrinder(grinder("Fixture Grinder Zero")),
+    });
+  });
+
+  it("repairs a recipe saved at 0 before v0.1.42, none in its embedded Workflow, as DYE2 loads, once, which the strip applied as none before and as \"0\" after (repair.json)", async () => {
+    await made(
+      dye2V042Recording<Record_>("repair"),
+      { started, startedAgain: started, applyOldZero: strip("3"), applyFull: strip("1"), applyFullAgain: strip("1"), applyRepaired: strip("3") },
+      ["reloaded", "reloadedAgain"],
+    );
     pages.streamline!.stop();
   });
 });

@@ -104,7 +104,8 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // flow or temperature while an Auto Steam session is active
 // (`mergeRecipeLiveSettings`, `recipeSteamPatch`, from v0.2.29); from v0.2.25 with each of its
 // grinder, Basket, barista, drinker, grind setting, dose, RPM and feed rate
-// it names none of, or names as 0, null, and its yield 0 where it names
+// it names none of, or names as 0, null (but the text "0" of a grind setting,
+// which DYE2 from v0.1.42 embeds for a dial position of 0), and its yield 0 where it names
 // none, whatever its record's Workflow holds, so a record saved before DYE2
 // v0.1.37 clears them the same way (`clearInheritedFields`), and with a
 // grinder the tablet no longer holds, archived ones counting as held, null
@@ -1289,7 +1290,9 @@ export function recipeIdPatch(id: unknown): { extras: { dye: { v: 1; recipeId: s
  * present, null where the recipe names none, or names 0: its grinder with
  * its model, barista, drinker, grind setting and dose, and in `extras` its
  * Basket with its name, RPM and feed rate; and its yield 0 where it names
- * none, as Decaid refuses a null there (streamline-js#189).
+ * none, as Decaid refuses a null there (streamline-js#189). Only a falsy
+ * value is cleared, so the text "0" DYE2 from v0.1.42 embeds for a grind
+ * setting of 0 is kept, a dial position (read at v0.2.31).
  */
 function clearInheritedFields(context: Record_ | undefined): Record_ {
   const cleared: Record_ = { ...(context ?? {}) };

@@ -1,0 +1,450 @@
+{
+  "recorder": {
+    "source": {
+      "request": {
+        "method": "PUT",
+        "path": "/plugins/workflow-recorder.reaplugin/source",
+        "body": "<../dye2-v0.1.26/workflow-recorder/>",
+        "token": "launch"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "message": "Plugin source updated",
+          "id": "workflow-recorder.reaplugin",
+          "version": "0.0.1",
+          "loaded": false
+        }
+      }
+    },
+    "enabled": {
+      "request": {
+        "method": "POST",
+        "path": "/plugins/workflow-recorder.reaplugin/enable",
+        "token": "launch"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "message": "Plugin enabled",
+          "id": "workflow-recorder.reaplugin"
+        }
+      }
+    }
+  },
+  "bundledDye2": [
+    {
+      "id": "dye2.reaplugin",
+      "name": "Streamline/DYE2",
+      "author": "Streamline",
+      "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+      "version": "0.1.37",
+      "apiVersion": 1,
+      "permissions": [
+        "log",
+        "api",
+        "emit",
+        "pluginStorage",
+        "events.shots",
+        "events.workflow"
+      ],
+      "drivers": [],
+      "settings": {},
+      "api": [
+        {
+          "id": "dashboard",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinders",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "baskets",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "equipment",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinder-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "basket-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bean-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "roasters",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "add-bean",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "profile-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "edit-shot",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-fav-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recipe-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "select-recipe",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bc-import",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recent-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "selection",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "record",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "save-recipe",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "skin",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "changed",
+          "type": "websocket",
+          "data": {}
+        },
+        {
+          "id": "echarts",
+          "type": "http",
+          "data": {}
+        }
+      ],
+      "loaded": true,
+      "autoLoad": true,
+      "source": null,
+      "pendingUpdate": null
+    }
+  ],
+  "install": {
+    "request": {
+      "method": "POST",
+      "path": "/plugins/install/github-release",
+      "body": {
+        "repo": "decentespresso/dye2"
+      },
+      "token": "launch"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "message": "Plugin installed",
+        "id": "dye2.reaplugin",
+        "version": "0.1.42",
+        "loaded": true
+      }
+    }
+  },
+  "listed": [
+    {
+      "id": "dye2.reaplugin",
+      "name": "Streamline/DYE2",
+      "author": "Streamline",
+      "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+      "version": "0.1.42",
+      "apiVersion": 1,
+      "permissions": [
+        "log",
+        "api",
+        "emit",
+        "pluginStorage",
+        "events.shots",
+        "events.workflow"
+      ],
+      "drivers": [],
+      "settings": {},
+      "api": [
+        {
+          "id": "dashboard",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinders",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "equipment",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinder-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "basket-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bean-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "roasters",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "add-bean",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "profile-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "edit-shot",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-fav-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recipe-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "select-recipe",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bc-import",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recent-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "selection",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "record",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "save-recipe",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "skin",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "changed",
+          "type": "websocket",
+          "data": {}
+        },
+        {
+          "id": "echarts",
+          "type": "http",
+          "data": {}
+        }
+      ],
+      "loaded": true,
+      "autoLoad": true,
+      "source": {
+        "kind": "github_release",
+        "repo": "decentespresso/dye2",
+        "branch": null,
+        "commit": null,
+        "releaseTag": "v0.1.42",
+        "assetName": null,
+        "includePrerelease": false,
+        "installedAt": "2026-11-22T16:01:04.673818",
+        "lastChecked": "2026-11-22T16:01:04.673818",
+        "lastError": null
+      },
+      "pendingUpdate": null
+    }
+  ],
+  "basketsWritten": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "a5475ca8-59e1-4f79-b2a5-2acacc8675ef",
+            "createdAt": "2026-11-22T09:00:00.000Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    }
+  ],
+  "keys": {
+    "request": {
+      "method": "GET",
+      "path": "/store/dye2.reaplugin"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        "autoFavourites",
+        "baskets",
+        "favBeansMigrated",
+        "favProfilesMigrated",
+        "favSlotsMigrated",
+        "recipeBeansMigrated",
+        "recipesMigrated",
+        "selection",
+        "selectionMigrated",
+        "shotIndex"
+      ]
+    }
+  },
+  "values": {
+    "autoFavourites": [],
+    "baskets": [
+      {
+        "name": "Fixture 18g Precision",
+        "size": "double",
+        "notes": "Fixture notes",
+        "diameterMm": 58.5,
+        "id": "a5475ca8-59e1-4f79-b2a5-2acacc8675ef",
+        "createdAt": "2026-11-22T09:00:00.000Z"
+      }
+    ],
+    "favBeansMigrated": true,
+    "favProfilesMigrated": true,
+    "favSlotsMigrated": true,
+    "recipeBeansMigrated": true,
+    "recipesMigrated": true,
+    "selection": {},
+    "selectionMigrated": true,
+    "shotIndex": {
+      "v": 3,
+      "builtAt": 1795363246810,
+      "newestShotId": null,
+      "newestTs": null,
+      "total": 0,
+      "etag": "\"6c7d2f5939a0abfb\"",
+      "reps": {},
+      "tail": [],
+      "uses": {}
+    }
+  },
+  "workflow": {
+    "id": "98a21e8b-18cb-48fc-8e61-106a18f40e13",
+    "name": "Workflow",
+    "description": "Description",
+    "profile": {
+      "$profile": "Default/1258060e95"
+    },
+    "context": {
+      "targetDoseWeight": 18,
+      "targetYield": 36,
+      "extras": {
+        "dye": {
+          "selection": null
+        }
+      }
+    },
+    "steamSettings": {
+      "targetTemperature": 150,
+      "duration": 50,
+      "flow": 0.8,
+      "stopAtTemperature": 0
+    },
+    "hotWaterData": {
+      "targetTemperature": 75,
+      "duration": 30,
+      "volume": 50,
+      "flow": 10
+    },
+    "rinseData": {
+      "targetTemperature": 90,
+      "duration": 10,
+      "flow": 6
+    }
+  }
+}
