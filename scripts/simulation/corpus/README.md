@@ -36,9 +36,9 @@ owners' consent:
   before the first drip. They join no set: the grinder warmed through the
   session and its pucks loosened with it, so no two of them can be taken
   for one puck. The control's second Shot ran 19% shorter than its first,
-  the finer grind's Shots shorter than the middle grind's, and 049 11 s
-  shorter than 040 at the same setting; 047 and 049 ran their whole
-  pre-brew without reaching 4 bar and never built 9 bar.
+  the finer grind's Shots shorter than 039 and 040 at the middle grind,
+  and 049 11 s shorter than 040 at the same setting; 047 and 049 ran their
+  whole pre-brew without reaching 4 bar and never built 9 bar.
 
 They were chosen by Machine and kind of Profile, spread over time, and by
 set, without looking at how well the simulation fits them. Sets were

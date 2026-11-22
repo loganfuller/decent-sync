@@ -59,8 +59,8 @@ describe("the corpus", () => {
     expect(Math.abs(median(fitted.map((shot) => shot.puck!.holds)) - standardPuck(0).holds)).toBeLessThan(2);
     // Its steps, run on the standard puck at the Shot's own dose and to its own weight, last what the Shot lasted, at the median of the corpus's flat 9 bar Shots.
     const entries = new Map(readShots(SHOTS).map((entry) => [entry.name, entry]));
-    // The Slayer-style session's (#624) were ground for a long low-flow pre-brew, three to twelve times
-    // the resistance of a flat 9 bar Profile's usual grind, its control's too, so they are no part of the typical puck.
+    // The Slayer-style session's (#624) were ground for a long low-flow pre-brew, its control's too: those this check
+    // would count fit three to twelve times the standard puck's resistance, so they are no part of the typical puck.
     const slayerSession = (name: string) => /^de1pro-0(39|4\d)$/.test(name);
     const flat = fitted.filter((shot) => {
       if (slayerSession(shot.name)) return false;
