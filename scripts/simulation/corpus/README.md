@@ -28,23 +28,23 @@ owners' consent:
   `de1pro-039` to `de1pro-049`: one coffee, 18 g in one Basket, a
   Slayer-style Profile (a 1.5 ml/s pre-brew until 4 bar or 40 s, then a flat
   9 bar) at three grinds, with a 1.0 and a 2.0 ml/s pre-brew and a flat
-  9 bar control after a fast fill, each run to its target weight. Sets
-  `s15` (039 to 044: four Slayer-style Shots, the first pulled hours before
-  the rest, and the two control Shots, at the middle grind), `s16` (045 and
-  046, a step finer) and `s17` (047 and 048, a step coarser); `de1pro-049`,
-  at the middle grind again at the end, joins none. The grinder warmed
-  through the session, and its pucks seem to have loosened with it: the control's second Shot
-  ran 19% shorter than its first, the finer grind's Shots shorter than the
-  middle grind's, and 049 11 s shorter than 040 at the same setting. Two
-  of the Slayer-style Shots, 047 and 049, ran their whole pre-brew without
-  reaching 4 bar and never built 9 bar.
+  9 bar control after a fast fill, each run to its target weight: 039 to
+  044 at the middle grind (four Slayer-style Shots, the first pulled hours
+  before the rest, then the control twice), 045 and 046 a step finer, 047
+  and 048 a step coarser, and 049 at the middle grind again. They are
+  the corpus's only Shots of a long low-flow pre-brew that builds pressure
+  before the first drip. They join no set: the grinder warmed through the
+  session and its pucks loosened with it, so no two of them can be taken
+  for one puck. The control's second Shot ran 19% shorter than its first,
+  the finer grind's Shots shorter than the middle grind's, and 049 11 s
+  shorter than 040 at the same setting; 047 and 049 ran their whole
+  pre-brew without reaching 4 bar and never built 9 bar.
 
 They were chosen by Machine and kind of Profile, spread over time, and by
 set, without looking at how well the simulation fits them. Sets were
 inferred from the cafe's and the Bengle's Shots (`scrub.mjs --sets`). The
 lab DE1Pro's other Shots join none, as the coffee recorded on it is not kept
-up to date; the designed sessions' were marked by hand (`scrub.mjs --set`,
-once for each set).
+up to date; the first designed session's were marked as one (`scrub.mjs --set`).
 
 `levels.json` holds each model's share within the margin when the corpus was
 last scored, as Shots within it out of the Shots counted: 126 of 134 DE1 coffee
@@ -53,9 +53,7 @@ Slayer-style session; 92 and 17 with the
 machine fitted to the corpus, #601, and v1.12.0's puck; 55 of 113 and 12 of 23
 with v1.12.0's machine, before the designed session's ten). It also holds, for
 #602, the median duration error of one Shot's puck run with another Profile's
-steps in its set (`differentSteps`, a ceiling: 9%, raised from 8% with the
-Slayer-style session, whose drifting pucks put its own pairs a median 17%
-off), and how many pump-off soaks
+steps in its set (`differentSteps`, a ceiling), and how many pump-off soaks
 that end as pressure falls last within a second of their Shots' (`soaks`). Nine corpus Shots are pours that met no coffee (four DE1, five
 Bengle), kept as recorded and counted toward no share.
 

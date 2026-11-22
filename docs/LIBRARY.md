@@ -2677,10 +2677,9 @@ fit.
   were outside before: five miss on the peak pressure of a step whose pump
   controls flow, and one stopped as no run can. The same file holds two
   more levels for #602: one Shot's puck run with another Profile's steps on
-  the same coffee lands a median 8.9% off that Shot's duration (7.9% before
-  the Slayer-style session, whose pucks loosened as its grinder warmed, and
-  9.4% with the replayed resistance, where a bloom's puck ran every other
-  Profile 32 to 57% short), and 21 of the 26 pump-off soaks that end as pressure falls
+  the same coffee lands a median 7.9% off that Shot's duration (9.4% with
+  the replayed resistance, where a bloom's puck ran every other Profile 32
+  to 57% short), and 21 of the 26 pump-off soaks that end as pressure falls
   last within a second of their Shots' (5 before). `npm run simulation-scorecard` prints how close
   it comes, by model and kind of Profile ([DEVELOPMENT.md](DEVELOPMENT.md#the-simulations-scorecard)).
 
