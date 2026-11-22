@@ -1302,6 +1302,11 @@ var __decentSync = (() => {
   function steamTimeOf(value) {
     return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
   }
+  function steamHeldOff(temperature, duration) {
+    const below = (value, from) => typeof value === "number" && Number.isFinite(value) && value < from;
+    return below(temperature, STEAM_ON_FROM) || below(duration, STEAM_TIME_FROM);
+  }
+  var STEAM_OFF_VALUE = 0;
   function isZero(value) {
     if (typeof value === "number") return value === 0;
     return typeof value === "string" && value.trim() !== "" && Number(value) === 0;
@@ -2020,18 +2025,18 @@ var __decentSync = (() => {
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
     const key2 = load.profile === null ? null : profileStepsKey(load.profile);
     if (!omit.has("profile") && key2 !== null && key2 !== profileKey(workflow.profile)) write.profile = load.profile;
+    const off = steamHeldOff(numberOf(variables[RECIPE_SETTINGS.steamTemperature.dye2]), numberOf(variables[RECIPE_SETTINGS.steamDuration.dye2]));
     const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
       const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
       const held = numberOf(variables[dye2]);
-      const value = setting === "steamDuration" ? steamTimeOf(held) : held;
+      const value = SWITCHES_STEAM.has(setting) && off ? STEAM_OFF_VALUE : setting === "steamDuration" ? steamTimeOf(held) : held;
       if (value === null || sameNumber(value, numberOf(workflowValueAt(workflow, path)))) return [];
-      if (TURNS_STEAM_ON.has(setting) && steamOff(workflow)) return [];
       return omit.has(setting) ? [] : [[path, value]];
     });
     Object.assign(write, workflowPatch(Object.fromEntries(settings)));
     return Object.keys(write).length > 0 ? write : null;
   }
-  var TURNS_STEAM_ON = /* @__PURE__ */ new Set(["steamTemperature", "steamDuration"]);
+  var SWITCHES_STEAM = /* @__PURE__ */ new Set(["steamTemperature", "steamDuration"]);
   function steamOnWith(workflow) {
     const temperature = numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow));
     if (temperature === null || temperature < STEAM_ON_FROM) return null;
@@ -2040,16 +2045,15 @@ var __decentSync = (() => {
   function steamBackOnWrite(workflow, record3, turnedOn) {
     if (steamOff(workflow)) return null;
     const variables = isObject3(record3.dashboardVariables) ? record3.dashboardVariables : {};
-    const recipes = {
-      temperature: numberOf(variables[RECIPE_SETTINGS.steamTemperature.dye2]),
-      duration: steamTimeOf(numberOf(variables[RECIPE_SETTINGS.steamDuration.dye2]))
-    };
+    const [temperature, duration] = [numberOf(variables[RECIPE_SETTINGS.steamTemperature.dye2]), numberOf(variables[RECIPE_SETTINGS.steamDuration.dye2])];
+    if (steamHeldOff(temperature, duration)) return null;
+    const recipes = { temperature, duration: steamTimeOf(duration) };
     const fields = {};
     for (const [part, setting] of [["temperature", "steamTemperature"], ["duration", "steamDuration"]]) {
       const path = RECIPE_SETTINGS[setting].workflow;
       const value = recipes[part];
       const now2 = numberOf(workflowValueAt(workflow, path));
-      if (value === null || part === "temperature" && value < STEAM_ON_FROM) continue;
+      if (value === null) continue;
       if (sameNumber(now2, turnedOn[part]) && !sameNumber(now2, value)) fields[path] = value;
     }
     return Object.keys(fields).length > 0 ? workflowPatch(fields) : null;
@@ -3213,7 +3217,9 @@ var __decentSync = (() => {
     const record3 = { ...workflowContext(updated), ...isObject6(updated.profile) ? { profile: updated.profile } : {}, draft: profile.profile };
     return written(write, record3, ["profile"], (/* @__PURE__ */ new Date()).toISOString());
   }
-  var STEAM_OFF_KEPT = /* @__PURE__ */ new Set([RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow]);
+  var STEAM_TEMPERATURE_FIELD = RECIPE_SETTINGS.steamTemperature.workflow;
+  var STEAM_TIME_FIELD = RECIPE_SETTINGS.steamDuration.workflow;
+  var STEAM_OFF_KEPT = /* @__PURE__ */ new Set([STEAM_TEMPERATURE_FIELD, STEAM_TIME_FIELD]);
   function isMachineSetting(field) {
     return MACHINE_SETTING_PARTS.some((part) => field.startsWith(`${part}.`));
   }
@@ -3229,6 +3235,15 @@ var __decentSync = (() => {
     return patch;
   }
   function loadedRecipeFields(write, workflow, machineSettings) {
+    const fields = loadedRecipeFieldsByPart(write, workflow, machineSettings);
+    const temperature = write.fields[STEAM_TEMPERATURE_FIELD];
+    if (typeof temperature === "number" && temperature < STEAM_ON_FROM) {
+      if (STEAM_TEMPERATURE_FIELD in fields) fields[STEAM_TIME_FIELD] = STEAM_OFF_VALUE;
+      else delete fields[STEAM_TIME_FIELD];
+    }
+    return fields;
+  }
+  function loadedRecipeFieldsByPart(write, workflow, machineSettings) {
     return Object.fromEntries(
       Object.values(LOADED_RECIPE_PARTS).flatMap((part) => {
         const [first] = part;

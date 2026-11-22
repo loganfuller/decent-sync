@@ -827,6 +827,10 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       flushDuration: 0,
     });
 
+    // A steam temperature of 0 is "Off", which the Recipe holds beside the steam time it keeps (#616).
+    expect((await edit(created.id, { steamTemperature: 0 })).content).toMatchObject({ steamTemperature: 0, steamDuration: 1 });
+    expect((await recipe(created.id)).content.steamTemperature).toBe(0);
+
     // Null or empty text clears each, leaving the Machine's own.
     const fields = Object.keys(SETTINGS);
     const cleared = await edit(created.id, Object.fromEntries(fields.map((field, index) => [field, index % 2 === 0 ? null : ""])));
@@ -845,10 +849,10 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       return { status: response.status, message: ((await response.json()) as { message?: unknown }).message };
     };
     const refused = (field: string, range: string) => ({ status: 400, message: [`${field} must be ${range}`] });
-    // A range with no "Off", and a whole number where Decaid's field is an int.
-    expect(await refusal({ steamTemperature: 0 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
-    expect(await refusal({ steamTemperature: 171 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
-    expect(await refusal({ steamTemperature: 150.5 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
+    // 0 for "Off" (#616), or within the range, a whole number where Decaid's field is an int.
+    for (const steamTemperature of [1, 134, 171, 150.5]) {
+      expect(await refusal({ steamTemperature })).toEqual(refused("steamTemperature", "0 (off) or a whole number from 135 to 170"));
+    }
     // A steam time from 1 s, as 0 is steam off, to the DE1's 255 s (#394).
     for (const steamDuration of [-1, 0, 256, 30.5]) expect(await refusal({ steamDuration })).toEqual(refused("steamDuration", "a whole number from 1 to 255"));
     // 0 or more, whole or not.

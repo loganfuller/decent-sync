@@ -3,12 +3,14 @@ import { assignRecipeInDye2 } from "./simulated-dye2.js";
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
 // Streamline (streamline-js) running as a simulated tablet's skin, as at
-// v0.2.27, the release Decent Sync supports (ADR-0017), as far as it touches
+// v0.2.31, the release Decent Sync supports (ADR-0017), as far as it touches
 // DYE2, the Workflow and the settings it remembers. What v0.2.24 recorded of
 // it stands (fixtures/decaid/streamline-v0.2.24/) but for its strip's apply
 // of a recipe, which from v0.2.25 clears what the recipe names none of and
-// takes one holding a feed rate (fixtures/decaid/dye2-v0.1.40/). The plugin is not
-// told of it: it calls Decaid's API as anything else on the tablet does
+// takes one holding a feed rate (fixtures/decaid/dye2-v0.1.40/), and from
+// v0.2.29 writes every steam, hot water and flush setting the recipe holds
+// and switches steam as it holds it (fixtures/decaid/streamline-v0.2.31/).
+// The plugin is not told of it: it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
 //
 // Every write of the Workflow goes through `updateWorkflow` in
@@ -96,10 +98,11 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // (`recipeStripCells`). A tap on a cell not highlighted applies the
 // recipe (`applyRecipe()`), and on the highlighted one does nothing: its
 // embedded `workflow`, its context and its Profile whole (`applyStoredWorkflow`),
-// or, without one, its `dashboardVariables` (`applyRecipeLegacy`), its steam
-// time or flow by its steam mode, its milk stop, its hot water volume,
-// temperature, time and flow, and its flush time, each kept where Streamline
-// keeps one (`mergeRecipeLiveSettings`); from v0.2.25 with each of its
+// or, without one, its `dashboardVariables` (`applyRecipeLegacy`), and every
+// steam, hot water and flush setting it holds, each kept where Streamline
+// keeps one, its steam turned on or off as it holds it, but no steam time,
+// flow or temperature while an Auto Steam session is active
+// (`mergeRecipeLiveSettings`, `recipeSteamPatch`, from v0.2.29); from v0.2.25 with each of its
 // grinder, Basket, barista, drinker, grind setting, dose, RPM and feed rate
 // it names none of, or names as 0, null, and its yield 0 where it names
 // none, whatever its record's Workflow holds, so a record saved before DYE2
@@ -495,6 +498,7 @@ export class SimulatedStreamline {
    * 165 °C, as Streamline does.
    */
   async autoSteam(calculated: { duration: number; flow: number }): Promise<void> {
+    this.autoSteamActive = true;
     const { status, body } = await this.tablet.callApi("GET", "/workflow");
     if (status !== 200) throw new Error(`Decaid refused the Workflow with ${status}`);
     const steam = ((body as Record_).steamSettings ?? {}) as Record_;
@@ -511,6 +515,14 @@ export class SimulatedStreamline {
     const duration = Math.max(0, Math.min(255, Math.round(calculated.duration)));
     const flow = Math.max(0, Math.min(2.5, calculated.flow));
     await this.change({ steamSettings: { duration, flow, targetTemperature, stopAtTemperature: 0 } }, "api.autoSteam");
+  }
+
+  /** Whether an Auto Steam session is active (`isAutoSteamActive` in api.js), from a pitcher chosen (`autoSteam()`) until Auto is left (`leaveAutoSteam()`): a recipe applied meanwhile writes no steam time, flow or temperature. */
+  private autoSteamActive = false;
+
+  /** A barista leaves Auto Steam for Time or Flow, which ends its session; nothing is written. */
+  leaveAutoSteam(): void {
+    this.autoSteamActive = false;
   }
 
   /** Streamline loads its data again, as when it starts, the machine connects again, or an apply of a DYE2 item ends, and resolves once it has pushed what it does. */
@@ -586,9 +598,8 @@ export class SimulatedStreamline {
    * recipe's embedded `workflow` (its context and its Profile whole, from the
    * tablet's profiles where it carries no steps, and none where neither has
    * steps, 16903cc), or without one its
-   * `dashboardVariables`, the steam,
-   * hot water and flush values of its modes, each kept (`persistSharedValue`),
-   * and its id as `recipeId`; then, once Decaid took it, selects it in DYE2,
+   * `dashboardVariables`, every steam, hot water and flush setting it holds
+   * (`mergeRecipeLiveSettings`), and its id as `recipeId`; then, once Decaid took it, selects it in DYE2,
    * trying once more on a failure but a 404 (`postSelection`). Where that
    * fails and DYE2 records itself, it tries again after each of
    * `selectionRetriesMs`, until one lands, a newer apply or its switch turned
@@ -604,14 +615,31 @@ export class SimulatedStreamline {
     const recipe = this.cells().find(({ slot, recipe }) => (typeof cell === "number" ? slot === cell : recipe?.id === cell))?.recipe;
     if (!recipe) throw new Error(`The DYE strip shows no recipe in ${typeof cell === "number" ? `cell ${cell}` : `a cell as ${cell}`}`);
     if (recipe.id != null && recipe.id === this.activeItemId) return { inert: true };
+    const previous = { id: this.activeItemId, modified: this.activeModified };
     this.activeItemId = recipe.id;
     this.activeModified = false;
+    try {
+      return await this.sendRecipe(recipe);
+    } catch (error) {
+      // An apply that fails is undone on the strip, its highlight back where it was ("Could not apply recipe", from v0.2.29).
+      if (this.activeItemId === recipe.id) {
+        this.activeItemId = previous.id;
+        this.activeModified = previous.modified;
+      }
+      throw error;
+    }
+  }
+
+  /** What `applyRecipe` sends for a recipe, and its selection in DYE2 after. */
+  private async sendRecipe(recipe: Record_): Promise<StreamlineApplied> {
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
+    const read = await this.tablet.callApi("GET", "/workflow");
+    const live = (read.status === 200 && read.body ? read.body : {}) as Record_;
     const patch = recipe.workflow ? await this.applyStoredWorkflow(recipe.workflow as Record_) : await this.applyRecipeLegacy(recipe);
     // What the recipe names none of is cleared, not left as the recipe applied before set it (streamline-js#189, from v0.2.25).
     patch.context = clearInheritedFields(patch.context as Record_ | undefined);
     if ((patch.context as Record_).grinderId) patch.context = dropDeletedGrinder(patch.context as Record_, await this.grinderCatalogue());
-    Object.assign(patch, await this.mergeRecipeLiveSettings(dv));
+    Object.assign(patch, await this.mergeRecipeLiveSettings(dv, live));
     mergeContext(patch, recipeIdPatch(recipe.id));
     return this.applyItem("recipe", recipe.id, patch, "dye.applyRecipe");
   }
@@ -954,22 +982,31 @@ export class SimulatedStreamline {
   }
 
   /**
-   * `mergeRecipeLiveSettings` at v0.2.23: the steam time or flow of the
-   * recipe's steam mode, its milk stop, its hot water volume, temperature,
-   * time and flow whatever its hot water mode, and its flush time, as the
-   * patch's parts, each kept where Streamline keeps one (`persistSharedValue`),
-   * a milk stop only above 0.
+   * `mergeRecipeLiveSettings` at v0.2.31 (from v0.2.29,
+   * decentespresso/streamline-js#154): every steam, hot water and flush
+   * setting the recipe holds, whatever its modes, as the patch's parts. Its
+   * steam time, flow and temperature are `recipeSteamPatch`'s, by the
+   * Workflow as just read (`live`): where its heater is off, a recipe holding
+   * a steam time or temperature turns it on, at the ones kept for what it
+   * holds none of, and one holding "Off" turns it off whole. Before the
+   * write it keeps the temperature and time to come back to, the Workflow's
+   * where the patch turns steam off, and the flow. None of the three while
+   * an Auto Steam session is active (`isAutoSteamActive`). Its milk stop is
+   * kept only above 0, its hot water volume and temperature and its flush
+   * time kept as written (`persistSharedValue`).
    */
-  private async mergeRecipeLiveSettings(dv: Record_): Promise<Record_> {
+  private async mergeRecipeLiveSettings(dv: Record_, live: Record_): Promise<Record_> {
     const patch: Record_ = {};
     const steam: Record_ = {};
-    if (dv.steamMode === "time" && dv.steamTimeS != null) {
-      steam.duration = dv.steamTimeS;
-      await this.keep("last-steam-duration", dv.steamTimeS);
-    }
-    if (dv.steamMode === "flow" && dv.steamFlowMls != null) {
-      steam.flow = dv.steamFlowMls;
-      await this.keep("last-steam-flow", dv.steamFlowMls);
+    if (!this.autoSteamActive) {
+      const liveSteam = live.steamSettings as Record_ | undefined;
+      const heaterOff = !!liveSteam && isSteamOff(liveSteam.targetTemperature);
+      const remembered = heaterOff ? { temp: this.remembered("last-steam-temp"), duration: this.remembered("last-steam-duration") } : {};
+      Object.assign(steam, recipeSteamPatch(dv, heaterOff, remembered));
+      const valuesToReturnTo = steam.targetTemperature === 0 ? liveSteam : steam;
+      if ((valuesToReturnTo?.targetTemperature as number) > 0) await this.keep("last-steam-temp", valuesToReturnTo!.targetTemperature);
+      if ((valuesToReturnTo?.duration as number) > 0) await this.keep("last-steam-duration", valuesToReturnTo!.duration);
+      if (steam.flow != null) await this.keep("last-steam-flow", steam.flow);
     }
     if (dv.steamStopAtTempC != null) {
       steam.stopAtTemperature = dv.steamStopAtTempC;
@@ -988,10 +1025,14 @@ export class SimulatedStreamline {
     if (dv.hotWaterTimeS != null) water.duration = dv.hotWaterTimeS;
     if (dv.hotWaterFlowMls != null) water.flow = dv.hotWaterFlowMls;
     if (Object.keys(water).length > 0) patch.hotWaterData = water;
+    const rinse: Record_ = {};
     if (dv.flushS != null) {
-      patch.rinseData = { duration: dv.flushS };
+      rinse.duration = dv.flushS;
       await this.keep("last-flush-duration", dv.flushS);
     }
+    if (dv.flushTempC != null) rinse.targetTemperature = dv.flushTempC;
+    if (dv.flushFlowMls != null) rinse.flow = dv.flushFlowMls;
+    if (Object.keys(rinse).length > 0) patch.rinseData = rinse;
     return patch;
   }
 
@@ -1377,6 +1418,32 @@ function steamOnPatch({ recipe = {}, remembered = {}, profile = {}, currentFlow 
     if (flow !== null && flow >= MIN_STEAM_FLOW) patch.flow = flow;
   }
   return patch;
+}
+
+/**
+ * `recipeSteamPatch` in steam-mode.js, from v0.2.29: the steam settings a
+ * recipe puts on the machine, everything it holds, kept as one on or off
+ * state. Its flow, and its time, each in the unit its steam mode names or
+ * where above 0; its temperature. One holding a steam time below 1 s, or a
+ * steam temperature below 135 °C, is steam off whole (`steamOffPatch`).
+ * With the heater off, one holding a time or a temperature turns it on
+ * (`steamOnPatch`), at the ones kept for what it holds none of.
+ */
+function recipeSteamPatch(dv: Record_, heaterOff: boolean, remembered: SteamValues = {}): Record_ {
+  const mode = dv.steamMode || (dv.steamFlowMls != null ? "flow" : "time");
+  const steam: Record_ = {};
+  if (dv.steamFlowMls != null && (mode === "flow" || (dv.steamFlowMls as number) > 0)) steam.flow = dv.steamFlowMls;
+  const holdsTime = dv.steamTimeS != null && (mode !== "flow" || (dv.steamTimeS as number) > 0);
+  const holdsTemp = dv.steamTempC != null;
+  if ((holdsTime && (dv.steamTimeS as number) < MIN_STEAM_DURATION_S) || (holdsTemp && isSteamOff(dv.steamTempC))) return { ...steam, ...STEAM_OFF };
+  if (holdsTime) steam.duration = dv.steamTimeS;
+  if (holdsTemp) steam.targetTemperature = dv.steamTempC;
+  if (heaterOff && (holdsTime || holdsTemp)) {
+    const recipe = { tempC: dv.steamTempC, durationS: holdsTime ? dv.steamTimeS : undefined };
+    const { targetTemperature, duration } = steamOnPatch({ recipe, remembered });
+    Object.assign(steam, { targetTemperature, duration });
+  }
+  return steam;
 }
 
 /**

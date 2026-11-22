@@ -12,6 +12,8 @@ import {
   isZero,
   sameGrindSetting,
   sameValue,
+  STEAM_OFF_VALUE,
+  steamHeldOff,
   steamTimeOf,
   workflowValueAt,
   profileOf,
@@ -330,6 +332,9 @@ export function valuesFromWorkflow(
  * it holds none, as its records hold one (`recipeRecord`). A steam time of
  * 0, as 1.6.2 may have taken one in, is none (`steamTimeOf`), and so is a
  * dose, grind setting or RPM of 0, as 1.10.0 may take one in (`nonePart`).
+ * A Recipe holding "Off" (`steamHeldOff`) is to hold steam off whole, its
+ * steam temperature and steam time both STEAM_OFF_VALUE, whatever steam
+ * time the Recipe keeps (ADR-0022, Steam on and off).
  */
 export function recipeParts(
   content: Readonly<Record<string, unknown>>,
@@ -337,12 +342,14 @@ export function recipeParts(
   profileTemperature: number | null = null,
 ): Record<LoadedRecipePart, PartValue | undefined> {
   const parts = {} as Record<LoadedRecipePart, PartValue | undefined>;
+  const steamOff = steamHeldOff(content.steamTemperature, null);
   for (const part of PARTS) {
     const value = content[RECIPE_FIELDS[part]];
     const kind = ITEM_PARTS[part];
     parts[part] = kind !== undefined ? (typeof value === "string" ? local(kind, value) : null) : partValue(part, value);
     if (part === "profile") parts[part] = textOf(value);
     if (part === "steamDuration") parts[part] = steamTimeOf(value);
+    if (steamOff && (part === "steamTemperature" || part === "steamDuration")) parts[part] = STEAM_OFF_VALUE;
     if (part !== "yield" && nonePart(part, parts[part]) && parts[part] !== undefined) parts[part] = null;
   }
   const [dose, ratio] = [parts.dose, numberOf(content.ratio)];

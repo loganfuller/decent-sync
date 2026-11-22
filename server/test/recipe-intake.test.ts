@@ -19,7 +19,7 @@ import {
   recordOf,
   refusedPaths,
   slotMove,
-  steamOffPaths,
+  holdsSteamOff,
   tabletIds,
   withHeldFieldFlags,
 } from "../src/library/recipe-intake.js";
@@ -278,7 +278,7 @@ describe("DYE2's recipes as Recipes", () => {
     });
   });
 
-  it("takes each steam, hot water and flush setting a record holds, a blank one holding none, but no steam turned off, and keeps a Recipe's Tools the tablet holds no record of", () => {
+  it("takes each steam, hot water and flush setting a record holds, a blank one holding none, steam \"Off\" as a steam temperature of 0, and keeps a Recipe's Tools the tablet holds no record of", () => {
     // Saved by temperature, the record leaves its volume out, which the Recipe then holds none of.
     const byTemperature = recipeView(slot1);
     expect(libraryValues(byTemperature, ["dashboardVariables.hotWaterMl", "dashboardVariables.hotWaterTempC", "dashboardVariables.hotWaterMode"], {}, intake())).toEqual({
@@ -286,15 +286,23 @@ describe("DYE2's recipes as Recipes", () => {
       hotWaterTemperature: 85,
       hotWaterVolume: null,
     });
-    // A steam temperature below 135 °C is steam off, as DYE2's editor saves "Off" as 0: no edit, so it is written back.
-    const steaming = (steamTempC: number) => recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), steamTempC, steamStopAtTempC: 0 } });
+    // A steam temperature below 135 °C is "Off", as DYE2's editor saves it as 0 with a steam time of 0: the Recipe's, as 0 (#616).
+    const steaming = (steamTempC: number, steamTimeS?: number) =>
+      recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), steamTempC, steamStopAtTempC: 0, ...(steamTimeS === undefined ? {} : { steamTimeS }) } });
+    const steamPaths = ["dashboardVariables.steamTempC", "dashboardVariables.steamTimeS", "dashboardVariables.steamStopAtTempC"];
     expect(libraryValues(steaming(150), ["dashboardVariables.steamTempC", "dashboardVariables.steamStopAtTempC"], {}, intake())).toEqual({ steamTemperature: 150, steamStopTemperature: 0 });
+    expect(holdsSteamOff(steaming(150, 40))).toBe(false);
     for (const off of [0, 120]) {
-      expect(libraryValues(steaming(off), ["dashboardVariables.steamTempC", "dashboardVariables.steamStopAtTempC"], {}, intake())).toEqual({ steamStopTemperature: 0 });
-      expect(steamOffPaths(editedContent(recipeView(slot1), steaming(off), null))).toEqual(["dashboardVariables.steamTempC"]);
+      expect(libraryValues(steaming(off), ["dashboardVariables.steamTempC", "dashboardVariables.steamStopAtTempC"], {}, intake())).toEqual({ steamTemperature: 0, steamStopTemperature: 0 });
+      expect(holdsSteamOff(steaming(off))).toBe(true);
     }
-    expect(steamOffPaths(editedContent(recipeView(slot1), steaming(150), null))).toEqual([]);
-    expect(recipeContent(steaming(0), intake())).not.toHaveProperty("steamTemperature");
+    // Its steam time of 0 is the other half of "Off", none of the Recipe's, which keeps the one it holds.
+    expect(libraryValues(steaming(0, 0), steamPaths, { steamDuration: 40 }, intake())).toEqual({ steamTemperature: 0, steamStopTemperature: 0 });
+    // A steam time of 0 alone is "Off" too, as DYE2 and Streamline apply one as steam off whole, whatever its temperature.
+    expect(libraryValues(steaming(150, 0), ["dashboardVariables.steamTimeS"], { steamTemperature: 150, steamDuration: 40 }, intake())).toEqual({ steamTemperature: 0 });
+    expect(libraryValues(steaming(150, 40), steamPaths, {}, intake())).toEqual({ steamTemperature: 150, steamDuration: 40, steamStopTemperature: 0 });
+    expect(recipeContent(steaming(0, 0), intake())).toMatchObject({ steamTemperature: 0 });
+    expect(recipeContent(steaming(0, 0), intake())).not.toHaveProperty("steamDuration");
     // A tablet that holds no record of the WDT Tool could never name it: picking another Tool keeps it, where it was.
     const other = recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), equipmentIds: ["other-puck-screen"], equipmentCustom: {} } });
     const current = { toolIds: [GLOBAL.wdtTool], toolAttributes: { [GLOBAL.wdtTool]: [{ key: "Needles", value: "12" }] } };

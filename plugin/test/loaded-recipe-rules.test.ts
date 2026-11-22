@@ -321,21 +321,47 @@ describe("recording a load", () => {
     expect(loadWrite(workflow, beanless, { profile }, new Set(["batch", ...RECIPE_SETTING_NAMES]))?.context).not.toHaveProperty("beanBatchId");
   });
 
-  it("writes no steam temperature or steam time into a Workflow whose steam is off, as Streamline v0.2.23 turns it off, but its steam flow and milk stop", () => {
+  it("turns steam on at the recipe's steam temperature and time in a Workflow whose steam is off, as DYE2's dashboard and Streamline's strip from v0.2.29 do (#616)", () => {
     const workflow = appliedAtOwnTemperatures();
     workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 0 };
-    const write = loadWrite(workflow, written(), { profile })!;
-    expect(write.steamSettings).toEqual({ flow: 1.4, stopAtTemperature: 60 });
-    // Off by its temperature alone, as another skin may leave a steam time.
-    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 40 };
-    expect(loadWrite(workflow, written(), { profile })!.steamSettings).toEqual({ flow: 1.4, stopAtTemperature: 60 });
+    expect(loadWrite(workflow, written(), { profile })!.steamSettings).toEqual({ targetTemperature: 150, duration: 25, flow: 1.4, stopAtTemperature: 60 });
+    // Off by its temperature alone, as another skin may leave a steam time, which the recipe's replaces where it differs.
+    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 25 };
+    expect(loadWrite(workflow, written(), { profile })!.steamSettings).toEqual({ targetTemperature: 150, flow: 1.4, stopAtTemperature: 60 });
   });
 
-  it("writes no steam time of 0, as DYE2's editor saves one until the server writes the Recipe's back: the Workflow keeps its own", () => {
+  it("writes only the one of a steam temperature and a steam time the recipe holds, and neither where it holds none, whatever the Workflow's steam", () => {
+    const holding = (steam: Record_): Record_ => {
+      const record = written();
+      const { steamTempC: _temperature, steamTimeS: _time, ...rest } = record.dashboardVariables as Record_;
+      record.dashboardVariables = { ...rest, ...steam };
+      return record;
+    };
+    for (const steam of [{ targetTemperature: 0, duration: 0 }, { targetTemperature: 160, duration: 30 }]) {
+      const workflow = appliedAtOwnTemperatures();
+      workflow.steamSettings = { ...(workflow.steamSettings as Record_), ...steam, flow: 1.4, stopAtTemperature: 60 };
+      expect(loadWrite(workflow, holding({ steamTempC: 145 }), { profile })?.steamSettings).toEqual({ targetTemperature: 145 });
+      expect(loadWrite(workflow, holding({ steamTimeS: 35 }), { profile })?.steamSettings).toEqual({ duration: 35 });
+      expect(loadWrite(workflow, holding({}), { profile })?.steamSettings).toBeUndefined();
+    }
+  });
+
+  it("turns steam off whole for a recipe holding Off, by either half, as DYE2's editor saves a steam temperature and time of 0, and writes nothing of it into a Workflow whose steam is off already", () => {
+    const off = (steam: Record_): Record_ => {
+      const record = written();
+      record.dashboardVariables = { ...(record.dashboardVariables as Record_), ...steam };
+      return record;
+    };
     const workflow = appliedAtOwnTemperatures();
-    const record = written();
-    record.dashboardVariables = { ...(record.dashboardVariables as Record_), steamTimeS: 0 };
-    expect(loadWrite(workflow, record, { profile })!.steamSettings).not.toHaveProperty("duration");
+    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 150, duration: 25, flow: 1.4, stopAtTemperature: 60 };
+    for (const steam of [{ steamTempC: 0, steamTimeS: 0 }, { steamTempC: 0 }, { steamTimeS: 0 }, { steamTempC: 120, steamTimeS: 40 }]) {
+      expect(loadWrite(workflow, off(steam), { profile })?.steamSettings).toEqual({ targetTemperature: 0, duration: 0 });
+    }
+    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 0 };
+    expect(loadWrite(workflow, off({ steamTempC: 0, steamTimeS: 0 }), { profile })?.steamSettings).toBeUndefined();
+    // Half off, as a skin turning only the temperature off leaves it: the other half follows.
+    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 30 };
+    expect(loadWrite(workflow, off({ steamTempC: 0, steamTimeS: 0 }), { profile })?.steamSettings).toEqual({ duration: 0 });
   });
 
   it("leaves out what it is told to, as the steam, hot water and flush settings while Decaid refuses them for want of a machine", () => {
@@ -383,8 +409,9 @@ describe("steam turned back on with a recipe loaded", () => {
 
   it("writes nothing where the recipe holds no steam temperature, holds Off, holds the one steam came back at, or the Workflow has moved on since", () => {
     expect(steamBackOnWrite(steamAt(150), holding(undefined), at(150))).toBeNull();
-    // "Off" as DYE2's editor saves it, which the server writes the Recipe's back over.
+    // "Off" as DYE2's editor saves it, which is the Recipe's: there is none to take, and DYE2 saves what steam came back with.
     expect(steamBackOnWrite(steamAt(150), holding(0), at(150))).toBeNull();
+    expect(steamBackOnWrite(steamWith(150, 30), holding(0, 0), { temperature: 150, duration: 30 })).toBeNull();
     expect(steamBackOnWrite(steamAt(160), holding(160), at(160))).toBeNull();
     // A temperature set once steam was on, which is the Recipe's edit, or steam turned off again.
     expect(steamBackOnWrite(steamAt(145), holding(160), at(150))).toBeNull();
@@ -405,8 +432,9 @@ describe("steam turned back on with a recipe loaded", () => {
   it("writes no steam time where the recipe holds none or 0, holds the one steam came back with, or steam is off again", () => {
     const back = { temperature: 150, duration: 30 };
     expect(steamBackOnWrite(steamWith(150, 30), holding(150), back)).toBeNull();
-    // 0 as DYE2's editor saves it, which the server writes the Recipe's, or none, back over.
+    // A steam time of 0 is "Off" by its other half, whatever its temperature: none to take.
     expect(steamBackOnWrite(steamWith(150, 30), holding(150, 0), back)).toBeNull();
+    expect(steamBackOnWrite(steamWith(150, 30), holding(160, 0), back)).toBeNull();
     expect(steamBackOnWrite(steamWith(150, 30), holding(150, 30), back)).toBeNull();
     // Turned off again by its temperature alone, as another skin may: no steam time into a Workflow whose steam is off.
     expect(steamBackOnWrite(steamWith(0, 30), holding(160, 40), back)).toBeNull();

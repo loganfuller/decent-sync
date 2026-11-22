@@ -1300,6 +1300,25 @@ export function steamTimeOf(value: unknown): number | null {
 }
 
 /**
+ * Whether a recipe holding this steam temperature and steam time holds
+ * "Off": a steam temperature below STEAM_ON_FROM, as DYE2's editor saves 0
+ * for "Off" with a steam time of 0 beside it, or a steam time below
+ * STEAM_TIME_FROM, either alone being steam off whole as it is applied
+ * (`recipeMachineSettings` in dye2:dye2-plugin/src/utils/dev-api.ts at
+ * v0.1.42, `recipeSteamPatch` in streamline-js:src/modules/steam-mode.js at
+ * v0.2.31). One holding neither, or only values that leave steam on, does
+ * not: null and anything but a number is none held. A Recipe holding "Off"
+ * turns a Machine's steam off as it loads (ADR-0022, Steam on and off).
+ */
+export function steamHeldOff(temperature: unknown, duration: unknown): boolean {
+  const below = (value: unknown, from: number) => typeof value === "number" && Number.isFinite(value) && value < from;
+  return below(temperature, STEAM_ON_FROM) || below(duration, STEAM_TIME_FROM);
+}
+
+/** The steam temperature a Recipe holding "Off" holds, and the steam temperature and steam time written for one (`steamHeldOff`). */
+export const STEAM_OFF_VALUE = 0;
+
+/**
  * The fields of a Recipe's content of which 0 is none (ADR-0022): its dose,
  * grind setting and RPM. From v0.1.37 DYE2 applies a recipe holding 0 for one
  * as naming none, clearing the Workflow's (`applyRecipe` in

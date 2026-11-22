@@ -649,7 +649,7 @@ describe("The simulated DYE2 v0.1.36 and Streamline v0.2.24, made again as v0.1.
   });
 });
 
-describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they were recorded (streamline-v0.2.24/)", () => {
+describe("The simulated Streamline and DYE2, made again as v0.2.24 and v0.1.36 were recorded (streamline-v0.2.24/)", () => {
   // Each file's steps in the recording's order, on a tablet whose Decaid holds the recording's library, DYE2's keys and the
   // Workflow as the step before the file left them, its machine connected, as Decaid's simulated one is, so a change of the
   // Workflow is echoed in a shot-settings frame. Each step's Workflow writes, by Streamline or as the script sent them, the
@@ -698,6 +698,8 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
   async function made(file: StepFile, before: SteamStep | null, act: (name: string, step: SteamStep, replay: ReturnType<typeof from>) => Promise<unknown>) {
     const replay = from(before);
     await replay.settled();
+    const keptByApply = new Set<StreamlineKey>();
+    const sameValue = (a: unknown, b: unknown) => (a ?? null) === (b ?? null);
     for (const [name, step] of steps(file)) {
       if (name === "reseeded") continue;
       const start = replay.made.length;
@@ -705,11 +707,25 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
       await replay.settled();
       const recorded = [...step.exchanges, ...Object.values(step.alsoSent ?? {}).flat()];
       const [written, recordedWrites] = sinceV0137(replay.made.slice(start), recorded);
+      // From v0.2.29 the strip's apply writes every steam, hot water and flush setting the recipe holds and switches steam
+      // (streamline-v0.2.31/), where v0.2.24's left its steam temperature, flush temperature and flush flow to the load
+      // write the script sent after: an apply's own settings are compared there, and here only the rest of what it wrote.
+      if (/^applyRecipe/.test(name)) {
+        expect(withoutMachineSettings(workflowWrites(written).map((body) => ({ body }))), `${name}: Workflow writes`).toEqual(
+          withoutMachineSettings(workflowWrites(recordedWrites).map((body) => ({ body }))),
+        );
+        for (const key of REMEMBERED) if (!sameValue(replay.tablet.storeValue(STREAMLINE_NAMESPACE, key), step.streamline[key] ?? null)) keptByApply.add(key);
+        continue;
+      }
       expect(workflowWrites(written), `${name}: Workflow writes`).toEqual(workflowWrites(recordedWrites));
       expect(settingsOf((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's settings after`).toEqual(settingsOf(afterRead(step, "/workflow")));
       expect(steamOf((await replay.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`)).body), `${name}: DYE2's recipes after`).toEqual(steamOf(afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`)));
-      const remembered = Object.fromEntries(REMEMBERED.map((key) => [key, replay.tablet.storeValue(STREAMLINE_NAMESPACE, key)]));
-      expect(remembered, `${name}: Streamline's remembered steam values after`).toEqual(Object.fromEntries(REMEMBERED.map((key) => [key, step.streamline[key] ?? null])));
+      // A value an apply kept, as it keeps each steam value it writes since v0.2.29, is left out until Streamline keeps what
+      // the recording did again, as once its heater switch keeps the one steam was at.
+      for (const key of [...keptByApply]) if (sameValue(replay.tablet.storeValue(STREAMLINE_NAMESPACE, key), step.streamline[key] ?? null)) keptByApply.delete(key);
+      const compared = REMEMBERED.filter((key) => !keptByApply.has(key));
+      const remembered = Object.fromEntries(compared.map((key) => [key, replay.tablet.storeValue(STREAMLINE_NAMESPACE, key)]));
+      expect(remembered, `${name}: Streamline's remembered steam values after`).toEqual(Object.fromEntries(compared.map((key) => [key, step.streamline[key] ?? null])));
     }
     replay.pages.streamline?.stop();
     return replay;
@@ -756,7 +772,7 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
     return { targetDoseWeight, targetYield, grinderSetting, grinder, grinderModel, recipeId: dye2RecipeIdOf(workflow) ?? null };
   };
 
-  it("applies a recipe's milk stop, hot water settings and flush time from the strip, and its steam time by its steam mode (strip.json)", async () => {
+  it("applies a recipe from the strip, compared but for its steam, hot water and flush settings, which the strip applies whole from v0.2.29 (strip.json)", async () => {
     await made(strip, null, onMainPage);
   });
 
@@ -783,8 +799,12 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
     await made(tile, last(heater), onMainPage);
   });
 
-  it("has DYE2 save the steam temperature and time steam came back with where they are not the recipe's, a time kept into a recipe holding none that was applied while steam was off (record.json)", async () => {
-    await made(records, records.reseeded as SteamStep, onMainPage);
+  it("has DYE2 save the steam temperature and time steam came back with where they are not the recipe's (record.json)", async () => {
+    // Up to the recipe holding no steam time applied while steam was off: from v0.2.29 that apply turns steam on itself, at
+    // the time Streamline remembers, so the heater switch after it and what DYE2's `record` then saved are no longer what
+    // happens (streamline-v0.2.31/strip.json holds the apply and the `record` after it).
+    const { applyRecipe2WhileOff: _apply, heaterOnRecipe2: _heater, recordOnRecipe2: _record, ...before } = records;
+    await made(before, records.reseeded as SteamStep, onMainPage);
   });
 
   it("takes a steam time written into a Workflow whose steam is off as the one to come back to, and none of the new plugin's write (steam-off-edit.json)", async () => {
