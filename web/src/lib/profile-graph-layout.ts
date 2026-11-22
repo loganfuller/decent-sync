@@ -180,6 +180,8 @@ const LABEL_HEIGHT = 11;
 const LABEL_GAP = 4;
 /** The gap kept between a label and the upright line it sits beside, px. */
 const LINE_GAP = 6;
+/** The gap kept between a stop's name and its line: past a Draft's bracket standing on the line, as where a run ends at a step's maximum time. */
+const STOP_GAP = 8;
 
 /** The box of a label drawn from `left` on `baseline`, `width` wide. */
 export function labelBox(left: number, baseline: number, width: number): LabelBox {
@@ -307,7 +309,7 @@ export function placeLabels(
 export function besideLine(x: number, width: number, lane: { top: number; bottom: number }, first: "left" | "right"): LabelBox[] {
   const side = (which: "left" | "right") => {
     const boxes: LabelBox[] = [];
-    for (let baseline = lane.top + 16; baseline + 2 <= lane.bottom; baseline += LABEL_HEIGHT + 3) boxes.push(labelBox(which === "right" ? x + LINE_GAP : x - LINE_GAP - width, baseline, width));
+    for (let baseline = lane.top + 16; baseline + 2 <= lane.bottom; baseline += LABEL_HEIGHT + 3) boxes.push(labelBox(which === "right" ? x + STOP_GAP : x - STOP_GAP - width, baseline, width));
     return boxes;
   };
   return [...side(first), ...side(first === "right" ? "left" : "right")];

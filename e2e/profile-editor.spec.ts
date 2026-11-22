@@ -258,6 +258,30 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
     await page.setViewportSize({ width: 1280, height: 720 });
     expect((await page.request.delete(`/api/drafts/${id}`)).status()).toBe(204);
   }
+
+  // Two of Decaid's bundled Profiles: "Extractamundo Dos!"'s first step, whose target's tag stands where "Preinfusion" is,
+  // and "7g basket"'s last, whose bracket stands on the line where the run ends.
+  const bundled = (JSON.parse(fs.readFileSync(new URL("../server/test/fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: { profile: Fields & { title: string; steps: unknown[] } }[] })
+    .bundled;
+  for (const title of ["Extractamundo Dos!", "7g basket"]) {
+    const record = bundled.find((each) => each.profile.title === title)!.profile;
+    const posted = await page.request.post("/api/drafts", { data: { file: record } });
+    expect(posted.status()).toBe(201);
+    const id = ((await posted.json()) as { draft: { id: string } }).draft.id;
+    await page.goto(`/library/drafts/${id}`);
+    const selected = title === "7g basket" ? record.steps.length : 1;
+    await stepsCard(page).getByRole("button", { name: new RegExp(`^Select step ${selected},`) }).click();
+    await expect(graph.locator("[data-handle='seconds']")).toBeVisible();
+    drawnAt = "";
+    for (const [width, height] of widths) {
+      await page.setViewportSize({ width, height });
+      await expect(drawn).not.toHaveAttribute("width", drawnAt);
+      drawnAt = (await drawn.getAttribute("width"))!;
+      await expect.poll(() => graphClashes(graph), { message: `${title}, at ${width} px` }).toEqual([]);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    expect((await page.request.delete(`/api/drafts/${id}`)).status()).toBe(204);
+  }
 });
 
 test("steps are added, duplicated, moved and deleted, with preinfusion kept on its step, and every change undone and redone", async ({ page }) => {

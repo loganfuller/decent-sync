@@ -226,14 +226,17 @@ describe("where labels go among what is drawn", () => {
     const places = besideLine(300, 80, lane, "right");
     expect(places.length % 2).toBe(0);
     const [right, left] = [places.slice(0, places.length / 2), places.slice(places.length / 2)];
-    expect(right.every((box) => box.left === 306 && box.right === 386)).toBe(true);
-    expect(left.every((box) => box.right === 294 && box.left === 214)).toBe(true);
+    expect(right.every((box) => box.left === 308 && box.right === 388)).toBe(true);
+    expect(left.every((box) => box.right === 292 && box.left === 212)).toBe(true);
+    // Clear of a bracket standing on the line, as where a run ends at the selected step's maximum time.
+    const onLine = handleBox({ kind: "bracket", x: 300, top: 44, bottom: 420 });
+    expect(places.every((box) => clear(box, { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity }, [onLine]))).toBe(true);
     expect(labelBaseline(right[0]!)).toBe(lane.top + 16);
     for (const side of [right, left]) {
       expect(side.every((box) => box.top >= lane.top && box.bottom <= lane.bottom)).toBe(true);
       for (let row = 1; row < side.length; row++) expect(side[row]!.top).toBeGreaterThanOrEqual(side[row - 1]!.bottom);
     }
-    expect(besideLine(300, 80, lane, "left")[0]!.right).toBe(294);
+    expect(besideLine(300, 80, lane, "left")[0]!.right).toBe(292);
 
     // The run's "Stops at" beside a bracket standing right of its line, under the run's curve along the lane's top: left of the line, below the curve.
     const bracket = handleBox({ kind: "bracket", x: 340, top: 44, bottom: 420 });
@@ -242,7 +245,7 @@ describe("where labels go among what is drawn", () => {
       [300, 56],
     ]);
     const taken = besideLine(300, 80, lane, "right")[clearest(besideLine(300, 80, lane, "right"), plot, curve, [bracket])]!;
-    expect(taken.right).toBe(294);
+    expect(taken.right).toBe(292);
     expect(taken.top).toBeGreaterThan(57);
     // And a compared record's name keeps off the run's, taken first.
     const other = besideLine(250, 100, lane, "left");
