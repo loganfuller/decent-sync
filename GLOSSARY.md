@@ -210,6 +210,6 @@ _Avoid_: Collection, catalogue
 A library item retired everywhere: kept so that past shots still name it, but offered nowhere.
 _Avoid_: Deleted, hidden (a profile is hidden at one location)
 
-**Conflict**:
-An edit to a field of a library item that lost to another edit of the same field made without seeing it, kept until someone uses its value or dismisses it.
-_Avoid_: Clash, collision
+**Lost Edit**:
+An edit to a field of a library item that did not apply, because it lost to another edit of the same field made without seeing it, or because a joining tablet's value differed from the library's. It is kept in the item's history. A tablet whose record held a value has seen it, so a value a barista changed on the tablet is never kept as a Lost Edit against their own change.
+_Avoid_: Conflict, clash, collision

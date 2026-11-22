@@ -14,11 +14,12 @@ belonging to one Location. Ticket
 [#84](https://github.com/loganfuller/decent-sync/issues/84) has an edit of
 an item's content on any tablet reach every tablet that holds it, merged per
 field with the latest edit winning, keeping each accepted edit as a history
-entry and each that lost as a Conflict (Edits, below), and ticket
-[#85](https://github.com/loganfuller/decent-sync/issues/85) shows the
-Conflicts and each item's history in the management interface, where a
-Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
-below). Ticket [#86](https://github.com/loganfuller/decent-sync/issues/86)
+entry and each that lost as what was then a Conflict (Edits, below), and ticket
+[#85](https://github.com/loganfuller/decent-sync/issues/85) shows each
+item's history in the management interface. Ticket
+[#632](https://github.com/loganfuller/decent-sync/issues/632) keeps each
+edit that loses as a Lost Edit in that history, read and never settled, in
+place of Conflicts (Lost Edits, below; ADR-0033). Ticket [#86](https://github.com/loganfuller/decent-sync/issues/86)
 shared each Location's steam, hot water and rinse settings between its
 Machines, ticket [#137](https://github.com/loganfuller/decent-sync/issues/137)
 took hot water out of them, and ticket
@@ -177,8 +178,8 @@ Machines that can run it (`server/src/library/profile-reach.ts`):
 
 - Showing it at a Location where any Machine can't run it, capture-only ones
   too, is refused (409), naming the Location, those Machines, their model
-  and the values, through the REST API, the MCP endpoint and a Conflict's
-  value alike (`refuseUnrunnableAt`); hiding it never is. So is creating,
+  and the values, through the REST API and the MCP endpoint alike
+  (`refuseUnrunnableAt`); hiding it never is. So is creating,
   copying or editing a Recipe there to name it (`setUses` in
   `recipe-edits.service.ts`), shown there already or not, since a Recipe
   shows its Profile at its Location, which may have gained such a Machine
@@ -258,13 +259,15 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   Bean had, applies, if that was at this Location. Otherwise, as from a tablet
   that was offline, adding it there loses to a finish timed later, and
   finishing it there to an add timed later; the Location's state is then
-  written back to that tablet, and the edit kept as a Conflict. One that
+  written back to that tablet, and the edit kept as a Lost Edit (Lost
+  Edits, below). One that
   applies over another tablet's decision it had not seen, which it changes,
-  keeps that decision as a Conflict instead, as neither saw the other
-  (ADR-0020). Each that applies is a history entry (`item_versions`,
+  keeps that decision as a Lost Edit instead, as neither saw the other
+  (ADR-0020), unless the tablet's last known record of the batch held it so
+  (ADR-0033). Each that applies is a history entry (`item_versions`,
   below), whose id the field keeps (`presence_version_id`,
-  `remaining_weight_version_id`), so a Conflict it becomes knows where it
-  came from. One that applies is the
+  `remaining_weight_version_id`), so a Lost Edit it becomes knows where it
+  came from, and one it wins over knows what it lost to. One that applies is the
   field's latest edit
   even when it leaves the batch where it was: it is added or finished there
   again, so an earlier edit that arrives later cannot undo it. It is never
@@ -385,16 +388,16 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   batch, `shown` for a Profile. Joining the Library is an item's first
   history entry. Each names its item by kind and id (`kind`, `item_id`), and
   goes with it. History entries taken in together keep the order they were
-  taken in (`seq`), and so do Conflicts.
-- `versioned_items`: every item that keeps a history and Conflicts, each
+  taken in (`seq`), and so do Lost Edits.
+- `versioned_items`: every item that keeps a history, each
   Library item, by kind and id, which history entries
-  and Conflicts reference, so a new kind needs no column of its own in them.
+  and Lost Edits reference, so a new kind needs no column of its own in them.
   Triggers on each kind's table keep it, as its migration created them
   (`versioned_item_added`, `versioned_item_renamed`,
   `versioned_item_removed` and `versioned_items_truncated`, each given the
   kind): a row is added as an item is, follows a change of its id, and is
   deleted as the item is, or with every row of the kind as its table is
-  truncated, taking its history entries and Conflicts with it, as a
+  truncated, taking its history entries and Lost Edits with it, as a
   foreign key to the item would.
 - `deleted_items` and `tablet_deletions`: the global id of each item an
   Admin hard-deleted, and each tablet's records of it still to be deleted
@@ -413,12 +416,20 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   refused, with Decaid's status and answer, until one of the same item or
   record is carried out there, and the last change it applied, timed by
   PostgreSQL's clock (Sharing status, below).
-- `conflicts`: each edit of a field that lost to another made without seeing
-  it (ADR-0020): the item, the field, the losing value (null where it cleared
-  the field), where it came from and when it was made, as a history entry
-  keeps them, its Location for a Location's state, when it became a
-  Conflict, and whether it is open, its value used or dismissed (Resolving
-  Conflicts, below).
+- `conflicts`: each Lost Edit (ADR-0033; `LostEdit` in the schema), in the
+  table Conflicts were kept in, whose name it keeps: an edit of a field that
+  lost to another made without seeing it, or a value such an edit replaced
+  (ADR-0020), or a linked record's value that differed from the item's
+  (ADR-0018). It holds the item, the field, the losing value (null where it
+  cleared the field), where it came from and when it was made, as a history
+  entry keeps them, its Location for a Location's state, when it lost
+  (`created_at`), and the history entry it lost to (`lost_to_version_id`,
+  added by the migration `20261123000000_lost_edits`, with no foreign key, as
+  a history entry goes only with its item, which takes these rows with it):
+  null where that is not known, as for each row the previous release writes.
+  Its `state` (`LostEditState`, PostgreSQL's `conflict_state`) is what the
+  previous release keeps of a Conflict: every row this release writes is
+  `OPEN`, and a row `DISMISSED` is not shown (Lost Edits, below).
 
 ## Edits
 
@@ -451,20 +462,23 @@ written, and the management interface refuses to edit them too.
   tablet's, timed when the plugin wrote it. Its value is the one the server
   wrote, so it changes nothing unless another tablet's edit, made before the
   write but taken in after it was planned, set the field since; that edit is
-  then kept as a Conflict.
+  then kept as a Lost Edit.
 - **Merging.** Each field the edit changed is decided against the field's
   latest edit (`field_edits`). An edit decides a field nobody has edited
   yet, and one whose latest edit its tablet had seen: its own, or one
   decided by when its record last held what the server wrote it
   (`content_seen_at`). Otherwise edit times decide: one made no earlier than the field's latest
   edit decides it, and the value it replaces, if another, is kept as a
-  Conflict from where and when that edit came, as neither saw the other; one
-  made earlier loses, and its value, if another, is kept as a Conflict, and
+  Lost Edit from where and when that edit came, lost to this one, as neither
+  saw the other, unless the tablet's last known record of the item, which
+  the edit was worked out from, held that value (`held`; Lost Edits, below);
+  one made earlier loses, and its value, if another, is kept as a Lost Edit,
+  lost to the field's latest edit, whatever that record held, and
   the Library's value is written back to its tablet. An edit that decides a
   field is its latest edit even when it leaves it as it was, so an earlier
   edit that arrives later cannot undo it. A Recipe's Bean and Bean Batch
   are one pick, decided as one by an edit holding both: losing either, it
-  loses both, each kept as a Conflict where it differs, so a Recipe never
+  loses both, each kept as a Lost Edit where it differs, so a Recipe never
   names one edit's Bean beside another's batch, as when a batch of another
   Bean picked on one Machine reaches the server after the Bean's next bag
   picked on another (ADR-0020; `together` in `kinds.ts`, #570). Each edit that decides a field is
@@ -475,10 +489,12 @@ written, and the management interface refuses to edit them too.
 - **Linking.** A record linked to a Library item, a new bean by its roaster
   and name, or a user's Profile the tablet holds by Decaid's id, takes the
   item's content: each field where the record held another value is kept as
-  a Conflict, timed by the record (ADR-0018). A field the record holds no
+  a Lost Edit, timed by the record, lost to the edit that set the item's
+  value, where one did (ADR-0018). The server held no record of the item for
+  the tablet, so none of these is left out as held. A field the record holds no
   value for loses nothing. A record carrying a Bean's, batch's or Grinder's
   global id that the map did not hold, as after a lost answer, takes the
-  item's content with no Conflict, as its own content came from the server.
+  item's content with no Lost Edit, as its own content came from the server.
 - **Locks.** An item's edits are decided under its row lock, on any
   instance (ADR-0016), taken after the reporting tablet's and its Location's
   locks; a report locks every item it edits at once, in id order, so two
@@ -486,7 +502,7 @@ written, and the management interface refuses to edit them too.
 - **Per-Location state.** Whether a batch is at a Location, its remaining
   weight there and whether a Profile is shown there are each a field of
   their own, merged as `batch_locations` and `profile_locations` describe,
-  with history entries and Conflicts as content's are.
+  with history entries and Lost Edits as content's are.
 
 Times decide only between edits made without seeing each other, so a tablet
 whose clock runs behind another's can lose such an edit, a tablet clock error
@@ -494,48 +510,67 @@ ADR-0003 accepts. Of two edits of one field made without seeing each other
 and timed in the same millisecond, the precision the plugin reads times to,
 the one taken in last wins.
 
-### Resolving Conflicts
+### Lost Edits
 
-An open Conflict is resolved once, by an Admin, or by Staff where they can
-edit the item (`mayResolve` in `conflict-access.ts`): the Library's shared
-content anywhere, a Grinder's Archived state included, as Staff Archive and
-restore items anywhere; but a Location's state of an item (a batch at a
-Location, its remaining weight there, a Profile shown there) and a
-Grinder's other content only at their own Locations, as a Grinder belongs to one (`conflicts.service.ts`). Each is decided under the Conflict's row lock, on
-any instance, so it is used or dismissed once; a tablet's report never locks
-a Conflict, so neither waits on the other in turn.
+A Lost Edit (ADR-0033, #632) is an edit of one field of an item that did not
+apply, kept in the item's history: an edit that lost on time, a value
+replaced by an edit that had not seen it (Merging, above), or a linked
+record's value that differed from the item's (Linking, above), of the item's
+content or of a Location's state of it (`recordLostEdit` and `recordReplaced`
+in `history.ts`). It gives the field, the losing value, who or which Machine
+made the edit and when, when it lost, and the edit it lost to, a history
+entry of the item. It is read, never changed: it has no list of its own and
+no actions, and to bring a value back, someone edits the item. It replaces
+the Conflict, which waited on a page of its own, and on its item's, until
+someone used its value or dismissed it. Who wins is as it was (ADR-0020).
 
-- **Using its value** makes it the field's latest edit, a history entry
-  from the account, timed by PostgreSQL's clock (ADR-0016), as its
-  `received_at` is. The request names the history entry that set the
-  field's value now as the Conflict showed it (`seen`), and the value is
-  used only while that entry still set it, read under the locks below: an
-  edit decided since, as by a tablet that had seen the value now, which
-  then made no Conflict, is
-  refused with 409 rather than replaced unseen (ADR-0020), and the account
-  looks again. So the account chose it over the field's value now, and the
-  edit decides the field whatever the times of the edits before it, and
-  keeps nothing it replaces as a Conflict: it is no edit made without seeing
-  another. An edit of the item's content is merged under the item's
-  row lock, after its Location's lock for a Grinder, whose Archived state
-  changes only under it, as a tablet's is (`editContent`, with `seenAt`
-  `everything`); one of a Location's state, under the Location's lock, as
-  having seen every decision made there before it (`addBatchAt`,
-  `finishBatchAt`, `enterRemainingWeight`, `showProfileAt`). A Recipe's value
-  is used as an edit of it in the management interface is made
-  (`recipeEditValues`, Editing in the management interface, below): a batch
-  used sets its Bean too, a Bean used alone takes the Recipe's batch of it or
-  that Bean's batch most recently added at its Location, or none, keeping the
-  Bean, which is then offered there while it has no batch there
-  (`offerBeanAt`), a ratio used sets the yield to the dose times it, as picking a ratio
-  in DYE2's editor does, refused with 409 while the Recipe has no dose, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
-  Location, or refused with 409 where it is Archived, and Tools' attributes
-  used keep those of the Tools it still uses. It commits with a
-  `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
-  Location, is written it; a tablet's edit made before it that arrives later,
-  as from one that was offline, loses to it and is kept as a Conflict.
-- **Dismissing it** closes it with nothing else changed: no history entry,
-  and nothing written.
+- **A value the tablet held is not kept.** No Lost Edit is kept for a value
+  that the editing tablet's last known record of the item held, the record
+  its edit was worked out from, even where the server cannot show that the
+  tablet saw the edit that set it, as after an answer lost to an unload or a
+  Decaid restart: the tablet replaced what it had, so keeping that value
+  would tell nobody anything. An edit of an item's content gives what that
+  record held of each field it changes (`ItemEdit.held`, from `heldIn` in
+  `content-edits.ts`; `ContentEdit.held` in `merge.ts`), a field the record
+  held no value for being null. A Recipe's gives the Recipe's value of each
+  field its record held as the Recipe is written (`recipeValuesHeld` in
+  `recipe-intake.ts`), and a change on a Machine with the Recipe loaded, of
+  each part its Workflow last held as the Recipe's was written to it
+  (`recordFromWorkflow` in `server/src/machine-events/loaded-recipes.ts`). A
+  batch added or finished at a Location, and a Profile, Basket or Tool shown
+  or hidden there, give whether the record had it so (the `held` of
+  `addBatchAt`, `finishBatchAt`, `showAt` and `showProfileAt` in
+  `location-state.ts`, read by `heldValue` in `history.ts`). A remaining
+  weight is judged by the value its tablet had, as before
+  (`batch_locations`, above).
+- **Where the server holds no such record, every replaced value is kept,**
+  as before: for a linked record; for a record saved under a Recipe's record
+  id before the tablet reported it; and for a Bean archived or deleted on a
+  tablet, which finishes its batches there (`takeBeanFrom`), as that edit is
+  worked out from the tablet's record of the Bean, which says nothing of
+  what its records of the batches held.
+- **Holding a value never changes who wins.** It decides only whether a
+  value an edit replaces is kept. An earlier edit from a tablet that held
+  the field's value now still loses to a later edit it did not see, and is
+  kept as a Lost Edit.
+- **Where it is read.** In the item's history, and nowhere else: each
+  item's history route returns its Lost Edits beside its history entries
+  (REST API, below), `get_library_item` lists both in its `history`, the
+  latest first, a Lost Edit marked `lost` with the edit it lost to, `lostTo`
+  (`server/src/mcp/library.tools.ts`), and each item's page lists them in
+  its History card (REST API, below). Staff read them as Admins do, an
+  account's name given to Admins only, as a history entry's.
+- **Beside the previous release.** Lost Edits are rows of the table
+  Conflicts were kept in (`conflicts`, Storage, above), which the previous
+  release still writes and resolves Conflicts in during a deploy's overlap
+  (ADR-0025), so this release needs no `breaking-release`. A row that
+  release writes is a Lost Edit here, with no edit it lost to. Every row in
+  state `OPEN` or `USED` is shown, so a Conflict whose value was used
+  through that release stays in the history beside the edit using it made; one in state
+  `DISMISSED`, before the upgrade or during the overlap, is not shown. A
+  page of that release that has not loaded the new build yet is answered by
+  stub routes (REST API, below), to be removed with the hard delete's lock
+  on `OPEN` rows and the table's old form (#642).
 
 ## Editing in the management interface
 
@@ -546,11 +581,12 @@ batches at Locations, setting their remaining weight at each, show and hide
 Profiles, Baskets and Tools at Locations (`library-edits.service.ts`), and
 move Recipes between Recipe Slots and copy them to Locations
 (`recipe-edits.service.ts`). Each change is an edit by the account, timed by
-PostgreSQL's clock (ADR-0016), and made over the item as it stands, as using
-a Conflict's value is (Resolving Conflicts, above): it decides each field it
+PostgreSQL's clock (ADR-0016), and made over the item as it stands, having
+seen every edit decided before it (`seenAt` `everything` in
+`content-edits.ts`): it decides each field it
 sets whatever the times of the edits before it, and keeps nothing it
-replaces as a Conflict, while a tablet's edit made before it that arrives
-later loses to it, and is kept as one. Each is an edit in the item's
+replaces as a Lost Edit, while a tablet's edit made before it that arrives
+later loses to it, and is kept as one (Lost Edits, above). Each is an edit in the item's
 history from the account, and commits with a `NOTIFY` on `library_changes`,
 so every tablet that holds the item, or whose Location offers it now, is
 written it (Writing to tablets, below).
@@ -567,8 +603,8 @@ follow a Draft and stopping it (`follow_draft`, `stop_following_draft`,
 #581), `get_draft` saying whether one does and listing the Draft's Trial
 Shots, and `edit_location` marking a Location for trying Drafts,
 Archiving and restoring any item, showing and hiding Profiles, Baskets and
-Tools and adding and finishing batches at Locations, and using and
-dismissing Conflicts' values (`server/src/mcp/library-changes.tools.ts`,
+Tools and adding and finishing batches at Locations
+(`server/src/mcp/library-changes.tools.ts`,
 #411, #412); and creating and editing Recipes, moving them between Recipe
 Slots and copying them to Locations (`server/src/mcp/recipe-changes.tools.ts`,
 #412), a Recipe's edit reaching the Workflow of every Machine that has it
@@ -580,10 +616,9 @@ REST API's `content` takes, and reads them again with the REST API's readers
 (`item-input.ts`), so its schema gives each field's type and what it takes
 in words (`contentFields`), and a value those readers refuse is refused with
 their message. It is an edit in the item's history from the account
-through its Connected App (`Editor` in `history.ts`), as is a Conflict
-keeping a value of it that a later edit replaced; dismissing a Conflict records no one, in the
-management interface either. A lapsed Connected App that a history entry or
-Conflict names is kept, still refused, so history goes on naming it
+through its Connected App (`Editor` in `history.ts`), as is a Lost Edit
+keeping a value of it that a later edit replaced. A lapsed Connected App that a history entry or
+Lost Edit names is kept, still refused, so history goes on naming it
 (`server/src/connected-apps/cleanup.ts`).
 
 - **Content.** A Bean's, a batch's or a Grinder's fields are Decaid's, each of
@@ -612,8 +647,8 @@ Conflict names is kept, still refused, so history goes on naming it
   (`takeInUnseen` in `content-edits.ts`), rather than writing the record
   back without it. Where tablets hold different ones for one item, the
   first to report gives the item its value, which is written over the
-  others' with no Conflict kept: no edit tells a value never taken in from
-  a record still to be written, so a Conflict would be kept for each such
+  others' with no Lost Edit kept: no edit tells a value never taken in from
+  a record still to be written, so a Lost Edit would be kept for each such
   record too.
 
   A Grinder holds its range and defaults the same way (#551, DYE2 v0.1.37,
@@ -627,7 +662,7 @@ Conflict names is kept, still refused, so history goes on naming it
   (ADR-0022, What DYE2 and Streamline do). DYE2 keeps them in the record's
   `extras` beside the note, so the server reads them from there and the
   plugin writes them there (GRINDER_EXTRAS_FIELDS), a change of one on a
-  tablet an edit, with Conflicts per field as its other fields have. A null
+  tablet an edit, with Lost Edits per field as its other fields have. A null
   there is none, as DYE2's edit writes one for each left blank. Their rules
   are DYE2's (`grinder-range.ts`), kept where a Grinder is created or edited
   here or through the MCP endpoint, and judged over what the Grinder holds,
@@ -643,10 +678,10 @@ Conflict names is kept, still refused, so history goes on naming it
     as DYE2's recipe editor accepts one.
 
   What tablets' edits merge to is taken as it comes: two edits made out of
-  each other's sight, or a Conflict's value used, can leave a lowest above
+  each other's sight can leave a lowest above
   a highest, which Streamline ignores, and which an edit here of either end
   must put right, an edit of anything else being taken. The same way, a
-  Conflict's value used, or a tablet's record, can give a Grinder with
+  tablet's record can give a Grinder with
   named positions a range for its setting, which the next edit here clears.
   The previous release's plugin writes them at the record's top,
   which Decaid drops (`dye2-v0.1.40/grinder-form.json`, `topLevel`), so its
@@ -689,8 +724,8 @@ Conflict names is kept, still refused, so history goes on naming it
   changes; its Archived state and its content are edited under that
   Location's lock, as a tablet's are. Its form and page have its range and
   defaults beside its steps (Lowest setting, Highest setting, Default
-  setting, Lowest RPM, Highest RPM, Default RPM), and a Conflict about one
-  is labelled so.
+  setting, Lowest RPM, Highest RPM, Default RPM), and its history labels
+  an edit of one so.
 - **Profiles.** A Profile is shown or hidden at each Location, as an edit of
   that Location's state of it (`showProfileAt`), under the Location's lock,
   as having seen every decision made there before it, which is how a lab
@@ -718,7 +753,7 @@ Conflict names is kept, still refused, so history goes on naming it
   finds a tablet's record of the Workflow's profile, and of the one it
   loads at wake, by title, so would take one for the other. That is
   checked only for an edit made here: a tablet's rename is taken in as it
-  is, and so is a Conflict's title used; and a title the Profile has
+  is; and a title the Profile has
   already, up to case and the spaces around it, sent with other fields, is
   not refused for one that is another's already. An
   author or notes cleared is kept empty, as Decaid holds none (`decaidText` in
@@ -792,7 +827,8 @@ Conflict names is kept, still refused, so history goes on naming it
   changing the schema only that the owner approved on 2026-10-29: a Recipe
   in a slot whose `showOnDashboard` was false left its slot, a history
   entry from the server, the field left every Recipe's content and latest
-  edits, and each open Conflict over it was dismissed; past history entries
+  edits, and each Conflict then open over it was dismissed, so none is
+  shown as a Lost Edit now; past history entries
   keep it as made.
   While 1.6.0 still served beside it during the deploy, a hide 1.6.0 took
   in, or its page's switch, was undone, as this release writes a record
@@ -804,7 +840,13 @@ Conflict names is kept, still refused, so history goes on naming it
   batch not at the Location is added there (`addBatchAt`), and a Profile,
   Basket or Tool not shown there is shown there (`showAt`), each the
   account's edit of the Location's state of it, so the Recipe can be loaded
-  there. Its Bean is its batch's, and clearing its batch clears it. Its
+  there. Its Bean is its batch's, and clearing its batch clears it. A Bean
+  named alone (`beanId` with no `beanBatchId`), as a Lost Edit of a Bean
+  picked in DYE2 without a batch holds one, keeps the Recipe's batch if it
+  is of that Bean, or else takes the Bean's batch most recently added at
+  the Location, or none, the Bean then offered there (`offerBeanAt`): 400
+  for a Bean the Library does not have, 409 for one Archived. Named with a
+  batch, the batch decides the Bean. Its
   ratio is kept only while its yield is its dose times it, to a tenth of a
   gram, as DYE2's editor keeps it, and cleared by an edit that breaks that;
   a Tool's attributes go with the Tool when an edit drops it, or clears the
@@ -867,7 +909,7 @@ Conflict names is kept, still refused, so history goes on naming it
   or not (`PUT /api/recipes/:id/reference-shot`, `set_reference_shot`).
   It is held on the Recipe beside its slot (`reference_shot_id`), by the
   Shot's id with no foreign key, as Shots are never deleted, and is not its
-  content: it is no part of DYE2's recipe record, and makes no Conflict.
+  content: it is no part of DYE2's recipe record, and makes no Lost Edit.
   It reaches tablets as a copy of the Shot, below, so choosing or clearing
   one announces the Recipe's Location (`library_changes`). Each change of it is a history entry of its own, `referenceShotId`
   set to the Shot's id or null, with no Location, as Archiving is, timed
@@ -1003,15 +1045,14 @@ Conflict names is kept, still refused, so history goes on naming it
   Recipes and choose and clear their Reference Shots, and copy a Recipe
   from anywhere to a Location, only at the
   Locations they work at, as a Grinder and a Recipe belong to one
-  (ADR-0008), and never hard-delete. A Recipe's Conflicts are
-  resolved where it may be edited.
+  (ADR-0008), and never hard-delete.
 
 ### Hard deletes
 
 An Admin hard-deletes a Bean, Bean Batch, Grinder, Profile, Basket, Tool or
 Recipe no Shot names (ADR-0003, `hard-deletes.ts`), and a Basket or Tool
 only where no Recipe names it either (ticket #147): it is gone from the
-Library at once, with its history, Conflicts and each Location's state of
+Library at once, with its history, Lost Edits among it, and each Location's state of
 it, and from every tablet that holds it, the one thing the server deletes
 from tablets. A Bean goes with its batches, as Decaid refuses to delete a
 bean that has any. Decaid's bundled Profiles are never deleted (409): every
@@ -1105,7 +1146,10 @@ Archived (`WORKFLOW-AND-STATE.md`, Following the Recipe).
   included, such as one a barista made of it offline; such a batch's Shots,
   which the server could not see when the Bean was deleted, then name a
   batch the tablet no longer holds.
-- **Locks.** It takes the item's open Conflicts' row locks, then the row
+- **Locks.** It takes the row locks of the item's Lost Edits in state
+  `OPEN`, which the previous release, while it runs beside this one, still
+  resolves as Conflicts, locking one before its Location (ADR-0025; to go
+  with the stub routes, #642), then the row
   locks of the tablets that hold it, then the locks of the Locations whose
   state of it changes (for a Profile, each that decided whether it shows
   it), then the items' rows, the order every other change
@@ -1176,7 +1220,7 @@ order reported:
    Archived, whose roaster and name match its own, ignoring case and white
    space at either end (`beanMatchKey`), unless one of the tablet's other
    records already is that Bean: it then takes the Bean's content, each field
-   it held otherwise kept as a Conflict (ADR-0018). Otherwise it joins the
+   it held otherwise kept as a Lost Edit (ADR-0018). Otherwise it joins the
    Library, created at the tablet's Location, its content its first
    history entry. Either way, unless it is archived on the tablet, the Bean
    is offered at the tablet's Location, as an origin, while none of its
@@ -1222,7 +1266,7 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   seen (`batch_locations`, above; ADR-0020). A remaining weight replaces the
   one known when the tablet had that value, none was ever entered there, or
   it was entered later than the value known, which the tablet had not seen;
-  otherwise it is kept as a Conflict, and so is a value replaced that the
+  otherwise it is kept as a Lost Edit, and so is a value replaced that the
   tablet had not had, entered by another tablet. Any other field changed is
   an edit of the batch's content (Edits, above).
 - A record carrying a Library batch's global id is that batch, changing
@@ -1260,7 +1304,7 @@ are two Grinders.
   Grinders, archived, and un-archiving or archiving one there changes nothing
   but what is written to it. Whether it is Archived is a field merged with
   its content's (Edits, above), so an archiving made offline loses to a
-  restore made later that its tablet had not seen, and is kept as a Conflict.
+  restore made later that its tablet had not seen, and is kept as a Lost Edit.
 - A record carrying a Library Grinder's global id is that Grinder, as a
   bean's is, changing nothing: the Library's state is written to it.
 - Any other record is new, and joins the Library belonging to the tablet's
@@ -1313,8 +1357,9 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   and the Location's state is written back to that tablet. One that applies
   decides it again even when it leaves it shown or hidden as it was, so an
   earlier edit that arrives later cannot undo it. One that loses is kept as a
-  Conflict, and so is a decision replaced that the tablet had not seen, made
-  by another tablet. A changed title, author or notes of a user's Profile is
+  Lost Edit, and so is a decision replaced that the tablet had not seen, made
+  by another tablet, unless the tablet's last known record of the Profile
+  held it so (ADR-0033). A changed title, author or notes of a user's Profile is
   an edit of its content (Edits, above), so a rename reaches every tablet that
   holds it, under the same id. A Profile the tablet purged and
   re-created, or deleted and made visible again, between two reports shows no
@@ -1324,7 +1369,7 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   held it before it joined the Location, or was written it by a write whose
   answer was lost. If the Library has its id, it is that Profile, and a
   user's Profile takes its title, author and notes, each the record held
-  otherwise kept as a Conflict (ADR-0018); otherwise it joins the Library,
+  otherwise kept as a Lost Edit (ADR-0018); otherwise it joins the Library,
   created at the tablet's Location. Where the Location has
   decided nothing of the Profile yet, the record's visibility decides it, so a
   Profile new to the Library is shown where it was created only, and an
@@ -1388,7 +1433,7 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   field of the record's own (`decentSyncId`, ADR-0006) and keeps when it
   saves. `archived`, which DYE2 sets on a basket from v0.1.41, is the
   tablet's Location's state (Archived in DYE2, below), never content, so it
-  is no field of any Basket's content, edit, Conflict or history entry; a
+  is no field of any Basket's content, edit, Lost Edit or history entry; a
   Basket's content holding one, as a release before #618 took it in, is read
   as holding none (`equipmentContent`), and the migration
   `20261122000000_basket_archived_not_content` took it out of every
@@ -1431,7 +1476,7 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   either end (`equipmentMatchKey`), to the oldest of the kind not Archived,
   as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the
   record takes the item's content, each field it held otherwise kept as a
-  Conflict, and the item is shown at the tablet's Location. Otherwise it
+  Lost Edit, and the item is shown at the tablet's Location. Otherwise it
   joins the Library, shown at the tablet's Location only. A new record
   already archived on the tablet shows the item nowhere: linked, it leaves
   the Location's state as it was, and joining the Library, it is hidden at
@@ -1626,8 +1671,9 @@ are never matched (ADR-0018).
   it is its record, as after a lost answer; otherwise it was saved under
   that id on the tablet before it held the Recipe, as a slot-number id
   saved there before DYE2 v0.1.25, and each field of its content that
-  differs from the Recipe's is an edit of it, merged with Conflicts as an
-  edit made without seeing the Recipe's. Any other record is a new Recipe
+  differs from the Recipe's is an edit of it, merged with Lost Edits as an
+  edit made without seeing the Recipe's, each value it replaces kept, as the
+  server held no record of the Recipe for the tablet (ADR-0033). Any other record is a new Recipe
   at the Location, under its own id as its record id, as one DYE2's editor
   or `save-recipe` made.
 - **Slots.** A record's `stripSlot` is its Recipe's slot at its Location, not
@@ -1923,7 +1969,7 @@ awaited, as its answer repeats `contentDecidedAt`. An answer the
 plugin marks `linked`, to a create it carried out by writing the global id to
 a bean of the same roaster and name entered there before the tablet reported
 it, links that record: it takes the Bean's content, each field it held
-otherwise kept as a Conflict (ADR-0018). Such a change is timed by
+otherwise kept as a Lost Edit (ADR-0018). Such a change is timed by
 the answered record, which Decaid stamped when the plugin wrote, up to a poll
 interval after the barista made it, so it can win by its time over another
 tablet's change made in between. An answer is recorded
@@ -2110,7 +2156,7 @@ tablet's list of batches to show it does not.
   was lost, is the answer; one without a global id, saved under that id
   before the tablet reported it, becomes the Recipe's, only the global id
   written to it (`linked`), and the server takes each field it holds
-  otherwise as an edit of the Recipe, merged with Conflicts; one carrying
+  otherwise as an edit of the Recipe, merged with Lost Edits; one carrying
   another item's global id is left, and the write refused (409), as the
   server removes it first; otherwise it adds a record with the write's
   fields and `capturedAt` at the end of the list, a recipe in no slot
@@ -2475,7 +2521,7 @@ it.
   state wins. Its records of items the Library has are those items: one
   its map holds, one carrying an item's global id, a Bean matched by
   roaster and name, and a user's Profile by its id, each linked with no
-  Conflict kept, and each written the item's content and what the
+  Lost Edit kept, and each written the item's content and what the
   Location offers. What the tablet changed of them before it joined, as
   while capture-only, an edit, an archiving or un-archiving, a Profile
   shown or hidden, or a delete, is written over, not taken in; one it
@@ -2869,7 +2915,7 @@ its profile, what Export gives, and `simulate_profile` its simulation.
 A Draft (ADR-0032, #579) is a profile being written or changed in the
 management interface: a row of its own (`drafts`,
 `server/src/library/drafts.service.ts`), which no tablet is ever written.
-It is not Library content: it is shown at no Location, makes no Conflict
+It is not Library content: it is shown at no Location, makes no Lost Edit
 and keeps no history but who saved it last and when. Admins and Staff may
 read, change and discard any Draft, Staff anywhere, as no Location holds
 one; a Viewer sees none (403 "A Viewer sees no Drafts", the one thing a
@@ -3328,7 +3374,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Location's tablets, a Basket unarchived where they hold it archived;
   hidden, a Basket is archived on their lists and a Tool removed from them,
   and a tablet that lacks it is written none. 403 for Staff
-  at a Location they do not work at. Their `history` and `conflicts` are an
+  at a Location they do not work at. Their `history` is an
   item's (below).
 - `POST /api/baskets` and `POST /api/tools`, with `{ locationId, content }`,
   its name required, create one shown at that Location, and return `{ basket
@@ -3363,8 +3409,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   after 1.10.1 (#547), with its `enjoyment` and `grinderSetting`, for the
   lists of Recipes that show its duration; before, only a Recipe's own
   read did. `GET /api/recipes/:id` returns `{ recipe }`, the same; or 404. Each route changing a Recipe
-  returns it so. `GET /api/recipes/:id/history` and `GET
-  /api/recipes/:id/conflicts` are an item's (below); a history entry that
+  returns it so. `GET /api/recipes/:id/history` is an item's (below); a history entry that
   moved it sets `slot` at its Location, null out of any, and one that chose
   or cleared its Reference Shot sets `referenceShotId`, with no Location.
   Staff read them as Admins do.
@@ -3394,7 +3439,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   or Location; 403 for Staff at a Location they do not work at.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
-  `{ versions }`, the item's history entries (ADR-0020), the latest taken
+  `{ versions, lostEdits }`, the item's history (`HistoryView` in
+  `server/src/library/history.service.ts`): its history entries (ADR-0020)
+  and its Lost Edits (ADR-0033, below). `versions` are the history entries, the latest taken
   in first, each `{ id, fields, location, source, editedAt, receivedAt }`:
   the fields it set, with their values, of the item's content, or of its
   state at
@@ -3412,42 +3459,35 @@ Every endpoint requires the account session; Staff read them as Admins do.
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. `?field=` names a field, of its content or
   of a Location's state of it, to list only the history entries that set
-  it, to a value or cleared, the first among them where it set it (#442);
+  it, to a value or cleared, the first among them where it set it (#442),
+  and only the Lost Edits of it;
   400 for one given twice, empty or over 200 characters. 404 if the Library
   does not have the item.
+  `lostEdits` are the item's Lost Edits (`LostEditView`), the latest lost
+  first, each `{ id, field, value, location, source, editedAt, lostAt,
+  lostTo }`: the field and the losing value, null where the edit cleared
+  it; the Location whose state the field is, null for content; where and
+  when the losing edit was made, as a history entry's; when it lost, by
+  PostgreSQL's clock; and the edit it lost to, `{ versionId, value, source,
+  editedAt }`, one of the item's `versions` by its id, with the value it set
+  the field to, null where it cleared it, and where and when it was made, or
+  null where that is not known, as for one the previous release kept as a
+  Conflict. One that release dismissed is left out. Staff read them as
+  Admins do, and nothing changes one: the routes that listed, used and
+  dismissed Conflicts are gone (#632), but for the stubs below.
 - Each item's Shots are the Shots list's, filtered by it: `GET
   /api/shots?beanId=`, `beanBatchId=`, `grinderId=`, `profileId=`,
   `recipeId=` or `basketId=` (`SHOTS.md`). A Tool lists none, as Shots are
   not linked to their Tools.
-- `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
-  latest first, each `{ id, item, field, value, location, source, editedAt,
-  createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,
-  `kind` being `bean`, `beanBatch`, `grinder`, `profile`, `basket`, `tool`
-  or `recipe`, and `name` a Bean's roaster and name, a batch's Bean and the
-  day it was roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a
-  Profile's title or a Basket's, Tool's or Recipe's name, null where its
-  content has none; the field and the
-  losing value, null where the edit cleared it; the Location whose state the
-  field is, null for content; where and when the losing edit was made, as a
-  history entry's; when it became a Conflict; `open`, `used` or `dismissed`; the
-  field's value now, `{ value, source, editedAt, versionId }`, with where
-  and when the edit that set it was made, and its history entry, each null
-  if that is not known, as for a field
-  nothing set; a batch never added at the Location is not there, and a
-  Profile its Location never decided not shown; and whether the signed-in
-  account may use its value or dismiss it (Resolving Conflicts, above).
-- `GET /api/beans/:id/conflicts`, `GET /api/bean-batches/:id/conflicts`,
-  `GET /api/grinders/:id/conflicts` and `GET /api/profiles/:id/conflicts`
-  return `{ conflicts }`, the item's open Conflicts, as the list shows them;
-  or 404.
-- `POST /api/conflicts/:id/use`, with `{ seen }`, the `current.versionId`
-  the Conflict was shown with, uses an open Conflict's value, and `POST
-  /api/conflicts/:id/dismiss` dismisses it (Resolving Conflicts, above). Each
-  returns `{ conflict }`, closed, with the field's value now; 400 if `seen`
-  is not a history entry's id or null, 404 if there is no such Conflict,
-  403 if the account may not resolve it, and 409 if it was used or
-  dismissed already, or the field was decided since the history entry
-  `seen`.
+- `GET /api/conflicts`, each item's `GET .../:id/conflicts` (`beans`,
+  `bean-batches`, `grinders`, `profiles`, `baskets`, `tools` and `recipes`),
+  `POST /api/conflicts/:id/use` and `POST /api/conflicts/:id/dismiss` are
+  stubs (`server/src/library/conflicts.controller.ts`), kept for a page of
+  the previous release that has not loaded the new build yet (ADR-0025):
+  each `GET` returns `{ conflicts: [] }`, whatever the id, so such a page
+  shows none, and each `POST` is refused with 410, asking for a reload.
+  Nothing is listed, used or dismissed through them. They are to be removed
+  in the next release (#642).
 - `PUT /api/machines/:id/sharing`, with `{ sharing }`, turns the Machine's
   sharing on or off, off making it a Capture-only Machine, and returns the
   same: Admins only. 400 without a boolean, 404 for no such Machine.
@@ -3464,7 +3504,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
   localId }`: `change` is `write`, `delete`, `remove` or `leaveOut`; `kind` a Library
   kind or `workflow`; `item` the item, `{ kind, id, name }`,
-  named as a Conflict's is, or for the Workflow "Grinder, batch and Basket", null
+  `name` a Bean's roaster and name, a batch's Bean and the
+  day it was roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a
+  Profile's title or a Basket's, Tool's or Recipe's name, null where its
+  content has none, or for the Workflow "Grinder, batch and Basket", null
   for a record set aside, which is none of the Library's, or an item
   deleted since; and `localId` Decaid's id for the record, null for a
   create and the Workflow. `lastApplied` adds `appliedAt`,
@@ -3494,13 +3537,14 @@ list, and no route was added for it. Its New Recipe (`NewRecipeDialog` in
 `web/src/components/recipes.tsx`) asks for the Location first, of those the
 account may change, choosing it when there is only one, then opens the
 Recipe form a Location's Recipes card creates one with.
-Each item's page notes its open Conflicts, if it has any, and shows how
+Each item's page shows how
 many Shots it has, with a link that opens them in the Shots list
-(`web/src/components/item-shots.tsx`), and its history, and the
-Library's Conflicts page lists every open Conflict, the latest first, with
-the losing value and the value now, and where and when each came from. A
-Conflict is used or dismissed from either, by an account that may
-(`web/src/components/conflicts.tsx`). Each Location's page
+(`web/src/components/item-shots.tsx`), and its history, in a History card
+that lists its Lost Edits among its changes, the latest first, each marked
+with a "Lost Edit" badge and a line saying what it lost to, "Lost to" the
+value, by whom, and when
+(`web/src/components/item-history.tsx`). Nothing is done to one there, and
+the Library has no page of them. Each Location's page
 (`/locations/:id`) lists its Machines, a capture-only one flagged. A
 Machine's page says whether it shares the Library at its Location or is capture-only, and why, with a
 switch an Admin turns its sharing off and on with, once they confirm, and
@@ -3520,11 +3564,11 @@ with Decaid.
 ## Adding a Library kind
 
 Each kind of Library item is described once on each side, and what treats
-every kind alike reads that description: its history and Conflicts, edits
+every kind alike reads that description: its history and Lost Edits, edits
 of its content, what a tablet is due and holds, the writer's waits and the
 gateway's answers, joining, hard deletes and sharing status on the server;
 the lists the plugin reports and how it writes, deletes and sets aside
-records; and history, Conflicts and sharing status in the management
+records; and history and sharing status in the management
 interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
 
 1. **The protocol** (`protocol/src/index.ts`): an entry in
@@ -3551,7 +3595,7 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    and `field_edits` as the other kinds have them; each tablet's map of its
    records; a Location's state of it, if it has one; and its table's four
    triggers keeping `versioned_items` (Storage, above), without which its
-   items can have no history or Conflicts.
+   items can have no history or Lost Edits.
 4. **The server** (`server/src/library/kinds.ts`): an entry in `KINDS`
    (`LibraryKindDescription`): its name, table, id type and map; its content
    as edits merge it, from the Library's content and from a tablet's
@@ -3559,8 +3603,7 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    Location offers and a tablet holds (`holdings`), and the writes that
    bring a tablet's records to it (`plan`, in `holdings.ts`); whether a
    Location offers any, as a joining tablet's are judged; what its hard
-   delete reads and keeps; a Location's state of it, if any, as Conflicts
-   about it read and use it; and its own modules' intake of a report
+   delete reads and keeps; and its own modules' intake of a report
    (`takeIn`) and record of a write's answer (`recordWritten`).
 5. **Its own modules**: taking in a report of its list and recording an
    answer, as `beans.ts` does, with a pure planning module and its module
@@ -3578,7 +3621,7 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    (`server/src/shots/links.ts`).
 6. **The management interface** (`web/src/lib/library-kinds.ts`): an entry
    in `LIBRARY_KINDS`, its name, pages, REST API and Shots filter, which
-   history, Conflicts and sharing status read; and its pages.
+   history and sharing status read; and its pages.
 7. **Tests**: the simulated tablet carrying out the writes of its records
    as Decaid, or DYE2, does (`server/test/support/simulated-tablet.ts`),
    Seam 1 tests of it through the built plugin, and Seam 2 specs of its
@@ -3598,7 +3641,7 @@ the same Profiles.
 `server/test/library-grinders.test.ts`,
 `server/test/library-profiles.test.ts`,
 `server/test/library-edits.test.ts`,
-`server/test/library-conflicts.test.ts`,
+`server/test/library-lost-edits.test.ts`,
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
 `server/test/library-profile-text.test.ts`,
@@ -3632,7 +3675,7 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/`, `workflow-writes-v0.8.7/` and
 `workflow-writes-v0.9.0/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
-`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/profile-publishing.spec.ts`, `e2e/draft-following.spec.ts`, `e2e/conflicts.spec.ts`,
+`e2e/profile-management.spec.ts`, `e2e/profile-editor.spec.ts`, `e2e/profile-publishing.spec.ts`, `e2e/draft-following.spec.ts`, `e2e/lost-edits.spec.ts`,
 `e2e/capture-only.spec.ts`,
 `e2e/sharing-status.spec.ts`, `e2e/equipment-management.spec.ts` and
 `e2e/recipe-management.spec.ts` the management interface.

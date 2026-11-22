@@ -205,7 +205,7 @@ can't connect.
   allow it without asking.
 - Each Library change and each Settings Edit made through an app is recorded
   as the person's, through the app. It shows as "*account*, through *app*" in
-  the item's history and Conflicts, and in the Machine's Settings Edits.
+  the item's history, and in the Machine's Settings Edits.
 - Each person sees their own apps on the **Connected Apps** page, in the
   account menu under their name. Disconnecting one there stops it at once.
 - Admins see and disconnect everyone's apps on the **Accounts** page.

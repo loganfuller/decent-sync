@@ -693,8 +693,9 @@ parts to the Recipe's content both ways.
   the Recipe its Machine had loaded (not one that loads it, nor one named
   again as the tablet joins its Location), the server records, as that
   tablet's edit of the Recipe, timed as the plugin observed the Workflow,
-  merged per field with Conflicts and judged by what the tablet's record of
-  the Recipe has seen (ADR-0020, `editContent`), each change from `held` of
+  merged per field with Lost Edits and judged by what the tablet's record of
+  the Recipe has seen (ADR-0020, `editContent`), a value the Workflow held
+  as the Recipe's being replaced with no Lost Edit kept (ADR-0033), each change from `held` of
   what DYE2 saves none of (`valuesFromWorkflow` in
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
   setting, RPM or feed rate the Recipe holds none of, but never a dose,
@@ -810,7 +811,7 @@ parts to the Recipe's content both ways.
   (`withoutOwnEdits` in `recipe-intake.ts`), so the same edit reaching the
   server twice is one.
 - **To every Machine that has it loaded.** An edit of a Recipe from
-  anywhere, a tablet, the management interface or a Conflict's value used,
+  anywhere, a tablet or the management interface,
   commits with a `NOTIFY` on `library_changes` naming its Location, and
   each writer there plans, after the Recipe's record and the items it names
   (`loadedRecipeDue`, last in `changesDue`), a `write` of the

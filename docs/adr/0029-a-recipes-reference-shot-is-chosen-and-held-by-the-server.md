@@ -21,4 +21,4 @@ A chosen reference lets a Location pull against a Shot dialled somewhere else, s
 - **It may not match the Recipe.** A Reference Shot can be on another Profile, Machine, Grinder or Location than the Recipe's, by choice or because the Recipe changed since. Nothing clears it; the management interface says where its Profile differs from the Recipe's.
 - **A copy of a Recipe starts with the same Reference Shot,** and chooses its own from then on.
 - **Only a person clears it.** The server never deletes a Shot, so a Recipe keeps its Reference Shot until someone chooses another or clears it. A Shot hidden after it was chosen, because its Pending Machine was dismissed, leaves the Recipe reading as having none until that hardware is adopted.
-- **It is not a content edit.** It is set through a route and a tool of its own, as a Recipe Slot is, so it makes no Conflict (ADR-0020) and nothing is sent to tablets.
+- **It is not a content edit.** It is set through a route and a tool of its own, as a Recipe Slot is, so it makes no Lost Edit (ADR-0020, ADR-0033) and nothing is sent to tablets.

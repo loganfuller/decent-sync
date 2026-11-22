@@ -964,8 +964,8 @@ off. Ticket [#513](https://github.com/loganfuller/decent-sync/issues/513)
 decides them (ADR-0031).
 
 - **The rule.** The later edit of a field wins, and nothing is kept of the
-  other: no Conflict is made, as the Library makes one (ADR-0020), so a
-  Shot never waits on someone to settle it. The rating and the note are
+  other: no Lost Edit is kept, as the Library keeps one in an item's
+  history (ADR-0033). The rating and the note are
   decided apart: an edit of the rating leaves the note alone, and the
   reverse, so two people editing different fields both keep theirs.
 - **Which is later.** An edit made through the server is timed by
@@ -1942,8 +1942,7 @@ give an assistant what it shows.
 parts.
 
 A Recipe's page (`/library/recipes/:id`) leads with how it is pulling
-(#474, #547): under its name, Recipe Slot and Location, and its Conflicts
-where it has any, a heading with a choice of period, Today, Yesterday or 7
+(#474, #547): under its name, Recipe Slot and Location, a heading with a choice of period, Today, Yesterday or 7
 days, which its address keeps as `period` as the Overview's does; its
 Reference Shot's card beside By Machine; and then Trend
 (`web/src/components/recipe-numbers.tsx`). By Machine and Trend are each a
