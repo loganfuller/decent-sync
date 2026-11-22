@@ -173,10 +173,13 @@ export function holdsContentAsDecided(
   contentDecidedAt: Date | null,
 ): boolean {
   if (contentDecidedAt === null) return false;
-  return Object.keys(changedFields(current, values)).every((field) => {
-    const latest = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field] : undefined;
-    return latest !== undefined && new Date(latest.decidedAt).getTime() > contentDecidedAt.getTime();
-  });
+  const since = decidedSince(edits, contentDecidedAt);
+  return Object.keys(changedFields(current, values)).every((field) => since.has(field));
+}
+
+/** The fields whose latest edit was decided after `at`, by PostgreSQL's clock: what a record written the content as decided then may hold otherwise. */
+export function decidedSince(edits: FieldEdits, at: Date): Set<string> {
+  return new Set(Object.entries(edits).flatMap(([field, edit]) => (new Date(edit.decidedAt).getTime() > at.getTime() ? [field] : [])));
 }
 
 /** An item's field edits as stored, or none if they cannot be read. */

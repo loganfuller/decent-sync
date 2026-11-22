@@ -897,6 +897,33 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await recipesAt(lab)).map((listed) => listed.slot)).toEqual([1, 2, 5, null]);
   });
 
+  it("counts a tablet's answer to a Recipe's create that reached the server only after a reconnect as having seen it, though a field was edited since (#629)", async () => {
+    const location = await api.createLocation("Late answer lab", "America/Chicago");
+    const machine = await api.createMachine("Late answer 1", location.id);
+    // Its answers to writes wait in its outbox while held, until it reconnects: answers to no write awaited then.
+    let holding = true;
+    const tablet = load(machine, 45401, server, (frame) => holding && (frame as { type?: unknown }).type === "written");
+    await api.waitForOnline(machine);
+    const created = await create(location, 1, { name: "Late Espresso", dose: 18, yield: 36 });
+    await expect.poll(() => recordOf(tablet, created.id)).toBeDefined();
+
+    // Its Wi-Fi drops before its answer to the create is sent; the Recipe is renamed here meanwhile, then its barista
+    // changes the dose it was written, with its plugin's clock 10 minutes slow, so the change is timed before the
+    // create, which it had seen.
+    tablet.loseNetwork();
+    holding = false;
+    await edit(created.id, { name: "Late Espresso v2" });
+    tablet.setPluginClockOffset(-10 * 60_000);
+    const list = recordsOn(tablet).map((record) =>
+      record[GLOBAL_ID_KEY] === created.id ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 19 } } : record,
+    );
+    expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
+    tablet.restoreNetwork();
+    await expect.poll(async () => (await recipe(created.id)).content, { timeout: 15_000 }).toMatchObject({ name: "Late Espresso v2", dose: 19 });
+    await expect.poll(() => recordOf(tablet, created.id)?.name, { timeout: 15_000 }).toBe("Late Espresso v2");
+    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${created.id}/conflicts`)).conflicts).toEqual([]);
+  });
+
   it("lets Staff change Recipes only at the Locations they work at", async () => {
     const home = await api.createLocation("Staff recipe home", "America/Chicago");
     const elsewhere = await api.createLocation("Staff recipe elsewhere", "America/Chicago");

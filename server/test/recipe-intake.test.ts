@@ -1,6 +1,7 @@
 import { GLOBAL_ID_KEY, profileAtBrewTemperature, profileOf, sameValue } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { editedContent } from "../src/library/equipment-intake.js";
+import type { FieldEdits } from "../src/library/merge.js";
 import {
   EDITED_PATHS,
   type IntakeContext,
@@ -9,6 +10,7 @@ import {
   type WriteContext,
   editedPaths,
   holdsRecipe,
+  holdsRecipeAsDecided,
   libraryValues,
   planRecipeIntake,
   readReportedRecipes,
@@ -512,6 +514,33 @@ describe("DYE2's recipes as Recipes", () => {
       expect(libraryValues(zeroed, ["dashboardVariables.grind"], slot1Content, intake()), String(zero)).toEqual({ grindSetting: zero });
     }
     expect([...EDITED_PATHS]).not.toContain("barista");
+  });
+
+  it("takes a record answered with no earlier record known as holding the Recipe as its write left it, though a field was edited since (#629)", () => {
+    const written = recipeRecord(slot1Content, 1, writing(recordedIds), GLOBAL.recipe);
+    const answered = recipeView({ ...recordOf(written), id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe });
+    // The write carried the Recipe as decided at 10:00; its dose and its steam temperature were edited at 10:05.
+    const decided = (time: string) => ({ at: `2026-10-08T${time}Z`, decidedAt: `2026-10-08T${time}Z`, tabletId: null, versionId: "3c4d5e6f-7a8b-4c9d-8e0f-2a3b4c5d6e7f" });
+    const edits: FieldEdits = Object.fromEntries([
+      ...Object.keys(slot1Content).map((field) => [field, decided("10:00:00.000")]),
+      ["dose", decided("10:05:00.000")],
+      ["steamTemperature", decided("10:05:00.000")],
+    ]);
+    const writtenAt = new Date("2026-10-08T10:00:00.000Z");
+    // Its steam turned "Off" since, which writes its steam time as 0 too.
+    const now = { ...slot1Content, dose: 19, steamTemperature: 0 };
+    const nowWritten = recipeRecord(now, 1, writing(recordedIds), GLOBAL.recipe);
+    expect(holdsRecipe(answered, nowWritten)).toBe(false);
+    expect(holdsRecipeAsDecided(answered, nowWritten, now, edits, writtenAt)).toBe(true);
+    // A path written from a field not edited since must be held as the Recipe holds it.
+    const renamed = recipeView({ ...recordOf(written), id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe, name: "Renamed" });
+    expect(holdsRecipeAsDecided(renamed, nowWritten, now, edits, writtenAt)).toBe(false);
+    // A brew temperature it holds none of is its Profile's first step's: written from both.
+    const { brewTemperature: _, ...unheated } = now;
+    expect(holdsRecipeAsDecided(answered, recipeRecord(unheated, 1, writing(recordedIds), GLOBAL.recipe), unheated, edits, writtenAt)).toBe(false);
+    expect(holdsRecipeAsDecided(answered, recipeRecord(unheated, 1, writing(recordedIds), GLOBAL.recipe), unheated, { ...edits, profileId: decided("10:05:00.000") }, writtenAt)).toBe(true);
+    // Nothing for an answer that repeats no time its content was decided.
+    expect(holdsRecipeAsDecided(answered, written, slot1Content, edits, null)).toBe(false);
   });
 
   it("writes a record's Recipe Slot as its stripSlot, null for none, shown on the strip exactly while in one, which is no edit of its content", () => {
