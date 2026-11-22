@@ -61,7 +61,10 @@ async function saved(page: Page): Promise<SavedDraft> {
 
 const inspector = (page: Page) => page.getByRole("region", { name: "Inspector" });
 const stepsCard = (page: Page) => page.getByRole("region", { name: "Steps" });
-const checks = (page: Page) => page.getByRole("region", { name: "Checks" });
+/** The checks' status beside Publish (#623), named for what it says. */
+const checksStatus = (page: Page) => page.getByRole("button", { name: /^Checks: / });
+/** The list of checks the status opens. */
+const checks = (page: Page) => page.getByRole("dialog", { name: "Checks" });
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
@@ -76,8 +79,12 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
   await expect(page).toHaveURL(/\/library\/drafts\//);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Lab Soak Draft");
   await expect(page.getByText("Will publish as a new version of Lab Soak")).toBeVisible();
-  // Unchanged, its steps are the Profile's own.
-  await expect(checks(page).getByText('Its steps are those of "Lab Soak", which the Library has.')).toBeVisible();
+  // Unchanged, its steps are the Profile's own, which stops it publishing.
+  await expect(checksStatus(page)).toHaveAccessibleName(/^Checks: 1 thing stops publishing/);
+  await checksStatus(page).click();
+  await expect(checks(page).getByRole("region", { name: "Stops it publishing" }).getByText('Its steps are those of "Lab Soak", which the Library has.')).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(checks(page)).toHaveCount(0);
   const graph = page.getByRole("region", { name: "How it runs" });
   await expect(graph.getByText("Lab Soak, simulated")).toBeVisible();
   await expect(graph.locator("[data-baseline]")).toHaveCount(1);
@@ -87,7 +94,7 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
   await expect(inspector(page).getByRole("tab", { name: "Step 3" })).toHaveAttribute("data-state", "active");
   await inspector(page).getByLabel("Target").fill("8");
   await expect(graph.getByRole("definition").filter({ hasText: /than Lab Soak$/ }).first()).toBeVisible();
-  await expect(checks(page).getByText("Nothing stops this from publishing")).toBeVisible();
+  await expect(checksStatus(page)).toHaveAccessibleName(/^Checks: Nothing stops publishing/);
   expect((await saved(page)).profile.steps[2]).toMatchObject({ pressure: 8 });
 
   // Held to what the machine accepts.
@@ -95,8 +102,8 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
   await expect(inspector(page).getByText("Held to 0 to 12 bar, what the machine accepts")).toBeVisible();
   expect((await saved(page)).profile.steps[2]).toMatchObject({ pressure: 12 });
 
-  // A later step's temperature is given against the first's.
-  const temperature = inspector(page).getByLabel("Temperature");
+  // A later step's temperature is given against the first's, its value in plain sight; what explains a field is behind an icon beside its label.
+  const temperature = inspector(page).getByLabel("Temperature", { exact: true });
   await expect(temperature).toHaveValue("-2");
   await expect(inspector(page).getByText("88 °C at a 90 °C brew")).toBeVisible();
   await temperature.fill("-4");
@@ -104,8 +111,10 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
 
   // The whole Profile.
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  for (const field of ["brew temperature", "stop at weight", "stop at volume"]) await expect(inspector(page).getByRole("button", { name: `About ${field}` })).toBeVisible();
+  await expect(inspector(page).getByText("A Recipe's yield replaces it")).toHaveCount(0);
   await inspector(page).getByLabel("Title").fill("Lab Soak, hotter");
-  const brew = inspector(page).getByLabel("Brew temperature");
+  const brew = inspector(page).getByLabel("Brew temperature", { exact: true });
   await brew.fill("92");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Lab Soak, hotter Draft");
   expect((await saved(page)).profile).toMatchObject({ title: "Lab Soak, hotter", steps: [{ temperature: 92 }, { temperature: 92 }, { temperature: 88 }] });
@@ -181,21 +190,78 @@ test("steps are added, duplicated, moved and deleted, with preinfusion kept on i
   expect((await saved(page)).profile.target_volume_count_start).toBe(3);
 });
 
-test("the checks name their step, both kinds, and choosing one selects it", async ({ page }) => {
+test("the checks, a status beside Publish, count what stops it and the advice, and choosing one from their list selects its step", async ({ page }) => {
   await page.goto("/library/profiles");
   await page.getByRole("region", { name: "Drafts" }).getByRole("link", { name: /^Open the Draft Lab Soak, hotter$/ }).click();
+  // Its percolation held to a pressure the run reaches and its settle given a length, so its exit applies: nothing stops it and there is no advice.
+  await expect(checksStatus(page)).toHaveAccessibleName("Checks: Nothing stops publishing · 2 pieces of advice");
+  await stepsCard(page).getByRole("button", { name: /^Select step \d, Percolation$/ }).click();
+  await inspector(page).getByLabel("Target").fill("6");
+  await stepsCard(page).getByRole("button", { name: /^Select step \d, Settle$/ }).click();
+  await inspector(page).getByLabel("For at most").fill("2");
+  await expect(checksStatus(page)).toHaveAccessibleName("Checks: Nothing stops publishing");
+  await checksStatus(page).click();
+  await expect(checks(page)).toContainText("Nothing stops this from publishing, and there is no advice.");
+  await page.keyboard.press("Escape");
   await stepsCard(page).getByRole("button", { name: "Select step 2, New step" }).click();
   await inspector(page).getByLabel("Or at a weight of").fill("4");
   await expect(inspector(page).getByText("Needs a scale")).toBeVisible();
+  // Advice alone lets it publish.
+  await expect(checksStatus(page)).toHaveAccessibleName("Checks: Nothing stops publishing · 1 piece of advice");
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeEnabled();
   await inspector(page).getByLabel("Name").fill("");
+  await expect(checksStatus(page)).toHaveAccessibleName("Checks: 1 thing stops publishing · 1 piece of advice");
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+  await checksStatus(page).click();
   const advice = checks(page).getByRole("region", { name: "Advice" });
   await expect(advice.getByRole("button", { name: "Step 2 ends at a weight in the cup, which needs a scale connected." })).toBeVisible();
   await expect(checks(page).getByRole("region", { name: "Stops it publishing" }).getByText("Step 2 has no name.")).toBeVisible();
+  await page.keyboard.press("Escape");
   await stepsCard(page).getByRole("button", { name: "Select step 1, Fill" }).click();
+  // Chosen from the list, a check selects its step and the list closes.
+  await checksStatus(page).click();
   await advice.getByRole("button", { name: /^Step 2 ends at a weight/ }).click();
+  await expect(checks(page)).toHaveCount(0);
   await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toHaveAttribute("data-state", "active");
   await inspector(page).getByLabel("Name").fill("Soak");
-  await expect(checks(page).getByText("Nothing stops this from publishing")).toBeVisible();
+  await expect(checksStatus(page)).toHaveAccessibleName("Checks: Nothing stops publishing · 1 piece of advice");
+});
+
+test("in a wide window a Draft's steps are a rail left of the graph, under it in a narrower one, and only a Draft's page is wider", async ({ page }) => {
+  const pageWidth = async () => (await page.locator("main").boundingBox())!.width;
+  await page.setViewportSize({ width: 1710, height: 985 });
+  await page.goto(`/library/profiles/${encodeURIComponent(soakId)}`);
+  await expect(page.getByRole("region", { name: "How it runs" })).toBeVisible();
+  expect(await pageWidth()).toBe(1152);
+
+  await page.goto("/library/profiles");
+  await page.getByRole("region", { name: "Drafts" }).getByRole("link", { name: /^Open the Draft Lab Soak, hotter$/ }).click();
+  const graph = page.getByRole("region", { name: "How it runs" });
+  await expect(graph.locator("svg[data-graph-end]")).toBeVisible();
+  // The page and the header grow together, to 1600 px.
+  const main = (await page.locator("main").boundingBox())!;
+  const bar = (await page.getByRole("banner").locator("> div").boundingBox())!;
+  expect(main.width).toBe(1600);
+  expect([bar.x, bar.width]).toEqual([main.x, main.width]);
+  const steps = (await stepsCard(page).boundingBox())!;
+  const drawn = (await graph.boundingBox())!;
+  const fields = (await inspector(page).boundingBox())!;
+  expect(steps.x + steps.width).toBeLessThanOrEqual(drawn.x);
+  expect(Math.abs(steps.y - drawn.y)).toBeLessThan(1);
+  expect(drawn.x + drawn.width).toBeLessThanOrEqual(fields.x);
+
+  // At 1280 the steps go under the graph, which is as wide as before the rail (712 px).
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect.poll(async () => (await stepsCard(page).boundingBox())!.y).toBeGreaterThanOrEqual((await graph.boundingBox())!.y + (await graph.boundingBox())!.height);
+  expect((await graph.locator("svg[data-graph-end]").boundingBox())!.width).toBeGreaterThanOrEqual(712);
+
+  // The inspector, taller than the window, stays in it once the page scrolls, and scrolls within itself to its last buttons.
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect.poll(async () => (await inspector(page).boundingBox())!.y).toBe(16);
+  expect((await inspector(page).boundingBox())!.height).toBeLessThanOrEqual(720 - 32);
+  expect(await inspector(page).evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await inspector(page).evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  await expect(inspector(page).getByRole("button", { name: "Delete the step" })).toBeInViewport({ ratio: 1 });
 });
 
 test("a save made after someone else's is taken, and the page says another came between", async ({ page }) => {
@@ -279,9 +345,9 @@ test("a step's maximum time dragged to nothing keeps its handles, and the axes f
   const graph = page.getByRole("region", { name: "How it runs" });
   // Its stop-at weight changed, the shape as it started still stops at its own 36 g, so the figures say how far the Draft runs past it.
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
-  await inspector(page).getByLabel("Stop at weight").fill("45");
+  await inspector(page).getByLabel("Stop at weight", { exact: true }).fill("45");
   await expect(graph.getByText(/^[\d.]+ s longer than Declining lever as it started$/)).toBeVisible();
-  await inspector(page).getByLabel("Stop at weight").fill("36");
+  await inspector(page).getByLabel("Stop at weight", { exact: true }).fill("36");
   await expect(graph.getByText("The same as Declining lever as it started").first()).toBeVisible();
   await stepsCard(page).getByRole("button", { name: "Select step 2, Peak" }).click();
   const bracket = graph.getByRole("slider", { name: "Peak's maximum time, s" });
@@ -302,7 +368,7 @@ test("a step's maximum time dragged to nothing keeps its handles, and the axes f
   const svg = graph.locator("svg[data-graph-end]").first();
   const before = Number(await svg.getAttribute("data-graph-end"));
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
-  await inspector(page).getByLabel("Stop at weight").fill("150");
+  await inspector(page).getByLabel("Stop at weight", { exact: true }).fill("150");
   await expect.poll(async () => Number(await svg.getAttribute("data-graph-end"))).toBeGreaterThan(before);
   await page.getByRole("button", { name: /^Discard the Draft/ }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();

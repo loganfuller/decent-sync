@@ -1,6 +1,6 @@
 import { ChevronDownIcon, MenuIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useState } from "react";
-import { Link, NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet, useMatch } from "react-router";
 import { useAuth, useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
 import { Logo, Logomark } from "@/components/logo";
@@ -21,9 +21,12 @@ import { chooseTheme, type ThemeChoice, useThemeChoice } from "@/lib/theme";
 /**
  * The signed-in frame: a header with the main navigation and the account menu, which holds Connected Apps and
  * Sign out, all in one menu on a narrow screen, and a page. The theme button stays in the header at every width.
+ * Every page is at most 1152 px wide, but a Draft's, a workspace of steps, graph and inspector, grows to 1600 px
+ * (#623), and the header with it so their edges line up.
  */
 export function Shell() {
   const { state, signOut } = useAuth();
+  const width = useMatch("/library/drafts/:id") ? "max-w-[100rem]" : "max-w-6xl";
   const [signingOut, setSigningOut] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const account = state.status === "signed-in" ? state.account : undefined;
@@ -40,7 +43,7 @@ export function Shell() {
   return (
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
+        <div className={`mx-auto flex h-14 ${width} items-center gap-4 px-4`}>
           <Link to="/" className="shrink-0">
             <Logo className="h-7" />
           </Link>
@@ -109,7 +112,7 @@ export function Shell() {
           </Sheet>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 p-4">
+      <main className={`mx-auto w-full ${width} flex-1 p-4`}>
         <Outlet />
       </main>
     </div>

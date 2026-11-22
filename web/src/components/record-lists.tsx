@@ -1,5 +1,5 @@
 import { CalendarIcon, ListFilterIcon, XIcon } from "lucide-react";
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { InfoTip } from "@/components/info-tip";
 import { describeHardware, useLocations } from "@/components/machines";
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { api, type Machine, type PendingMachine } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
+import { useScreen } from "@/lib/use-screen";
 
 // The Shots and Steam Records lists: pages of records, newest first, with
 // filters that are the REST API's query parameters, kept in the page's
@@ -310,16 +311,9 @@ export function useRecordFilters(list: RecordList<ListPage>): { filters: ListFil
 /** Tailwind's `sm` breakpoint. */
 const WIDE_SCREEN = "(min-width: 640px)";
 
-/** Hears of the screen crossing that width, until the function it returns is called. */
-function onScreenWidth(changed: () => void): () => void {
-  const media = window.matchMedia(WIDE_SCREEN);
-  media.addEventListener("change", changed);
-  return () => media.removeEventListener("change", changed);
-}
-
 /** Whether the screen is wide enough for the filters to open beside the list, in a popover, rather than over it, in a sheet. */
 function useWideScreen(): boolean {
-  return useSyncExternalStore(onScreenWidth, () => window.matchMedia(WIDE_SCREEN).matches);
+  return useScreen(WIDE_SCREEN);
 }
 
 /** The date preset standing for dates chosen by hand. */

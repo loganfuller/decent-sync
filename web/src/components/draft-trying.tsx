@@ -3,7 +3,6 @@ import { Check, TriangleAlert } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
-import { formatTime } from "@/components/machines";
 import { gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -24,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { type DraftFollowing, type DraftTrial, type DraftTrying, type FollowableMachine, type TrialShot, api } from "@/lib/api";
 import { seconds } from "@/lib/profile-words";
+import { clockTime } from "@/lib/relative-time";
 import { HowItRuns } from "@/pages/ProfilePage";
 
 // Trying a Draft on a Machine (#581, ADR-0032): the card that has a Machine
@@ -44,11 +44,17 @@ const ENDED: Record<NonNullable<DraftFollowing["ended"]>["why"], string> = {
   location: " It left its Location, or Drafts are no longer tried there.",
 };
 
+/** A moment as the card says it: its time of day, with its date only where it is not today's. */
+function when(iso: string): string {
+  return clockTime(Date.parse(iso), Date.now());
+}
+
 /**
- * Following the Draft on a Machine: a switch, the Machine, and whether it
- * has the Draft's steps and since when, or is still waiting for them. Turning
- * it on first says that the Machine's Loaded Recipe ends. Once following has
- * ended, it says what the Machine has instead, with one control to follow
+ * Following the Draft on a Machine, in one row (#623): a switch, the
+ * Machine, and whether it has the Draft's steps and since when, or is still
+ * waiting for them. Turning it on first says that the Machine's Loaded
+ * Recipe ends. Once following has ended, it says what the Machine has
+ * instead and that following again replaces it, with one control to follow
  * again. Nothing where no Location tries Drafts and the Draft was never
  * followed.
  */
@@ -80,40 +86,49 @@ export function FollowingCard({ draftPath, title, trying, unsaved, onChanged }: 
     }
   }
 
+  const cannot = machine ? cannotFollow(machine) : "no Machine can follow a Draft now";
   let status: ReactNode = null;
   if (following?.state === "current") {
     status = (
-      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+      <span className="inline-flex min-w-0 flex-[1_1_20rem] items-center gap-1.5 text-sm text-muted-foreground">
         <Check aria-hidden className="size-4 text-green-700 dark:text-green-500" />
-        {unsaved ? "Saving…" : `The Machine has these steps${following.since ? `, since ${formatTime(following.since)}` : ""}`}
+        {unsaved ? "Saving…" : `The Machine has these steps${following.since ? `, since ${when(following.since)}` : ""}`}
       </span>
     );
   } else if (following?.state === "waiting") {
-    status = <span className="text-sm text-muted-foreground">{`Waiting for ${following.machine.name}${following.waitingFor ? `: ${following.waitingFor}` : ", which takes them once it is on and not pulling a Shot"}`}</span>;
+    status = <span className="min-w-0 flex-[1_1_20rem] text-sm text-muted-foreground">{`Waiting for ${following.machine.name}${following.waitingFor ? `: ${following.waitingFor}` : ", which takes them once it is on and not pulling a Shot"}`}</span>;
   } else if (following?.ended) {
+    // What following again replaces, said in the sentence, where it can follow again.
+    const replaces = cannot === undefined;
+    const has = following.has
+      ? machineId === following.machine.id && replaces
+        ? ` ${following.machine.name} now has ${following.has}, which following again replaces.`
+        : ` ${following.machine.name} now has ${following.has}.${replaces ? ` Following again replaces what ${name} has loaded.` : ""}`
+      : replaces
+        ? ` Following again replaces what ${name} has loaded.`
+        : "";
     status = (
-      <span className="inline-flex items-start gap-1.5 text-sm">
+      <span className="inline-flex min-w-0 flex-[1_1_20rem] items-start gap-1.5 text-sm">
         <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-500" />
         <span>
-          <span className="font-semibold">{`Following stopped at ${formatTime(following.ended.at)}.`}</span>
+          <span className="font-semibold">{`Following stopped at ${when(following.ended.at)}.`}</span>
           {ENDED[following.ended.why]}
-          {following.has ? ` ${following.machine.name} now has ${following.has}.` : ""}
+          {has}
         </span>
       </span>
     );
   }
-  const cannot = machine ? cannotFollow(machine) : "no Machine can follow a Draft now";
 
   return (
-    <Card role="region" aria-label="On a Machine" className={following?.state === "ended" ? "bg-muted/40" : undefined}>
+    <Card role="region" aria-label="On a Machine" size="sm" className={following?.state === "ended" ? "bg-muted/40" : undefined}>
       <CardContent className="grid gap-3">
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3">
             <Switch
               id={`${id}-follow`}
               checked={active}
@@ -121,33 +136,30 @@ export function FollowingCard({ draftPath, title, trying, unsaved, onChanged }: 
               onCheckedChange={(on) => (on ? setAsking(true) : void send("DELETE"))}
             />
             <Label htmlFor={`${id}-follow`}>Follow on</Label>
-            <Select value={machineId ?? ""} onValueChange={setChosen} disabled={active || busy}>
-              <SelectTrigger aria-label="Machine" className="min-w-40">
-                <SelectValue placeholder="No Machine" />
-              </SelectTrigger>
-              <SelectContent>
-                {machines.map((each) => {
-                  const why = cannotFollow(each);
-                  return (
-                    <SelectItem key={each.id} value={each.id} disabled={why !== undefined}>
-                      {why ? `${each.name}, ${why}` : each.name}
-                    </SelectItem>
-                  );
-                })}
-                {following && !machines.some((each) => each.id === following.machine.id) && <SelectItem value={following.machine.id}>{following.machine.name}</SelectItem>}
-              </SelectContent>
-            </Select>
-            {status}
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <Select value={machineId ?? ""} onValueChange={setChosen} disabled={active || busy}>
+            <SelectTrigger aria-label="Machine" className="min-w-40">
+              <SelectValue placeholder="No Machine" />
+            </SelectTrigger>
+            <SelectContent>
+              {machines.map((each) => {
+                const why = cannotFollow(each);
+                return (
+                  <SelectItem key={each.id} value={each.id} disabled={why !== undefined}>
+                    {why ? `${each.name}, ${why}` : each.name}
+                  </SelectItem>
+                );
+              })}
+              {following && !machines.some((each) => each.id === following.machine.id) && <SelectItem value={following.machine.id}>{following.machine.name}</SelectItem>}
+            </SelectContent>
+          </Select>
+          {status}
+          <div className="ml-auto flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             {following?.state === "ended" ? (
-              <>
-                {!cannot && <span>Following again replaces what it has loaded</span>}
-                {/* Another Machine chosen first says what following ends there, as the switch does. */}
-                <Button size="sm" disabled={busy || cannot !== undefined} onClick={() => (machineId === following.machine.id ? void send("PUT") : setAsking(true))}>
-                  Follow again
-                </Button>
-              </>
+              // Another Machine chosen first says what following ends there, as the switch does.
+              <Button size="sm" disabled={busy || cannot !== undefined} onClick={() => (machineId === following.machine.id ? void send("PUT") : setAsking(true))}>
+                Follow again
+              </Button>
             ) : active ? (
               <span>{`${following.machine.location?.name ?? "No Location"} · on its tablet as “${following.titleOnTablet}”`}</span>
             ) : (

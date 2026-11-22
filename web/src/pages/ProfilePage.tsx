@@ -378,6 +378,7 @@ export function HowItRuns({
   runLabel,
   trial,
   onPuckShot,
+  puckUnder = false,
 }: {
   /** The profile's title, as the graph's words name it. */
   title: string;
@@ -397,6 +398,8 @@ export function HowItRuns({
   trial?: { shotId: string; asked: number } | null;
   /** Told of the Shot whose puck the simulation is on, by its id, and of none. */
   onPuckShot?(shotId: string | undefined): void;
+  /** Whether the puck's Shot goes under the graph however wide the card, as on a Draft's page (#623), where beside it the graph would be narrower than under the rail. */
+  puckUnder?: boolean;
 }) {
   const [puck, setPuck] = useState<"standard" | "shot">("standard");
   // Each puck keeps its own: the standard puck's as started or changed, a Shot's as that Shot ran.
@@ -578,7 +581,7 @@ export function HowItRuns({
             )}
 
             {run && definition && (
-              <div className={`grid min-w-0 gap-4 ${puck === "shot" && puckShot ? "@5xl:grid-cols-[minmax(0,1fr)_24rem]" : ""}`}>
+              <div className={`grid min-w-0 gap-4 ${puck === "shot" && puckShot && !puckUnder ? "@5xl:grid-cols-[minmax(0,1fr)_24rem]" : ""}`}>
                 <div className="grid min-w-0 gap-4">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <RunFigures run={run} against={against} />
@@ -595,10 +598,6 @@ export function HowItRuns({
                       </div>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {`${measure(run.dose)} g in, ${run.stopAt === null ? "running until its last step ends" : `stopping at ${measure(run.stopAt)} g`}, on a ${run.model}`}
-                    {compared && puck === "standard" && `, with the Shot of ${shotTime(compared.shot)} on ${compared.shot.machine?.name ?? "a Pending Machine"} over it`}
-                  </p>
                   <ProfileGraph
                     profile={definition}
                     run={run}
@@ -608,8 +607,13 @@ export function HowItRuns({
                     baseline={baseline && baselineRun ? { label: baseline.label, run: baselineRun } : null}
                     editing={editing}
                   />
+                  {/* What the run is of, under the graph as its caption, so the graph sits as high as it can (#623). */}
+                  <p className="text-sm text-muted-foreground">
+                    {`${measure(run.dose)} g in, ${run.stopAt === null ? "running until its last step ends" : `stopping at ${measure(run.stopAt)} g`}, on a ${run.model}`}
+                    {compared && puck === "standard" && `, with the Shot of ${shotTime(compared.shot)} on ${compared.shot.machine?.name ?? "a Pending Machine"} over it`}
+                  </p>
                 </div>
-                {puck === "shot" && puckShot && <PuckShot shot={puckShot} fit={result?.fit ?? null} onChange={() => setPicking("puck")} />}
+                {puck === "shot" && puckShot && <PuckShot shot={puckShot} fit={result?.fit ?? null} beside={!puckUnder} onChange={() => setPicking("puck")} />}
               </div>
             )}
           </>
@@ -632,7 +636,7 @@ export function HowItRuns({
 }
 
 /** The Shot whose puck the simulation runs on, and how close a run of its own steps on that puck comes to it. */
-function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | null; onChange(): void }) {
+function PuckShot({ shot, fit, beside, onChange }: { shot: GraphShot; fit: ShotFit | null; /** Whether it goes beside the graph in a wide card. */ beside: boolean; onChange(): void }) {
   const listed = shot.shot;
   const dose = listed.actualDose ?? listed.targetDose;
   const yielded = listed.actualYield ?? listed.targetYield;
@@ -648,7 +652,7 @@ function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | nul
       ]
     : [];
   return (
-    <aside aria-label="The puck" className="grid min-w-0 content-start items-start gap-4 @2xl:grid-cols-2 @5xl:grid-cols-1">
+    <aside aria-label="The puck" className={`grid min-w-0 content-start items-start gap-4 @2xl:grid-cols-2 ${beside ? "@5xl:grid-cols-1" : ""}`}>
       <section className="grid min-w-0 gap-2 rounded-lg border p-4">
         <h3 className="font-semibold">The Shot whose puck this is</h3>
         <Link to={`/shots/${encodeURIComponent(listed.id)}`} className="font-medium wrap-anywhere underline-offset-4 hover:underline">

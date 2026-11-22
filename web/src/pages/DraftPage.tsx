@@ -8,7 +8,7 @@ import { FollowingCard, TrialShotsCard } from "@/components/draft-trying";
 import { type DraftArrival, DiscardDraftButton, SavedBy, draftBecomes } from "@/components/drafts";
 import { RelativeTime } from "@/components/relative-time";
 import { type HandleField } from "@/components/profile-graph";
-import { ChecksCard, EditableStepsCard, Inspector } from "@/components/profile-editor";
+import { ChecksStatus, EditableStepsCard, Inspector } from "@/components/profile-editor";
 import { profilePath } from "@/components/profiles";
 import { PublishDialog } from "@/components/publish-profile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,10 +19,17 @@ import { type EditHistory, canRedo, canUndo, recordChange, redo, startHistory, u
 import { setStep, withTarget } from "@/lib/profile-edits";
 import { versionNames } from "@/lib/profile-versions";
 import { usePolled } from "@/lib/use-polled";
+import { useScreen } from "@/lib/use-screen";
 import { HowItRuns, definitionOf } from "@/pages/ProfilePage";
 
 /** What the server answers for a Draft it has none of (`DraftsService`). */
 const DRAFT_NOT_FOUND = "No such Draft";
+
+/**
+ * A window wide enough for the steps and Trial Shots to be a rail left of the graph (#623). From here the
+ * graph, between a 272 px rail and the inspector, is wider than it is under them at 1280 px (712 px).
+ */
+const RAIL_SCREEN = "(min-width: 1500px)";
 
 /** How long after the last change a Draft is saved, ms, so a drag or a word typed saves once. */
 const SAVE_AFTER_MS = 500;
@@ -31,14 +38,16 @@ const SAVE_AFTER_MS = 500;
  * A Draft (#579): the Profile page with a Draft loaded. Its graph simulates
  * again on every change, drawn with the version it started from faint
  * behind it, and handles on the selected step; the inspector edits that step
- * and the whole profile; the checks say what stops it publishing; its steps
- * are added, duplicated, deleted and reordered; and every change can be
- * undone and redone through the session. It is saved as it changes, naming
- * the count of saves it started from, and says when another save came
- * between. A Machine at a Location marked for it follows the Draft (#581):
- * a card says whether it has the Draft's steps, and the Draft's Trial Shots
- * are listed, the latest on its steps laid over the graph as it arrives,
- * with the simulation moved to its puck. A Viewer sees no Draft.
+ * and the whole profile; the checks, beside Publish, say what stops it
+ * publishing; its steps are added, duplicated, deleted and reordered; and
+ * every change can be undone and redone through the session. In a wide
+ * window the steps and Trial Shots are a rail left of the graph, and under
+ * it otherwise (#623). It is saved as it changes, naming the count of saves
+ * it started from, and says when another save came between. A Machine at a
+ * Location marked for it follows the Draft (#581): a card says whether it
+ * has the Draft's steps, and the Draft's Trial Shots are listed, the latest
+ * on its steps laid over the graph as it arrives, with the simulation moved
+ * to its puck. A Viewer sees no Draft.
  */
 export function DraftPage() {
   const { id = "" } = useParams();
@@ -48,6 +57,7 @@ export function DraftPage() {
 function DraftEditor({ id }: { id: string }) {
   const mayChange = useMayChange();
   const navigate = useNavigate();
+  const rail = useScreen(RAIL_SCREEN);
   const arrival = useLocation().state as DraftArrival | null;
   const path = `/drafts/${encodeURIComponent(id)}`;
   // Undefined until read, null for no such Draft.
@@ -310,48 +320,63 @@ function DraftEditor({ id }: { id: string }) {
     change(setStep(profile, chosen, next), `steps.${chosen}.${field}`);
   };
 
-  return (
-    <section className="grid min-w-0 gap-6">
-      {back}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="grid min-w-0 gap-1">
-          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
-            {profile.title.trim() || "Untitled"} <Badge>Draft</Badge>
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {`Will publish as ${draftBecomes(draft).replace(/^A new/, "a new")} · `}
-            {saving === "saving" ? "saving…" : saving === "failed" ? "not saved" : <SavedBy draft={draft} />}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-start gap-2">
-          <Button variant="outline" size="icon" aria-label="Undo" disabled={!canUndo(history)} onClick={() => step("undo")}>
-            <Undo2 aria-hidden />
-          </Button>
-          <Button variant="outline" size="icon" aria-label="Redo" disabled={!canRedo(history)} onClick={() => step("redo")}>
-            <Redo2 aria-hidden />
-          </Button>
-          <PublishDialog
-            target={{ kind: "draft", draft, profile, saves: () => saves.current }}
-            label="Publish"
-            disabled={saving !== "saved" || checks.blocking.length > 0}
-            onPublished={(published) => {
-              pending.current = null;
-              clearTimeout(timer.current);
-              void navigate(profilePath(published.profile.id), { state: { published } });
-            }}
-          />
-          <DiscardDraftButton
-            draft={draft}
-            label="Discard the Draft"
-            onDone={() => {
-              pending.current = null;
-              clearTimeout(timer.current);
-              void navigate("/library/profiles");
-            }}
-          />
-        </div>
-      </div>
+  const stepsCard = <EditableStepsCard profile={profile} run={run} selected={chosen} onSelect={select} onChange={change} />;
+  const trialsCard = trying && (trying.trialShots.length > 0 || (trying.following !== null && trying.following.state !== "ended")) && (
+    <TrialShotsCard
+      draftPath={path}
+      trialShots={trying.trialShots}
+      shown={puckShot}
+      machineModel={draft.machineModel}
+      onUse={(shotId) => setUsedTrial((now) => ({ shotId, asked: (now?.asked ?? 0) + 1 }))}
+    />
+  );
 
+  // Spaced closer than other pages, so the steps, the whole graph and the inspector fit a laptop's window (#623).
+  return (
+    <section className="grid min-w-0 gap-4">
+      <div className="grid min-w-0 gap-2">
+        {back}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid min-w-0 gap-1">
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
+              {profile.title.trim() || "Untitled"} <Badge>Draft</Badge>
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {`Will publish as ${draftBecomes(draft).replace(/^A new/, "a new")} · `}
+              {saving === "saving" ? "saving…" : saving === "failed" ? "not saved" : <SavedBy draft={draft} />}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-start gap-2">
+            <ChecksStatus checks={checks} onSelect={select} />
+            <Button variant="outline" size="icon" aria-label="Undo" disabled={!canUndo(history)} onClick={() => step("undo")}>
+              <Undo2 aria-hidden />
+            </Button>
+            <Button variant="outline" size="icon" aria-label="Redo" disabled={!canRedo(history)} onClick={() => step("redo")}>
+              <Redo2 aria-hidden />
+            </Button>
+            <PublishDialog
+              target={{ kind: "draft", draft, profile, saves: () => saves.current }}
+              label="Publish"
+              disabled={saving !== "saved" || checks.blocking.length > 0}
+              onPublished={(published) => {
+                pending.current = null;
+                clearTimeout(timer.current);
+                void navigate(profilePath(published.profile.id), { state: { published } });
+              }}
+            />
+            <DiscardDraftButton
+              draft={draft}
+              label="Discard the Draft"
+              onDone={() => {
+                pending.current = null;
+                clearTimeout(timer.current);
+                void navigate("/library/profiles");
+              }}
+            />
+          </div>
+        </div>
+
+      </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -385,8 +410,14 @@ function DraftEditor({ id }: { id: string }) {
 
       {trying && <FollowingCard draftPath={path} title={profile.title} trying={trying} unsaved={saving !== "saved"} onChanged={followingChanged} />}
 
-      <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="grid min-w-0 gap-6">
+      <div className={`grid min-w-0 items-start gap-4 ${rail ? "lg:grid-cols-[17rem_minmax(0,1fr)_22rem]" : "lg:grid-cols-[minmax(0,1fr)_22rem]"}`}>
+        {rail && (
+          <div className="grid min-w-0 gap-4">
+            {stepsCard}
+            {trialsCard}
+          </div>
+        )}
+        <div className="grid min-w-0 gap-4">
           <HowItRuns
             trial={usedTrial}
             onPuckShot={setPuckShot}
@@ -399,21 +430,23 @@ function DraftEditor({ id }: { id: string }) {
             baseline={baseline}
             runLabel="This Draft, simulated"
             editing={steps > 0 ? { step: chosen, limits, onSelect: select, onChange: onHandle } : null}
+            puckUnder
           />
-          {trying && (trying.trialShots.length > 0 || (trying.following !== null && trying.following.state !== "ended")) && (
-            <TrialShotsCard
-              draftPath={path}
-              trialShots={trying.trialShots}
-              shown={puckShot}
-              machineModel={draft.machineModel}
-              onUse={(shotId) => setUsedTrial((now) => ({ shotId, asked: (now?.asked ?? 0) + 1 }))}
-            />
-          )}
-          <ChecksCard checks={checks} onSelect={select} />
-          <EditableStepsCard profile={profile} run={run} selected={chosen} onSelect={select} onChange={change} />
+          {!rail && stepsCard}
+          {!rail && trialsCard}
         </div>
+        {/* Within reach in a window shorter than it: it scrolls within itself rather than running past the window's end. */}
         <div className="min-w-0 lg:sticky lg:top-4">
-          <Inspector profile={profile} selected={chosen} tab={tab} limits={limits} onTab={setTab} onSelect={select} onChange={change} />
+          <Inspector
+            profile={profile}
+            selected={chosen}
+            tab={tab}
+            limits={limits}
+            onTab={setTab}
+            onSelect={select}
+            onChange={change}
+            className="lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto"
+          />
         </div>
       </div>
     </section>

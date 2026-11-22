@@ -64,7 +64,7 @@ test("publishes a Draft as a new version at the Locations and with the Recipes c
   // Unchanged, its steps are the soak's, which stops it publishing.
   await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
-  await inspector(page).getByLabel("Stop at weight").fill("38");
+  await inspector(page).getByLabel("Stop at weight", { exact: true }).fill("38");
   await expect(page.getByText("saving…")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Publish", exact: true }).click();
@@ -115,7 +115,7 @@ test("says what a separate Profile changes from the one it started from, and off
   await page.getByRole("button", { name: "Duplicate", exact: true }).click();
   await expect(page).toHaveURL(/\/library\/drafts\//);
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
-  await inspector(page).getByLabel("Stop at weight").fill("36");
+  await inspector(page).getByLabel("Stop at weight", { exact: true }).fill("36");
   await expect(page.getByText("saving…")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Publish", exact: true }).click();
