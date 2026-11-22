@@ -463,7 +463,7 @@ test("on a phone, with three Machines or more the page still fits: the table scr
     const lastColumn = harborTable.getByRole("columnheader", { name: "Lab Right" });
     const before = { heading: await heading.boundingBox(), column: await lastColumn.boundingBox() };
     await scroller.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
-    await expect.poll(async () => (await lastColumn.boundingBox())!.x).toBe(before.column!.x - overflow);
+    await expect.poll(async () => (await lastColumn.boundingBox())?.x).toBe(before.column!.x - overflow);
     // The cells moved under the Recipe column, which is where it was, and the page still fits.
     expect((await heading.boundingBox())!.x).toBe(before.heading!.x);
     await heading.scrollIntoViewIfNeeded();
