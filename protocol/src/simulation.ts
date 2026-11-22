@@ -240,6 +240,18 @@ export function standardPuck(grind = 0): Puck {
 }
 
 /**
+ * The grind of the standard puck, -1 to 1, at which it has a puck's open
+ * resistance, the puck's taken at STANDARD_DOSE (`puckForDose`): below 0 for
+ * a puck finer than the standard's middle, above it for a coarser one, and
+ * held to the control's ends. The standard puck at it still holds and opens
+ * as the standard puck does, so it comes near the puck without being it.
+ */
+export function grindOf(puck: Puck): number {
+  const resistance = (puck.resistance * STANDARD_DOSE) / puck.dose;
+  return Math.min(1, Math.max(-1, -Math.log(resistance / STANDARD_RESISTANCE) / Math.log(GRIND_RANGE)));
+}
+
+/**
  * A puck's resistance at its first drip, as a part of what it is once open:
  * soaked through, and not yet sealed.
  */

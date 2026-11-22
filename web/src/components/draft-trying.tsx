@@ -177,8 +177,8 @@ export function FollowingCard({ draftPath, title, trying, unsaved, onChanged }: 
 /**
  * The Draft's Trial Shots, the latest first: each says whether it ran the
  * Draft's steps as they are now or earlier ones. One on the current steps
- * moves the simulation to its puck; an earlier one opens against the steps
- * it ran. The one whose puck the graph is on is marked.
+ * is laid over the graph; an earlier one opens against the steps it ran.
+ * The one laid over the graph is marked.
  */
 export function TrialShotsCard({
   draftPath,
@@ -189,7 +189,7 @@ export function TrialShotsCard({
 }: {
   draftPath: string;
   trialShots: TrialShot[];
-  /** The Shot whose puck the Draft's graph is on, if one of these. */
+  /** The Shot laid over the Draft's graph, if one of these. */
   shown: string | undefined;
   machineModel: MachineModel | undefined;
   onUse(shotId: string): void;
@@ -202,7 +202,8 @@ export function TrialShotsCard({
         <CardTitleWithInfo title={`Trial Shots · ${trialShots.length}${machineNames.length === 1 ? ` on ${machineNames[0]}` : ""}`}>
           <p>
             The Shots pulled with this Draft&apos;s steps on a Machine following it, whatever brew temperature or yield was set on the tablet. The latest on the steps as they are
-            now is laid over the graph by itself, and the simulation moves to its puck. Once the Draft is published, the Shots on the published steps are the new Profile&apos;s.
+            now is laid over the graph by itself, setting the simulation&apos;s dose, stop-at weight, Machine and puck to match it. Once the Draft is published, the Shots on the
+            published steps are the new Profile&apos;s.
           </p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -248,7 +249,7 @@ function inAndOut({ shot }: TrialShot): string | undefined {
 
 const NO_RUN = () => undefined;
 
-/** An earlier Trial Shot against the steps it ran: those steps simulated on its puck, with the Shot over them. */
+/** An earlier Trial Shot against the steps it ran: those steps simulated, with the Shot laid over them and the simulation set to match it. */
 function EarlierTrial({ draftPath, trial, machineModel, onClose }: { draftPath: string; trial: TrialShot; machineModel: MachineModel | undefined; onClose(): void }) {
   const [ran, setRan] = useState<DraftTrial>();
   const [error, setError] = useState<string>();
@@ -268,7 +269,8 @@ function EarlierTrial({ draftPath, trial, machineModel, onClose }: { draftPath: 
         <DialogHeader>
           <DialogTitle>{`Trial Shot of ${shotTime(trial.shot)}, on earlier steps`}</DialogTitle>
           <DialogDescription>
-            The steps the Draft had when this Shot was pulled, simulated on the Shot&apos;s puck, with the Shot as it ran.{" "}
+            The steps the Draft had when this Shot was pulled, simulated with the Shot&apos;s dose, stop-at weight and Machine on the puck nearest its own, with the Shot as it
+            ran laid over them.{" "}
             <Link to={`/shots/${encodeURIComponent(trial.shot.id)}`} className="underline underline-offset-4">
               Open the Shot
             </Link>

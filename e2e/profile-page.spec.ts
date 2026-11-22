@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { grindOf, shotPuck, simulationShotOf } from "@decent-sync/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -13,8 +14,9 @@ import { expectTip } from "./support/tooltips.js";
 // Profile in a Skin; a Recipe names the newest, loaded on the Lab's Machine.
 // Another tablet holds Decaid's bundled Classic Italian espresso and a Shot
 // Decaid v0.9.2's simulated machine recorded on it
-// (server/test/fixtures/decaid/simulated-shots-v0.9.2/), whose puck the
-// simulation runs on. Serials are made up, from 57801.
+// (server/test/fixtures/decaid/simulated-shots-v0.9.2/), which, laid over
+// the graph, sets the simulation to match it (#622). Serials are made up,
+// from 57801.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Fields = Record<string, unknown>;
@@ -26,8 +28,6 @@ const CLASSIC = "profile:39e939592679fb194706";
 const SHOT = "simulated-classic-578";
 /** The same Shot as recorded with no pressure, so its puck can't be worked out. */
 const FLAT = "flat-classic-578";
-/** The same Shot with its Machine reporting a pressure target its steps never asked for, as under a Bengle's lever (#599). */
-const LEVER = "lever-classic-599";
 
 /** A soak Profile: a fast fill that moves on over 4 bar, a step of no length, then 6 bar with the flow held back, with `changes` to its third step. */
 function soak(title: string, percolation: Fields = {}): Fields {
@@ -87,7 +87,6 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   const graph = page.getByRole("region", { name: "How it runs" });
   await expectTip(page.getByRole("main"), "How it runs, simulated", /^A simulation of what a Machine does with this Profile, not a measurement/);
   // Simulated on the standard puck as a DE1, 18 g in, stopping at its 40 g.
-  await expect(graph.getByRole("radio", { name: "A standard puck" })).toBeChecked();
   await expect(graph.getByRole("radio", { name: "DE1" })).toBeChecked();
   await expect(graph.getByText("18 g in, stopping at 40 g, on a DE1")).toBeVisible();
   const svg = graph.getByRole("figure", { name: /^Simulated run of Lab Soak on a standard puck\./ });
@@ -170,7 +169,7 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await expect(both.locator("[data-compared-stop]")).toContainText("Version 1 stops");
 });
 
-test("a Profile simulated on a Shot's puck says how close the simulation comes, and any Shot can be laid over it", async ({ page }) => {
+test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weight, Machine and puck to match it, each changeable after", async ({ page }) => {
   const lab = await createLocation(page, "Puck lab");
   const bundled = (JSON.parse(fs.readFileSync(new URL("../server/test/fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as { bundled: Fields[] }).bundled;
   const classic = bundled.find((record) => record.id === CLASSIC)!;
@@ -180,69 +179,66 @@ test("a Profile simulated on a Shot's puck says how close the simulation comes, 
   const workflow = recorded.workflow as Fields;
   tablet.pullShot({ ...recorded, id: SHOT, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57811" } } });
   await expect.poll(async () => (await page.request.get(`/api/shots/${SHOT}`)).status()).toBe(200);
+  // What the Shot gives: 18 g weighed, stopped at 33.4 g on a DE1Pro, and the grind at which the standard puck has its puck's resistance.
+  const shotGrind = grindOf(shotPuck(simulationShotOf(recorded, recorded.measurements))!);
+  expect(Math.abs(shotGrind)).toBeLessThan(0.5);
 
   await page.goto(profilePage(CLASSIC));
   const graph = page.getByRole("region", { name: "How it runs" });
   await expect(page.getByRole("region", { name: "Shots" })).toHaveText("Shots1 ShotOpen in the Shots list");
+  // One simulation: no choice of a Shot's puck.
+  await expect(graph.getByRole("radiogroup", { name: "Simulated on" })).toHaveCount(0);
+  await expect(graph.getByRole("radio")).toHaveText(["DE1", "Bengle"]);
 
-  // Laid over the graph, the Shot is drawn in orange, from those on this Profile.
+  // Away from all the Shot gives: another dose and stop, a Bengle, a finer puck.
+  const puck = graph.getByRole("slider", { name: "Puck, finer to coarser" });
+  await graph.getByLabel("Dose").fill("20");
+  await graph.getByLabel("Stop at").fill("44");
+  await graph.getByRole("radio", { name: "Bengle" }).click();
+  await puck.focus();
+  for (let n = 0; n < 6; n++) await page.keyboard.press("PageDown");
+  await expect(graph.getByText(/^20 g in, stopping at 44 g, on a Bengle$/)).toBeVisible();
+  const finer = Number(await puck.getAttribute("aria-valuenow"));
+  expect(finer).toBeLessThan(-0.5);
+
+  // Laid over the graph, the Shot is drawn in orange, from those on this Profile, and the simulation takes its dose, stop, Machine and puck.
   await graph.getByRole("button", { name: "Lay a Shot over it" }).click();
   const picker = page.getByRole("dialog", { name: "Lay a Shot over the graph" });
   await picker.getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose the Shot of / }).click();
   await expect(graph.getByRole("figure").locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
-  await expect(graph.getByText(/, with the Shot of .* on Puck lab group over it$/)).toBeVisible();
+  await expect(graph.getByText(/^18 g in, stopping at 33\.4 g, on a DE1, with the Shot of .* on Puck lab group over it$/)).toBeVisible();
+  await expect(graph.getByRole("radio", { name: "DE1" })).toBeChecked();
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(shotGrind, 6);
+  await expect(graph.getByRole("figure", { name: /^Simulated run of Classic Italian espresso on a standard puck\./ })).toBeVisible();
+  // Its figures are the run's alone, with no table of how close it comes.
+  await expect(graph.getByLabel("Simulated figures")).not.toContainText("than the Shot");
+  await expect(graph.getByRole("table")).toHaveCount(0);
+  await expect(graph.getByRole("complementary")).toHaveCount(0);
 
-  // On its puck: its dose and the weight it stopped at, the table of how close a run of its own steps comes.
-  await graph.getByRole("radio", { name: "A Shot's puck" }).click();
-  await page.getByRole("dialog", { name: "Simulate on a Shot's puck" }).getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose / }).click();
-  await expect(graph.getByRole("radio", { name: "A Shot's puck" })).toBeChecked();
-  await expect(graph.getByRole("figure", { name: /^Simulated run of Classic Italian espresso on a Shot's puck\./ })).toBeVisible();
-  const puck = graph.getByRole("complementary", { name: "The puck" });
-  await expect(puck.getByRole("link", { name: "Classic Italian espresso on Puck lab group" })).toBeVisible();
-  const fit = puck.getByRole("table", { name: "The simulation against the Shot" });
-  await expect(rows(fit).first()).toHaveText(/^Duration\d+\.\d s\d+\.\d s$/);
-  await expect(graph.getByLabel("Simulated figures")).toContainText("than the Shot");
-  // The card is as wide as the page here, so the Shot's cards are beside the graph.
-  const drawn = (await graph.locator("svg[data-graph-end]").first().boundingBox())!;
-  expect((await puck.boundingBox())!.x).toBeGreaterThanOrEqual(drawn.x + drawn.width);
+  // Each can be changed after, the Shot staying over the run.
+  await graph.getByLabel("Dose").fill("19");
+  await puck.focus();
+  await page.keyboard.press("PageDown");
+  await expect(graph.getByText(/^19 g in, stopping at 33\.4 g, on a DE1, with the Shot of /)).toBeVisible();
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeLessThan(shotGrind);
 
-  // A Shot whose puck can't be worked out leaves another to be chosen.
+  // A Shot whose puck can't be worked out sets what it can give, and leaves the puck where it was.
   const flat = await tabletAt(page, server, "Flat lab group", lab, "57812", { ...tabletApi, "/profiles": [classic] });
   const unpressed = (recorded.measurements as Fields[]).map((measurement) => ({ ...measurement, machine: { ...(measurement.machine as Fields), pressure: 0 } }));
   flat.pullShot({ ...recorded, id: FLAT, measurements: unpressed, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57812" } } });
   await expect.poll(async () => (await page.request.get(`/api/shots/${FLAT}`)).status()).toBe(200);
-  const onThisProfile = (title: string) => page.getByRole("dialog", { name: title }).getByRole("region", { name: "On this Profile" });
-  await puck.getByRole("button", { name: "Choose another Shot" }).click();
-  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Flat lab group$/ }).click();
-  await expect(graph.getByText("That Shot recorded no pressure and flow to work its puck out from.")).toBeVisible();
-  await graph.getByRole("button", { name: "Choose another Shot" }).click();
-  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
-  await expect(fit).toBeVisible();
+  await graph.getByRole("radio", { name: "Bengle" }).click();
+  const before = await puck.getAttribute("aria-valuenow");
+  await graph.getByRole("button", { name: "Lay another Shot over it" }).click();
+  await picker.getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose the Shot of .* on Flat lab group$/ }).click();
+  await expect(graph.getByText(/^18 g in, stopping at 33\.4 g, on a DE1, with the Shot of .* on Flat lab group over it$/)).toBeVisible();
+  await expect(puck).toHaveAttribute("aria-valuenow", before!);
 
-  // A Shot run under manual control has a puck but no fit, its steps not what its Machine followed (#599).
-  const lever = await tabletAt(page, server, "Lever lab group", lab, "57813", { ...tabletApi, "/profiles": [classic] });
-  const steered = (recorded.measurements as Array<{ machine: Fields }>).map((measurement) =>
-    (measurement.machine.profileFrame as number) >= 2 ? { ...measurement, machine: { ...measurement.machine, targetPressure: 2.5 } } : measurement,
-  );
-  lever.pullShot({ ...recorded, id: LEVER, measurements: steered, workflow: { ...workflow, machine: { ...(workflow.machine as Fields), serialNumber: "57813" } } });
-  await expect.poll(async () => (await page.request.get(`/api/shots/${LEVER}`)).status()).toBe(200);
-  await puck.getByRole("button", { name: "Choose another Shot" }).click();
-  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Lever lab group$/ }).click();
-  await expect(puck.getByRole("link", { name: "Classic Italian espresso on Lever lab group" })).toBeVisible();
-  await expect(puck.getByText(/^Not worked out for this Shot: .* it ran under manual control, /)).toBeVisible();
-  await expect(fit).toBeHidden();
-  await puck.getByRole("button", { name: "Choose another Shot" }).click();
-  await onThisProfile("Simulate on a Shot's puck").getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
-  await expect(fit).toBeVisible();
-
-  // Each puck keeps its own dose: one typed on the standard puck isn't the Shot's, and is there again on return.
-  await graph.getByRole("radio", { name: "A standard puck" }).click();
-  await graph.getByLabel("Dose").fill("19");
-  await expect(graph.getByText(/^19 g in, /)).toBeVisible();
-  await graph.getByRole("radio", { name: "A Shot's puck" }).click();
-  await expect(graph.getByLabel("Dose")).not.toHaveValue("19");
-  await graph.getByRole("radio", { name: "A standard puck" }).click();
-  await expect(graph.getByLabel("Dose")).toHaveValue("19");
+  // Laid over again, the first Shot sets its puck once more.
+  await graph.getByRole("button", { name: "Lay another Shot over it" }).click();
+  await picker.getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose the Shot of .* on Puck lab group$/ }).click();
+  await expect(graph.getByText(/, with the Shot of .* on Puck lab group over it$/)).toBeVisible();
+  await expect.poll(async () => Number(await puck.getAttribute("aria-valuenow"))).toBeCloseTo(shotGrind, 6);
 
   // At the end of whichever ran longer, the other reads as stopped, not as its last values.
   // The graph's time slider takes the arrow keys, and says what the readout shows.

@@ -126,7 +126,7 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       // How it is simulated, the Shot laid over it, the moment read on its graph, and its export, which a Viewer chooses as anyone does (#578).
       filters: [
         /^button Export$/,
-        /^radio (A standard puck|A Shot's puck|DE1|Bengle)$/,
+        /^radio (DE1|Bengle)$/,
         /^textbox (Dose|Stop at)$/,
         /^slider (Puck, finer to coarser|A moment on the graph)$/,
         /^button (Lay a Shot over it|Use a Recipe's)$/,

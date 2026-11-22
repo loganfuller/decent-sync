@@ -23,7 +23,7 @@ import { measure, seconds } from "@/lib/profile-words";
 // The controls and figures of a Profile's simulation (#578), shared by its
 // page and the comparison of two versions: the standard puck's finer to
 // coarser control, the dose, the stop-at weight and the Machine model; the
-// run's headline figures; and a Shot read for its puck or to lay over a graph.
+// run's headline figures; and a Shot read to lay over a graph.
 
 /** The most coffee a dose may be, g, as the REST API takes one. */
 export const MAX_DOSE = 50;
@@ -115,7 +115,7 @@ export function ModelChoice({ model, onChange }: { model: MachineModel; onChange
       <InfoTip label="About the machine">
         <p>
           Simulated as this model runs it: a DE1&apos;s pump gives about 8 ml/s at most, and a Bengle&apos;s heater keeps up with about 15 ml/s at most. It starts as the model of the
-          Machines at the Locations showing the Profile: a Bengle where all of them are, otherwise a DE1. On a Shot&apos;s puck it starts as the model of the Shot&apos;s Machine.
+          Machines at the Locations showing the Profile: a Bengle where all of them are, otherwise a DE1. A Shot laid over the graph sets it to the model of the Shot&apos;s Machine.
         </p>
       </InfoTip>
     </div>
@@ -172,13 +172,13 @@ function figuresOf(samples: Sample<ShotCurve>[]): { duration: number; firstDrip:
   };
 }
 
-/** A Shot read for a Profile's graph: as the Shots list gives it, with what a simulation on its puck reads of it. */
+/** A Shot read for a Profile's graph: as the Shots list gives it, with what a simulation reads of it to match it. */
 export interface GraphShot {
   shot: Shot;
   simulation: SimulationShot;
 }
 
-/** Reads a Shot for a Profile's graph, its curves and what its puck is worked out from. */
+/** Reads a Shot for a Profile's graph: its curves, and what its dose, stop, model and puck are read from. */
 export async function loadGraphShot(id: string): Promise<GraphShot> {
   const path = `/shots/${encodeURIComponent(id)}`;
   const [{ shot }, { measurements }] = await Promise.all([api<{ shot: Shot }>("GET", path), api<{ measurements: unknown }>("GET", `${path}/measurements`)]);

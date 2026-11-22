@@ -2701,13 +2701,15 @@ at the Locations showing it is one, by each Machine's latest Location
 History entry, and there is at least one; otherwise, shown nowhere, at no
 Location with a Machine, or with a DE1 among them, a DE1 (#578, #588).
 
-A Shot's puck is read the same way on both sides: `simulationShotOf` takes
-the Shot's full record and measurements, as the server stores them and as
-`GET /api/shots/:id` and `/measurements` give them, and `simulateOnShot`
-runs a profile on its puck and fits the Shot's own steps to it. The
-Profile page works a Shot's puck out once, when the Shot is chosen, and
-passes it to each run as the profile or the dose changes; the server works
-it out for each request.
+A Shot is read the same way on both sides: `simulationShotOf` takes the
+Shot's full record and measurements, as the server stores them and as
+`GET /api/shots/:id` and `/measurements` give them. On the server,
+`simulateOnShot` runs a profile on a Shot's puck and fits the Shot's own
+steps to it, worked out for each request. The Profile page simulates on
+the standard puck only (#622): it works a Shot's puck out once, when the
+Shot is laid over the run, for the grind at which the standard puck has
+that puck's open resistance at the standard dose (`grindOf`), held to the
+control's ends.
 
 ## The Profile page
 
@@ -2715,17 +2717,23 @@ A Profile's page in the management interface (#578) opens on its graph, a
 simulation run in the browser with the shared module, and replaces the
 title and steps table it had:
 
-- **How it runs.** On the standard puck by default, 18 g in, stopping at its
-  stop-at weight, as the model it is shown for; the dose, the stop-at weight,
-  a finer to coarser control, the Machine model and a Recipe's dose and
-  yield, of the Recipes naming it, on request. Or on a Shot's puck, chosen
-  from the Shots on it and its earlier versions first, then any Shot, with
-  the Shot's dose, the weight it stopped at and its Machine's model; the
-  Shot is drawn over the run, and a table gives how close its fit comes.
-  On the standard puck any Shot can be laid over the run. The headline
-  figures are the run's time, time to first drip, peak pressure and flow at
-  the stop, and on a Shot's puck how far each is from the Shot's, the
-  Shot's first drip read by the same reader (`timeToFirstDrip`).
+- **How it runs.** On the standard puck, 18 g in, stopping at its stop-at
+  weight, as the model it is shown for; the dose, the stop-at weight, a
+  finer to coarser control, the Machine model and a Recipe's dose and
+  yield, of the Recipes naming it, on request. Any Shot can be laid over
+  the run, chosen from the Shots on it and its earlier versions first, then
+  any Shot (#622). Laying one over sets, once, the dose to the Shot's, as
+  weighed or else as set; the stop-at weight to the weight it stopped at
+  (`lastRecordedWeight`); the Machine model to its Machine's; and the
+  control to the grind its puck gives (`grindOf`, above). One the Shot
+  can't give, as it recorded no dose, no weight or no model, or no puck can
+  be worked out from it, stays as it was, and each can be changed after.
+  The run is still the standard puck's, which holds and opens as it always
+  does, so it comes near the Shot without tracing it; how close a fit comes
+  is the scorecard's question (`scripts/test/simulation-scorecard.test.ts`),
+  and the REST route's and the MCP tools' with a Shot (below), not the
+  page's. The headline figures are the run's time, time to first drip, peak
+  pressure and flow at the stop.
 - **The graph** (`web/src/components/profile-graph.tsx`) puts pressure, flow
   and temperature each in a lane on one time axis, drawn in the Shot page's
   colours: blue for the run, orange for a Shot or version compared with
@@ -2994,9 +3002,11 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   turning it on first says that the Machine's Loaded Recipe ends. Ended, it
   says what the Machine has, with one control to follow again. The Trial
   Shots are listed, the latest first; the latest on the current steps is
-  laid over the graph as it arrives, with the simulation moved to its puck
-  and the two sets of figures side by side, as for any Shot's puck (The
-  Profile page, above), and an earlier one opens against the steps it ran.
+  laid over the graph as it arrives, without a tap, setting the simulation
+  to match it as any Shot laid over the run does (The Profile page, above),
+  and the one laid over the graph is marked. An earlier one opens against
+  the steps it ran, simulated on the standard puck with it laid over them
+  the same way.
 
 ## REST API
 

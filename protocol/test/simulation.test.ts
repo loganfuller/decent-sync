@@ -10,6 +10,7 @@ import {
   SIMULATION_TICK,
   eased,
   fitToShot,
+  grindOf,
   limited,
   machineModelOf,
   profileOf,
@@ -491,6 +492,35 @@ describe("the standard puck", () => {
     const builds = (result: SimulatedRun) => result.samples.find((sample) => sample.values.pressure! >= 1)!.seconds;
     expect(builds(large)).toBeLessThan(builds(small) - 0.5);
     expect(large.timeToFirstDrip! - small.timeToFirstDrip!).toBeLessThan(builds(small) - builds(large));
+  });
+});
+
+describe("the grind a puck gives (#622)", () => {
+  it("is the grind at which the standard puck has its open resistance: the standard puck's own grind back", () => {
+    for (const grind of [-1, -0.6, -0.15, 0, 0.3, 0.85, 1]) expect(grindOf(standardPuck(grind))).toBeCloseTo(grind, 9);
+  });
+
+  it("is below 0 for a puck finer than the standard, above it for a coarser one, and the control's end for one past it", () => {
+    const of = (resistance: number) => grindOf({ ...standardPuck(), resistance });
+    expect(of(4)).toBeLessThan(0);
+    expect(of(0.25)).toBeGreaterThan(0);
+    expect(of(4)).toBeCloseTo(-of(0.25), 9);
+    expect(of(500)).toBe(-1);
+    expect(of(0.005)).toBe(1);
+  });
+
+  it("is taken at the standard dose: a puck of more coffee resists more, so the same resistance is a coarser grind", () => {
+    const at18 = { ...standardPuck(), resistance: 2 };
+    expect(grindOf({ ...at18, dose: 20, resistance: (2 * 20) / 18 })).toBeCloseTo(grindOf(at18), 9);
+    expect(grindOf({ ...at18, dose: 20 })).toBeGreaterThan(grindOf(at18));
+  });
+
+  it("of a Shot's puck is the grind it ran at, for a Shot run on the standard puck", () => {
+    const nine = profile([flow("Fill", 6, { seconds: 8, exit: { type: "pressure", condition: "over", value: 3 } }), pressure("Extract", 9, { seconds: 60 })]);
+    for (const grind of [-0.3, 0, 0.25]) {
+      const shot = simulateProfile({ profile: nine, puck: standardPuck(grind), stopAt: 36, stopOn: "reached", model: "DE1" });
+      expect(grindOf(shotPuck(shotOf(shot.samples, nine))!)).toBeCloseTo(grind, 1);
+    }
   });
 });
 

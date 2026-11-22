@@ -93,12 +93,12 @@ Each server has one owner: a household, or a business with all of its sites.
   beside the Recipe's. A Shot's duration, and a group's median, more than
   10% from its own is out of spec (below).
 - **A Profile you can read.** A Profile's page draws how it runs: a
-  simulation on a standard puck, finer or coarser, or on a Shot's, as a DE1
-  or a Bengle, with pressure, flow and temperature each in a lane, the plan
-  dashed behind the run, each step a band saying how long it ran and why it
-  ended, its exits and limits drawn where they act, and the first drip and
-  each 10 g marked. Lay any Shot over it, or simulate on a Shot's puck to see
-  how close the simulation comes to that Shot. Its steps are listed in plain
+  simulation on a standard puck, finer or coarser, as a DE1 or a Bengle,
+  with pressure, flow and temperature each in a lane, the plan dashed behind
+  the run, each step a band saying how long it ran and why it ended, its
+  exits and limits drawn where they act, and the first drip and each 10 g
+  marked. Lay any Shot over it, and the simulation takes that Shot's dose,
+  the weight it stopped at, its Machine and the puck nearest its own. Its steps are listed in plain
   words, with what a Recipe replaces. Its versions, each Profile saved from
   the one before, are listed with who saved each, and any two compared, each
   simulated on the same puck. It lists the Recipes on it, with the Machines
@@ -118,8 +118,8 @@ Each server has one owner: a household, or a business with all of its sites.
   marks for it, such as a lab, a Machine follows a Draft: the Draft's steps
   become what the Machine does next, and again on each save, without the
   Draft joining any tablet's Profiles. A Shot pulled on them is a Trial Shot,
-  laid over the Draft's graph as it arrives, with the simulation moved to its
-  puck, so what was simulated and what happened sit side by side.
+  laid over the Draft's graph as it arrives, with the simulation set to match
+  it, so what was simulated and what happened sit side by side.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
@@ -512,7 +512,7 @@ Milestones 1 to 9 are released. See [all releases](https://github.com/loganfulle
 | 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App, then answers sized for them, with more of each Machine and Shot. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0), [v1.8.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.8.0) |
 | 7. [Analytics](https://github.com/loganfuller/decent-sync/milestone/7) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) | [v1.9.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.9.0) |
 | 8. [Tablets](https://github.com/loganfuller/decent-sync/milestone/8) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) |
-| 9. [Profiles](https://github.com/loganfuller/decent-sync/milestone/12) | Each Profile read on a graph of how it runs, simulated on a standard puck or a Shot's; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) |
+| 9. [Profiles](https://github.com/loganfuller/decent-sync/milestone/12) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) |
 | 10. Monitoring | Noticing lost Shots, low water and dropped scale or Machine connections, with alerts. | | Planned |
 | 11. Calibration | Checks of stop-at-weight, flow and temperature. | | Planned |
 | 12. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |

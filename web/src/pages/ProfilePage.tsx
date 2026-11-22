@@ -1,12 +1,12 @@
 import {
   type MachineModel,
   type Profile as ProfileDefinition,
-  type ShotFit,
   type SimulatedRun,
+  grindOf,
+  lastRecordedWeight,
   profileOf,
   profileTextOf,
   shotPuck,
-  simulateOnShot,
   simulateProfile,
   standardPuck,
 } from "@decent-sync/protocol";
@@ -26,7 +26,6 @@ import { DoseFields, type GraphShot, GrindControl, ModelChoice, type PuckAsk, Ru
 import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
 import { PublishDialog } from "@/components/publish-profile";
 import { OrNone } from "@/components/records";
-import { Segmented, SegmentedItem } from "@/components/segmented";
 import { ShotPicker } from "@/components/shot-picker";
 import { shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -42,8 +41,8 @@ import { shotsText } from "@/lib/shot-summary";
 
 /**
  * One Profile (#578): how it runs, as a simulation on a puck drawn in lanes
- * with the plan behind it, on the standard puck or a Shot's, with any Shot
- * laid over it; its steps in plain words; its Profile Versions, any two of
+ * with the plan behind it, on the standard puck, with any Shot laid over it
+ * setting the simulation to match it; its steps in plain words; its Profile Versions, any two of
  * which can be compared; the Locations showing it, the Recipes on it and the
  * Shots pulled on it and its earlier versions; and its title, author and
  * notes, which can be edited here. Export gives its profile as Decaid's JSON.
@@ -361,10 +360,11 @@ function ExportButton({ profile }: { profile: Profile }) {
 }
 
 /**
- * The graph of how a profile runs, simulated on the standard puck or a
- * Shot's, with its controls and figures: a Library Profile's, or a Draft's
- * (#579), drawn with the version it started from faint behind it, its
- * figures said against that version's, and handles on its selected step.
+ * The graph of how a profile runs, simulated on the standard puck, with its
+ * controls and figures and any Shot laid over it, which sets the controls to
+ * match it: a Library Profile's, or a Draft's (#579), drawn with the version
+ * it started from faint behind it, its figures said against that version's,
+ * and handles on its selected step.
  */
 export function HowItRuns({
   title,
@@ -377,14 +377,14 @@ export function HowItRuns({
   editing,
   runLabel,
   trial,
-  onPuckShot,
+  onLaidOver,
 }: {
   /** The profile's title, as the graph's words name it. */
   title: string;
   /** The model it is simulated as until another is chosen. */
   machineModel: MachineModel | undefined;
   definition: ProfileDefinition | null;
-  /** The Profiles whose Shots the Shot pickers offer first. */
+  /** The Profiles whose Shots the Shot picker offers first. */
   shotProfileIds: string[];
   recipes: RecipeOnProfile[];
   onRun(run: SimulatedRun | undefined): void;
@@ -393,141 +393,90 @@ export function HowItRuns({
   editing?: GraphEditing | null;
   /** What the legend calls the run. */
   runLabel?: string;
-  /** A Trial Shot (#581) the simulation moves to the puck of, as it is given and whenever it changes or is asked for again: the Draft's latest on its steps as it arrives, or the one chosen. */
+  /** A Trial Shot (#581) laid over the run, as it is given and whenever it changes or is asked for again: the Draft's latest on its steps as it arrives, or the one chosen. */
   trial?: { shotId: string; asked: number } | null;
-  /** Told of the Shot whose puck the simulation is on, by its id, and of none. */
-  onPuckShot?(shotId: string | undefined): void;
+  /** Told of the Shot laid over the run, by its id, and of none. */
+  onLaidOver?(shotId: string | undefined): void;
 }) {
-  const [puck, setPuck] = useState<"standard" | "shot">("standard");
-  // Each puck keeps its own: the standard puck's as started or changed, a Shot's as that Shot ran.
-  const [asks, setAsks] = useState<Record<"standard" | "shot", PuckAsk>>(() => {
-    const starting = startingAsk(definition, machineModel);
-    return { standard: starting, shot: starting };
-  });
-  // Whether the standard puck stops where the person chose, rather than at the profile's stop-at weight.
+  const [ask, setAsk] = useState<PuckAsk>(() => startingAsk(definition, machineModel));
+  // Whether the simulation stops where the person, or a Shot laid over it, chose, rather than at the profile's stop-at weight.
   const [stopChosen, setStopChosen] = useState(false);
-  // A Draft's stop-at weight changed moves where the standard puck's simulation stops.
+  // A Draft's stop-at weight changed moves where the simulation stops.
   const stopAtWeight = definition?.target_weight ?? null;
   const firstStopAt = useRef(stopAtWeight);
   useEffect(() => {
     if (stopAtWeight === firstStopAt.current) return;
     firstStopAt.current = stopAtWeight;
     setStopChosen(false);
-    setAsks((now) => ({ ...now, standard: { ...now.standard, stopAt: stopAtWeight !== null && stopAtWeight > 0 ? stopAtWeight : 0 } }));
+    setAsk((now) => ({ ...now, stopAt: stopAtWeight !== null && stopAtWeight > 0 ? stopAtWeight : 0 }));
   }, [stopAtWeight]);
-  const ask = asks[puck];
-  const [puckShot, setPuckShot] = useState<GraphShot>();
   const [overlay, setOverlay] = useState<GraphShot>();
-  const [picking, setPicking] = useState<"puck" | "overlay">();
+  const [picking, setPicking] = useState(false);
   const [shotError, setShotError] = useState<string>();
   const change = (next: Partial<PuckAsk>) => {
-    if (puck === "standard" && next.stopAt !== undefined) setStopChosen(true);
-    setAsks((now) => ({ ...now, [puck]: { ...now[puck], ...next } }));
+    if (next.stopAt !== undefined) setStopChosen(true);
+    setAsk((now) => ({ ...now, ...next }));
   };
   const cannot = unsimulatable(definition);
 
-  // The Shot's puck, worked out once for the Shot: working it out runs the Shot's own steps some hundreds of times, which each edit's run must not wait on.
-  const shotsPuck = useMemo(() => (puckShot ? shotPuck(puckShot.simulation) : null), [puckShot]);
-  const result = useMemo(() => {
-    if (cannot || !definition) return undefined;
-    if (puck === "shot") {
-      if (!puckShot) return undefined;
-      return shotsPuck ? simulateOnShot({ profile: definition, shot: puckShot.simulation, puck: shotsPuck, dose: ask.dose, stopAt: ask.stopAt, model: ask.model }) : null;
-    }
-    return { run: simulateProfile({ profile: definition, puck: standardPuck(ask.grind), dose: ask.dose, stopAt: ask.stopAt, model: ask.model }), fit: null };
-  }, [cannot, definition, puck, puckShot, shotsPuck, ask]);
-  useEffect(() => onRun(result?.run), [result, onRun]);
-  // The baseline on the same puck, where it can be simulated: on the standard puck stopping at its own stop-at weight, unless the person chose where both stop.
+  const run = useMemo(
+    () => (cannot || !definition ? undefined : simulateProfile({ profile: definition, puck: standardPuck(ask.grind), dose: ask.dose, stopAt: ask.stopAt, model: ask.model })),
+    [cannot, definition, ask],
+  );
+  useEffect(() => onRun(run), [run, onRun]);
+  // The baseline on the same puck, where it can be simulated, stopping at its own stop-at weight unless the person or a Shot chose where both stop.
   const baselineProfile = baseline?.profile;
   const baselineRun = useMemo(() => {
     if (!baselineProfile || unsimulatable(baselineProfile)) return undefined;
-    if (puck === "shot") return puckShot && shotsPuck ? simulateProfile({ profile: baselineProfile, puck: shotsPuck, dose: ask.dose, stopAt: ask.stopAt, model: ask.model }) : undefined;
     const stopAt = stopChosen ? ask.stopAt : startingAsk(baselineProfile, ask.model).stopAt;
     return simulateProfile({ profile: baselineProfile, puck: standardPuck(ask.grind), dose: ask.dose, stopAt, model: ask.model });
-  }, [baselineProfile, puck, puckShot, shotsPuck, ask, stopChosen]);
+  }, [baselineProfile, ask, stopChosen]);
 
   // Each Shot asked for, so one that answers after a later choice is dropped.
   const latest = useRef(0);
-  const choose = (id: string, as: "puck" | "overlay") => {
+  const layOver = (id: string) => {
     setShotError(undefined);
     const asked = ++latest.current;
     loadGraphShot(id).then(
       (loaded) => {
         if (asked !== latest.current) return;
-        if (as === "overlay") return setOverlay(loaded);
-        setPuckShot(loaded);
-        setPuck("shot");
-        // As the Shot ran: its dose, the weight it stopped at, and its Machine's model.
-        const lastWeight = loaded.simulation.samples.reduce<number | null>((last, sample) => sample.values.weight ?? last, null);
-        setAsks((now) => ({
-          ...now,
-          shot: {
-            ...now.standard,
-            dose: loaded.simulation.dose ?? now.standard.dose,
-            stopAt: lastWeight !== null && lastWeight > 0 ? Math.round(lastWeight * 10) / 10 : now.standard.stopAt,
-            model: loaded.simulation.model ?? now.standard.model,
-          },
-        }));
+        setOverlay(loaded);
+        const matched = askOf(loaded);
+        if (matched.stopAt !== undefined) setStopChosen(true);
+        setAsk((now) => ({ ...now, ...matched }));
       },
       (caught: unknown) => asked === latest.current && setShotError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
     );
   };
 
-  // A Trial Shot moves the simulation to its puck, laid over the graph, as it arrives.
-  const chooseRef = useRef(choose);
-  chooseRef.current = choose;
+  // A Trial Shot is laid over the run as it arrives, and again when it is chosen.
+  const layOverRef = useRef(layOver);
+  layOverRef.current = layOver;
   const trialShotId = trial?.shotId;
   const trialAsked = trial?.asked;
   useEffect(() => {
-    if (trialShotId) chooseRef.current(trialShotId, "puck");
+    if (trialShotId) layOverRef.current(trialShotId);
   }, [trialShotId, trialAsked]);
-  const onPuck = puck === "shot" ? puckShot?.shot.id : undefined;
-  useEffect(() => onPuckShot?.(onPuck), [onPuck, onPuckShot]);
-  const onTrial = trialShotId != null && puckShot?.shot.id === trialShotId;
+  const laidOver = overlay?.shot.id;
+  useEffect(() => onLaidOver?.(laidOver), [laidOver, onLaidOver]);
 
-  const compared = puck === "shot" && puckShot ? puckShot : puck === "standard" ? overlay : undefined;
-  const comparedLabel = puck === "shot" ? (onTrial ? "The Trial Shot, as it ran" : "The Shot, as it ran") : "The Shot laid over it";
-  const comparedSamples = compared?.simulation.samples ?? [];
-  const run = result?.run;
-  const words = run && definition ? graphWords(title, definition, run, puck === "shot") : "";
-  const against =
-    puck === "shot" && puckShot
-      ? { label: "the Shot", samples: puckShot.simulation.samples }
-      : baseline && baselineRun
-        ? { label: baseline.label.replace(/, simulated$/, ""), samples: baselineRun.samples }
-        : undefined;
+  const comparedLabel = trialShotId != null && laidOver === trialShotId ? "The Trial Shot, as it ran" : "The Shot laid over it";
+  const comparedSamples = overlay?.simulation.samples ?? [];
+  const words = run && definition ? graphWords(title, definition, run) : "";
+  const against = baseline && baselineRun ? { label: baseline.label.replace(/, simulated$/, ""), samples: baselineRun.samples } : undefined;
 
   return (
     <Card role="region" aria-label="How it runs">
-      <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+      <CardHeader>
         <CardTitleWithInfo title="How it runs, simulated">
           <p>
-            A simulation of what a Machine does with this Profile, not a measurement: pressure and flow on a puck, with the plan, what each step asks the Machine for, dashed
-            behind them. The standard puck has one control from finer to coarser; a Shot&apos;s puck is worked out from that Shot&apos;s pressure and flow. Temperature is not
-            simulated, so its lane draws the plan. Each step is a band named at the top with how long it ran and why it ended.
+            A simulation of what a Machine does with this Profile, not a measurement: pressure and flow on a standard puck, with the plan, what each step asks the Machine for,
+            dashed behind them. The puck has one control from finer to coarser. A Shot laid over it sets the dose, the stop-at weight, the Machine and the puck to match the Shot,
+            and each can be changed after. Temperature is not simulated, so its lane draws the plan. Each step is a band named at the top with how long it ran and why it ended.
           </p>
         </CardTitleWithInfo>
-        {!cannot && (
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-muted-foreground">Simulated on</span>
-            <Segmented
-              label="Simulated on"
-              value={puck}
-              onValueChange={(value) => {
-                if (value === "standard") setPuck("standard");
-                else if (value === "shot") {
-                  if (puckShot) setPuck("shot");
-                  else setPicking("puck");
-                }
-              }}
-            >
-              <SegmentedItem value="standard">A standard puck</SegmentedItem>
-              <SegmentedItem value="shot">{onTrial ? "The Trial Shot's puck" : "A Shot's puck"}</SegmentedItem>
-            </Segmented>
-          </div>
-        )}
       </CardHeader>
-      {/* A container, so what is laid beside the graph goes by the card's own width: it is narrower beside a Draft's inspector, and in a dialog, than the window. */}
+      {/* A container, so the graph and its figures go by the card's own width: it is narrower beside a Draft's inspector, and in a dialog, than the window. */}
       <CardContent className="@container grid min-w-0 gap-4">
         {cannot ? (
           <p className="text-sm text-muted-foreground">{cannot}</p>
@@ -535,7 +484,7 @@ export function HowItRuns({
           <>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
               <DoseFields ask={ask} onChange={change} />
-              {puck === "standard" && recipes.length > 0 && (
+              {recipes.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -559,7 +508,7 @@ export function HowItRuns({
                 </DropdownMenu>
               )}
               <ModelChoice model={ask.model} onChange={(model) => change({ model })} />
-              {puck === "standard" && <GrindControl grind={ask.grind} onChange={(grind) => change({ grind })} />}
+              <GrindControl grind={ask.grind} onChange={(grind) => change({ grind })} />
             </div>
 
             {shotError && (
@@ -568,145 +517,67 @@ export function HowItRuns({
               </Alert>
             )}
 
-            {result === null && (
-              <div className="flex flex-wrap items-center gap-3">
-                <p className="text-sm text-muted-foreground">That Shot recorded no pressure and flow to work its puck out from.</p>
-                <Button variant="outline" size="sm" onClick={() => setPicking("puck")}>
-                  Choose another Shot
-                </Button>
-              </div>
-            )}
-
             {run && definition && (
-              <div className={`grid min-w-0 gap-4 ${puck === "shot" && puckShot ? "@5xl:grid-cols-[minmax(0,1fr)_24rem]" : ""}`}>
-                <div className="grid min-w-0 gap-4">
-                  <div className="flex flex-wrap items-end justify-between gap-3">
-                    <RunFigures run={run} against={against} />
-                    {puck === "standard" && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        {overlay && (
-                          <Button variant="ghost" size="sm" onClick={() => setOverlay(undefined)}>
-                            Remove the Shot
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm" onClick={() => setPicking("overlay")}>
-                          {overlay ? "Lay another Shot over it" : "Lay a Shot over it"}
-                        </Button>
-                      </div>
+              <div className="grid min-w-0 gap-4">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <RunFigures run={run} against={against} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {overlay && (
+                      <Button variant="ghost" size="sm" onClick={() => setOverlay(undefined)}>
+                        Remove the Shot
+                      </Button>
                     )}
+                    <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
+                      {overlay ? "Lay another Shot over it" : "Lay a Shot over it"}
+                    </Button>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {`${measure(run.dose)} g in, ${run.stopAt === null ? "running until its last step ends" : `stopping at ${measure(run.stopAt)} g`}, on a ${run.model}`}
-                    {compared && puck === "standard" && `, with the Shot of ${shotTime(compared.shot)} on ${compared.shot.machine?.name ?? "a Pending Machine"} over it`}
-                  </p>
-                  <ProfileGraph
-                    profile={definition}
-                    run={run}
-                    runLabel={runLabel}
-                    label={words}
-                    compared={compared && comparedSamples.length > 0 ? { label: comparedLabel, samples: comparedSamples, stop: { seconds: lastSecond(comparedSamples), label: "The Shot stopped" } } : null}
-                    baseline={baseline && baselineRun ? { label: baseline.label, run: baselineRun } : null}
-                    editing={editing}
-                  />
                 </div>
-                {puck === "shot" && puckShot && <PuckShot shot={puckShot} fit={result?.fit ?? null} onChange={() => setPicking("puck")} />}
+                <p className="text-sm text-muted-foreground">
+                  {`${measure(run.dose)} g in, ${run.stopAt === null ? "running until its last step ends" : `stopping at ${measure(run.stopAt)} g`}, on a ${run.model}`}
+                  {overlay && `, with the Shot of ${shotTime(overlay.shot)} on ${overlay.shot.machine?.name ?? "a Pending Machine"} over it`}
+                </p>
+                <ProfileGraph
+                  profile={definition}
+                  run={run}
+                  runLabel={runLabel}
+                  label={words}
+                  compared={overlay && comparedSamples.length > 0 ? { label: comparedLabel, samples: comparedSamples, stop: { seconds: lastSecond(comparedSamples), label: "The Shot stopped" } } : null}
+                  baseline={baseline && baselineRun ? { label: baseline.label, run: baselineRun } : null}
+                  editing={editing}
+                />
               </div>
             )}
           </>
         )}
       </CardContent>
       <ShotPicker
-        open={picking !== undefined}
-        onOpenChange={(open) => !open && setPicking(undefined)}
-        title={picking === "puck" ? "Simulate on a Shot's puck" : "Lay a Shot over the graph"}
-        description={
-          picking === "puck"
-            ? "The simulation runs on the puck worked out from this Shot's pressure and flow, with its dose and the weight it stopped at, as the model of its Machine."
-            : "The Shot's pressure, flow and temperature are drawn over the simulation."
-        }
+        open={picking}
+        onOpenChange={setPicking}
+        title="Lay a Shot over the graph"
+        description="The Shot's pressure, flow and temperature are drawn over the simulation, which takes the Shot's dose, the weight it stopped at, its Machine's model and the puck nearest its own."
         profileIds={shotProfileIds}
-        onPick={(shot) => picking && choose(shot.id, picking)}
+        onPick={(shot) => layOver(shot.id)}
       />
     </Card>
   );
 }
 
-/** The Shot whose puck the simulation runs on, and how close a run of its own steps on that puck comes to it. */
-function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | null; onChange(): void }) {
-  const listed = shot.shot;
-  const dose = listed.actualDose ?? listed.targetDose;
-  const yielded = listed.actualYield ?? listed.targetYield;
-  const rows: [string, string, string][] = fit
-    ? [
-        ["Duration", seconds(fit.simulated.duration), seconds(fit.shot.duration)],
-        ["Peak pressure", `${measure(fit.simulated.peakPressure)} bar`, `${measure(fit.shot.peakPressure)} bar`],
-        ["First drip", fit.simulated.timeToFirstDrip === null ? "None" : seconds(fit.simulated.timeToFirstDrip), fit.shot.timeToFirstDrip === null ? "None" : seconds(fit.shot.timeToFirstDrip)],
-        ...fit.shot.steps.map((step): [string, string, string] => {
-          const simulated = fit.simulated.steps.find((each) => each.index === step.index);
-          return [`${step.name} ended`, simulated ? seconds(simulated.end) : "Not reached", seconds(step.end)];
-        }),
-      ]
-    : [];
-  return (
-    <aside aria-label="The puck" className="grid min-w-0 content-start items-start gap-4 @2xl:grid-cols-2 @5xl:grid-cols-1">
-      <section className="grid min-w-0 gap-2 rounded-lg border p-4">
-        <h3 className="font-semibold">The Shot whose puck this is</h3>
-        <Link to={`/shots/${encodeURIComponent(listed.id)}`} className="font-medium wrap-anywhere underline-offset-4 hover:underline">
-          {`${listed.profileTitle ?? "A Shot"} on ${listed.machine?.name ?? "a Pending Machine"}`}
-        </Link>
-        <Fields label="The Shot whose puck this is">
-          <Field term="Pulled">{shotTime(listed)}</Field>
-          <Field term="Dose and yield">
-            <OrNone>{dose !== null && yielded !== null ? `${measure(dose)} g in, ${measure(yielded)} g out` : undefined}</OrNone>
-          </Field>
-          <Field term="Duration">
-            <OrNone>{listed.duration === null ? undefined : seconds(listed.duration)}</OrNone>
-          </Field>
-          <Field term="Pulled on a">
-            <OrNone>{shot.simulation.model ?? undefined}</OrNone>
-          </Field>
-        </Fields>
-        <div>
-          <Button variant="outline" size="sm" onClick={onChange}>
-            Choose another Shot
-          </Button>
-        </div>
-      </section>
-      <section className="grid min-w-0 gap-2 rounded-lg border p-4" aria-label="How close the simulation is">
-        <CardTitleWithInfo title="How close the simulation is">
-          <p>The Shot&apos;s own steps simulated on its puck, stopped as it stopped, against what it did: how far to trust the simulation on this puck.</p>
-        </CardTitleWithInfo>
-        {fit ? (
-          <div className="min-w-0 overflow-x-auto rounded-md border">
-            <Table aria-label="The simulation against the Shot">
-              <TableHeader>
-                <TableRow>
-                  <TableHead />
-                  <TableHead>Simulated</TableHead>
-                  <TableHead>The Shot</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map(([term, simulated, real]) => (
-                  <TableRow key={term}>
-                    <TableHead scope="row" className="font-normal whitespace-normal text-muted-foreground">
-                      {term}
-                    </TableHead>
-                    <TableCell className="tabular-nums">{simulated}</TableCell>
-                    <TableCell className="tabular-nums">{real}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Not worked out for this Shot: its own profile can&apos;t be read or has more steps than a machine takes, its record names no machine model, it ran under manual control, or its scale left no weight to stop a run where it stopped.
-          </p>
-        )}
-      </section>
-    </aside>
-  );
+/**
+ * What a Shot laid over the run sets the simulation to (#622): its dose, as
+ * weighed or else as set; the weight it stopped at; its Machine's model; and
+ * the grind at which the standard puck has its puck's open resistance. Each
+ * it can't give, as it recorded no dose, no weight or no model, or no puck
+ * can be worked out from it, is left out, and stays as it was.
+ */
+function askOf({ simulation }: GraphShot): Partial<PuckAsk> {
+  const stopped = lastRecordedWeight(simulation.samples)?.weight;
+  const puck = shotPuck(simulation);
+  return {
+    ...(simulation.dose !== null && { dose: simulation.dose }),
+    ...(stopped !== undefined && stopped > 0 && { stopAt: Math.round(stopped * 10) / 10 }),
+    ...(simulation.model !== null && { model: simulation.model }),
+    ...(puck && { grind: grindOf(puck) }),
+  };
 }
 
 /** Its steps in plain words, each with when it moves on and what the simulation the graph draws did with it, and the figures it states once. */
@@ -946,9 +817,9 @@ function ShotsCard({ profile, versions, earlier }: { profile: Profile; versions:
 }
 
 /** The graph in words, for screen readers: each step, how long it ran and why it ended, and the stop. */
-export function graphWords(title: string, profile: ProfileDefinition, run: SimulatedRun, onShot: boolean): string {
+export function graphWords(title: string, profile: ProfileDefinition, run: SimulatedRun): string {
   const steps = run.steps.map((_, index) => `${stepName(profile.steps[index]!, index)}: ${stepSimulated(profile, run, index)}.`);
-  return `Simulated run of ${title} on ${onShot ? "a Shot's puck" : "a standard puck"}. ${steps.join(" ")} It ${run.stop.reason === "weight" ? "stops" : "ends"} at ${seconds(run.stop.seconds)} with ${measure(run.weight)} g in the cup.`;
+  return `Simulated run of ${title} on a standard puck. ${steps.join(" ")} It ${run.stop.reason === "weight" ? "stops" : "ends"} at ${seconds(run.stop.seconds)} with ${measure(run.weight)} g in the cup.`;
 }
 
 function lastSecond(samples: readonly { seconds: number; shade: string | null }[]): number {
