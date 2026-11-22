@@ -281,7 +281,7 @@ describe("recording a load", () => {
     expect(loadWrite(workflow, none, { profile }, new Set(["dose", "yield", "grind", "grinder", "rpm", "basket", "batch"]))).toBeNull();
   });
 
-  it("reads a dose, grind setting or RPM of 0 in the record as none, as DYE2's editor saves an RPM left blank, so a recipe holding rpm 0 is written nothing once DYE2 applied it", () => {
+  it("reads a dose or RPM of 0 in the record as none, as DYE2's editor saves an RPM left blank, so a recipe holding rpm 0 is written nothing once DYE2 applied it", () => {
     const record = written();
     Object.assign(record.dashboardVariables as Record_, { rpm: 0 });
     // DYE2's apply cleared the RPM, as it reads the 0.
@@ -294,8 +294,33 @@ describe("recording a load", () => {
     expect(((loadWrite({ ...workflow, context: { ...context, extras: { ...extras, rpm: 0 } } }, record, { profile })?.context as Record_ | undefined)?.extras as Record_ | undefined) ?? {}).not.toHaveProperty("rpm");
     // One the Workflow holds is cleared.
     expect(((loadWrite(workflow, record, { profile })!.context as Record_).extras as Record_).rpm).toBeNull();
-    Object.assign(record.dashboardVariables as Record_, { dose: 0, grind: 0 });
-    expect(loadWrite(workflow, record, { profile })!.context).toMatchObject({ targetDoseWeight: null, grinderSetting: null });
+    Object.assign(record.dashboardVariables as Record_, { dose: 0 });
+    expect(loadWrite(workflow, record, { profile })!.context).toMatchObject({ targetDoseWeight: null });
+  });
+
+  it("writes a grind setting of 0 as the text \"0\", a dial position, as DYE2 v0.1.42 applies one, and writes nothing where the Workflow holds it already (#617)", () => {
+    const record = written();
+    Object.assign(record.dashboardVariables as Record_, { grind: 0 });
+    const workflow = appliedAtOwnTemperatures();
+    const context = workflow.context as Record_;
+    // The grind setting the load writes over one the Workflow holds, undefined for none written.
+    const grindWritten = (grinderSetting: unknown) => {
+      const write = loadWrite({ ...workflow, context: { ...context, grinderSetting } }, record, { profile })?.context as Record_ | undefined;
+      return write && "grinderSetting" in write ? write.grinderSetting : undefined;
+    };
+    // DYE2's dashboard and Streamline's strip leave the Workflow holding "0": nothing to write. "0.0" is the same setting.
+    expect(grindWritten("0")).toBeUndefined();
+    expect(grindWritten("0.0")).toBeUndefined();
+    // A Skin that applied nothing, or another setting: the 0 is written as Decaid keeps it.
+    expect(grindWritten("2.5")).toBe("0");
+    expect(grindWritten(null)).toBe("0");
+    // The text "0", as a record may hold it, the same.
+    Object.assign(record.dashboardVariables as Record_, { grind: "0" });
+    expect(grindWritten("2.5")).toBe("0");
+    expect(grindWritten("0")).toBeUndefined();
+    // A recipe holding no grind setting still clears a Workflow's 0.
+    delete (record.dashboardVariables as Record_).grind;
+    expect(grindWritten("0")).toBeNull();
   });
 
   it("clears the batch a recipe naming a Bean and no batch finds in the Workflow, leaving its Bean's name and roaster, as DYE2 applies one", () => {

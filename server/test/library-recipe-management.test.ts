@@ -276,11 +276,16 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await edit(created.id, { grindSetting: "2.50" })).content.grindSetting).toBe(2.5);
     expect((await edit(created.id, { grindSetting: 3 })).content.grindSetting).toBe(3);
     expect((await edit(created.id, { grindSetting: "  " })).content).not.toHaveProperty("grindSetting");
-    // A setting of 0 is none, as DYE2 from v0.1.37 applies one: clearing the field says so.
-    for (const refused of [-1, "-2", 0, "0", true, { setting: 3 }]) {
+    // A setting of 0 is a dial position, as DYE2 v0.1.42 applies one (#617): kept as the number, and written to the tablet
+    // as DYE2 holds it, the number in its record and the text "0" in the Workflow it embeds.
+    for (const zero of [0, "0", " 0.0 "]) expect((await edit(created.id, { grindSetting: zero })).content.grindSetting, JSON.stringify(zero)).toBe(0);
+    await expect.poll(() => (recordOf(tablet, created.id)?.dashboardVariables as Record_ | undefined)?.grind).toBe(0);
+    expect(((recordOf(tablet, created.id)!.workflow as Record_).context as Record_).grinderSetting).toBe("0");
+    expect((await api.get<{ recipe: { content: Record_ } }>(`/recipes/${created.id}`)).recipe.content.grindSetting).toBe(0);
+    for (const refused of [-1, "-2", true, { setting: 3 }]) {
       const answer = await api.call("PATCH", `/recipes/${created.id}`, { content: { grindSetting: refused } });
       expect(answer.status, JSON.stringify(refused)).toBe(400);
-      expect(((await answer.json()) as { message: string[] }).message).toEqual(["grindSetting must be a number above 0, or text: clear it for none"]);
+      expect(((await answer.json()) as { message: string[] }).message).toEqual(["grindSetting must be a number of 0 or more, or text: clear it for none"]);
     }
   });
 

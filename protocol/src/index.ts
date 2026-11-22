@@ -1323,29 +1323,31 @@ export function steamHeldOff(temperature: unknown, duration: unknown): boolean {
 export const STEAM_OFF_VALUE = 0;
 
 /**
- * The fields of a Recipe's content of which 0 is none (ADR-0022): its dose,
- * grind setting and RPM. From v0.1.37 DYE2 applies a recipe holding 0 for one
- * as naming none, clearing the Workflow's (`applyRecipe` in
+ * The fields of a Recipe's content of which 0 is none (ADR-0022): its dose
+ * and RPM. From v0.1.37 DYE2 applies a recipe holding 0 for one as naming
+ * none, clearing the Workflow's (`applyRecipe` in
  * dye2:dye2-plugin/src/pages/dashboard.ts, `buildRecipeWorkflow` in
  * dye2:dye2-plugin/src/utils/dev-api.ts), and so does Streamline's strip
  * from v0.2.25 (`clearInheritedFields` in
  * streamline-js:src/modules/workflow-fields.js), while DYE2's editor saves an
  * RPM left blank as 0. A yield of 0 is not among them: it is stop-at-weight
- * off, which a Recipe may hold.
+ * off, which a Recipe may hold. Nor is a grind setting of 0: from v0.1.42
+ * DYE2 applies one as a dial position, the text "0" (decentespresso/dye2#47),
+ * which Streamline's strip keeps.
  */
-export const RECIPE_NONE_AT_ZERO = ["dose", "grindSetting", "rpm"] as const;
+export const RECIPE_NONE_AT_ZERO = ["dose", "rpm"] as const;
 
 /**
- * Whether a dose, grind setting or RPM is 0, which a Recipe holds none of
+ * Whether a dose or RPM is 0, which a Recipe holds none of
  * (RECIPE_NONE_AT_ZERO): the number, or text that reads as it, as Decaid
- * keeps a Workflow's grind setting as text.
+ * keeps some Workflow fields as text.
  */
 export function isZero(value: unknown): boolean {
   if (typeof value === "number") return value === 0;
   return typeof value === "string" && value.trim() !== "" && Number(value) === 0;
 }
 
-/** A dose, grind setting or RPM as a Recipe holds one: 0 is none (`isZero`), and so is null or nothing; anything else is as it is. */
+/** A dose or RPM as a Recipe holds one: 0 is none (`isZero`), and so is null or nothing; anything else is as it is. */
 export function noneAtZero<T>(value: T): T | null {
   return value === undefined || isZero(value) ? null : value;
 }

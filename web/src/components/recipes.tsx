@@ -475,15 +475,15 @@ function toolDefaults(tool: EquipmentSummary | undefined): Attribute[] {
  * The content the form's values set, each field as the server takes it, null
  * to clear it, as an empty setting is: a number entered that is not one is
  * refused, so nothing typed is lost unseen, and a setting outside its range
- * is the server's to refuse. A dose, grind setting or RPM of 0 is refused
- * too, as a Recipe holds none of one at 0. The grind setting is a number where it reads as
+ * is the server's to refuse. A dose or RPM of 0 is refused too, as a Recipe
+ * holds none of one at 0; a grind setting of 0 is a dial position, as DYE2
+ * from v0.1.42 applies one. The grind setting is a number where it reads as
  * one, and otherwise the text as typed, as DYE2 keeps one, and the feed rate
  * the text, trimmed as DYE2's editor trims it. A Tool's attributes are kept
  * only where they differ from the Tool's own, as DYE2's editor keeps those
  * changed for a recipe.
  */
 function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string, unknown> {
-  if (grindSettingOf(values.grindSetting) === 0) throw new Error("Grind setting must be above 0, or text: leave it empty for none");
   const content: Record<string, unknown> = {
     name: values.name.trim() === "" ? null : values.name.trim(),
     beverage: values.beverage.trim() === "" ? null : values.beverage.trim(),

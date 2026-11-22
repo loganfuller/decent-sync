@@ -132,14 +132,18 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
     expect(samePart("grind", readParts({ grind: 0.5 }).grind, ".5")).toBe(true);
   });
 
-  it("hold none of a dose, grind setting or RPM at 0, as a Recipe does, and of a yield, as 0 is stop-at-weight off", () => {
-    for (const [part, value] of [["dose", 0], ["rpm", 0], ["grind", 0], ["grind", "0"], ["grind", "0.0"], ["yield", 0], ["yield", null], ["basket", null]] as const) {
+  it("hold none of a dose or RPM at 0, as a Recipe does, and of a yield, as 0 is stop-at-weight off, but a grind setting of 0, a dial position (#617)", () => {
+    for (const [part, value] of [["dose", 0], ["rpm", 0], ["yield", 0], ["yield", null], ["grind", null], ["basket", null]] as const) {
       expect(nonePart(part, value), `${part} ${String(value)}`).toBe(true);
       expect(samePart(part, value, null), `${part} ${String(value)}`).toBe(true);
     }
     // A feed rate is text, and a steam setting of 0 is a value, as a milk stop of 0 is off.
-    for (const [part, value] of [["feedRate", "0"], ["steamStopTemperature", 0], ["dose", 18], ["grind", "fine"]] as const) expect(nonePart(part, value), `${part} ${value}`).toBe(false);
+    for (const [part, value] of [["feedRate", "0"], ["steamStopTemperature", 0], ["dose", 18], ["grind", "fine"], ["grind", 0], ["grind", "0"], ["grind", "0.0"]] as const) expect(nonePart(part, value), `${part} ${value}`).toBe(false);
     expect(samePart("dose", 0, 18)).toBe(false);
+    // A grind setting of 0 is no none, and is the same setting whether the number or Decaid's text.
+    expect(samePart("grind", "0", null)).toBe(false);
+    expect(samePart("grind", 0, "0")).toBe(true);
+    expect(samePart("grind", "0.0", "0")).toBe(true);
     // As stored and compared, a 0 stays what the Workflow holds, so a write expects it there.
     expect(workflowParts({ context: { targetDoseWeight: 0, targetYield: 0, extras: { rpm: 0 } } })).toMatchObject({ dose: 0, yield: 0, rpm: 0 });
   });
@@ -193,9 +197,9 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
       values: { grinderId: OTHER_GRINDER, grindSetting: 5, rpm: null },
       parts: ["grinder", "grind", "rpm"],
     });
-    // One declaring neither: "dial me in". A setting of 0, which a grinder may declare, is none of a Recipe's.
+    // One declaring neither: "dial me in". A setting of 0, which a grinder may declare, is a dial position (#617).
     expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, grinder: "g2", grind: null, rpm: null }, context).values).toEqual({ grinderId: OTHER_GRINDER, grindSetting: null, rpm: null });
-    expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, grinder: "g2", grind: "0", rpm: 1100 }, context).values).toEqual({ grinderId: OTHER_GRINDER, grindSetting: null, rpm: 1100 });
+    expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, grinder: "g2", grind: "0", rpm: 1100 }, context).values).toEqual({ grinderId: OTHER_GRINDER, grindSetting: 0, rpm: 1100 });
     // The ones the Recipe holds already come with it as they are.
     expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, grinder: "g2" }, context)).toEqual({ values: { grinderId: OTHER_GRINDER }, parts: ["grinder"] });
     // Only with a Grinder the server records: a grind setting or RPM cleared beside the Recipe's own Grinder, or one of no
@@ -272,8 +276,11 @@ describe("The parts of its Loaded Recipe a Workflow is due", () => {
     const cleared = { ...HELD, grinder: null, grind: null, basket: null, dose: 0, yield: 0, rpm: 0, feedRate: null, batch: null };
     expect(heldAlready(target, cleared)).toMatchObject({ grinder: null, dose: null, yield: null, rpm: null });
     expect(Object.values(dueParts(target, cleared, heldAlready(target, cleared))).every((part) => part === undefined)).toBe(true);
-    // A Recipe holding a dose, grind setting or RPM of 0, as 1.10.0 may take one in, holds none.
-    expect(recipeParts({ ...bare, dose: 0, grindSetting: 0, rpm: 0 }, local)).toMatchObject({ dose: null, grind: null, rpm: null });
+    // A Recipe holding a dose or RPM of 0, as 1.10.0 may take one in, holds none; one holding a grind setting of 0 holds
+    // that dial position, as Decaid keeps it, the text "0" (#617).
+    expect(recipeParts({ ...bare, dose: 0, grindSetting: 0, rpm: 0 }, local)).toMatchObject({ dose: null, grind: "0", rpm: null });
+    expect(dueParts(recipeParts({ ...bare, grindSetting: 0 }, local), HELD, base)).toMatchObject({ grind: "0" });
+    expect(dueParts(recipeParts({ ...bare, grindSetting: 0 }, local), { ...HELD, grind: "0" }, base).grind).toBeUndefined();
   });
 
   it("are cleared in a Workflow that took a part since cleared from the Recipe, as any other edit reaches it, and not a steam time cleared from it, nor a value a barista set since on the Machine", () => {

@@ -451,10 +451,12 @@ describe("DYE2's recipes as Recipes", () => {
       drinkerName: null,
     };
     expect((recipeWorkflow(recipeView(blank)).context as Record_)).toEqual(NONE);
-    // A dose, grind setting or RPM of 0 names none, as DYE2 reads one, and its editor saves an RPM left blank.
+    // A dose or RPM of 0 names none, as DYE2 reads one, and its editor saves an RPM left blank; a grind setting of 0 is a
+    // dial position, embedded as the text "0", as DYE2 v0.1.42 builds one (#617).
     const zeros = { ...slot1, dashboardVariables: { dose: 0, grind: 0, rpm: 0, drink: 0 } };
-    expect([recipeView(zeros)["dashboardVariables.dose"], recipeView(zeros)["dashboardVariables.grind"], recipeView(zeros)["dashboardVariables.rpm"]]).toEqual([null, null, null]);
-    expect(recipeWorkflow(recipeView(zeros)).context).toMatchObject({ targetDoseWeight: null, grinderSetting: null, targetYield: 0, extras: { rpm: null } });
+    expect([recipeView(zeros)["dashboardVariables.dose"], recipeView(zeros)["dashboardVariables.grind"], recipeView(zeros)["dashboardVariables.rpm"]]).toEqual([null, 0, null]);
+    expect(recipeWorkflow(recipeView(zeros)).context).toMatchObject({ targetDoseWeight: null, grinderSetting: "0", targetYield: 0, extras: { rpm: null } });
+    expect(recipeRecord({ ...slot1Content, grindSetting: 0 }, 1, writing(recordedIds), GLOBAL.recipe)).toMatchObject({ "dashboardVariables.grind": 0, workflow: { context: { grinderSetting: "0" } } });
     const beanless = recipeRecord({ ...slot1Content, beanId: undefined, beanBatchId: undefined }, 1, writing(recordedIds), GLOBAL.recipe);
     expect([beanless.beanId, beanless.beanName, beanless.beanBatchId]).toEqual([null, null, null]);
     expect(beanless.workflow).toMatchObject({ context: { coffeeName: null, coffeeRoaster: null, beanBatchId: null, targetDoseWeight: 18 } });

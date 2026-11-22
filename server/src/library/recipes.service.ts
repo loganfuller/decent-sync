@@ -31,8 +31,8 @@ export interface RecipeView {
    * DYE2's display modes `steamMode` and `hotWaterMode`, each left out where
    * it holds none. Its steam time as `steamTimeOf` reads it: one of 0, as
    * 1.6.2 may have taken one in, is none, and one above 255 s is 255. A
-   * dose, grind setting or RPM of 0, as 1.10.0 may take one in, is none too
-   * (RECIPE_NONE_AT_ZERO).
+   * dose or RPM of 0, as 1.10.0 may take one in, is none too
+   * (RECIPE_NONE_AT_ZERO); a grind setting of 0 is a dial position.
    */
   content: Record<string, unknown>;
   /** The items its content names, each with what the management interface names it by (`RecipeUses`). */
@@ -304,7 +304,7 @@ function referenceShotView(shot: ReferenceShotRow, content: unknown): ReferenceS
 
 function view(row: RecipeRow, location: LocationView | null, { names, at }: Names, shots: ReadonlyMap<string, ReferenceShotRow>): RecipeView {
   const referenceShot = row.referenceShotId === null ? undefined : shots.get(row.referenceShotId);
-  // A dose, grind setting or RPM of 0, as 1.10.0 may take one in, is none.
+  // A dose or RPM of 0, as 1.10.0 may take one in, is none; a grind setting of 0 is a dial position.
   const stored = Object.fromEntries(Object.entries(isObject(row.content) ? row.content : {}).filter(([field, value]) => !((RECIPE_NONE_AT_ZERO as readonly string[]).includes(field) && isZero(value))));
   const { steamDuration, ...rest } = stored;
   const steamTime = steamTimeOf(steamDuration);

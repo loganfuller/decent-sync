@@ -460,7 +460,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     await expect.poll(() => byId(two, SLOT_RECIPE)?.beanBatchId).toBe(await localId(two, "/bean-batches", earlier));
   });
 
-  it("takes a dose, grind setting or RPM DYE2's editor saves as 0 as none, leaving the 0 in that tablet's record, and a yield of 0 as 0 (#550)", async () => {
+  it("takes a dose or RPM DYE2's editor saves as 0 as none, leaving the 0 in that tablet's record, a yield of 0 as 0 (#550), and a grind setting of 0 as the Recipe's (#617)", async () => {
     const { here, machines, one, two } = await lab("Zero", 42111);
     await saveInDye2(one, recipes.newInEmptySlot!);
     await expect.poll(() => byId(two, SLOT_RECIPE)?.[GLOBAL_ID_KEY]).toEqual(expect.any(String));
@@ -472,10 +472,15 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     await editInDye2(one, SLOT_RECIPE, { rpm: 0, grind: 0, dose: 0, drink: 0 });
     await expect.poll(async () => (await recipe(saved!.id)).content.yield).toBe(0);
     const content = (await recipe(saved!.id)).content;
-    for (const field of ["rpm", "grindSetting", "dose"]) expect(content, field).not.toHaveProperty(field);
-    // The other tablet's record holds none of them, and the yield of 0.
-    await expect.poll(() => [variables(byId(two, SLOT_RECIPE)).rpm ?? null, variables(byId(two, SLOT_RECIPE)).grind ?? null, variables(byId(two, SLOT_RECIPE)).dose ?? null, variables(byId(two, SLOT_RECIPE)).drink]).toEqual([null, null, null, 0]);
-    // The record that saved the 0s keeps them: a 0 there reads as none, so it is neither an edit nor written again.
+    for (const field of ["rpm", "dose"]) expect(content, field).not.toHaveProperty(field);
+    // A grind setting of 0 is a dial position, as DYE2 v0.1.42 applies one: the Recipe's.
+    expect(content.grindSetting).toBe(0);
+    // The other tablet's record holds none of the dose and RPM, the grind setting of 0 with "0" in its embedded Workflow,
+    // and the yield of 0.
+    await expect.poll(() => [variables(byId(two, SLOT_RECIPE)).rpm ?? null, variables(byId(two, SLOT_RECIPE)).grind ?? null, variables(byId(two, SLOT_RECIPE)).dose ?? null, variables(byId(two, SLOT_RECIPE)).drink]).toEqual([null, 0, null, 0]);
+    expect(((byId(two, SLOT_RECIPE)!.workflow as Record_).context as Record_).grinderSetting).toBe("0");
+    // The record that saved the 0s keeps them: a dose or RPM of 0 there reads as none, and the grind setting is the
+    // Recipe's, so it is neither an edit nor written again.
     const posts = () => one.storeWrites.filter((write) => write.namespace === DYE2_NAMESPACE && write.key === "recipes").length;
     const before = posts();
     await synced(machines[0]);

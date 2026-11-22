@@ -288,6 +288,12 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     await expect.poll(() => [steamOn().targetTemperature, steamOn().duration], { timeout: 15_000 }).toEqual([0, 0]);
     await expect.poll(() => (inList("recipes", made.recipe)?.dashboardVariables as Record_ | undefined)?.steamTempC).toBe(0);
 
+    // A grind setting of 0 is a dial position, as DYE2 v0.1.42 applies one (#617): taken, and written into the Workflow as "0".
+    const { recipe: zero } = await assistant.call<{ recipe: Record_ }>("edit_recipe", { id: made.recipe, grindSetting: 0 });
+    expect(zero.content).toMatchObject({ grindSetting: 0 });
+    await expect.poll(() => context().grinderSetting, { timeout: 15_000 }).toBe("0");
+    await expect.poll(() => (inList("recipes", made.recipe)?.dashboardVariables as Record_ | undefined)?.grind).toBe(0);
+
     // An edit through the assistant reaches the tablet's record and the Workflow, as one in the management interface does (ADR-0022).
     const { recipe: edited } = await assistant.call<{ recipe: Record_ }>("edit_recipe", { id: made.recipe, dose: 18.5, grindSetting: 2.8, steamTemperature: null });
     expect(comparable(edited)).toEqual(comparable(await restItem("recipe", made.recipe)));
@@ -302,6 +308,7 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     const recipeVersions = (await versions("recipe", made.recipe)).filter((version) => version.source.machine === null);
     expect(recipeVersions.map((version) => [version.location?.name ?? null, version.fields, version.source])).toEqual([
       [null, { dose: 18.5, grindSetting: 2.8, steamTemperature: null }, throughApp],
+      [null, { grindSetting: 0 }, throughApp],
       [null, { steamTemperature: 0 }, throughApp],
       ["Uptown", { slot: 1 }, throughApp],
       [null, expect.objectContaining({ name: "Assistant Espresso", dose: 18 }), throughApp],

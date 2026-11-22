@@ -108,8 +108,10 @@ export interface LoadContext {
  * yield, set to WORKFLOW_YIELD_OFF where the recipe names neither a yield
  * nor a dose and ratio, as Decaid refuses a null there, and the coffee and
  * roaster of a recipe naming a Bean and no batch, which stay its Bean's. A
- * dose, grind setting or RPM of 0 in the record names none (`noneAtZero`),
- * and one of 0 in the Workflow is none held, as a yield of 0 is. It also
+ * dose or RPM of 0 in the record names none (`noneAtZero`), and one of 0 in
+ * the Workflow is none held, as a yield of 0 is; a grind setting of 0 is a
+ * dial position, written as the text "0", as DYE2 from v0.1.42 applies one
+ * (decentespresso/dye2#47). It also
  * writes the recipe's Profile, and each steam, hot water and flush setting
  * it holds (RECIPE_SETTINGS), as DYE2's dashboard applies them and, from
  * v0.2.29, Streamline's strip (`mergeRecipeLiveSettings`,
@@ -147,8 +149,8 @@ export function loadWrite(
   const yieldValue = numberOf(variables.drink) ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : WORKFLOW_YIELD_OFF);
   // A Workflow holding no yield has stop-at-weight off, as one holding 0.
   if (!sameNumber(yieldValue, numberOf(context.targetYield) ?? WORKFLOW_YIELD_OFF) && !omit.has("yield")) contextWrite.targetYield = yieldValue;
-  const grind = noneAtZero(grindOf(variables.grind));
-  if (!sameGrind(grind, noneAtZero(grindOf(context.grinderSetting))) && !omit.has("grind")) contextWrite.grinderSetting = grind;
+  const grind = grindOf(variables.grind);
+  if (!sameGrind(grind, grindOf(context.grinderSetting)) && !omit.has("grind")) contextWrite.grinderSetting = grind;
   const grinder = textOf(variables.grinderId);
   if (grinder === null) {
     // Cleared with its model, as DYE2's apply clears both.
