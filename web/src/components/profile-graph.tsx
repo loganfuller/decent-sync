@@ -1114,8 +1114,7 @@ function editHandles(layout: GraphLayout, profile: Profile, run: SimulatedRun, e
   ];
 }
 
-/** The selected step's handles, each with its tag where `placeTags` put it. */
-/** The selected step's handles, its points over its bracket, so a point held inside the plot near a bracket there still takes the pointer (#637). */
+/** The selected step's handles, each with its tag where `placeTags` put it, its points drawn over its bracket (`Handle`), so a point held inside the plot near a bracket there still takes the pointer (#637). */
 function EditHandles({ handles, tags, editing, onHold }: { handles: EditHandle[]; tags: LabelBox[]; editing: GraphEditing; onHold(holding: boolean): void }) {
   return (
     <>
