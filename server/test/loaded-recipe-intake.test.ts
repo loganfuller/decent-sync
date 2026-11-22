@@ -538,7 +538,9 @@ describe("The dial written into a Workflow", () => {
     const off = { ...content, steamTemperature: 0, steamDuration: 40 };
     const steam = { steamTemperature: 150, steamDuration: 50 };
     expect(heldFromWorkflow(off, recipeParts(off, local), { ...held, steamTemperature: 0, steamDuration: 0 }, steam)).toEqual({ steamTemperature: 0 });
-    // One holding no brew temperature is written its Profile's: a Workflow holding that held none of the Recipe's.
+    // One holding no brew temperature is written its Profile's: a Workflow holding that held none of the Recipe's. The
+    // Workflow intake builds its target with no Profile temperature, which holds nothing here already; this keeps it so
+    // for a target built with one, as `targetParts` builds it.
     expect(heldFromWorkflow(content, recipeParts(content, local, 93), { ...held, brewTemperature: 93 }, { brewTemperature: 95 })).toEqual({});
     const heated = { ...content, brewTemperature: 93 };
     expect(heldFromWorkflow(heated, recipeParts(heated, local, 90), { ...held, brewTemperature: 93 }, { brewTemperature: 95 })).toEqual({ brewTemperature: 93 });
