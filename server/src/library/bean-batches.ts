@@ -267,7 +267,7 @@ export async function recordBatchWritten(
       changed = edited.writesDue || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchContent(record), edited));
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchContent(record), edited, contentSeen));
     await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);

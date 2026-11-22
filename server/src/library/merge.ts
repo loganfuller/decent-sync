@@ -153,6 +153,35 @@ export function latestDecision(edits: FieldEdits): Date | null {
   return latest === null ? null : new Date(latest);
 }
 
+/**
+ * Whether a tablet's record, as Decaid returned it for a write of the
+ * server's, holds the item's content as it stood when the write's content
+ * was decided (`contentDecidedAt`, which the answer repeats), judged against
+ * the item's content now (`current`, its fields' latest edits in `edits`):
+ * every field it holds otherwise must have been decided since, as by an edit
+ * made after the write while its answer was on its way. A field nobody has
+ * edited, or last decided by then, it must hold as the item does. Nothing if
+ * the answer repeats no such time. Holding it, the record has seen every
+ * edit decided by then, as `sawEdit` reads it; a field decided since is
+ * judged by its latest edit's time all the same, as that edit's
+ * `decidedAt` is later.
+ */
+export function holdsContentAsDecided(
+  current: Readonly<Record<string, unknown>>,
+  edits: FieldEdits,
+  values: Readonly<Record<string, unknown>>,
+  contentDecidedAt: Date | null,
+): boolean {
+  if (contentDecidedAt === null) return false;
+  const since = decidedSince(edits, contentDecidedAt);
+  return Object.keys(changedFields(current, values)).every((field) => since.has(field));
+}
+
+/** The fields whose latest edit was decided after `at`, by PostgreSQL's clock: what a record written the content as decided then may hold otherwise. */
+export function decidedSince(edits: FieldEdits, at: Date): Set<string> {
+  return new Set(Object.entries(edits).flatMap(([field, edit]) => (new Date(edit.decidedAt).getTime() > at.getTime() ? [field] : [])));
+}
+
 /** An item's field edits as stored, or none if they cannot be read. */
 export function readFieldEdits(value: unknown): FieldEdits {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

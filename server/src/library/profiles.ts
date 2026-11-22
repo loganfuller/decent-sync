@@ -304,7 +304,7 @@ export async function recordProfileWritten(
       if (edited.writesDue && here !== null) await notify(tx, "library_changes", here);
     }
     // A bundled Profile's title, author and notes are never edited.
-    const holds = contentSeen !== null && (library.bundled || (await holdsWrittenContent(tx, { kind: "profile", id: profileId }, profileText(record), edited)));
+    const holds = contentSeen !== null && (library.bundled || (await holdsWrittenContent(tx, { kind: "profile", id: profileId }, profileText(record), edited, contentSeen)));
     await saveRecord(tx, tablet.tabletId, profileId, record, at, decided ?? (seen?.locationId === here ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
