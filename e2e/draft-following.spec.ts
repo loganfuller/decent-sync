@@ -65,7 +65,8 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await expect(notice).toContainText("Trial lab group's Loaded Recipe ends");
   await expect(notice).toContainText("Its dose, yield, Bean Batch, Grinder and Basket stay as they are");
   await notice.getByRole("button", { name: "Follow" }).click();
-  await expect(onMachine(page)).toContainText("The Machine has these steps, since");
+  // A time of today is said without its date.
+  await expect(onMachine(page)).toContainText(/The Machine has these steps, since \d{1,2}:\d{2}\s?[AP]M(?!,)/);
   await expect(onMachine(page)).toContainText(`on its tablet as “${draft.title} (Draft)”`);
   expect(title(tablet)).toBe(`${draft.title} (Draft)`);
   await expect(trials(page)).toContainText("None yet");
@@ -126,9 +127,26 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
 
   // A profile loaded on the tablet stops following; the page says what the Machine has, and one press follows again.
   expect((await tablet.callApi("PUT", "/workflow", { profile: classicRecord.profile })).status).toBe(200);
-  await expect(onMachine(page)).toContainText("Following stopped at", { timeout: 15_000 });
-  await expect(onMachine(page)).toContainText("Trial lab group now has Classic Italian espresso.");
+  await expect(onMachine(page)).toContainText(/Following stopped at \d{1,2}:\d{2}\s?[AP]M\./, { timeout: 15_000 });
+  await expect(onMachine(page)).toContainText("Trial lab group now has Classic Italian espresso, which following again replaces.");
   await expect(onMachine(page).getByRole("switch", { name: "Follow on" })).not.toBeChecked();
+  // In one row: the switch, the Machine, what it says and its button.
+  const row = await Promise.all(
+    [onMachine(page).getByRole("switch", { name: "Follow on" }), onMachine(page).getByRole("combobox", { name: "Machine" }), onMachine(page).getByText(/^Following stopped at/), onMachine(page).getByRole("button", { name: "Follow again" })].map(
+      async (control) => (await control.boundingBox())!,
+    ),
+  );
+  for (const box of row) expect(Math.abs(box.y + box.height / 2 - (row[0]!.y + row[0]!.height / 2))).toBeLessThan(4);
+
+  // In a laptop's window the steps, the whole graph and the inspector show without scrolling, the steps and Trial Shots a rail left of the graph.
+  // The graph's end has about 2 px to spare here (#623): anything added above the graph on a Draft's page needs that room found first.
+  await page.setViewportSize({ width: 1710, height: 985 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const steps = page.getByRole("region", { name: "Steps" });
+  await expect.poll(async () => (await steps.boundingBox())!.x + (await steps.boundingBox())!.width).toBeLessThanOrEqual((await graph(page).boundingBox())!.x);
+  expect((await trials(page).boundingBox())!.x).toBe((await steps.boundingBox())!.x);
+  for (const shown of [steps, graph(page).locator("svg[data-graph-end]").first(), page.getByRole("region", { name: "Inspector" })]) await expect(shown).toBeInViewport({ ratio: 1 });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await onMachine(page).getByRole("button", { name: "Follow again" }).click();
   await expect(onMachine(page)).toContainText("The Machine has these steps, since");
   expect(title(tablet)).toBe("Lab classic (Draft)");

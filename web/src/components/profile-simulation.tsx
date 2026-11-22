@@ -134,7 +134,8 @@ export function RunFigures({ run, against }: { run: SimulatedRun; against?: { la
   return (
     <dl aria-label="Simulated figures" className="flex flex-wrap gap-x-8 gap-y-3 tabular-nums">
       {figures.map((figure) => (
-        <div key={figure.term} className="grid gap-0.5">
+        // At most 12 rem wide, so a long comparison wraps under its figure and the four stay in one row beside a Draft's rail in a laptop's 1710 px window (#623).
+        <div key={figure.term} className="grid max-w-48 content-start gap-0.5">
           <dt className="text-sm text-muted-foreground">{figure.term}</dt>
           <dd className="text-2xl leading-tight font-semibold">{figure.value}</dd>
           {figure.compared && <dd className="text-xs text-muted-foreground">{figure.compared === "The same" ? `The same as ${against!.label}` : `${figure.compared} than ${against!.label}`}</dd>}

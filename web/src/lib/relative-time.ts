@@ -53,3 +53,22 @@ export function relativeTime(at: number, now: number, timeZone: string = BROWSER
     ? cached(DATE_FORMATS, timeZone, undefined, { month: "short", day: "numeric" }).format(at)
     : cached(DATED_YEAR_FORMATS, timeZone, undefined, { month: "short", day: "numeric", year: "numeric" }).format(at);
 }
+
+const CLOCK_FORMATS = new Map<string, Intl.DateTimeFormat>();
+const DATED_CLOCK_FORMATS = new Map<string, Intl.DateTimeFormat>();
+const DATED_YEAR_CLOCK_FORMATS = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * A moment as a time of day, by the wall clock of `timeZone`, for a sentence
+ * saying when something happened (#623): "9:33 AM" on the day of `now`, with
+ * its date before it on any other day, "Nov 21, 9:33 AM", and the year where
+ * it is another year's. Never seconds.
+ */
+export function clockTime(at: number, now: number, timeZone: string = BROWSER_TIME_ZONE): string {
+  const days = dayIn(now, timeZone) - dayIn(at, timeZone);
+  if (days === 0) return cached(CLOCK_FORMATS, timeZone, undefined, { hour: "numeric", minute: "2-digit" }).format(at);
+  const sameYear = new Date(dayIn(now, timeZone) * DAY).getUTCFullYear() === new Date(dayIn(at, timeZone) * DAY).getUTCFullYear();
+  return sameYear
+    ? cached(DATED_CLOCK_FORMATS, timeZone, undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(at)
+    : cached(DATED_YEAR_CLOCK_FORMATS, timeZone, undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(at);
+}

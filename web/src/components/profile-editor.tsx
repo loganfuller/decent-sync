@@ -12,11 +12,12 @@ import {
   stepLabel,
 } from "@decent-sync/protocol";
 import { ChevronDown, ChevronUp, CircleCheck, CircleX, Plus, TriangleAlert } from "lucide-react";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, type Ref, useId, useRef, useState } from "react";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { Segmented, SegmentedItem } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,7 +49,7 @@ import { measure, stepAction, stepMovesOn, stepName, stepSimulated } from "@/lib
 
 // A Draft's editor (#579): the inspector beside the graph, for the selected
 // step and for the whole profile; the checks, what stops it publishing and
-// advice, each naming its step; and its steps, added, duplicated, deleted
+// advice, each naming its step, in a list a status beside Publish opens; and its steps, added, duplicated, deleted
 // and reordered. Every change goes to `onChange` with the key of what it
 // changed, so changes of one field in quick succession undo as one, or null
 // for a change that is a step of its own. Every number is held to the widest
@@ -91,7 +92,8 @@ function typed(text: string): number | null | undefined {
  * A field of a number, held to its range as it is typed, saying so where
  * what was typed is outside it; with `off`, empty is none, shown as "Off".
  * It shows what was typed while it has the focus, and the value otherwise,
- * as after an undo.
+ * as after an undo. What explains it goes in `info`, behind an icon beside
+ * its label; `hint`, under it, is for what says its state.
  */
 export function NumberField({
   label,
@@ -100,6 +102,7 @@ export function NumberField({
   range,
   off,
   hint,
+  info,
   onChange,
   onBlur,
 }: {
@@ -110,6 +113,7 @@ export function NumberField({
   /** Whether empty is none, as for a limit or a weight. */
   off?: boolean;
   hint?: ReactNode;
+  info?: ReactNode;
   onChange(value: number | null): void;
   /** Called as the field is left. */
   onBlur?(): void;
@@ -128,7 +132,10 @@ export function NumberField({
   const invalid = read === undefined || (read === null && !off);
   return (
     <div className="grid min-w-0 content-start gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <span className="flex items-center gap-1">
+        <Label htmlFor={id}>{label}</Label>
+        {info && <InfoTip label={`About ${label.toLowerCase()}`}>{info}</InfoTip>}
+      </span>
       <div className="relative">
         <Input
           id={id}
@@ -235,6 +242,8 @@ export function Inspector({
   onTab,
   onSelect,
   onChange,
+  className = "",
+  ref,
 }: {
   profile: Profile;
   selected: number;
@@ -243,10 +252,12 @@ export function Inspector({
   onTab(tab: "step" | "profile"): void;
   onSelect(step: number): void;
   onChange: ProfileChange;
+  className?: string;
+  ref?: Ref<HTMLDivElement>;
 }) {
   const step = profile.steps[selected];
   return (
-    <Card role="region" aria-label="Inspector" className="min-w-0">
+    <Card ref={ref} role="region" aria-label="Inspector" className={`min-w-0 ${className}`}>
       <CardContent className="grid gap-5">
         <Tabs value={step ? tab : "profile"} onValueChange={(value) => onTab(value as "step" | "profile")}>
           <TabsList>
@@ -359,7 +370,7 @@ function StepFields({
             unit="°C"
             value={step.temperature}
             range={limits.temperature}
-            hint="The brew temperature, moving the later steps with it; a Recipe's replaces it"
+            info={<p>The brew temperature, moving the later steps with it. A Recipe&apos;s brew temperature replaces it.</p>}
             onChange={brewField.onChange}
             onBlur={brewField.onBlur}
           />
@@ -436,7 +447,7 @@ function ProfileFields({ profile, limits, onChange }: { profile: Profile; limits
           unit="°C"
           value={brew}
           range={limits.temperature}
-          hint="The first step's, moving the others with it; a Recipe's brew temperature replaces it"
+          info={<p>The first step&apos;s temperature, moving the others with it. A Recipe&apos;s brew temperature replaces it.</p>}
           onChange={brewField.onChange}
           onBlur={brewField.onBlur}
         />
@@ -448,7 +459,7 @@ function ProfileFields({ profile, limits, onChange }: { profile: Profile; limits
           off
           value={profile.target_weight !== null && profile.target_weight > 0 ? profile.target_weight : null}
           range={limits.targetWeight}
-          hint="A Recipe's yield replaces it"
+          info={<p>A Recipe&apos;s yield replaces it.</p>}
           onChange={(value) => onChange({ ...profile, target_weight: value ?? 0 }, "target_weight")}
         />
         <NumberField
@@ -457,7 +468,7 @@ function ProfileFields({ profile, limits, onChange }: { profile: Profile; limits
           off
           value={profile.target_volume !== null && profile.target_volume > 0 ? profile.target_volume : null}
           range={limits.targetVolume}
-          hint="With no scale, counted after preinfusion"
+          info={<p>Used with no scale, counted after preinfusion.</p>}
           onChange={(value) => onChange({ ...profile, target_volume: value ?? 0 }, "target_volume")}
         />
       </div>
@@ -509,48 +520,91 @@ function CheckItem({ check, blocking, onSelect }: { check: ProfileCheck; blockin
   );
 }
 
-/** The checks, beside the graph: what stops the Draft from publishing, and what the machine accepts that may not be meant, each naming its step. */
-export function ChecksCard({ checks, onSelect }: { checks: ProfileChecks; onSelect(step: number): void }) {
+/** A count of checks in words, such as "1 thing stops publishing" or "2 pieces of advice". */
+function checksText(blocking: number, advice: number): string {
+  const stops = blocking === 0 ? "Nothing stops publishing" : `${blocking} ${blocking === 1 ? "thing stops" : "things stop"} publishing`;
+  return advice === 0 ? stops : `${stops} · ${advice} ${advice === 1 ? "piece" : "pieces"} of advice`;
+}
+
+/**
+ * The checks, beside Publish (#623): a status saying whether anything stops
+ * the Draft from publishing and how much advice there is, which opens their
+ * list: what stops it, and what the machine accepts that may not be meant,
+ * each naming its step. Choosing one selects its step and closes the list,
+ * leaving the focus to `onSelect`; closed otherwise, the focus returns to the status.
+ */
+export function ChecksStatus({ checks, onSelect }: { checks: ProfileChecks; onSelect(step: number): void }) {
+  const [open, setOpen] = useState(false);
+  const blocking = checks.blocking.length;
+  const advice = checks.advice.length;
+  const text = checksText(blocking, advice);
+  const Icon = blocking > 0 ? CircleX : advice > 0 ? TriangleAlert : CircleCheck;
+  const tone = blocking > 0 ? "text-destructive" : advice > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600";
+  const chose = useRef(false);
+  const choose = (step: number) => {
+    chose.current = true;
+    setOpen(false);
+    onSelect(step);
+  };
   return (
-    <Card role="region" aria-label="Checks" className="min-w-0">
-      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-        <CardTitleWithInfo title="Checks">
-          <p>
-            What stops this Draft from publishing, and advice: what the machine accepts but may not be meant, such as a weight limit on a Machine with no scale or a target the
-            simulated run never reaches. Values are held to the widest ranges of the models the account has Machines of. Choose one to select its step.
-          </p>
-        </CardTitleWithInfo>
-        {checks.blocking.length === 0 && (
-          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <CircleCheck aria-hidden className="size-4 text-emerald-600" /> Nothing stops this from publishing
-          </span>
-        )}
-      </CardHeader>
-      <CardContent className="grid gap-2">
-        {checks.blocking.length > 0 && (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        {/* Its words wrap rather than run past a phone's width. */}
+        <Button variant="outline" aria-label={`Checks: ${text}`} className="h-auto min-h-8 max-w-full shrink py-1 text-left whitespace-normal">
+          <Icon aria-hidden className={tone} />
+          {text}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        aria-label="Checks"
+        tabIndex={-1}
+        // A long list scrolls within itself rather than running past the window's end.
+        className="max-h-(--radix-popover-content-available-height) w-96 max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto"
+        // Opens with focus on the first check that selects a step, or on the list, not on the info icon, whose tooltip would open with it.
+        onCloseAutoFocus={(event) => {
+          if (chose.current) event.preventDefault();
+          chose.current = false;
+        }}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          const list = event.currentTarget as HTMLElement;
+          (list.querySelector<HTMLElement>("li button") ?? list).focus();
+        }}
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          Checks
+          <InfoTip label="About Checks">
+            <p>
+              What stops this Draft from publishing, and advice: what the machine accepts but may not be meant, such as a weight limit on a Machine with no scale or a target the
+              simulated run never reaches. Values are held to the widest ranges of the models the account has Machines of. Choose one to select its step.
+            </p>
+          </InfoTip>
+        </span>
+        {blocking > 0 && (
           <section aria-label="Stops it publishing">
-            <h3 className="text-sm font-medium">Stops it publishing</h3>
-            <ul className="grid divide-y text-sm">
+            <h3 className="font-medium">Stops it publishing</h3>
+            <ul className="grid divide-y">
               {checks.blocking.map((check) => (
-                <CheckItem key={`${check.code}-${check.path ?? check.step}`} check={check} blocking onSelect={onSelect} />
+                <CheckItem key={`${check.code}-${check.path ?? check.step}`} check={check} blocking onSelect={choose} />
               ))}
             </ul>
           </section>
         )}
-        {checks.advice.length > 0 ? (
+        {advice > 0 ? (
           <section aria-label="Advice">
-            <h3 className="text-sm font-medium">Advice</h3>
-            <ul className="grid divide-y text-sm">
+            <h3 className="font-medium">Advice</h3>
+            <ul className="grid divide-y">
               {checks.advice.map((check) => (
-                <CheckItem key={`${check.code}-${check.path ?? check.step}`} check={check} blocking={false} onSelect={onSelect} />
+                <CheckItem key={`${check.code}-${check.path ?? check.step}`} check={check} blocking={false} onSelect={choose} />
               ))}
             </ul>
           </section>
         ) : (
-          checks.blocking.length === 0 && <p className="text-sm text-muted-foreground">No advice either.</p>
+          blocking === 0 && <p className="text-muted-foreground">Nothing stops this from publishing, and there is no advice.</p>
         )}
-      </CardContent>
-    </Card>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -589,7 +643,8 @@ export function EditableStepsCard({
           <Plus aria-hidden /> Add a step
         </Button>
       </CardHeader>
-      <CardContent>
+      {/* A container, so a row lays its words out by the card's width: one column in the rail beside the graph, four under it. */}
+      <CardContent className="@container">
         {profile.steps.length === 0 ? (
           <p className="text-sm text-muted-foreground">No steps yet.</p>
         ) : (
@@ -601,22 +656,22 @@ export function EditableStepsCard({
                 <li key={index} aria-current={current ? "step" : undefined} className={`flex min-w-0 items-center gap-2 px-2 py-1.5 ${current ? "bg-primary/[0.06] shadow-[inset_3px_0_0] shadow-primary" : ""}`}>
                   <button
                     type="button"
-                    className="grid min-w-0 flex-1 gap-0.5 rounded-sm px-1 py-1 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:grid-cols-[1.5rem_8rem_minmax(0,1fr)_minmax(0,14rem)] sm:items-baseline sm:gap-3"
+                    className="grid min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 rounded-sm px-1 py-1 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none @lg:grid-cols-[1.5rem_8rem_minmax(0,1fr)_minmax(0,14rem)] @lg:items-baseline @lg:gap-3"
                     aria-label={`Select step ${index + 1}, ${name}`}
                     onClick={() => onSelect(index)}
                   >
-                    <span className="text-sm text-muted-foreground tabular-nums">{index + 1}</span>
-                    <span className="truncate font-semibold">
+                    <span className="row-span-3 text-sm text-muted-foreground tabular-nums @lg:row-span-1">{index + 1}</span>
+                    <span className="col-start-2 truncate font-semibold @lg:col-start-auto">
                       {name}
                       {end === index && <span className="block text-xs font-normal text-muted-foreground">Preinfusion ends</span>}
                     </span>
-                    <span className="text-sm">{stepAction(profile, index)}</span>
-                    <span className="text-sm text-muted-foreground sm:text-right">{run ? stepSimulated(profile, run, index) : stepMovesOn(step)}</span>
+                    <span className="col-start-2 text-sm @lg:col-start-auto">{stepAction(profile, index)}</span>
+                    <span className="col-start-2 text-sm text-muted-foreground @lg:col-start-auto @lg:text-right">{run ? stepSimulated(profile, run, index) : stepMovesOn(step)}</span>
                   </button>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 flex-col @lg:flex-row">
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="icon-sm"
                       aria-label={`Move ${name} up`}
                       disabled={index === 0}
                       onClick={() => {
@@ -628,7 +683,7 @@ export function EditableStepsCard({
                     </Button>
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="icon-sm"
                       aria-label={`Move ${name} down`}
                       disabled={index === profile.steps.length - 1}
                       onClick={() => {

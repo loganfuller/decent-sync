@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { relativeTime } from "../src/lib/relative-time";
+import { clockTime, relativeTime } from "../src/lib/relative-time";
 import { stopWords, stoppedText } from "../src/lib/stops";
 
 // The shared parts of #543 that are pure: a time as it reads now, and the
-// words for how a Shot stopped.
+// words for how a Shot stopped; and a time of day for a sentence (#623).
 
 /** Sunday 15 November 2026, 1:40 PM in Toronto, 5 hours behind UTC. */
 const NOW = Date.parse("2026-11-15T18:40:00Z");
@@ -50,6 +50,26 @@ describe("a relative time", () => {
     expect(ago(-30 * MINUTE)).toBe("Just now");
     expect(ago(-2 * HOUR)).toBe("Nov 15");
     expect(ago(-3 * 24 * HOUR)).toBe("Nov 18");
+  });
+});
+
+describe("a time of day", () => {
+  const at = (ms: number, timeZone = TORONTO) => clockTime(NOW - ms, NOW, timeZone);
+
+  it("gives today's without its date, and never seconds", () => {
+    expect(at(0)).toBe("1:40 PM");
+    expect(at(4 * HOUR + 7 * MINUTE + 30_000)).toBe("9:32 AM");
+    // 12:10 AM that day.
+    expect(at(13 * HOUR + 30 * MINUTE)).toBe("12:10 AM");
+  });
+
+  it("dates another day's, with its year where it is another year's, by the wall clock of the zone", () => {
+    // 11:50 PM the day before.
+    expect(at(13 * HOUR + 50 * MINUTE)).toBe("Nov 14, 11:50 PM");
+    expect(clockTime(Date.parse("2025-12-31T15:00:00Z"), NOW, TORONTO)).toBe("Dec 31, 2025, 10:00 AM");
+    // Already the next day in Tokyo.
+    expect(at(0, "Asia/Tokyo")).toBe("3:40 AM");
+    expect(at(5 * HOUR, "Asia/Tokyo")).toBe("Nov 15, 10:40 PM");
   });
 });
 

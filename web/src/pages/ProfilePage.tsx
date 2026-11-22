@@ -465,7 +465,8 @@ export function HowItRuns({
 
   return (
     <Card role="region" aria-label="How it runs">
-      <CardHeader>
+      {/* The Shot laid over it is chosen in the header, so the graph sits as high as it can (#623). */}
+      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
         <CardTitleWithInfo title="How it runs, simulated">
           <p>
             A simulation of what a Machine does with this Profile, not a measurement: pressure and flow on a standard puck, with the plan, what each step asks the Machine for,
@@ -473,6 +474,26 @@ export function HowItRuns({
             grind that best imitates it, so a finer or coarser grind from there shows how that Shot would likely shift; each can be changed after. Temperature is not simulated, so its lane draws the plan. Each step is a band named at the top with how long it ran and why it ended.
           </p>
         </CardTitleWithInfo>
+        {!cannot && run && definition && (
+          <div className="flex flex-wrap items-center gap-2">
+            {overlay && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  // A Shot still loading is dropped too, so it neither returns nor sets the controls.
+                  latest.current++;
+                  setOverlay(undefined);
+                }}
+              >
+                Remove the Shot
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
+              {overlay ? "Lay another Shot over it" : "Lay a Shot over it"}
+            </Button>
+          </div>
+        )}
       </CardHeader>
       {/* A container, so the graph and its figures go by the card's own width: it is narrower beside a Draft's inspector, and in a dialog, than the window. */}
       <CardContent className="@container grid min-w-0 gap-4">
@@ -517,31 +538,7 @@ export function HowItRuns({
 
             {run && definition && (
               <div className="grid min-w-0 gap-4">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <RunFigures run={run} against={against} />
-                  <div className="flex flex-wrap items-center gap-2">
-                    {overlay && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          // A Shot still loading is dropped too, so it neither returns nor sets the controls.
-                          latest.current++;
-                          setOverlay(undefined);
-                        }}
-                      >
-                        Remove the Shot
-                      </Button>
-                    )}
-                    <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
-                      {overlay ? "Lay another Shot over it" : "Lay a Shot over it"}
-                    </Button>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {`${measure(run.dose)} g in, ${run.stopAt === null ? "running until its last step ends" : `stopping at ${measure(run.stopAt)} g`}, on a ${run.model}`}
-                  {overlay && `, with the Shot of ${shotTime(overlay.shot)} on ${overlay.shot.machine?.name ?? "a Pending Machine"} over it`}
-                </p>
+                <RunFigures run={run} against={against} />
                 <ProfileGraph
                   profile={definition}
                   run={run}
@@ -551,6 +548,11 @@ export function HowItRuns({
                   baseline={baseline && baselineRun ? { label: baseline.label, run: baselineRun } : null}
                   editing={editing}
                 />
+                {/* What the run is of, under the graph as its caption, so the graph sits as high as it can (#623). */}
+                <p className="text-sm text-muted-foreground">
+                  {`${measure(run.dose)} g in, ${run.stopAt === null ? "running until its last step ends" : `stopping at ${measure(run.stopAt)} g`}, on a ${run.model}`}
+                  {overlay && `, with the Shot of ${shotTime(overlay.shot)} on ${overlay.shot.machine?.name ?? "a Pending Machine"} over it`}
+                </p>
               </div>
             )}
           </>
