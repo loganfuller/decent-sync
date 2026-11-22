@@ -99,7 +99,7 @@ describe("Settings Edits of the advanced settings and flow multiplier", () => {
     const asStaff: [collection: string, fields: Record<string, unknown>, problem: RegExp][] = [
       ["advancedSettings", { heaterPh1Flow: 3 }, /Only an Admin can change Heater warmup flow/],
       ["advancedSettings", { refillKitSetting: 1 }, /Only an Admin can change Refill kit/],
-      ["machineCalibration", { flowMultiplier: 1.2 }, /Only an Admin can change Flow multiplier/],
+      ["machineCalibration", { flowMultiplier: 1.2 }, /Only an Admin can change Flow calibration/],
     ];
     for (const [collection, fields, problem] of asStaff) {
       const expected = Object.fromEntries(Object.keys(fields).map((field) => [field, null]));
@@ -110,7 +110,7 @@ describe("Settings Edits of the advanced settings and flow multiplier", () => {
       expect(await refused(machine, { collection: "advancedSettings", fields: { heaterVoltage }, expected: { heaterVoltage: 120 } }, 400)).toMatch(/Heater voltage must be 110 V or 220 V/);
     }
     expect(await refused(machine, { collection: "advancedSettings", fields: { refillKitSetting: 3 }, expected: { refillKitSetting: 2 } }, 400)).toMatch(/Refill kit must be/);
-    expect(await refused(machine, { collection: "machineCalibration", fields: { flowMultiplier: 2.5 }, expected: { flowMultiplier: 1.1 } }, 400)).toMatch(/Flow multiplier must be from 0.13 to 2/);
+    expect(await refused(machine, { collection: "machineCalibration", fields: { flowMultiplier: 2.5 }, expected: { flowMultiplier: 1.1 } }, 400)).toMatch(/Flow calibration must be from 0.13 to 2/);
     expect(await refused(machine, { collection: "machineCalibration", fields: { flowMultiplier: 1.0005 }, expected: { flowMultiplier: 1.1 } }, 400)).toMatch(/multiple of 0.001/);
     expect(writes(tablet)).toEqual([]);
   });

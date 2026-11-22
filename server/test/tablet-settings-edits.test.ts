@@ -107,7 +107,7 @@ describe("Settings Edits of the Tablet Settings", () => {
       const response = await staff.call("POST", path(machine), { collection: "appSettings", fields: { [field]: value }, expected: { [field]: multipliers[field] } });
       const text = await response.text();
       expect(response.status, text).toBe(400);
-      expect(text).toMatch(/flow multiplier must be a multiple of 0.01/);
+      expect(text).toMatch(/look-ahead must be a multiple of 0.01/);
     }
     expect(writes(tablet)).toEqual(["POST /settings"]);
     expect(await held(tablet)).toMatchObject(multipliers);
