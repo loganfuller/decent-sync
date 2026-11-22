@@ -1445,12 +1445,16 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   (`archiveChange`, `showAt`); its other fields are edits as before, of an
   archived record too. A write's answer showing the record archived or
   unarchived since, where the write did not set `archived`, is taken the
-  same way. A record set back to what it held just before the server's
-  latest write of `archived`, as a page opened before the write saves it,
-  is taken as unchanged, as a field of its content is, and the Location's
-  state written again. The Location's other tablets have their records
-  archived or unarchived as the writer writes the Location's state (Writing
-  to tablets, below), and a Basket the Location shows is unarchived on a
+  same way. Every archive and unarchive is the barista's, even one that
+  sets back the server's latest write of `archived`: DYE2's ARCHIVE and
+  UNARCHIVE write the opposite of what the barista saw, so a page opened
+  before the server's write cannot undo it, and no stale save of
+  `archived` is guarded against, unlike a field of its content. Only a
+  save of DYE2's form, opened on an archived record before the server
+  unarchived it, archives it again unmeant, and the Basket is then hidden
+  at that Location by that tablet, as its history shows. The Location's
+  other tablets have their records archived or unarchived as the writer
+  writes the Location's state (Writing to tablets, below), and a Basket the Location shows is unarchived on a
   tablet that holds it archived. DYE2 keeps a Workflow naming the basket as
   it was, "in the recipes and shots that name it"; Decent Sync still clears
   a joining tablet's Workflow of a Basket its Location does not show

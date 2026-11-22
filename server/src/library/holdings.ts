@@ -122,7 +122,7 @@ export interface HeldRecord {
   /** When the latest edit of that content was decided, by PostgreSQL's clock; null if none was. */
   contentDecidedAt: Date | null;
   /** For a Basket or Tool, whether it is Archived in the Library, so removed from DYE2's list rather than archived there. */
-  archived?: boolean;
+  libraryArchived?: boolean;
 }
 
 /** What the tablet holds, by its map. A Profile's local id is its id. */
@@ -374,7 +374,7 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
   }
   for (const record of held[key]) {
     if (shown.has(record.itemId)) continue;
-    if (kind === "basket" && !record.archived) {
+    if (kind === "basket" && !record.libraryArchived) {
       pushUpdate(writes, kind, record.itemId, record, archived(record) ? {} : { [ARCHIVED_FIELD]: true }, record.decidedAt ?? null);
     } else {
       writes.push({ remove: true, kind, globalId: record.itemId, localId: record.localId, decidedAt: record.decidedAt ?? null, expected: record.record });

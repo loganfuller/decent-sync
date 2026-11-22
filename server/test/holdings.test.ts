@@ -433,7 +433,7 @@ describe("Baskets and Tools a Location shows", () => {
     const writes = plannedWrites(
       offer([], [], [], [], { baskets: [shownItem(BASKETS[0], basket18)], tools: [shownItem(TOOL, wdt)] }),
       holding([], [], [], [], {
-        baskets: [heldItem(BASKETS[1], basket20), { ...heldItem(ARCHIVED, archivedBasket), archived: true }],
+        baskets: [heldItem(BASKETS[1], basket20), { ...heldItem(ARCHIVED, archivedBasket), libraryArchived: true }],
         tools: [heldItem("5d7f9b1c-3e5a-4c7e-9a1b-3d5f7b9c1e3a", tamper)],
       }),
     );
@@ -456,7 +456,7 @@ describe("Baskets and Tools a Location shows", () => {
     ]);
     // Skipped, a removal is left out by its record's key.
     expect(
-      plannedWrites(offer([]), holding([], [], [], [], { baskets: [{ ...heldItem(BASKETS[1], basket20), archived: true }] }), new Set([removeKey("basket", basket20.id as string)])),
+      plannedWrites(offer([]), holding([], [], [], [], { baskets: [{ ...heldItem(BASKETS[1], basket20), libraryArchived: true }] }), new Set([removeKey("basket", basket20.id as string)])),
     ).toEqual([]);
   });
 

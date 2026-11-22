@@ -270,9 +270,8 @@ async function itemContent(tx: Prisma.TransactionClient, kind: EquipmentKind, it
  * holding the item's value, which is no edit (`answeredEquipment`). A
  * record the tablet archived or unarchived since, where the write did not
  * set `archived`, hides or shows the item at its Location, as in a report
- * (`archiveChange`); one set back so by a stale save has the Location's
- * state written again. A record the plugin `linked`, one of the same name entered there before the
- * tablet reported it, takes the item's content, each field it held otherwise
+ * (`archiveChange`). A record the plugin `linked`, one of the same name
+ * entered there before the tablet reported it, takes the item's content, each field it held otherwise
  * kept as a Conflict (ADR-0018). What the record held for each field the
  * write set is kept (`before_write`), so a report setting it back is taken
  * as unchanged, but for a field the write puts back over such a report, so
@@ -312,9 +311,7 @@ export async function recordEquipmentWritten(
       WHERE tablet_id = ${tablet.tabletId}::uuid AND ${Prisma.raw(column)} = ${itemId}::uuid`;
     // Archived or unarchived on the tablet before the plugin wrote, unless the write set it: hidden or shown at its Location,
     // as in a report, under the Location's lock, taken before the item's.
-    const archived = known && !written.has(ARCHIVED_FIELD) ? archiveChange(known.record, record, known.beforeWrite) : undefined;
-    // Set back by a stale save, or a write lost: the Location's state is written again.
-    const archiveStale = known !== undefined && !written.has(ARCHIVED_FIELD) && archived === undefined && archivedRecord(known.record) !== archivedRecord(record);
+    const archived = known && !written.has(ARCHIVED_FIELD) ? archiveChange(known.record, record) : undefined;
     if (locationId !== null && archived !== undefined) await lockLocation(tx, locationId);
     // Its row locked, as an edit of it would, for its content before this answer.
     const [item] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;
@@ -322,7 +319,7 @@ export async function recordEquipmentWritten(
     const at = updatedAt === null ? await transactionTime(tx) : new Date(updatedAt);
     const source = tabletSource(tablet);
     const ref = { kind, id: itemId } as const;
-    let changed = archiveStale;
+    let changed = false;
     /** The decision of whether the Location shows it that the tablet's own archive made, which its record has seen. */
     let decided: SeenDecision | null = null;
     if (locationId !== null && archived !== undefined) {

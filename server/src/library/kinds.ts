@@ -792,7 +792,7 @@ function equipmentKind(
         (
           await tx.$queryRaw<HeldRow[]>`
             SELECT held.${column}::text AS "itemId", held.local_id AS "localId", held.record, here.decided_at AS "decidedAt",
-              items.content, items.field_edits AS "fieldEdits", items.archived
+              items.content, items.field_edits AS "fieldEdits", items.archived AS "libraryArchived"
             FROM ${map} AS held
             JOIN ${table} AS items ON items.id = held.${column}
             LEFT JOIN ${shown} AS here ON here.${column} = held.${column} AND here.location_id = ${locationId}::uuid

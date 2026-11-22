@@ -21,7 +21,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // on its record. That is the tablet's Location's state, never the Basket's
 // content: archived on a tablet, a Basket is hidden at that tablet's
 // Location only, and archived on that Location's other tablets; unarchived,
-// it is shown there again; an edit of an archived record is an edit of its
+// it is shown there again, at the first tap on any tablet there, the server's
+// write to it notwithstanding; an edit of an archived record is an edit of its
 // content as before. A Basket a Location hides is archived on its tablets'
 // lists rather than removed, and unarchived once shown again; a tablet that
 // lacks its record is written none; a Tool hidden there is still removed,
@@ -138,10 +139,12 @@ describe("A Basket archived in DYE2, and one its Location hides", { timeout: 90_
       ["Archived lab", false],
     ]);
 
-    // UNARCHIVE on the first tablet: shown at the lab again, and the lab's other tablet has the flag cleared.
-    await archiveBasketInDye2(one, localId, false);
+    // UNARCHIVE at its first tap on the lab's other tablet, whose record the server archived: shown at the lab again, and
+    // the first tablet has the flag cleared.
+    await archiveBasketInDye2(two, String(recordNamed(two, "baskets", name)!.id), false);
     await expect.poll(() => shownAt("baskets", name)).toEqual(["Archived cafe", "Archived lab"]);
-    await expect.poll(() => recordNamed(two, "baskets", name)?.archived).toBe(false);
+    await expect.poll(() => recordNamed(one, "baskets", name)?.archived).toBe(false);
+    expect(archivedOn(two, name)).toBe(false);
     expect((await view("baskets", basket!.id)).content).toEqual({ ...content, notes: "Retired at the lab" });
   });
 
@@ -185,6 +188,13 @@ describe("A Basket archived in DYE2, and one its Location hides", { timeout: 90_
     expect((await show("baskets", basket!.id, lab, true)).status).toBe(200);
     for (const tablet of [one, two]) await expect.poll(() => recordNamed(tablet, "baskets", hidden)?.archived).toBe(false);
     await expect.poll(() => archivedOn(three, hidden)).toBe(false);
+
+    // ARCHIVE at its first tap on a tablet whose record the server unarchived: hidden at the lab again, and archived on its
+    // other tablets.
+    await archiveBasketInDye2(two, String(recordNamed(two, "baskets", hidden)!.id), true);
+    await expect.poll(() => decided(basket!.id)).toEqual([["Hidden lab", false]]);
+    for (const tablet of [one, three]) await expect.poll(() => archivedOn(tablet, hidden)).toBe(true);
+    expect(archivedOn(two, hidden)).toBe(true);
   });
 
   it("hides a Basket deleted in DYE2 at that Location only, archiving it on the Location's other tablets, and writes it back to none", async () => {

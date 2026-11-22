@@ -18,9 +18,11 @@ import { changedFields } from "./merge.js";
 //
 // A Basket's record carries `archived` once a barista archives it in DYE2
 // (from v0.1.41): that is its Location's state, hidden there, never its
-// content, as a record deleted there is (ADR-0019), and a record set back to
-// what it held before the server archived or unarchived it is taken as
-// unchanged, as a field of its content is.
+// content, as a record deleted there is (ADR-0019). Every change of it on
+// the tablet is the barista's: DYE2's ARCHIVE and UNARCHIVE write the
+// opposite of what the barista saw, so a page opened before the server's
+// write cannot set it back, and no guard is kept against a stale save of it
+// (`heldBefore`), which would swallow the first toggle after every write.
 
 /** A Basket's or Tool's record as a tablet reported it, one Decent Sync can take in. */
 export interface ReportedEquipment {
@@ -132,32 +134,19 @@ export function archivedRecord(record: Readonly<Record<string, unknown>>): boole
 }
 
 /**
- * Whether a record's field holds the same value as another, `archived` by
- * whether it is archived, as a record without it and one holding false are
- * both unarchived: so a guard kept against a stale save (`before_write`)
- * holding null for a field the record lacked is met by DYE2's `false`.
- */
-function sameFieldValue(field: string, a: unknown, b: unknown): boolean {
-  return field === ARCHIVED_FIELD ? (a === true) === (b === true) : sameValue(a, b);
-}
-
-/**
  * Whether a tablet's record of an item the map holds shows the tablet
- * archived it (true) or unarchived it (false) since the record known: undefined
- * if it is as known, or set back to what it was just before the server's
- * latest write of `archived` (`beforeWrite`), as by a page opened before the
- * write, which is taken as unchanged (ADR-0005), and the Location's state
- * written again.
+ * archived it (true) or unarchived it (false) since the record known:
+ * undefined if it is as known. Either is the barista's, even one setting
+ * back the server's latest write of it: DYE2's toggle writes the opposite of
+ * what the barista saw, so a page opened before that write cannot undo it.
+ * Only a save of DYE2's form, opened on an archived record before the server
+ * unarchived it, can archive it again unmeant, which is taken as the
+ * barista's too, and so is a write lost to DYE2 posting the list at the
+ * same moment.
  */
-export function archiveChange(
-  known: Readonly<Record<string, unknown>>,
-  reported: Readonly<Record<string, unknown>>,
-  beforeWrite: Readonly<Record<string, unknown>> | null,
-): boolean | undefined {
+export function archiveChange(known: Readonly<Record<string, unknown>>, reported: Readonly<Record<string, unknown>>): boolean | undefined {
   const archived = archivedRecord(reported);
-  if (archived === archivedRecord(known)) return undefined;
-  const stale = beforeWrite !== null && Object.prototype.hasOwnProperty.call(beforeWrite, ARCHIVED_FIELD) && archived === (beforeWrite[ARCHIVED_FIELD] === true);
-  return stale ? undefined : archived;
+  return archived === archivedRecord(known) ? undefined : archived;
 }
 
 /**
@@ -192,9 +181,7 @@ export function beforeWriteAfter(
   reported: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> | null {
   if (beforeWrite === null) return null;
-  const standing = Object.entries(beforeWrite).filter(
-    ([field, value]) => sameFieldValue(field, reported[field], known[field]) || sameFieldValue(field, reported[field], value),
-  );
+  const standing = Object.entries(beforeWrite).filter(([field, value]) => sameValue(reported[field], known[field]) || sameValue(reported[field], value));
   return standing.length === 0 ? null : Object.fromEntries(standing);
 }
 
@@ -206,16 +193,17 @@ export function beforeWriteAfter(
  * at its value before the server's previous write to it: such a write puts
  * back the item's value over what was taken as a stale save, so the tablet
  * setting that value again is its barista's edit (ADR-0005), not another
- * stale save. Null if none is left.
+ * stale save. Never `archived`, which is no content and every change of
+ * which is the barista's (`archiveChange`). Null if none is left.
  */
 export function heldBefore(
   record: Readonly<Record<string, unknown>>,
   written: Iterable<string>,
   previous: Readonly<Record<string, unknown>> | null = null,
 ): Record<string, unknown> | null {
-  const restoring = (field: string) => previous !== null && Object.prototype.hasOwnProperty.call(previous, field) && sameFieldValue(field, record[field], previous[field]);
-  const fields = new Set(written);
-  const kept = Object.entries(previous ?? {}).filter(([field]) => !fields.has(field));
+  const restoring = (field: string) => previous !== null && Object.prototype.hasOwnProperty.call(previous, field) && sameValue(record[field], previous[field]);
+  const fields = new Set([...written].filter((field) => field !== ARCHIVED_FIELD));
+  const kept = Object.entries(previous ?? {}).filter(([field]) => field !== ARCHIVED_FIELD && !fields.has(field));
   const held = [...fields].filter((field) => !restoring(field)).map((field) => [field, record[field] ?? null] as const);
   const all = [...kept, ...held];
   return all.length === 0 ? null : Object.fromEntries(all);
@@ -233,7 +221,7 @@ export function withoutSettled(
   record: Readonly<Record<string, unknown>>,
   item: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> | null {
-  const left = Object.entries(beforeWrite ?? {}).filter(([field, value]) => !(sameFieldValue(field, record[field], value) && sameFieldValue(field, item[field], value)));
+  const left = Object.entries(beforeWrite ?? {}).filter(([field, value]) => !(sameValue(record[field], value) && sameValue(item[field], value)));
   return left.length === 0 ? null : Object.fromEntries(left);
 }
 
@@ -318,7 +306,7 @@ export function planEquipmentIntake(
     const mine = byLocalId.get(record.localId);
     if (mine) {
       if (!sameValue(mine.record, record.record)) {
-        const archived = archiveChange(mine.record, record.record, mine.beforeWrite);
+        const archived = archiveChange(mine.record, record.record);
         steps.push({
           kind: "update",
           itemId: mine.itemId,

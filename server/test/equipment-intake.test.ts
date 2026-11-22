@@ -221,7 +221,7 @@ describe("planEquipmentIntake", () => {
     const wasArchived = mapped(ITEMS[0], { ...basket18, archived: true });
     const unarchived = reported(carrying({ ...basket18, archived: false }, ITEMS[0]));
     expect(planEquipmentIntake([unarchived], [wasArchived], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: unarchived, content: {}, archived: false }]);
-    expect(archiveChange(wasArchived.record, carrying(basket18, ITEMS[0]), null)).toBe(false);
+    expect(archiveChange(wasArchived.record, carrying(basket18, ITEMS[0]))).toBe(false);
     // An edit of an archived record's notes is an edit of the item's content, and archives nothing more.
     const editedArchived = reported(carrying({ ...basket18, notes: "Retired", archived: true }, ITEMS[0]));
     expect(planEquipmentIntake([editedArchived], [wasArchived], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: editedArchived, content: { notes: "Retired" } }]);
@@ -230,33 +230,20 @@ describe("planEquipmentIntake", () => {
     expect(planEquipmentIntake([both], [known], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: both, content: { notes: "Retired" }, archived: true }]);
   });
 
-  it("takes a record set back to what it held just before the server archived or unarchived it as unchanged", () => {
-    // The server archived it, as its Location hid it; a page opened before that saves it unarchived again.
-    const written = mapped(ITEMS[0], { ...basket18, archived: true }, { beforeWrite: { archived: null } });
-    const stale = reported(carrying(basket18, ITEMS[0]));
-    expect(planEquipmentIntake([stale], [written], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: stale, content: {} }]);
-    // The server unarchived it; a stale save archives it again.
-    const shown = mapped(ITEMS[0], { ...basket18, archived: false }, { beforeWrite: { archived: true } });
-    expect(archiveChange(shown.record, carrying({ ...basket18, archived: true }, ITEMS[0]), shown.beforeWrite)).toBeUndefined();
-    // Not a field the server wrote: an archive.
-    expect(archiveChange(shown.record, carrying({ ...basket18, archived: true }, ITEMS[0]), { notes: "x" })).toBe(true);
-  });
-
-  it("takes a second UNARCHIVE after the server archived a record lacking `archived`, and archived it again, as the barista's", () => {
-    // The record held no `archived`; the server archives it, keeping null as what it held before.
+  it("takes every archive or unarchive as the barista's, even one setting back the server's write, and keeps no guard of `archived`", () => {
+    // The server archived it, as its Location hid it, the record holding no `archived` before: no guard of it is kept.
     const plain = carrying(basket18, ITEMS[0]);
-    const archivedRecord = { ...plain, archived: true };
-    const guard = heldBefore(plain, ["archived"]);
-    expect(guard).toEqual({ archived: null });
-    // DYE2's UNARCHIVE writes false, which is what the record held before, so it is taken as a stale save.
-    const unarchived = { ...plain, archived: false };
-    expect(archiveChange(archivedRecord, unarchived, guard)).toBeUndefined();
-    const standing = beforeWriteAfter(guard, archivedRecord, unarchived);
-    expect(standing).toEqual({ archived: null });
-    // The server archives it again over that stale save, so the guard is not kept: the next UNARCHIVE is the barista's.
-    const again = heldBefore(unarchived, ["archived"], standing);
-    expect(again).toBeNull();
-    expect(archiveChange(archivedRecord, unarchived, again)).toBe(false);
+    expect(heldBefore(plain, ["archived"])).toBeNull();
+    expect(heldBefore({ ...plain, notes: "A" }, ["archived", "notes"])).toEqual({ notes: "A" });
+    // Nor one kept from before, as a release before #618 wrote `archived` as content.
+    expect(heldBefore(plain, ["notes"], { archived: null, size: "18g" })).toEqual({ size: "18g", notes: basket18.notes });
+    // DYE2's UNARCHIVE on any tablet the server archived, at its first tap, shows it again.
+    const written = mapped(ITEMS[0], { ...basket18, archived: true }, { beforeWrite: { archived: null } });
+    const unarchived = reported(carrying({ ...basket18, archived: false }, ITEMS[0]));
+    expect(planEquipmentIntake([unarchived], [written], library)).toEqual([{ kind: "update", itemId: ITEMS[0], reported: unarchived, content: {}, archived: false }]);
+    // The server unarchived it; DYE2's ARCHIVE, at its first tap, hides it again.
+    const shown = mapped(ITEMS[0], { ...basket18, archived: false }, { beforeWrite: { archived: true } });
+    expect(archiveChange(shown.record, carrying({ ...basket18, archived: true }, ITEMS[0]))).toBe(true);
   });
 
   it("reads a record gone from the list as deleted there once a report listed it, and as a write lost otherwise", () => {

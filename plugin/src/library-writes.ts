@@ -1302,8 +1302,8 @@ async function removeFromList(path: ListPath, remove: LibraryRemove | LibraryDel
 /**
  * Sets aside a record the Library leaves out of one of DYE2's lists: it is
  * removed from the list, and not kept (ADR-0005, ADR-0018), as a Tool's
- * cannot be archived and a recipe's has no such flag. Only a record carrying no global id: one that
- * carries one is a Library item's now (`taken`).
+ * cannot be archived and a recipe's has no such flag. Only a record carrying
+ * no global id: one that carries one is a Library item's now (`taken`).
  */
 async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeftOut["outcome"] | Answer | "unrecognised"> {
   const list = await readList(path);
