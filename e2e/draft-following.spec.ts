@@ -4,6 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { graphClashes } from "./support/graph-text.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -103,6 +104,9 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await expect(graph(page).getByRole("figure", { name: /^Simulated run of Lab classic on a standard puck\./ })).toBeVisible();
   await expect(graph(page).getByRole("complementary")).toHaveCount(0);
   await expect(graph(page).getByRole("table")).toHaveCount(0);
+  // With the Trial Shot over the run, where it stopped is named clear of the selected step's handles and the rest of what the graph writes (#621).
+  await expect(graph(page).locator("[data-compared-stop]")).toContainText("The Shot stopped");
+  await expect.poll(() => graphClashes(graph(page))).toEqual([]);
   // Beside the inspector the graph keeps its width, wider than a phone's 560 px.
   expect((await graph(page).locator("svg[data-graph-end]").first().boundingBox())!.width).toBeGreaterThanOrEqual(560);
   // Each can be changed after, the Trial Shot staying over the run.

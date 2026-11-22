@@ -178,13 +178,107 @@ export interface LabelBox {
 /** Text's height, px, as the lane labels are drawn, and the gap kept from a line. */
 const LABEL_HEIGHT = 11;
 const LABEL_GAP = 4;
+/** The gap kept between a label and the upright line it sits beside, px. */
+const LINE_GAP = 6;
+/** The gap kept between a stop's name and its line: past a Draft's bracket standing on the line, as where a run ends at a step's maximum time. */
+const STOP_GAP = 8;
+
+/** The box of a label drawn from `left` on `baseline`, `width` wide. */
+export function labelBox(left: number, baseline: number, width: number): LabelBox {
+  return { left, right: left + width, top: baseline - LABEL_HEIGHT, bottom: baseline + 2 };
+}
+
+/** The baseline of the text a `labelBox` holds. */
+export function labelBaseline(box: LabelBox): number {
+  return box.bottom - 2;
+}
+
+const overlaps = (one: LabelBox, other: LabelBox) => one.left < other.right && other.left < one.right && one.top < other.bottom && other.top < one.bottom;
+
+/** Whether a label in `box` is inside `within` and covers none of `taken`. */
+export function clear(box: LabelBox, within: LabelBox, taken: readonly LabelBox[]): boolean {
+  return box.left >= within.left && box.right <= within.right && box.top >= within.top && box.bottom <= within.bottom && !taken.some((other) => overlaps(box, other));
+}
+
+/**
+ * `box` moved left until it covers none of `taken`, as a lane's name moves
+ * past a bracket standing on it; where it was, if that would take it left
+ * of `limit`.
+ */
+export function movedLeft(box: LabelBox, taken: readonly LabelBox[], limit: number, gap = 4): LabelBox {
+  let moved = box;
+  for (;;) {
+    const here = moved;
+    const over = taken.filter((other) => overlaps(here, other));
+    if (over.length === 0) return moved;
+    const right = Math.min(...over.map((other) => other.left)) - gap;
+    moved = { ...moved, left: right - (moved.right - moved.left), right };
+    if (moved.left < limit) return box;
+  }
+}
+
+/**
+ * A curve's points with more between any two further than `gap` apart, px,
+ * so a label on a long straight stretch of it, such as between a Shot's few
+ * samples or along a threshold, is found to cross it. A null ends a stretch.
+ */
+export function densified(points: readonly (readonly [number, number] | null)[], gap = 4): [number, number][] {
+  const dense: [number, number][] = [];
+  let last: readonly [number, number] | null = null;
+  for (const point of points) {
+    if (point && last) {
+      const parts = Math.ceil(Math.max(Math.abs(point[0] - last[0]), Math.abs(point[1] - last[1])) / gap);
+      for (let part = 1; part < parts; part++) dense.push([last[0] + ((point[0] - last[0]) * part) / parts, last[1] + ((point[1] - last[1]) * part) / parts]);
+    }
+    if (point) dense.push([point[0], point[1]]);
+    last = point;
+  }
+  return dense;
+}
+
+/**
+ * Which of a row's labels are written, each given by its left and right,
+ * px, in the order they are weighed: one is left out where it would come
+ * within `gap` of one already written, so the first always is.
+ */
+export function spaced(labels: readonly { left: number; right: number }[], gap = 4): boolean[] {
+  const written: { left: number; right: number }[] = [];
+  return labels.map((label) => {
+    if (written.some((other) => label.left < other.right + gap && other.left < label.right + gap)) return false;
+    written.push(label);
+    return true;
+  });
+}
+
+/**
+ * Which of `candidates`, the places a label may take in the order it would
+ * rather have them, it takes, as an index: the first that covers the fewest
+ * of `taken`, boxes already drawn, such as other labels, a lane's name and a
+ * Draft's handles; then, among those, one inside `within`, such as its lane;
+ * then one off the curves' points `curves` ([x, y], px).
+ */
+export function clearest(candidates: readonly LabelBox[], within: LabelBox, curves: readonly (readonly [number, number])[] = [], taken: readonly LabelBox[] = []): number {
+  const cost = (here: LabelBox) => {
+    const clashes = taken.filter((other) => overlaps(here, other)).length;
+    const outside = here.left < within.left || here.right > within.right || here.top < within.top || here.bottom > within.bottom ? 1 : 0;
+    const crossed = curves.some(([x, y]) => x >= here.left && x <= here.right && y >= here.top - 1 && y <= here.bottom + 1) ? 1 : 0;
+    return clashes * 100 + outside * 10 + crossed;
+  };
+  let best = 0;
+  let least = Infinity;
+  candidates.forEach((candidate, index) => {
+    const here = cost(candidate);
+    if (here < least) [best, least] = [index, here];
+  });
+  return best;
+}
 
 /**
  * Where each label's baseline goes, in order, in a lane from `laneTop` to
  * `laneBottom`: above its line, else below it, else further off, each kept
  * clear of the labels placed before it and, where it can be, of the curves'
  * points `curves` ([x, y], px), and inside the lane. `taken` are boxes
- * already drawn there, such as the lane's name.
+ * already drawn there, such as the lane's name and a Draft's handles.
  */
 export function placeLabels(
   labels: readonly LaneLabel[],
@@ -194,23 +288,112 @@ export function placeLabels(
   taken: readonly LabelBox[] = [],
 ): number[] {
   const placed: LabelBox[] = [...taken];
+  const within = { left: -Infinity, right: Infinity, top: laneTop, bottom: laneBottom };
   return labels.map((label) => {
-    const candidates: number[] = [];
+    const candidates: LabelBox[] = [];
     for (let away = 0; away < 4; away++) {
-      candidates.push(label.top - LABEL_GAP - away * (LABEL_HEIGHT + 2));
-      candidates.push(label.bottom + LABEL_GAP + LABEL_HEIGHT + away * (LABEL_HEIGHT + 2));
+      candidates.push(labelBox(label.x, label.top - LABEL_GAP - away * (LABEL_HEIGHT + 2), label.width));
+      candidates.push(labelBox(label.x, label.bottom + LABEL_GAP + LABEL_HEIGHT + away * (LABEL_HEIGHT + 2), label.width));
     }
-    const box = (baseline: number) => ({ left: label.x, right: label.x + label.width, top: baseline - LABEL_HEIGHT, bottom: baseline + 2 });
-    const cost = (baseline: number) => {
-      const here = box(baseline);
-      const clashes = placed.filter((other) => other.left < here.right && here.left < other.right && other.top < here.bottom && here.top < other.bottom).length;
-      const outside = here.top < laneTop || here.bottom > laneBottom ? 1 : 0;
-      const crossed = curves.filter(([x, y]) => x >= here.left && x <= here.right && y >= here.top - 1 && y <= here.bottom + 1).length > 0 ? 1 : 0;
-      return clashes * 100 + outside * 10 + crossed;
-    };
-    let best = candidates[0]!;
-    for (const candidate of candidates) if (cost(candidate) < cost(best)) best = candidate;
-    placed.push(box(best));
-    return best;
+    const best = candidates[clearest(candidates, within, curves, placed)]!;
+    placed.push(best);
+    return labelBaseline(best);
   });
+}
+
+/**
+ * The places a label `width` wide may take beside an upright line at `x`,
+ * such as where a run stops, in a lane: on the `first` side of the line, row
+ * by row down from the lane's top, then on the other side the same way.
+ */
+export function besideLine(x: number, width: number, lane: { top: number; bottom: number }, first: "left" | "right"): LabelBox[] {
+  const side = (which: "left" | "right") => {
+    const boxes: LabelBox[] = [];
+    for (let baseline = lane.top + 16; baseline + 2 <= lane.bottom; baseline += LABEL_HEIGHT + 3) boxes.push(labelBox(which === "right" ? x + STOP_GAP : x - STOP_GAP - width, baseline, width));
+    return boxes;
+  };
+  return [...side(first), ...side(first === "right" ? "left" : "right")];
+}
+
+/**
+ * The stretch from `from` to `to`, px, that a label `width` wide is drawn in
+ * where something runs down the whole plot between `upright`'s left and
+ * right, as the selected step's bracket does: all of it where the label,
+ * drawn from `from`, would not meet the upright; else the side of the
+ * upright that takes the label whole, the left before the right; else the
+ * wider side, which the label is cut to.
+ */
+export function besideUpright(from: number, to: number, width: number, upright: { left: number; right: number } | null): { from: number; to: number } {
+  if (!upright || upright.right <= from || upright.left >= Math.min(to, from + width)) return { from, to };
+  const before = { from, to: upright.left - 2 };
+  const after = { from: upright.right + 2, to };
+  const room = (part: { from: number; to: number }) => part.to - part.from;
+  if (room(before) >= width) return before;
+  if (room(after) >= width) return after;
+  return room(before) >= room(after) ? before : after;
+}
+
+/** How a handle on a Draft's graph is laid out: a point dragged up and down in a lane, or a bracket dragged along the time axis. */
+export type HandleShape = { kind: "point"; x: number; y: number } | { kind: "bracket"; x: number; top: number; bottom: number };
+
+/** A point handle's width and height, the width about a bracket's line that takes the pointer, and a handle's tag's height, px. */
+const POINT_SIZE = 18;
+const BRACKET_WIDTH = 14;
+export const TAG_HEIGHT = 18;
+
+/** The box a handle covers: a point's circle, or a bracket's line with the room either side of it that takes the pointer. */
+export function handleBox(shape: HandleShape): LabelBox {
+  return shape.kind === "point"
+    ? { left: shape.x - POINT_SIZE / 2, right: shape.x + POINT_SIZE / 2, top: shape.y - POINT_SIZE / 2, bottom: shape.y + POINT_SIZE / 2 }
+    : { left: shape.x - BRACKET_WIDTH / 2, right: shape.x + BRACKET_WIDTH / 2, top: shape.top, bottom: shape.bottom };
+}
+
+/**
+ * Where each handle's tag goes, in order, its own `width` wide. A bracket's
+ * is centred on it in the gap under the first lane, where nothing else is
+ * written, so it covers no band's name or outcome above the plot, and is
+ * held right of the lanes' values and inside the graph; where a point stands
+ * at that lane's foot, as a pause's target at 0 bar, it moves aside, off the
+ * point. A point's is beside it, level with it but held inside its lane, so
+ * out of that gap and the band text above the plot: on its right, unless
+ * that runs into the lanes' values or covers a handle or a tag, and its left
+ * does so less; else beside the handle or tag in its way, the nearest such
+ * place first; each held inside the graph, right of the lanes' values.
+ */
+export function placeTags(layout: Pick<GraphLayout, "width" | "lanes" | "plot">, handles: readonly { shape: HandleShape; width: number }[]): LabelBox[] {
+  const within = { left: layout.plot.left, right: layout.width, top: -Infinity, bottom: Infinity };
+  const boxes = handles.map(({ shape }) => handleBox(shape));
+  const points = boxes.filter((_, index) => handles[index]!.shape.kind === "point");
+  const tags: LabelBox[] = [];
+  // The bracket's first, as it has the one row.
+  handles.forEach(({ shape, width }, index) => {
+    if (shape.kind !== "bracket") return;
+    const top = layout.lanes.pressure.bottom + (LANE_GAP - TAG_HEIGHT) / 2;
+    const at = (left: number) => {
+      const held = Math.max(layout.plot.left, Math.min(left, layout.width - width));
+      return { left: held, right: held + width, top, bottom: top + TAG_HEIGHT };
+    };
+    const centred = shape.x - width / 2;
+    const aside = points.flatMap((point) => [point.right + 2, point.left - 2 - width]).sort((one, other) => Math.abs(one - centred) - Math.abs(other - centred));
+    const candidates = [centred, ...aside].map(at);
+    tags[index] = candidates[clearest(candidates, within, [], points)]!;
+  });
+  handles.forEach(({ shape, width }, index) => {
+    if (shape.kind !== "point") return;
+    const lane = Object.values(layout.lanes).find((each) => shape.y >= each.top && shape.y <= each.bottom);
+    const level = shape.y - TAG_HEIGHT / 2;
+    const top = lane ? Math.max(lane.top, Math.min(level, lane.bottom - TAG_HEIGHT)) : level;
+    const beside = (left: number) => {
+      const held = Math.max(layout.plot.left, Math.min(left, layout.width - width));
+      return { left: held, right: held + width, top, bottom: top + TAG_HEIGHT };
+    };
+    const centred = shape.x - width / 2;
+    const placed = tags.filter(Boolean);
+    const aside = [...boxes.filter((_, at) => at !== index), ...placed]
+      .flatMap((other) => [other.right + LINE_GAP, other.left - LINE_GAP - width])
+      .sort((one, other) => Math.abs(one - centred) - Math.abs(other - centred));
+    const candidates = [shape.x + POINT_SIZE / 2 + LINE_GAP, shape.x - POINT_SIZE / 2 - LINE_GAP - width, ...aside].map(beside);
+    tags[index] = candidates[clearest(candidates, within, [], [...boxes, ...placed])]!;
+  });
+  return tags;
 }
