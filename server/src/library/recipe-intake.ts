@@ -773,11 +773,11 @@ const WRITTEN_FROM: Readonly<Record<string, string>> = {
  * The fields of a Recipe's content (`content`) that `recipeRecord` writes a
  * path a barista edits from: its brew temperature from the Profile's first
  * step where the Recipe holds none, and its steam time as "Off" by its steam
- * temperature.
+ * temperature, from that alone while the Recipe holds "Off".
  */
 function writtenFrom(path: string, content: Readonly<Record<string, unknown>>): string[] {
   if (path === `${DV}.brewC`) return typeof content.brewTemperature === "number" ? ["brewTemperature"] : ["brewTemperature", "profileId"];
-  if (path === STEAM_TIME_PATH) return ["steamDuration", "steamTemperature"];
+  if (path === STEAM_TIME_PATH) return steamHeldOff(content.steamTemperature, null) ? ["steamTemperature"] : ["steamDuration", "steamTemperature"];
   const field = EDITED[path] ?? WRITTEN_FROM[path];
   return field === undefined ? [] : [field];
 }

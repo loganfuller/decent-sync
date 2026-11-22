@@ -539,6 +539,13 @@ describe("DYE2's recipes as Recipes", () => {
     const { brewTemperature: _, ...unheated } = now;
     expect(holdsRecipeAsDecided(answered, recipeRecord(unheated, 1, writing(recordedIds), GLOBAL.recipe), unheated, edits, writtenAt)).toBe(false);
     expect(holdsRecipeAsDecided(answered, recipeRecord(unheated, 1, writing(recordedIds), GLOBAL.recipe), unheated, { ...edits, profileId: decided("10:05:00.000") }, writtenAt)).toBe(true);
+    // A steam time held "Off" is written from its steam temperature alone: a steam time edited since excuses no other.
+    const off = { ...slot1Content, steamTemperature: 0, steamDuration: 40 };
+    const offWritten = recipeRecord(off, 1, writing(recordedIds), GLOBAL.recipe);
+    const timed = recipeView({ ...recordOf(offWritten), id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe, dashboardVariables: { ...(recordOf(offWritten).dashboardVariables as Record_), steamTimeS: 25 } });
+    const offEdits = { ...edits, steamTemperature: decided("10:00:00.000") };
+    expect(holdsRecipeAsDecided(timed, offWritten, off, { ...offEdits, steamDuration: decided("10:05:00.000") }, writtenAt)).toBe(false);
+    expect(holdsRecipeAsDecided(timed, offWritten, off, { ...offEdits, steamTemperature: decided("10:05:00.000") }, writtenAt)).toBe(true);
     // Nothing for an answer that repeats no time its content was decided.
     expect(holdsRecipeAsDecided(answered, written, slot1Content, edits, null)).toBe(false);
   });

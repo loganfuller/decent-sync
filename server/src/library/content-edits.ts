@@ -253,9 +253,10 @@ export async function recordLinked(tx: Prisma.TransactionClient, item: ItemRef, 
  * a field the plugin left as the tablet had changed it, or that the tablet
  * changed before the write, which then lost, does not hold the item's value.
  * One that won is the field's latest edit, the tablet's own, which it has
- * seen whatever this says. One the map did not hold, as a create's, or one
- * whose answer reached the server only after a reconnect, does when its
- * content is the item's as it stood at `contentSeen` (`holdsContentAsDecided`):
+ * seen whatever this says. One the map did not hold, as a create's,
+ * including one whose answer reached the server only after a reconnect,
+ * does when its content is the item's as it stood at `contentSeen`
+ * (`holdsContentAsDecided`):
  * a field edited since may differ, as the edit may have been made while the
  * answer was on its way, and a create may have found the record of an
  * earlier write, or a bean of the same roaster and name. `values` are the

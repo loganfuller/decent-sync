@@ -898,7 +898,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * the item as it does a refused one. The record has seen the Location's decision
    * its write carried (`seen`), and the latest edit of the item's content it
    * carried (`contentSeen`), by PostgreSQL's clock; one of a write no longer
-   * awaited says nothing new of either.
+   * awaited says nothing new of the decision, but its content's time it
+   * repeats (`contentDecidedAt`).
    */
   private async recordAnswer(
     session: Session,

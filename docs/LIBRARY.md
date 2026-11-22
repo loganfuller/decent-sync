@@ -316,10 +316,14 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   later, if the record holds that content: no change of the content its
   answer shows, which the write did not set, lost, as a field the plugin left
   as the tablet had changed it may (one that won is the tablet's own latest
-  edit of the field); or, for a record the map did not hold, as a create's or
-  one whose answer reached the server only after a reconnect, its content is
-  the item's as it stood when the write's content was decided, a field decided
-  since being free to differ (`holdsWrittenContent`, `holdsContentAsDecided`). A write carries that time (`contentDecidedAt`), and its answer
+  edit of the field); or, for a record the map did not hold, as a create's,
+  including one whose answer reached the server only after a reconnect, its
+  content is the item's as it stood when the write's content was decided, a
+  field decided since being free to differ (`holdsWrittenContent`,
+  `holdsContentAsDecided`); for a Recipe, each path a barista edits that it
+  holds otherwise must be written from a field decided since, and a path
+  written from two fields, one of them decided since, may differ in the other
+  too (`holdsRecipeAsDecided`). A write carries that time (`contentDecidedAt`), and its answer
   repeats it, so an answer that comes after its write stopped being awaited,
   as across a reconnect, says what its record has seen of the content too. A
   reset tablet has a new tablet id, so it starts with nothing here.
