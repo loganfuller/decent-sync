@@ -315,20 +315,25 @@ export function ProfileGraph({
       return [lane.key, { text, box: rows.find((box) => clear(box, within(lane.key), covered)) ?? rows[0]! }];
     }),
   ) as Record<Lane, { text: string; box: LabelBox }>;
+  // Each lane's curves, as what is written there keeps off them: the compared record's points and the baseline's are two curves, as `points` joins them.
+  const laneCurves = Object.fromEntries(
+    LANES.map((lane) => [lane.key, [points[lane.key].run, points[lane.key].plan, comparedPoints(lane.key), lane.key === "temperature" ? [] : baselinePoints(lane.key)].flatMap((curve) => densified(curve))]),
+  ) as Record<Lane, [number, number][]>;
+  const curvesIn = (lane: Lane) => laneCurves[lane];
   // The preinfusion bar's name under its start, a row or two lower under a handle, or right of the bracket; else further down the
-  // lane there, then right of whichever handle or tag is in its way.
+  // lane there, then right of whichever handle or tag is in its way; off the curves where it can be.
   const preinfusion = (() => {
     if (!showsPreinfusion) return null;
     const wide = textWidth("Preinfusion", 11);
     const rows = Array.from({ length: Math.floor((lanes.pressure.bottom - 2 - (plot.top + 16)) / 13) + 1 }, (_, row) => row);
     const lefts = [plot.left + 4, ...(bracket ? [bracket.right + 4] : [])];
-    const at = (left: number, row: number) => labelBox(left, plot.top + 16 + row * 13, wide);
+    const at = (left: number, row: number) => labelBox(Math.max(plot.left, Math.min(left, plot.right - wide)), plot.top + 16 + row * 13, wide);
     const candidates = [
       ...lefts.flatMap((left) => rows.slice(0, 3).map((row) => at(left, row))),
       ...lefts.flatMap((left) => rows.slice(3).map((row) => at(left, row))),
       ...covered.flatMap((box) => rows.map((row) => at(box.right + 4, row))),
     ];
-    return pick(candidates, "pressure", [], [...covered, titles.pressure.box]);
+    return pick(candidates, "pressure", curvesIn("pressure"), [...covered, titles.pressure.box]);
   })();
   // What is written in a lane before its steps' labels.
   const named = (lane: Lane): LabelBox[] => [
@@ -339,11 +344,6 @@ export function ProfileGraph({
 
   // The steps' labels, kept apart from each other, the lane's name, the preinfusion bar's, the handles and the curves, lane by lane.
   const baselines = new Map<StepLabel, number>();
-  // The compared record's points and the baseline's are two curves, as `points` joins them.
-  const laneCurves = Object.fromEntries(
-    LANES.map((lane) => [lane.key, [points[lane.key].run, points[lane.key].plan, comparedPoints(lane.key), lane.key === "temperature" ? [] : baselinePoints(lane.key)].flatMap((curve) => densified(curve))]),
-  ) as Record<Lane, [number, number][]>;
-  const curvesIn = (lane: Lane) => laneCurves[lane];
   for (const lane of LANES) {
     const here = stepLabels.filter((each) => each.lane === lane.key);
     const placed = placeLabels(here.map((each): LaneLabel => ({ x: each.x, width: each.width, top: each.top, bottom: each.bottom })), lanes[lane.key].top, lanes[lane.key].bottom, curvesIn(lane.key), named(lane.key));
