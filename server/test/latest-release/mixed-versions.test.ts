@@ -290,6 +290,59 @@ describe("the latest release beside the change", () => {
     expect([dye2.recorded.slice(saves).filter(({ patch }) => "steamTempC" in patch), held(), (await content()).steamTemperature]).toEqual([[], 160, 160]);
   });
 
+  // Steam on and off follows the Recipe (ADR-0022, #616), with nothing new on
+  // the wire: "Off" travels as a steam temperature and a steam time of 0,
+  // which the latest release's plugin writes into a Workflow whose steam is
+  // on as it writes any other; and a load switching steam is the plugin's
+  // rule alone, so a tablet with the change's plugin keeps it on the latest
+  // release's server.
+  it("turns steam off on a tablet with the latest release's plugin as its Loaded Recipe is edited to Off on the change's server, and on at the Recipe's on a tablet with the change's plugin that loads one on the latest release's server", async () => {
+    type Record_ = Record<string, unknown>;
+    const LIBRARY = "05fd1e80-61e3-46ef-b202-2cbad5eb7983";
+    for (const { name, plugin, server } of [
+      { name: "the latest release's plugin", plugin: "latest release", server: "change" },
+      { name: "the change's plugin on the latest release", plugin: "change", server: "latest release" },
+    ] as const) {
+      const api = apis[server];
+      const location = await api.createLocation(`Steam switch, ${name}`, "America/Chicago");
+      const machine = await api.createMachine(`Steam switch, ${name}`, location.id);
+      const tablet = syncingTablet(machine, servers[server], { latestRelease: plugin === "latest release", api: recordedDye2MainTablet(String(serial++), `Steam switch ${server}`), dye2: new SimulatedDye2() });
+      loaded.push(tablet);
+      expect(tablet.pluginDir).toBe(pluginDirs()[plugin]);
+      await apis.change.waitForOnline(machine);
+      const record = () => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => entry.id === LIBRARY);
+      const held = () => [RECIPE_SETTINGS.steamTemperature.dye2, RECIPE_SETTINGS.steamDuration.dye2].map((field) => ((record()?.dashboardVariables ?? {}) as Record_)[field] ?? null);
+      const steam = () => [RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow].map((path) => workflowValueAt(tablet.workflow(), path));
+      await expect.poll(() => dye2GlobalIdOf(record()), { timeout: 15_000 }).not.toBeNull();
+      const recipeId = dye2GlobalIdOf(record())!;
+      await api.send("PATCH", `/recipes/${recipeId}`, { content: { steamTemperature: 160, steamDuration: 40 } });
+      await expect.poll(held, { timeout: 15_000 }).toEqual([160, 40]);
+      tablet.connectMachine();
+      const loadedRecipe = async () => (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.machine.id}`)).machine.loadedRecipe?.recipe.id;
+      const quiet = () => quiesced(api, { tablets: { tablet }, machines: { machine } });
+      if (plugin === "latest release") {
+        expect((await (await openDye2Dashboard(tablet)).applyRecipe(LIBRARY)).workflow?.status).toBe(200);
+        await expect.poll(loadedRecipe, { timeout: 15_000 }).toBe(recipeId);
+        await expect.poll(steam, { timeout: 15_000 }).toEqual([160, 40]);
+        await quiet();
+        await api.send("PATCH", `/recipes/${recipeId}`, { content: { steamTemperature: 0 } });
+        await expect.poll(steam, { timeout: 15_000 }).toEqual([0, 0]);
+        await expect.poll(held, { timeout: 15_000 }).toEqual([0, 0]);
+        await quiet();
+        expect((await api.get<{ recipe: { content: Record_ } }>(`/recipes/${recipeId}`)).recipe.content).toMatchObject({ steamTemperature: 0, steamDuration: 40 });
+      } else {
+        await tablet.changeSettings({ steamSettings: { targetTemperature: 0, duration: 0 } });
+        await quiet();
+        // A Skin that only names the recipe: the plugin's load write turns steam on at the Recipe's.
+        expect((await tablet.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, { kind: "recipe", id: LIBRARY })).status).toBe(200);
+        await expect.poll(loadedRecipe, { timeout: 15_000 }).toBe(recipeId);
+        await expect.poll(steam, { timeout: 15_000 }).toEqual([160, 40]);
+        await quiet();
+        expect((await api.get<{ recipe: { content: Record_ } }>(`/recipes/${recipeId}`)).recipe.content).toMatchObject({ steamTemperature: 160, steamDuration: 40 });
+      }
+    }
+  });
+
   // A Recipe is the whole Shot (#550): a Machine that loads one is left with
   // none of what it names none of, whatever applied it. The change's server
   // clears them through a write of the Loaded Recipe holding a null for each
