@@ -429,10 +429,12 @@ describe("Lost Edits", () => {
     await holds(one, id, { notes: "Peach" });
   });
 
-  it("shows what the release before this one kept as a Conflict as a Lost Edit, with nothing it lost to, but one that release dismissed", async () => {
+  it("shows what the release before this one kept as a Conflict as a Lost Edit, with nothing it lost to, but one that release dismissed, and nothing for one naming another item's version", async () => {
     const { first, one } = await lab("Previous", 20100);
     await one.addBean({ roaster: "Roux", name: "Previous Guji", notes: "Peach" });
     const id = await libraryBean("Previous Guji");
+    await one.addBean({ roaster: "Roux", name: "Other Guji", notes: "Plum" });
+    const other = await libraryBean("Other Guji");
     const database = await server.connectDatabase();
     try {
       // As that release writes them: with no edit it lost to, open, and then used or dismissed there.
@@ -443,11 +445,20 @@ describe("Lost Edits", () => {
           [id, value, first.machine.id, state],
         );
       }
+      // One naming a version of another item, which the column's lack of a foreign key allows: it lost to nothing of this one's.
+      const {
+        rows: [elsewhere],
+      } = await database.query<{ id: string }>(`SELECT id FROM item_versions WHERE kind = 'bean' AND item_id = $1 LIMIT 1`, [other]);
+      await database.query(
+        `INSERT INTO conflicts (id, kind, item_id, field, value, machine_id, edited_at, state, lost_to_version_id)
+         VALUES (gen_random_uuid(), 'bean', $1, 'notes', to_jsonb('Elsewhere notes'::text), $2, now(), 'OPEN', $3)`,
+        [id, first.machine.id, elsewhere!.id],
+      );
     } finally {
       await database.end();
     }
     const lost = await lostEditsOf(`/beans/${id}`);
-    expect(lost.map((edit) => edit.value).sort()).toEqual(["Open notes", "Used notes"]);
+    expect(lost.map((edit) => edit.value).sort()).toEqual(["Elsewhere notes", "Open notes", "Used notes"]);
     for (const edit of lost) expect(edit).toMatchObject({ field: "notes", lostTo: null, source: { machine: { id: first.machine.id } } });
   });
 

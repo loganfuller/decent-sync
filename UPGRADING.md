@@ -174,8 +174,10 @@ Conflicts card on item pages are gone, and so are the assistant's tools
 `list_conflicts` and `resolve_conflict`. `get_library_item` no longer takes
 `conflicts`: its `history` lists Lost Edits among the item's edits, each
 with `lost` and `lostTo`. In the REST API, each item's `GET .../history`
-returns `lostEdits` beside `versions`, and the routes that listed, used and
-dismissed Conflicts are gone.
+returns `lostEdits` beside `versions`. The routes that listed, used and
+dismissed Conflicts stay for this release only, for a page of the previous
+one: those that listed them answer an empty list, and using or dismissing
+one answers 410 Gone. They are removed in a later release.
 
 No step is needed. Each open Conflict becomes a Lost Edit in its item's
 History, as does each whose value was used. One that was dismissed is not
