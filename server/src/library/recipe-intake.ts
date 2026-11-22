@@ -800,6 +800,12 @@ function namesUnmapped(field: string, value: unknown, ids: TabletIds): boolean {
   return named.some((itemId) => typeof itemId === "string" && ids.local(kind, itemId) === undefined);
 }
 
+/** Whether a field of a Recipe's content is written as another value than its own: a steam time under "Off", and no brew temperature, written as its Profile's. */
+function writtenOtherwise(field: string, content: Readonly<Record<string, unknown>>): boolean {
+  if (field === "steamDuration") return steamHeldOff(content.steamTemperature, null);
+  return field === "brewTemperature" && typeof content.brewTemperature !== "number";
+}
+
 /**
  * What a tablet's last known record of a Recipe (`known`) held of each of
  * `fields`, for an edit worked out from that record (`ItemEdit.held`):
@@ -808,8 +814,9 @@ function namesUnmapped(field: string, value: unknown, ids: TabletIds): boolean {
  * `recipeRecord`). A field written to a path the record holds otherwise is
  * left out, as what it held of it is not the Recipe's value; and so is one
  * naming an item the tablet holds no record of (`ids`), which the record
- * cannot have held though it is written as none there, and the steam time
- * of a Recipe holding "Off", which is written as 0 whatever it is.
+ * cannot have held though it is written as none there; the steam time of a
+ * Recipe holding "Off", which is written as 0 whatever it is; and the brew
+ * temperature of one holding none, which is written as its Profile's.
  */
 export function recipeValuesHeld(
   known: Readonly<RecipeView>,
@@ -821,7 +828,7 @@ export function recipeValuesHeld(
   const differing = new Set(editedPaths(changedFields(written, known)).flatMap((path) => writtenFrom(path, content)));
   return Object.fromEntries(
     [...fields]
-      .filter((field) => !differing.has(field) && !namesUnmapped(field, content[field], ids) && !(field === "steamDuration" && steamHeldOff(content.steamTemperature, null)))
+      .filter((field) => !differing.has(field) && !namesUnmapped(field, content[field], ids) && !writtenOtherwise(field, content))
       .map((field) => [field, content[field] ?? null]),
   );
 }

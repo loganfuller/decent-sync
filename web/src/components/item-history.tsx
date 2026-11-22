@@ -259,7 +259,7 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                             {formatTime(lost.lostTo.editedAt)}
                           </>
                         ) : (
-                          "Lost to another change of it"
+                          "What it lost to is not recorded"
                         )}
                       </p>
                     </TableCell>

@@ -320,7 +320,7 @@ describe("Lost Edits", () => {
     expect(await lostEditsOf(path)).toEqual([lost]);
   });
 
-  it("keeps an edit of whether a batch is at a Location that loses on time", async () => {
+  it("keeps an edit of whether a batch is at a Location that loses on time, and none for a decision its tablet's record held", async () => {
     const { location, first, second, one, two } = await lab("Presence", 20060);
     const { batchId, heldBatch } = await sharedBatch(one, two, "Presence Guji", "2026-10-02");
     const atLab = async () => (await api.get<{ batch: { locations: unknown[] } }>(`/bean-batches/${batchId}`)).batch.locations.length;
@@ -343,6 +343,21 @@ describe("Lost Edits", () => {
     });
     for (const tablet of [one, two]) await expect.poll(() => heldBatch(tablet)?.archived).toBe(false);
     expect(await atLab()).toBe(1);
+    const [lost] = await lostEditsOf(`/bean-batches/${batchId}`);
+
+    // The second group finishes it and adds it back, then the first, later, offline, and so without having seen that,
+    // finishes it: its record held it at the Location, as the Location had it, so nothing is lost.
+    one.loseNetwork();
+    await two.editBatch(heldBatch(two)!.id, { archived: true });
+    await expect.poll(atLab).toBe(0);
+    await two.editBatch(heldBatch(two)!.id, { archived: false });
+    await expect.poll(atLab).toBe(1);
+    await delay(20);
+    await one.editBatch(heldBatch(one)!.id, { archived: true });
+    one.restoreNetwork();
+    await expect.poll(atLab).toBe(0);
+    await expect.poll(() => heldBatch(two)?.archived).toBe(true);
+    expect(await lostEditsOf(`/bean-batches/${batchId}`)).toEqual([lost]);
   });
 
   it("keeps an edit of whether a Grinder is Archived that loses on time", async () => {

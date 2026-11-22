@@ -571,6 +571,10 @@ describe("DYE2's recipes as Recipes", () => {
     const off = { ...slot1Content, steamTemperature: 0, steamDuration: 40 };
     const offWritten = recipeRecord(off, 1, writing(recordedIds), GLOBAL.recipe);
     expect(recipeValuesHeld(offWritten, offWritten, off, ["steamTemperature", "steamDuration"], recordedIds)).toEqual({ steamTemperature: 0 });
+    // One holding no brew temperature is written its Profile's first step's, so a record holding that held none of it.
+    const unheated = { ...slot1Content, brewTemperature: undefined };
+    const unheatedWritten = recipeRecord(unheated, 1, writing(recordedIds), GLOBAL.recipe);
+    expect(recipeValuesHeld(unheatedWritten, unheatedWritten, unheated, ["brewTemperature", "dose"], recordedIds)).toEqual({ dose: 18 });
     expect(recipeValuesHeld(mapped, mapped, content, fields, withUnmapped)).toEqual({
       grinderId: unmapped,
       basketId: unmapped,
