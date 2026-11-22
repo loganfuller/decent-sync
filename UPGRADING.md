@@ -22,6 +22,74 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### Tablets need Streamline v0.2.31
+
+This release follows Streamline v0.2.31
+([ADR-0017](docs/adr/0017-supported-versions.md)). Decaid installs the latest
+Streamline on each tablet within 12 hours by itself. A tablet whose
+Streamline is pinned to an earlier build is moved to v0.2.31 or later by
+hand first, and one running a Skin built on Streamline, such as Streamline
+Cafe, to a build of it on v0.2.31. Then deploy the server. Nothing refuses
+an older Streamline, but nothing is written for what it does: the strip of
+v0.2.28 or earlier applies no steam temperature, so on a tablet still
+running the previous release's plugin a Recipe loaded from it leaves steam
+off where it was off.
+
+From v0.2.29, a hold on Streamline's Sleep button closes Decaid, which
+wakes the Machine as it is opened again. It is a setting of Streamline's,
+on until turned off ("Hold Sleep to sleep and close the app", under Sleep
+button on its settings page). While Decaid is closed its Machine shows
+offline in the management interface and nothing reaches its tablet, so turn
+it off on tablets that are to stay reachable.
+
+### Loading a Recipe turns steam on or off
+
+Steam on and off now follows the Recipe, as DYE2 and Streamline v0.2.31
+apply one
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md),
+Steam on and off). Nothing is needed, but baristas will see:
+
+- **A Recipe holding a steam temperature turns steam on as it loads**, at
+  its steam temperature and time, on a Machine whose steam was off. So an
+  espresso-only Machine, or one being descaled, has its steam turned on by
+  loading such a Recipe. Give the Recipes it loads a steam temperature of
+  Off, or none.
+- **A Recipe can hold Off.** Off saved in DYE2's recipe editor, or a steam
+  temperature of 0 set in the management interface or through an
+  assistant, is the Recipe's: loading it turns a Machine's steam off, and
+  saving it turns steam off on every Machine that has the Recipe loaded.
+  Before, the server wrote the Recipe's earlier steam temperature back over
+  it.
+- **Steam turned off at a Machine still changes nothing else.** Its heater
+  switch, or a steam time of 0 set there, changes no Recipe and no other
+  Machine, and steam turned back on there takes the Recipe's steam
+  temperature and time.
+- **Nothing turns a Machine's steam on from elsewhere.** A Recipe edited
+  from Off to a steam temperature reaches a Machine that has it loaded once
+  its steam is turned on there, or the Recipe is loaded again. Steam turned
+  on at a Machine whose Recipe holds Off makes the Recipe hold the steam
+  temperature and time it came on with, and the other Machines stay off.
+- **A Recipe holding no steam temperature or time** leaves a Machine's
+  steam as it is, as before.
+
+While the previous release still serves beside this one during the deploy,
+it writes a Recipe's earlier steam temperature back over Off saved on a
+tablet, as it did, and a tablet running its plugin, until Decaid updates
+it, leaves a Recipe's steam temperature out of a Workflow whose steam is
+off, so only DYE2's or Streamline's own apply turns its steam on.
+
+### Four settings renamed
+
+The Machine's page names four settings as Streamline v0.2.31's settings
+page does: "Weight look-ahead", "Volume look-ahead" and "Hot water
+look-ahead", which were the three flow multipliers, and "Flow calibration",
+which was "Flow multiplier". Their values and what they do are unchanged,
+and so are their names in the REST API and for an assistant
+(`weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`,
+`flowMultiplier`).
+
 ## 1.12.1
 
 ### The time to first drip reads earlier

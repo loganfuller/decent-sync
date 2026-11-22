@@ -11,8 +11,10 @@ import type { WorkflowSummary } from "./workflow-summary.js";
 // changes with who made each (#434) and the Loaded Recipes, which keep their
 // own raw lists.
 //
-// A Recipe applied on Streamline's strip is two changes about 2 s apart, the
-// strip's and the plugin's write of what the strip leaves out (`load`); a
+// A Recipe applied on Streamline's strip is two changes about 2 s apart
+// where the plugin's load write follows the strip's (`load`), as after a
+// stale copy; from v0.2.29 the strip applies every setting, so most loads
+// are the strip's change alone; a
 // profile switch on Streamline unloads it in one change, which Streamline
 // follows with the steam time it saved for that profile. So, in time order,
 // a load or unload before a Workflow change at the same moment, then by

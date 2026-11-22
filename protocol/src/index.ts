@@ -1283,7 +1283,9 @@ export const STEAM_ON_FROM = 135;
  * 1 to 255 s (`steamOffPatch`, `steamOnPatch`, MIN_STEAM_DURATION_S and
  * MAX_STEAM_DURATION_S in streamline-js:src/modules/steam-mode.js at
  * v0.2.23, `formatSteamDuration` in src/modules/ui.js), so a steam time
- * below STEAM_TIME_FROM is steam off, never a Recipe's (ADR-0022).
+ * below STEAM_TIME_FROM is the other half of steam off, never a Recipe's
+ * steam time: a Recipe holds "Off" as its steam temperature (`steamHeldOff`,
+ * ADR-0022).
  */
 export const STEAM_TIME_FROM = 1;
 export const STEAM_TIME_TO = 255;

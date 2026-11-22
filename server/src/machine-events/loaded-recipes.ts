@@ -613,7 +613,7 @@ async function tabletLocals(tx: Prisma.TransactionClient, tabletId: string) {
   };
 }
 
-/** The parts the plugin leaves out of a Workflow whose steam is off (ADR-0022, Steam on and off). */
+/** The parts the plugin leaves out of a Workflow whose steam is off, as nothing written from elsewhere turns a Machine's steam on (ADR-0022, Steam on and off). */
 const STEAM_OFF_KEPT: ReadonlySet<LoadedRecipePart> = new Set(["steamTemperature", "steamDuration"]);
 
 /**

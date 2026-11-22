@@ -52,6 +52,8 @@ import {
   RECIPE_SETTINGS,
   LOADED_RECIPE_PARTS,
   steamOff,
+  STEAM_OFF_VALUE,
+  steamHeldOff,
   steamTimeOf,
   MAX_REFUSAL_LENGTH,
   MAX_SHOTS_PAGE,
@@ -1333,6 +1335,14 @@ describe("Library writes", () => {
     expect([1, 30, 255].map(steamTimeOf)).toEqual([1, 30, 255]);
     expect([256, 300].map(steamTimeOf)).toEqual([255, 255]);
     expect([0, 0.5, -1, null, undefined, "30", Number.NaN].map(steamTimeOf)).toEqual([null, null, null, null, null, null, null]);
+  });
+
+  it("reads a recipe as holding Off by either half, a steam temperature below 135 °C or a steam time below 1 s, as DYE2 and Streamline apply one as steam off whole (#616)", () => {
+    expect(STEAM_OFF_VALUE).toBe(0);
+    for (const [temperature, duration] of [[0, 0], [0, null], [0, 30], [134, 30], [null, 0], [150, 0], [150, 0.5]]) expect(steamHeldOff(temperature, duration), `${temperature}, ${duration}`).toBe(true);
+    for (const [temperature, duration] of [[135, 1], [150, 30], [150, null], [null, 30], [null, null], [undefined, undefined], ["0", "0"]]) {
+      expect(steamHeldOff(temperature, duration), `${temperature}, ${duration}`).toBe(false);
+    }
   });
 
   it("matches Baskets and Tools by name, ignoring case and white space at either end", () => {

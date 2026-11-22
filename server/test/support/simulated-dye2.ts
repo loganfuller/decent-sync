@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
-// DYE2 v0.1.40 and Streamline v0.2.27 on a simulated tablet, built from
+// DYE2 v0.1.40 and Streamline v0.2.31 on a simulated tablet, built from
 // their source at those releases (dye2:dye2-plugin/src/,
 // streamline-js:src/modules/). The plugin is not told of them, as of
 // anything else on the tablet (`SimulatedTablet.callApi`).
