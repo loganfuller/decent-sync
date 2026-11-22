@@ -303,13 +303,16 @@ export function ProfileGraph({
   const pick = (candidates: LabelBox[], lane: Lane, curves: readonly (readonly [number, number])[], taken: readonly LabelBox[]) => candidates[clearest(candidates, within(lane), curves, taken)]!;
   const lineBox = (at: number): LabelBox => ({ left: x(at) - 1, right: x(at) + 1, top: plot.top, bottom: plot.bottom });
 
-  // Each lane's name at its right, or left of a handle, its tag or the bracket where one stands on it there.
+  // Each lane's name at its right, or left of a handle, its tag or the bracket where one stands on it there; a row or two lower where no place left of them is clear.
   const titles = Object.fromEntries(
     LANES.map((lane) => {
       const text = `${lane.title} (${lane.unit})`;
       const wide = textWidth(text, 12, 500);
-      const box = { left: plot.right - 4 - wide, right: plot.right - 4, top: lanes[lane.key].top, bottom: lanes[lane.key].top + 18 };
-      return [lane.key, { text, box: movedLeft(box, covered, plot.left) }];
+      const rows = [0, 1, 2].map((row) => {
+        const top = lanes[lane.key].top + row * 16;
+        return movedLeft({ left: plot.right - 4 - wide, right: plot.right - 4, top, bottom: top + 18 }, covered, plot.left);
+      });
+      return [lane.key, { text, box: rows.find((box) => clear(box, within(lane.key), covered)) ?? rows[0]! }];
     }),
   ) as Record<Lane, { text: string; box: LabelBox }>;
   // The preinfusion bar's name under its start, a row or two lower under a handle, or right of the bracket.
@@ -339,14 +342,20 @@ export function ProfileGraph({
   }
   const written = (lane: Lane): LabelBox[] => [...named(lane), ...stepLabels.flatMap((each) => (each.lane === lane && each.text !== "" ? [labelBox(each.x, baselines.get(each)!, each.width)] : []))];
 
-  // "Not reached" in the middle of what the run left of the plan, on the wider side of the bracket where that stands there.
+  // "Not reached" in the middle of what the run left of the plan, on the wider side of the bracket where that stands there, a row or two
+  // up or down, or on the other side, where a handle, its tag or what is written there is in the way; left out where nowhere is clear.
   const unreached = (() => {
     if (!notReached) return null;
     const [from, to] = [x(run.stop.seconds), x(end)];
     const parts = bracket && bracket.right > from && bracket.left < to ? [[from, bracket.left] as const, [bracket.right, to] as const] : [[from, to] as const];
-    const part = parts.reduce((widest, each) => (each[1] - each[0] > widest[1] - widest[0] ? each : widest));
     const wide = textWidth("Not reached", 12);
-    return part[1] - part[0] > 80 ? labelBox((part[0] + part[1] - wide) / 2, (lanes.pressure.top + lanes.pressure.bottom) / 2, wide) : null;
+    const middle = (lanes.pressure.top + lanes.pressure.bottom) / 2;
+    const roomy = parts.filter((part) => part[1] - part[0] > 80).sort((one, other) => other[1] - other[0] - (one[1] - one[0]));
+    const candidates = roomy.flatMap((part) => [0, -1, 1, -2, 2].map((row) => labelBox((part[0] + part[1] - wide) / 2, middle + row * 13, wide)));
+    if (candidates.length === 0) return null;
+    const taken = written("pressure");
+    const box = pick(candidates, "pressure", [], taken);
+    return clear(box, within("pressure"), taken) ? box : null;
   })();
 
   // Where each record stops: its name beside its line, down its lane to a row clear of the curves, the thresholds, the
@@ -531,7 +540,7 @@ export function ProfileGraph({
                       </text>
                     </g>
                   ))}
-                  <text x={titles[lane.key].box.right} y={lanes[lane.key].top + 14} textAnchor="end" className="fill-foreground font-medium" data-lane-name>
+                  <text x={titles[lane.key].box.right} y={titles[lane.key].box.top + 14} textAnchor="end" className="fill-foreground font-medium" data-lane-name>
                     {titles[lane.key].text}
                   </text>
                 </g>

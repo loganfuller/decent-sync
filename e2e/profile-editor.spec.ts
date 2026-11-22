@@ -228,24 +228,34 @@ test("a Draft's graph writes nothing under a handle, its tag or the bracket, who
   await page.setViewportSize({ width: 1280, height: 720 });
   expect((await page.request.delete(`/api/drafts/${draft.id}`)).status()).toBe(204);
 
-  // A pause at 0 bar: its target stands on the pressure lane's bottom, by the gap the bracket's tag is in, and neither tag covers the other or a handle.
-  const paused = await page.request.post("/api/drafts", {
-    data: { file: { ...file, title: "Paused", steps: [step({ name: "Pause", pump: "pressure", pressure: 0, seconds: 5 }), step({ name: "Full brew", pump: "pressure", pressure: 9, seconds: 60 })] } },
-  });
-  expect(paused.status()).toBe(201);
-  const pausedId = ((await paused.json()) as { draft: { id: string } }).draft.id;
-  await page.goto(`/library/drafts/${pausedId}`);
-  await stepsCard(page).getByRole("button", { name: "Select step 1, Pause" }).click();
-  await expect(graph.getByRole("slider", { name: "Pause's target, bar" })).toBeVisible();
-  drawnAt = "";
-  for (const [width, height] of widths.slice(0, 2)) {
-    await page.setViewportSize({ width, height });
-    await expect(drawn).not.toHaveAttribute("width", drawnAt);
-    drawnAt = (await drawn.getAttribute("width"))!;
-    await expect.poll(() => graphClashes(graph), { message: `paused, at ${width} px` }).toEqual([]);
+  // Other first steps whose handles stand where something is written, at a laptop's and a phone's width.
+  const brew = step({ name: "Full brew", pump: "pressure", pressure: 9, seconds: 60 });
+  const others = [
+    // A pause at 0 bar: its target stands on the pressure lane's bottom, by the gap the bracket's tag is in.
+    { title: "Paused", target_weight: 36, first: step({ name: "Pause", pump: "pressure", pressure: 0, seconds: 5 }) },
+    // A ramp to 9 bar over 20 s: its target and its tag stand where the pressure lane's name is.
+    { title: "Ramped", target_weight: 36, first: step({ name: "Pause", pump: "pressure", pressure: 9, transition: "smooth", seconds: 20, exit: { type: "pressure", condition: "over", value: 8 } }) },
+    // A long ramp the run stops in: its target's tag stands where "Not reached" is.
+    { title: "Unreached", target_weight: 18, first: step({ name: "Pause", pump: "pressure", pressure: 5, transition: "smooth", seconds: 60 }) },
+  ];
+  for (const other of others) {
+    const posted = await page.request.post("/api/drafts", { data: { file: { ...file, title: other.title, target_weight: other.target_weight, steps: [other.first, brew] } } });
+    expect(posted.status()).toBe(201);
+    const id = ((await posted.json()) as { draft: { id: string } }).draft.id;
+    await page.goto(`/library/drafts/${id}`);
+    await stepsCard(page).getByRole("button", { name: "Select step 1, Pause" }).click();
+    await expect(graph.getByRole("slider", { name: "Pause's target, bar" })).toBeVisible();
+    drawnAt = "";
+    for (const [width, height] of widths.slice(0, 2)) {
+      await page.setViewportSize({ width, height });
+      await expect(drawn).not.toHaveAttribute("width", drawnAt);
+      drawnAt = (await drawn.getAttribute("width"))!;
+      await expect.poll(() => graphClashes(graph), { message: `${other.title}, at ${width} px` }).toEqual([]);
+    }
+    if (other.title === "Unreached") await expect(graph.locator("[data-not-reached]")).toHaveCount(1);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    expect((await page.request.delete(`/api/drafts/${id}`)).status()).toBe(204);
   }
-  await page.setViewportSize({ width: 1280, height: 720 });
-  expect((await page.request.delete(`/api/drafts/${pausedId}`)).status()).toBe(204);
 });
 
 test("steps are added, duplicated, moved and deleted, with preinfusion kept on its step, and every change undone and redone", async ({ page }) => {
