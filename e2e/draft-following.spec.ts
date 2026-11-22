@@ -100,7 +100,12 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await trials(page).getByRole("listitem").getByRole("button").click();
   const earlier = page.getByRole("dialog", { name: /^Trial Shot of .*, on earlier steps$/ });
   await expect(earlier.getByRole("region", { name: "How it runs" })).toContainText("The Trial Shot, as it ran");
-  expect((await earlier.locator("svg[data-graph-end]").first().boundingBox())!.width).toBeGreaterThanOrEqual(560);
+  // In the dialog too the Shot's cards go under the graph, not beside it. The svg's width attribute is its laid-out width; its box is scaled while the dialog zooms in, which keeps the order top to bottom.
+  const dialogGraph = earlier.locator("svg[data-graph-end]").first();
+  expect(Number(await dialogGraph.getAttribute("width"))).toBeGreaterThanOrEqual(560);
+  const dialogDrawn = (await dialogGraph.boundingBox())!;
+  const dialogFit = (await earlier.getByRole("region", { name: "How close the simulation is" }).boundingBox())!;
+  expect(dialogFit.y).toBeGreaterThanOrEqual(dialogDrawn.y + dialogDrawn.height);
   await expect(earlier.getByRole("link", { name: "Open the Shot" })).toHaveAttribute("href", "/shots/trial-shot-58151");
   await page.keyboard.press("Escape");
 
