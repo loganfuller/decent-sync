@@ -649,9 +649,9 @@ function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | nul
     : [];
   return (
     <aside aria-label="The puck" className="grid min-w-0 content-start items-start gap-4 @2xl:grid-cols-2 @5xl:grid-cols-1">
-      <section className="grid gap-2 rounded-lg border p-4">
+      <section className="grid min-w-0 gap-2 rounded-lg border p-4">
         <h3 className="font-semibold">The Shot whose puck this is</h3>
-        <Link to={`/shots/${encodeURIComponent(listed.id)}`} className="font-medium underline-offset-4 hover:underline">
+        <Link to={`/shots/${encodeURIComponent(listed.id)}`} className="font-medium wrap-anywhere underline-offset-4 hover:underline">
           {`${listed.profileTitle ?? "A Shot"} on ${listed.machine?.name ?? "a Pending Machine"}`}
         </Link>
         <Fields label="The Shot whose puck this is">
@@ -672,7 +672,7 @@ function PuckShot({ shot, fit, onChange }: { shot: GraphShot; fit: ShotFit | nul
           </Button>
         </div>
       </section>
-      <section className="grid gap-2 rounded-lg border p-4" aria-label="How close the simulation is">
+      <section className="grid min-w-0 gap-2 rounded-lg border p-4" aria-label="How close the simulation is">
         <CardTitleWithInfo title="How close the simulation is">
           <p>The Shot&apos;s own steps simulated on its puck, stopped as it stopped, against what it did: how far to trust the simulation on this puck.</p>
         </CardTitleWithInfo>
