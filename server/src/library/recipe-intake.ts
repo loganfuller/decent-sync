@@ -41,9 +41,10 @@ import { type FieldEdits, changedFields } from "./merge.js";
 // and `profileSnapshot`), and the barista and drinker, which a Recipe never
 // carries, are written but never taken in. A setting the Recipe holds none
 // of is written blank, so applying the record leaves the Machine's own. A
-// dose, grind setting or RPM of 0 in a record is none, as DYE2 applies one
-// from v0.1.37 and its editor saves an RPM left blank, so it is read as none
-// (`recipeView`): neither an edit nor a reason to write the record again. A
+// dose or RPM of 0 in a record is none, as DYE2 applies one from v0.1.37 and
+// its editor saves an RPM left blank, so it is read as none (`recipeView`):
+// neither an edit nor a reason to write the record again. A grind setting of
+// 0 is a dial position the Recipe holds, as DYE2 applies one from v0.1.42. A
 // record's Recipe Slot (`stripSlot`) is its Location's state, not its
 // content, and so is whether Streamline's strip shows it
 // (`showOnStreamlineDashboard`): a recipe is on the strip exactly while it
