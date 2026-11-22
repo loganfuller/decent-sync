@@ -59,7 +59,11 @@ describe("the corpus", () => {
     expect(Math.abs(median(fitted.map((shot) => shot.puck!.holds)) - standardPuck(0).holds)).toBeLessThan(2);
     // Its steps, run on the standard puck at the Shot's own dose and to its own weight, last what the Shot lasted, at the median of the corpus's flat 9 bar Shots.
     const entries = new Map(readShots(SHOTS).map((entry) => [entry.name, entry]));
+    // The Slayer-style session's (#624) were ground for a long low-flow pre-brew, three to twelve times
+    // the resistance of a flat 9 bar Profile's usual grind, its control's too, so they are no part of the typical puck.
+    const slayerSession = (name: string) => /^de1pro-0(39|4\d)$/.test(name);
     const flat = fitted.filter((shot) => {
+      if (slayerSession(shot.name)) return false;
       const { profile } = simulationShotOf(entries.get(shot.name)!.record, entries.get(shot.name)!.measurements);
       return shot.kind === "pressure" && profile!.steps.every((step) => step.pump === "flow" || step.pressure < 4.5 || Math.abs(step.pressure - 9) < 0.6);
     });
@@ -88,14 +92,19 @@ describe("the corpus", () => {
     }
   });
 
-  it("covers each kind of Profile for each model, with a few tea Shots and sets, a designed session's among them, in no more than 160 Shots", () => {
-    expect(card.shots.length).toBeLessThanOrEqual(160);
+  it("covers each kind of Profile for each model, with a few tea Shots and sets, the designed sessions' among them, in no more than 180 Shots", () => {
+    expect(card.shots.length).toBeLessThanOrEqual(180);
     for (const model of ["DE1", "Bengle"] as const) expect(Object.keys(card.models[model]!.kinds).sort()).toEqual([...PROFILE_KINDS].sort());
     expect(card.tea.shots).toBeGreaterThanOrEqual(2);
     expect(card.sets.same.pairs).toBeGreaterThan(0);
     expect(card.sets.different.pairs).toBeGreaterThan(0);
     // The designed session (#600): one coffee, two Shots each of five Profiles, so each Shot's puck on its twin's steps and on eight others'.
     expect(card.sets.bySet.s14).toMatchObject({ model: "DE1", shots: 10, same: { pairs: 10 }, different: { pairs: 80 } });
+    // The Slayer-style session (#624): at the middle grind, its first Shot (whose last step's time limit differs), three
+    // others' pre-brews at 1.5, 1.0 and 2.0 ml/s and the control twice; then two Shots each a step finer and a step coarser.
+    expect(card.sets.bySet.s15).toMatchObject({ model: "DE1", shots: 6, same: { pairs: 2 }, different: { pairs: 28 } });
+    expect(card.sets.bySet.s16).toMatchObject({ model: "DE1", shots: 2, same: { pairs: 2 } });
+    expect(card.sets.bySet.s17).toMatchObject({ model: "DE1", shots: 2, same: { pairs: 2 } });
     expect(card.unreadable).toBe(0);
   });
 });
