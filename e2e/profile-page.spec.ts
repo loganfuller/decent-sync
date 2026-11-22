@@ -250,6 +250,26 @@ test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weigh
   await expect(moment).toHaveAttribute("aria-valuetext", /Stopped/);
   await page.keyboard.press("Home");
   await expect(moment).toHaveAttribute("aria-valuetext", /^0\.0 s.*: Pressure /);
+
+  // A Shot still loading when the Shot is removed is dropped: it neither returns nor sets the controls.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/shots/${FLAT}/measurements`, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await graph.getByRole("radio", { name: "Bengle" }).click();
+  await graph.getByRole("button", { name: "Lay another Shot over it" }).click();
+  await picker.getByRole("region", { name: "On this Profile" }).getByRole("button", { name: /^Choose the Shot of .* on Flat lab group$/ }).click();
+  await graph.getByRole("button", { name: "Remove the Shot" }).click();
+  await graph.getByLabel("Dose").fill("21");
+  await expect(graph.getByText(/^21 g in, stopping at 33\.4 g, on a Bengle$/)).toBeVisible();
+  const answered = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/shots/${FLAT}/measurements`);
+  release();
+  await answered;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(graph.getByText(/^21 g in, stopping at 33\.4 g, on a Bengle$/)).toBeVisible();
+  await expect(graph.getByRole("button", { name: "Remove the Shot" })).toHaveCount(0);
 });
 
 test("a Profile asking for an outlandish pressure still draws", async ({ page }) => {

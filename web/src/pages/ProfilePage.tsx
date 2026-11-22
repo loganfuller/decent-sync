@@ -523,7 +523,15 @@ export function HowItRuns({
                   <RunFigures run={run} against={against} />
                   <div className="flex flex-wrap items-center gap-2">
                     {overlay && (
-                      <Button variant="ghost" size="sm" onClick={() => setOverlay(undefined)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          // A Shot still loading is dropped too, so it neither returns nor sets the controls.
+                          latest.current++;
+                          setOverlay(undefined);
+                        }}
+                      >
                         Remove the Shot
                       </Button>
                     )}
