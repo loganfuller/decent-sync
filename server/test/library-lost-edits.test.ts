@@ -379,6 +379,8 @@ describe("Lost Edits", () => {
     await one.addBean({ roaster: "Roux", name: "Held Guji", notes: "Peach" });
     const id = await libraryBean("Held Guji");
     await holds(two, id, { notes: "Peach" });
+    // The first group's record carries the Bean's global id, by a write of its own, before it is edited there.
+    await holds(one, id, { notes: "Peach" });
 
     // Both groups set the same notes, the first offline and earlier, with a region. Its edit, taken in second, loses
     // the notes on time, to the same value, so nothing is lost and nothing is written to it: its record holds the
@@ -403,6 +405,8 @@ describe("Lost Edits", () => {
     await one.addBean({ roaster: "Roux", name: "Reverted Guji", notes: "Peach" });
     const id = await libraryBean("Reverted Guji");
     await holds(two, id, { notes: "Peach" });
+    // The first group's record carries the Bean's global id, by a write of its own, before it is edited there.
+    await holds(one, id, { notes: "Peach" });
 
     // The first group changes the notes offline. Later, the second changes them and sets them back, to what the first
     // group's record held before its edit.
