@@ -5,6 +5,7 @@ import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
+import { quiesced } from "./support/quiet.js";
 import { DYE2_NAMESPACE, dye2List, dye2NeverUsed } from "./support/simulated-dye2.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -55,15 +56,15 @@ describe("A Basket's `archived` in its content, from 1.12.1's data", { timeout: 
   it("is read as none, unarchiving the Basket's records where it is shown, and taken out by the migration, with its open Conflicts, no Location's state changed", async () => {
     const lab = await api.createLocation("Archived content lab", "America/Chicago");
     const cafe = await api.createLocation("Archived content cafe", "America/Chicago");
-    const tablets = [
-      syncingTablet(await api.createMachine("Archived content lab 1", lab.id), server, { api: dye2NeverUsed("61831") }),
-      syncingTablet(await api.createMachine("Archived content cafe 1", cafe.id), server, { api: dye2NeverUsed("61832") }),
-    ] as const;
+    const machines = [await api.createMachine("Archived content lab 1", lab.id), await api.createMachine("Archived content cafe 1", cafe.id)] as const;
+    const tablets = [syncingTablet(machines[0], server, { api: dye2NeverUsed("61831") }), syncingTablet(machines[1], server, { api: dye2NeverUsed("61832") })] as const;
     const spread = await create(lab, { name: "Spread 18g", size: "double", diameterMm: 58.5 });
     const untouched = await create(lab, { name: "Untouched 20g", size: "double" });
     expect((await api.call("PUT", `/baskets/${spread.id}/locations/${cafe.id}`, { shown: true })).status).toBe(200);
     for (const tablet of tablets) await expect.poll(() => recordOf(tablet, spread.id)?.name).toBe("Spread 18g");
     await expect.poll(() => recordOf(tablets[0], untouched.id)?.name).toBe("Untouched 20g");
+    // Every write and its answer landed, so none recorded after the edit below puts the map's record back without it.
+    await quiesced(api, { tablets: { lab: tablets[0], cafe: tablets[1] }, machines: { lab: machines[0], cafe: machines[1] } });
 
     // As 1.12.1 leaves it: one tablet's archive merged into the Basket's content as a field of it, its latest edit kept, with
     // an open Conflict over it, and written to every tablet holding it, which the map holds as written. Set while the
