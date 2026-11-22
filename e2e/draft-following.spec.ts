@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { graphClashes } from "./support/graph-text.js";
+import { boxes } from "./support/layout.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -135,26 +136,18 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   await expect(onMachine(page)).toContainText("Trial lab group now has Classic Italian espresso, which following again replaces.");
   await expect(onMachine(page).getByRole("switch", { name: "Follow on" })).not.toBeChecked();
   // In one row: the switch, the Machine, what it says and its button.
-  const row = await Promise.all(
-    [onMachine(page).getByRole("switch", { name: "Follow on" }), onMachine(page).getByRole("combobox", { name: "Machine" }), onMachine(page).getByText(/^Following stopped at/), onMachine(page).getByRole("button", { name: "Follow again" })].map(
-      async (control) => (await control.boundingBox())!,
-    ),
-  );
-  for (const box of row) expect(Math.abs(box.y + box.height / 2 - (row[0]!.y + row[0]!.height / 2))).toBeLessThan(4);
+  const row = await boxes(onMachine(page).getByRole("switch", { name: "Follow on" }), onMachine(page).getByRole("combobox", { name: "Machine" }), onMachine(page).getByText(/^Following stopped at/), onMachine(page).getByRole("button", { name: "Follow again" }));
+  for (const box of row) expect(Math.abs(box!.y + box!.height / 2 - (row[0]!.y + row[0]!.height / 2))).toBeLessThan(4);
 
   // In a laptop's window the steps, the whole graph and the inspector show without scrolling, the steps and Trial Shots a rail left of the graph.
   // The graph's end has about 2 px to spare here (#623): anything added above the graph on a Draft's page needs that room found first.
   await page.setViewportSize({ width: 1710, height: 985 });
   await page.evaluate(() => window.scrollTo(0, 0));
   const steps = page.getByRole("region", { name: "Steps" });
-  // The page lays itself out again at the new width, and a region can have no box for a moment (#634): each poll reads its boxes together and gives null until both are there,
+  // The page lays itself out again at the new width, and a region can have no box for a moment (#634): each poll measures its two boxes in one layout and gives null until both are there,
   // as a callback that throws ends expect.poll at once while a matcher that fails is tried again.
-  const bothBoxes = async (a: Locator, b: Locator) => {
-    const [boxA, boxB] = await Promise.all([a.boundingBox(), b.boundingBox()]);
-    return boxA && boxB ? { a: boxA, b: boxB } : null;
-  };
-  await expect.poll(async () => { const boxes = await bothBoxes(steps, graph(page)); return boxes && boxes.b.x - (boxes.a.x + boxes.a.width); }).toBeGreaterThanOrEqual(0);
-  await expect.poll(async () => { const boxes = await bothBoxes(steps, trials(page)); return boxes && boxes.b.x - boxes.a.x; }).toBe(0);
+  await expect.poll(async () => { const [a, b] = await boxes(steps, graph(page)); return a && b && b.x - (a.x + a.width); }).toBeGreaterThanOrEqual(0);
+  await expect.poll(async () => { const [a, b] = await boxes(steps, trials(page)); return a && b && b.x - a.x; }).toBe(0);
   for (const shown of [steps, graph(page).locator("svg[data-graph-end]").first(), page.getByRole("region", { name: "Inspector" })]) await expect(shown).toBeInViewport({ ratio: 1 });
   await page.setViewportSize({ width: 1280, height: 720 });
   await onMachine(page).getByRole("button", { name: "Follow again" }).click();
