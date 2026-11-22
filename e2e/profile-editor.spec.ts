@@ -244,6 +244,18 @@ test("the checks, a status beside Publish, count what stops it and the advice, a
   await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toHaveAttribute("data-state", "active");
   expect(await inspector(page).evaluate((card) => card.scrollTop)).toBe(0);
   await expect(inspector(page).getByLabel("Name")).toBeInViewport();
+  await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toBeFocused();
+  // On a phone, where the inspector is far under the status, the page scrolls to it.
+  await page.setViewportSize({ width: 393, height: 852 });
+  await stepsCard(page).getByRole("button", { name: "Select step 1, Fill" }).click();
+  await checksStatus(page).click();
+  await advice.getByRole("button", { name: /^Step 2 ends at a weight/ }).click();
+  await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toBeInViewport();
+  await expect(inspector(page).getByRole("tab", { name: "Step 2" })).toBeFocused();
+  // Closed without a choice, the focus returns to the status.
+  await checksStatus(page).click();
+  await page.keyboard.press("Escape");
+  await expect(checksStatus(page)).toBeFocused();
   await page.setViewportSize(viewport);
   await inspector(page).getByLabel("Name").fill("Soak");
   await expect(checksStatus(page)).toHaveAccessibleName("Checks: Nothing stops publishing · 1 piece of advice");

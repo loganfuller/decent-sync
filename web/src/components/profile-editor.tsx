@@ -530,7 +530,8 @@ function checksText(blocking: number, advice: number): string {
  * The checks, beside Publish (#623): a status saying whether anything stops
  * the Draft from publishing and how much advice there is, which opens their
  * list: what stops it, and what the machine accepts that may not be meant,
- * each naming its step. Choosing one selects its step and closes the list.
+ * each naming its step. Choosing one selects its step and closes the list,
+ * leaving the focus to `onSelect`; closed otherwise, the focus returns to the status.
  */
 export function ChecksStatus({ checks, onSelect }: { checks: ProfileChecks; onSelect(step: number): void }) {
   const [open, setOpen] = useState(false);
@@ -539,7 +540,9 @@ export function ChecksStatus({ checks, onSelect }: { checks: ProfileChecks; onSe
   const text = checksText(blocking, advice);
   const Icon = blocking > 0 ? CircleX : advice > 0 ? TriangleAlert : CircleCheck;
   const tone = blocking > 0 ? "text-destructive" : advice > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600";
+  const chose = useRef(false);
   const choose = (step: number) => {
+    chose.current = true;
     setOpen(false);
     onSelect(step);
   };
@@ -559,6 +562,10 @@ export function ChecksStatus({ checks, onSelect }: { checks: ProfileChecks; onSe
         // A long list scrolls within itself rather than running past the window's end.
         className="max-h-(--radix-popover-content-available-height) w-96 max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto"
         // Opens with focus on the first check that selects a step, or on the list, not on the info icon, whose tooltip would open with it.
+        onCloseAutoFocus={(event) => {
+          if (chose.current) event.preventDefault();
+          chose.current = false;
+        }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const list = event.currentTarget as HTMLElement;

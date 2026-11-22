@@ -275,11 +275,19 @@ function DraftEditor({ id }: { id: string }) {
     setTab("step");
   }, []);
   const inspector = useRef<HTMLDivElement>(null);
-  // A check chosen from the list shows its step from the inspector's top, however far down it was scrolled.
+  // A check chosen from the list shows its step: the inspector from its top, however far down it was scrolled, brought
+  // into the window where it is out of it, as under the graph in a narrow one, with the focus on the step's tab.
   const selectChecked = useCallback(
     (index: number) => {
       select(index);
-      inspector.current?.scrollTo({ top: 0 });
+      requestAnimationFrame(() => {
+        const card = inspector.current;
+        if (!card) return;
+        card.scrollTo({ top: 0 });
+        const { top } = card.getBoundingClientRect();
+        if (top < 0 || top > window.innerHeight) card.scrollIntoView({ block: "start" });
+        card.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus({ preventScroll: true });
+      });
     },
     [select],
   );
