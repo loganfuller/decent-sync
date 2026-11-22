@@ -674,7 +674,7 @@ export function ProfileGraph({
                 })}
               </g>
 
-              {/* The weight in the cup along the time axis: the first drip's name left of its mark, so the next mark's never meets it. */}
+              {/* The weight in the cup along the time axis: the first drip's name left of its mark, so the next mark's never meets it, unless that would put it over the lanes' values, where it is held right of them; a name that would still meet the one before it is left out (`cupBoxes`, `spaced`). */}
               <g data-cup>
                 <text x={4} y={cupY + 4} className="fill-muted-foreground text-[11px]">
                   {short ? "Cup" : "In the cup"}
