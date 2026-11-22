@@ -520,6 +520,11 @@ export class SimulatedStreamline {
   /** Whether an Auto Steam session is active (`isAutoSteamActive` in api.js), from a pitcher chosen (`autoSteam()`) until Auto is left (`leaveAutoSteam()`): a recipe applied meanwhile writes no steam time, flow or temperature. */
   private autoSteamActive = false;
 
+  /** An Auto Steam session made active with nothing written, as the recording set its flag (fixtures/decaid/streamline-v0.2.31/auto-steam.json). */
+  enterAutoSteam(): void {
+    this.autoSteamActive = true;
+  }
+
   /** A barista leaves Auto Steam for Time or Flow, which ends its session; nothing is written. */
   leaveAutoSteam(): void {
     this.autoSteamActive = false;

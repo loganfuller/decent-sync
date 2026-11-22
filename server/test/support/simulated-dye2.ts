@@ -122,6 +122,7 @@ const v033Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.33")
 const v035Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.35");
 const v040Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.40");
 const streamlineV0224Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.24");
+const streamlineV0231Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.31");
 const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
 
 /** The files of fixtures/decaid/dye2-v0.1.32/: what DYE2 v0.1.32 does otherwise than v0.1.26 (its README). */
@@ -192,6 +193,14 @@ export function dye2V035Recording<T = Record_>(file: Dye2V035File): T {
 /** A file of fixtures/decaid/streamline-v0.2.24/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
 export function streamlineV0224Recording<T = Record_>(file: StreamlineV0224File): T {
   return expandedRecording<T>(streamlineV0224Fixtures, file);
+}
+
+/** The files of fixtures/decaid/streamline-v0.2.31/: what Streamline v0.2.31's strip and DYE2 v0.1.42 write as a recipe is applied with steam on and off (its README). */
+export type StreamlineV0231File = "library" | "loading" | "strip" | "dashboard" | "editor" | "load-write" | "auto-steam" | "settings-labels" | "keys";
+
+/** A file of fixtures/decaid/streamline-v0.2.31/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
+export function streamlineV0231Recording<T = Record_>(file: StreamlineV0231File): T {
+  return expandedRecording<T>(streamlineV0231Fixtures, file);
 }
 
 /** A recording's file in that directory, its shorthands expanded (`dye2Recording`). */

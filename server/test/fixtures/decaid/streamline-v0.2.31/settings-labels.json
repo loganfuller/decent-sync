@@ -1,0 +1,572 @@
+{
+  "shotControl": {
+    "location": {
+      "mainCategory": "quickadjustments",
+      "category": "flowmultiplier"
+    },
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/store/streamlineSettings/streamline.settings.location",
+          "body": "{\"mainCategory\":\"quickadjustments\",\"category\":\"flowmultiplier\"}"
+        },
+        "response": {
+          "status": 200,
+          "body": {}
+        }
+      }
+    ],
+    "shown": {
+      "lines": [
+        "Shot control",
+        "Weight Look-ahead",
+        "Used when a scale is connected. Sets how far ahead the shot stop is anticipated, to allow for coffee still dripping after the stop. Default is 1.0. Higher values stop earlier, lower values stop later. Ignored on Bengle, which stops at weight on its own.",
+        "Volume Look-ahead",
+        "Used only when no scale is connected. Sets how far ahead the shot stop is anticipated, to allow for water still flowing after the stop. Default is 0.3. Higher values stop earlier, lower values stop later."
+      ],
+      "labels": [
+        {
+          "key": "Shot control",
+          "text": "Shot control"
+        },
+        {
+          "key": "Weight Look-ahead",
+          "text": "Weight Look-ahead",
+          "id": "weightFlowMultiplier-label"
+        },
+        {
+          "key": "Used when a scale is connected. Sets how far ahead the shot stop is anticipated, to allow for coffee still dripping after the stop. Default is 1.0. Higher values stop earlier, lower values stop later. Ignored on Bengle, which stops at weight on its own.",
+          "text": "Used when a scale is connected. Sets how far ahead the shot stop is anticipated, to allow for coffee still dripping after the stop. Default is 1.0. Higher values stop earlier, lower values stop later. Ignored on Bengle, which stops at weight on its own."
+        },
+        {
+          "key": "Volume Look-ahead",
+          "text": "Volume Look-ahead",
+          "id": "volumeFlowMultiplier-label"
+        },
+        {
+          "key": "Used only when no scale is connected. Sets how far ahead the shot stop is anticipated, to allow for water still flowing after the stop. Default is 0.3. Higher values stop earlier, lower values stop later.",
+          "text": "Used only when no scale is connected. Sets how far ahead the shot stop is anticipated, to allow for water still flowing after the stop. Default is 0.3. Higher values stop earlier, lower values stop later."
+        }
+      ],
+      "inputs": [
+        {
+          "id": null,
+          "setting": "weightFlowMultiplier",
+          "type": "text",
+          "value": "1",
+          "step": null,
+          "min": "0",
+          "max": null,
+          "labelledBy": "weightFlowMultiplier-label"
+        },
+        {
+          "id": null,
+          "setting": "volumeFlowMultiplier",
+          "type": "text",
+          "value": "0.3",
+          "step": null,
+          "min": "0",
+          "max": null,
+          "labelledBy": "volumeFlowMultiplier-label"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Decrease weight look-ahead",
+          "delta": "-0.1"
+        },
+        {
+          "label": "Increase weight look-ahead",
+          "delta": "0.1"
+        },
+        {
+          "label": "Decrease volume look-ahead",
+          "delta": "-0.05"
+        },
+        {
+          "label": "Increase volume look-ahead",
+          "delta": "0.05"
+        }
+      ],
+      "outsideContent": [
+        "Settings",
+        "Cancel",
+        "Save",
+        "Quick Adjustments",
+        "Connection",
+        "Calibration",
+        "Machine",
+        "Maintenance",
+        "Skin",
+        "Language",
+        "Extensions",
+        "Miscellaneous",
+        "Updates",
+        "User Manual",
+        "Shot control",
+        "Steam",
+        "Hot Water",
+        "Water Tank",
+        "Flush",
+        "Machine Advanced Settings",
+        "Choose a Profile",
+        "Upload a Profile",
+        "Close"
+      ]
+    }
+  },
+  "hotWater": {
+    "location": {
+      "mainCategory": "quickadjustments",
+      "category": "hotwater"
+    },
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/store/streamlineSettings/streamline.settings.location",
+          "body": "{\"mainCategory\":\"quickadjustments\",\"category\":\"hotwater\"}"
+        },
+        "response": {
+          "status": 200,
+          "body": {}
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/workflow"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "b6a4fe1b-bcdf-43c1-93a1-9abe3ec5a4d5",
+            "name": "Workflow",
+            "description": "Description",
+            "profile": {
+              "$profile": "Classic Italian espresso/516f010e11"
+            },
+            "context": {
+              "targetDoseWeight": 18,
+              "targetYield": 36,
+              "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+              "grinderModel": "Fixture Grinder 64",
+              "grinderSetting": "2.5",
+              "beanBatchId": "18787c3f-c448-4d73-adf2-8ef2b7be9704",
+              "coffeeName": "Fixture Ethiopia",
+              "coffeeRoaster": "Fixture Roasters",
+              "extras": {
+                "dye": {
+                  "selection": null,
+                  "v": 1,
+                  "recipeId": "1",
+                  "rpm": null,
+                  "feedRate": null,
+                  "grinderId": true,
+                  "grinderModel": true,
+                  "basketId": null,
+                  "basketName": null,
+                  "coffeeName": null,
+                  "coffeeRoaster": null,
+                  "beanBatchId": null,
+                  "baristaName": null,
+                  "drinkerName": null
+                },
+                "rpm": null,
+                "basketId": null,
+                "feedRate": null,
+                "basketName": null
+              }
+            },
+            "steamSettings": {
+              "targetTemperature": 160,
+              "duration": 30,
+              "flow": 1.2,
+              "stopAtTemperature": 65
+            },
+            "hotWaterData": {
+              "targetTemperature": 85,
+              "duration": 35,
+              "volume": 200,
+              "flow": 6
+            },
+            "rinseData": {
+              "targetTemperature": 88,
+              "duration": 5,
+              "flow": 6
+            }
+          }
+        }
+      }
+    ],
+    "shown": {
+      "lines": [
+        "Hot Water Settings",
+        "Duration (seconds)",
+        "5 – 120 s",
+        "s",
+        "Flow",
+        "1.0 – 10.0 ml/s",
+        "ml/s",
+        "Stop at Weight",
+        "Requires a connected scale",
+        "Hot Water Look-ahead",
+        "Used when Stop at Weight is on and a scale is connected. Higher values stop the water sooner."
+      ],
+      "labels": [
+        {
+          "key": "Hot Water Settings",
+          "text": "Hot Water Settings"
+        },
+        {
+          "key": "Duration (seconds)",
+          "text": "Duration (seconds)"
+        },
+        {
+          "key": "Flow",
+          "text": "Flow"
+        },
+        {
+          "key": "ml/s",
+          "text": "ml/s"
+        },
+        {
+          "key": "Stop at Weight",
+          "text": "Stop at Weight"
+        },
+        {
+          "key": "Requires a connected scale",
+          "text": "Requires a connected scale"
+        },
+        {
+          "key": "Hot Water Look-ahead",
+          "text": "Hot Water Look-ahead"
+        },
+        {
+          "key": "Used when Stop at Weight is on and a scale is connected. Higher values stop the water sooner.",
+          "text": "Used when Stop at Weight is on and a scale is connected. Higher values stop the water sooner."
+        }
+      ],
+      "inputs": [
+        {
+          "id": "hotWaterDurationInput",
+          "setting": null,
+          "type": "text",
+          "value": "35",
+          "step": "5",
+          "min": "5",
+          "max": "120",
+          "labelledBy": null
+        },
+        {
+          "id": "hotWaterFlowInput",
+          "setting": null,
+          "type": "text",
+          "value": "6.0",
+          "step": "0.1",
+          "min": "0.1",
+          "max": "8",
+          "labelledBy": null
+        },
+        {
+          "id": "stopHotWaterAtWeightToggle",
+          "setting": null,
+          "type": "checkbox",
+          "value": "on",
+          "step": null,
+          "min": null,
+          "max": null,
+          "labelledBy": null
+        },
+        {
+          "id": "hotWaterFlowMultiplierInput",
+          "setting": null,
+          "type": "text",
+          "value": "0.3",
+          "step": "0.05",
+          "min": "0",
+          "max": null,
+          "labelledBy": null
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Decrease hot water duration",
+          "onclick": "window.flashPlusMinusButton(this); window.adjustHotWaterDuration(-5);"
+        },
+        {
+          "label": "Increase hot water duration",
+          "onclick": "window.flashPlusMinusButton(this); window.adjustHotWaterDuration(5);"
+        },
+        {
+          "label": "Decrease hot water flow",
+          "onclick": "window.flashPlusMinusButton(this); window.adjustHotWaterFlow(-0.1);"
+        },
+        {
+          "label": "Increase hot water flow",
+          "onclick": "window.flashPlusMinusButton(this); window.adjustHotWaterFlow(0.1);"
+        },
+        {
+          "label": "Decrease hot water look-ahead",
+          "onclick": "window.flashPlusMinusButton(this); window.adjustHotWaterFlowMultiplier(-0.05);"
+        },
+        {
+          "label": "Increase hot water look-ahead",
+          "onclick": "window.flashPlusMinusButton(this); window.adjustHotWaterFlowMultiplier(0.05);"
+        }
+      ],
+      "outsideContent": [
+        "Settings",
+        "Cancel",
+        "Save",
+        "Quick Adjustments",
+        "Connection",
+        "Calibration",
+        "Machine",
+        "Maintenance",
+        "Skin",
+        "Language",
+        "Extensions",
+        "Miscellaneous",
+        "Updates",
+        "User Manual",
+        "Shot control",
+        "Steam",
+        "Hot Water",
+        "Water Tank",
+        "Flush",
+        "Machine Advanced Settings",
+        "Choose a Profile",
+        "Upload a Profile",
+        "Close"
+      ]
+    }
+  },
+  "sensorCalibration": {
+    "location": {
+      "mainCategory": "calibration",
+      "category": "calib_sensors"
+    },
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/store/streamlineSettings/streamline.settings.location",
+          "body": "{\"mainCategory\":\"calibration\",\"category\":\"calib_sensors\"}"
+        },
+        "response": {
+          "status": 200,
+          "body": {}
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/workflow"
+        },
+        "response": {
+          "status": 200,
+          "unchanged": true
+        }
+      }
+    ],
+    "shown": {
+      "lines": [
+        "Sensor Calibration",
+        "Flow calibration",
+        "The machine's own flow calibration, the same setting as the De1App's Flow multiplier. The DE1 estimates flow rather than measuring it; this scales that estimate. 1.0 leaves it unchanged. Range 0.13 to 2.0.",
+        "Advanced ▾",
+        "Sensor Calibration",
+        "Bad calibration settings might make your espresso machine unuseable. Only proceed if you have been told to or have read the relevant manual sections and know what you are doing.",
+        "Cancel",
+        "Ok"
+      ],
+      "labels": [
+        {
+          "key": "Sensor Calibration",
+          "text": "Sensor Calibration"
+        },
+        {
+          "key": "Flow calibration",
+          "text": "Flow calibration",
+          "id": "flow-estimation-multiplier-label"
+        },
+        {
+          "key": "The machine's own flow calibration, the same setting as the De1App's Flow multiplier. The DE1 estimates flow rather than measuring it; this scales that estimate. 1.0 leaves it unchanged. Range 0.13 to 2.0.",
+          "text": "The machine's own flow calibration, the same setting as the De1App's Flow multiplier. The DE1 estimates flow rather than measuring it; this scales that estimate. 1.0 leaves it unchanged. Range 0.13 to 2.0."
+        },
+        {
+          "key": "Advanced",
+          "text": "Advanced"
+        },
+        {
+          "key": "Sensor",
+          "text": "Sensor"
+        },
+        {
+          "key": "Saved",
+          "text": "Saved"
+        },
+        {
+          "key": "Previous",
+          "text": "Previous"
+        },
+        {
+          "key": "DE1 Reading",
+          "text": "DE1 Reading"
+        },
+        {
+          "key": "Measured",
+          "text": "Measured"
+        },
+        {
+          "key": "Temperature",
+          "text": "Temperature"
+        },
+        {
+          "key": "Capture",
+          "text": "Capture"
+        },
+        {
+          "key": "Apply",
+          "text": "Apply"
+        },
+        {
+          "key": "Restore",
+          "text": "Restore"
+        },
+        {
+          "key": "Pressure",
+          "text": "Pressure"
+        },
+        {
+          "key": "Capture",
+          "text": "Capture"
+        },
+        {
+          "key": "Apply",
+          "text": "Apply"
+        },
+        {
+          "key": "Restore",
+          "text": "Restore"
+        },
+        {
+          "key": "Sensor Calibration",
+          "text": "Sensor Calibration"
+        },
+        {
+          "key": "Bad calibration settings might make your espresso machine unuseable.  Only proceed if you have been told to or have read the relevant manual sections and know what you are doing.",
+          "text": "Bad calibration settings might make your espresso machine unuseable. Only proceed if you have been told to or have read the relevant manual sections and know what you are doing."
+        },
+        {
+          "key": "Cancel",
+          "text": "Cancel"
+        },
+        {
+          "key": "Ok",
+          "text": "Ok"
+        }
+      ],
+      "inputs": [
+        {
+          "id": "flow-estimation-mult-input",
+          "setting": null,
+          "type": "text",
+          "value": "1.00",
+          "step": null,
+          "min": null,
+          "max": null,
+          "labelledBy": "flow-estimation-multiplier-label"
+        },
+        {
+          "id": "sensor-cal-temperature-measured",
+          "setting": null,
+          "type": "text",
+          "value": "",
+          "step": null,
+          "min": null,
+          "max": null,
+          "labelledBy": null
+        },
+        {
+          "id": "sensor-cal-pressure-measured",
+          "setting": null,
+          "type": "text",
+          "value": "",
+          "step": null,
+          "min": null,
+          "max": null,
+          "labelledBy": null
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Decrease flow calibration",
+          "onclick": "window.flashPlusMinusButton(this); window.sensorCalFlowAdjust(-1);"
+        },
+        {
+          "label": "Increase flow calibration",
+          "onclick": "window.flashPlusMinusButton(this); window.sensorCalFlowAdjust(1);"
+        },
+        {
+          "label": "Capture",
+          "onclick": "window.sensorCalCapture('temperature')"
+        },
+        {
+          "label": "Apply",
+          "onclick": "window.sensorCalApply('temperature')"
+        },
+        {
+          "label": "Restore",
+          "onclick": "window.sensorCalRestorePrevious('temperature')"
+        },
+        {
+          "label": "Capture",
+          "onclick": "window.sensorCalCapture('pressure')"
+        },
+        {
+          "label": "Apply",
+          "onclick": "window.sensorCalApply('pressure')"
+        },
+        {
+          "label": "Restore",
+          "onclick": "window.sensorCalRestorePrevious('pressure')"
+        },
+        {
+          "label": "Cancel",
+          "onclick": "window.sensorCalWarningCancel()"
+        },
+        {
+          "label": "Ok",
+          "onclick": "window.sensorCalWarningProceed()"
+        }
+      ],
+      "outsideContent": [
+        "Settings",
+        "Cancel",
+        "Save",
+        "Quick Adjustments",
+        "Connection",
+        "Calibration",
+        "Machine",
+        "Maintenance",
+        "Skin",
+        "Language",
+        "Extensions",
+        "Miscellaneous",
+        "Updates",
+        "User Manual",
+        "Default load settings",
+        "Refill Kit",
+        "Voltage",
+        "Fan",
+        "Sensor Calibration",
+        "Choose a Profile",
+        "Upload a Profile",
+        "Close"
+      ]
+    }
+  }
+}

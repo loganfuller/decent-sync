@@ -28,6 +28,7 @@ import {
   recordedDye2MainTablet,
   selectRecipeInDye2,
   streamlineV0224Recording,
+  streamlineV0231Recording,
   tapGrinderInDye2,
 } from "./support/simulated-dye2.js";
 import { STREAMLINE_NAMESPACE, type SimulatedStreamline, type StreamlineKey, recipeStripCells, startStreamline } from "./support/simulated-streamline.js";
@@ -1220,5 +1221,78 @@ describe("The simulated Streamline's strip and wake, against its source", () => 
     expect(((streamline.sent.at(-1)!.context as Record_).extras as Record_).dye).toEqual({ v: 1, recipeId: null });
     expect((await streamline.tapProfile("profile:39e939592679fb194706"))?.status).toBe(200);
     expect(((streamline.sent.at(-1)!.context as Record_).extras as Record_).dye).toEqual({ v: 1, recipeId: null });
+  });
+});
+
+describe("The simulated Streamline, made again as v0.2.31's strip was recorded with DYE2 v0.1.42 (streamline-v0.2.31/)", () => {
+  // Each file's steps in the recording's order, on a tablet whose Decaid holds the recording's library, DYE2's recipes,
+  // the Workflow and Streamline's remembered steam values as its page load left them, its machine connected. Each step's
+  // Workflow writes, by the strip or as the script sent them, the steam, hot water and flush settings of the Workflow
+  // after, the steam temperature and time of DYE2's recipes after, and Streamline's remembered steam values after, must
+  // be what was recorded, with nothing left out (#616).
+  runAsSteps();
+  type StripStep = Dye2Step & { streamline: Record_ };
+  type StepFile = Record<string, StripStep | unknown>;
+  const REMEMBERED: StreamlineKey[] = ["last-steam-temp", "last-steam-duration", "last-steam-flow"];
+  const library = streamlineV0231Recording<Record_>("library");
+  const isStep = (value: unknown): value is StripStep => !!value && typeof value === "object" && Array.isArray((value as StripStep).exchanges) && Array.isArray((value as StripStep).after);
+  const afterRead = (step: StripStep, route: string) => step.after.find(({ request }) => request.path === route)?.response.body;
+  const settingsOf = (workflow: unknown) => Object.fromEntries(MACHINE_SETTING_PARTS.map((part) => [part, (workflow as Record_ | undefined)?.[part] ?? null]));
+  const steamOf = (recipes: unknown) =>
+    (Array.isArray(recipes) ? (recipes as Record_[]) : []).map((recipe) => {
+      const variables = (recipe.dashboardVariables ?? {}) as Record_;
+      return [recipe.id, variables.steamTempC ?? null, variables.steamTimeS ?? null];
+    });
+  const workflowWrites = (exchanges: Dye2Exchange[]) => exchanges.filter(({ request }) => request?.method === "PUT" && request.path === "/workflow").map(({ request }) => request.body);
+
+  /** Makes the file's steps after its page load again, the strip's applies by the simulated Streamline and the rest as the script sent them. */
+  async function made(file: StepFile) {
+    const started = file.started as StripStep;
+    const api: DecaidApi = {
+      ...dye2NeverUsed("10007"),
+      "/beans": library.beans,
+      "/bean-batches": library.beanBatches,
+      "/grinders": library.grinders,
+      "/profiles": library.profiles,
+      "/workflow": afterRead(started, "/workflow") as Record_,
+      [`/store/${DYE2_NAMESPACE}/recipes`]: afterRead(started, `/store/${DYE2_NAMESPACE}/recipes`),
+    };
+    for (const key of REMEMBERED) if ((started.streamline[key] ?? null) !== null) api[`/store/${STREAMLINE_NAMESPACE}/${key}`] = started.streamline[key];
+    const replay = replaying(api, (value) => value, { exact: true });
+    replay.tablet.connectMachine();
+    const streamline = await startStreamline(replay.proxy);
+    replay.pages.streamline = streamline;
+    await streamline.reload();
+    await replay.settled();
+    const names = Object.keys(file);
+    for (const name of names.slice(names.indexOf("started") + 1)) {
+      const step = file[name];
+      if (!isStep(step)) continue;
+      const start = replay.made.length;
+      const applied = /^applyRecipe(\d)/.exec(name);
+      if (applied) await streamline.applyRecipe(applied[1]!);
+      else if (name === "autoSteamActive") streamline.enterAutoSteam();
+      else if (name === "autoSteamEnded") streamline.leaveAutoSteam();
+      else await replay.script(step, ({ request }) => request.method !== "GET");
+      await replay.settled();
+      expect(workflowWrites(replay.made.slice(start)), `${name}: Workflow writes`).toEqual(workflowWrites(step.exchanges));
+      expect(settingsOf((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's settings after`).toEqual(settingsOf(afterRead(step, "/workflow")));
+      expect(steamOf((await replay.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`)).body), `${name}: DYE2's recipes after`).toEqual(steamOf(afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`)));
+      const remembered = Object.fromEntries(REMEMBERED.map((key) => [key, replay.tablet.storeValue(STREAMLINE_NAMESPACE, key)]));
+      expect(remembered, `${name}: Streamline's remembered steam values after`).toEqual(Object.fromEntries(REMEMBERED.map((key) => [key, step.streamline[key] ?? null])));
+    }
+    streamline.stop();
+  }
+
+  it("applies every steam, hot water and flush setting a recipe holds from the strip, turning steam on with the ones it remembers for what the recipe holds none of, and off for one holding Off, DYE2's `record` after saving none of them (strip.json)", async () => {
+    await made(streamlineV0231Recording<StepFile>("strip"));
+  });
+
+  it("writes no steam time, flow or temperature from the strip while an Auto Steam session is active (auto-steam.json)", async () => {
+    await made(streamlineV0231Recording<StepFile>("auto-steam"));
+  });
+
+  it("changes nothing where a load write holds what the strip applied, and keeps nothing as the Loaded Recipe write of Off turns steam off (load-write.json)", async () => {
+    await made(streamlineV0231Recording<StepFile>("load-write"));
   });
 });

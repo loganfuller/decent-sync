@@ -1,0 +1,324 @@
+{
+  "recipes": [
+    {
+      "id": "1",
+      "name": "Fixture Steam Recipe",
+      "title": "Fixture Steam Recipe",
+      "beanId": "49c73909-c7c1-4681-9188-684452d7f586",
+      "barista": "",
+      "drinker": "",
+      "beanName": "Fixture Ethiopia",
+      "beverage": "",
+      "subtitle": "Fixture Ethiopia",
+      "workflow": {
+        "context": {
+          "extras": {
+            "rpm": null,
+            "basketId": null,
+            "feedRate": null,
+            "basketName": null
+          },
+          "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+          "coffeeName": "Fixture Ethiopia",
+          "baristaName": null,
+          "beanBatchId": "18787c3f-c448-4d73-adf2-8ef2b7be9704",
+          "drinkerName": null,
+          "targetYield": 36,
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeRoaster": "Fixture Roasters",
+          "grinderSetting": "2.5",
+          "targetDoseWeight": 18
+        },
+        "profile": {
+          "$profile": "Classic Italian espresso/426b883ece"
+        },
+        "rinseData": {
+          "flow": 6,
+          "duration": 5,
+          "targetTemperature": 88
+        },
+        "hotWaterData": {
+          "flow": 6,
+          "volume": 200,
+          "duration": 35,
+          "targetTemperature": 85
+        },
+        "steamSettings": {
+          "flow": 1.2,
+          "duration": 40,
+          "stopAtTemperature": 65,
+          "targetTemperature": 150
+        }
+      },
+      "profileId": "profile:39e939592679fb194706",
+      "stripSlot": 1,
+      "capturedAt": "2026-11-22T10:00:01.000Z",
+      "beanBatchId": "18787c3f-c448-4d73-adf2-8ef2b7be9704",
+      "beanRoaster": "Fixture Roasters",
+      "decentSyncId": "4030f12e-255c-4aab-9987-b262257afd48",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "$profile": "Classic Italian espresso/82d9749fc4"
+      },
+      "dashboardVariables": {
+        "dose": 18,
+        "brewC": 93,
+        "drink": 36,
+        "grind": 2.5,
+        "flushS": 5,
+        "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+        "steamMode": "time",
+        "flushTempC": 88,
+        "hotWaterMl": 200,
+        "steamTempC": 150,
+        "steamTimeS": 40,
+        "equipmentIds": [],
+        "flushFlowMls": 6,
+        "grinderModel": "Fixture Grinder 64",
+        "hotWaterMode": "vol",
+        "steamFlowMls": 1.2,
+        "hotWaterTempC": 85,
+        "hotWaterTimeS": 35,
+        "equipmentNames": [],
+        "equipmentCustom": {},
+        "hotWaterFlowMls": 6,
+        "steamStopAtTempC": 65
+      },
+      "showOnStreamlineDashboard": true
+    },
+    {
+      "id": "2",
+      "name": "Fixture Steam Temperature Only",
+      "title": "Fixture Steam Temperature Only",
+      "barista": "",
+      "drinker": "",
+      "beverage": "",
+      "subtitle": "",
+      "workflow": {
+        "context": {
+          "extras": {
+            "rpm": null,
+            "basketId": null,
+            "feedRate": null,
+            "basketName": null
+          },
+          "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+          "coffeeName": null,
+          "baristaName": null,
+          "beanBatchId": null,
+          "drinkerName": null,
+          "targetYield": 38,
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeRoaster": null,
+          "grinderSetting": "3",
+          "targetDoseWeight": 19
+        },
+        "profile": {
+          "$profile": "Classic Italian espresso/426b883ece"
+        },
+        "steamSettings": {
+          "targetTemperature": 145
+        }
+      },
+      "profileId": "profile:39e939592679fb194706",
+      "stripSlot": 2,
+      "capturedAt": "2026-11-22T10:00:02.000Z",
+      "decentSyncId": "f5781de9-dde5-4d40-8236-46133a466b05",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "$profile": "Classic Italian espresso/82d9749fc4"
+      },
+      "dashboardVariables": {
+        "dose": 19,
+        "brewC": 93,
+        "drink": 38,
+        "grind": 3,
+        "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+        "steamMode": "time",
+        "steamTempC": 145,
+        "equipmentIds": [],
+        "grinderModel": "Fixture Grinder 64",
+        "hotWaterMode": "vol",
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "showOnStreamlineDashboard": true
+    },
+    {
+      "id": "3",
+      "name": "Fixture No Steam",
+      "title": "Fixture No Steam",
+      "barista": "",
+      "drinker": "",
+      "beverage": "",
+      "subtitle": "",
+      "workflow": {
+        "context": {
+          "extras": {
+            "rpm": null,
+            "basketId": null,
+            "feedRate": null,
+            "basketName": null
+          },
+          "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+          "coffeeName": null,
+          "baristaName": null,
+          "beanBatchId": null,
+          "drinkerName": null,
+          "targetYield": 40,
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeRoaster": null,
+          "grinderSetting": "3.5",
+          "targetDoseWeight": 20
+        },
+        "profile": {
+          "$profile": "Classic Italian espresso/426b883ece"
+        }
+      },
+      "profileId": "profile:39e939592679fb194706",
+      "stripSlot": 3,
+      "capturedAt": "2026-11-22T10:00:03.000Z",
+      "decentSyncId": "c4f7f22f-2b3f-437c-ab09-ed715dbe5683",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "$profile": "Classic Italian espresso/82d9749fc4"
+      },
+      "dashboardVariables": {
+        "dose": 20,
+        "brewC": 93,
+        "drink": 40,
+        "grind": 3.5,
+        "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+        "equipmentIds": [],
+        "grinderModel": "Fixture Grinder 64",
+        "hotWaterMode": "vol",
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "showOnStreamlineDashboard": true
+    },
+    {
+      "id": "4",
+      "name": "Fixture Steam Off",
+      "title": "Fixture Steam Off",
+      "barista": "",
+      "drinker": "",
+      "beverage": "",
+      "subtitle": "",
+      "workflow": {
+        "context": {
+          "extras": {
+            "rpm": null,
+            "basketId": null,
+            "feedRate": null,
+            "basketName": null
+          },
+          "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+          "coffeeName": null,
+          "baristaName": null,
+          "beanBatchId": null,
+          "drinkerName": null,
+          "targetYield": 40,
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeRoaster": null,
+          "grinderSetting": "4",
+          "targetDoseWeight": 18
+        },
+        "profile": {
+          "$profile": "Classic Italian espresso/426b883ece"
+        },
+        "steamSettings": {
+          "duration": 0,
+          "targetTemperature": 0
+        }
+      },
+      "profileId": "profile:39e939592679fb194706",
+      "stripSlot": 4,
+      "capturedAt": "2026-11-22T10:00:04.000Z",
+      "decentSyncId": "77b78064-372c-402e-9a4f-832cd7207130",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "$profile": "Classic Italian espresso/82d9749fc4"
+      },
+      "dashboardVariables": {
+        "dose": 18,
+        "brewC": 93,
+        "drink": 40,
+        "grind": 4,
+        "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+        "steamMode": "time",
+        "steamTempC": 0,
+        "steamTimeS": 0,
+        "equipmentIds": [],
+        "grinderModel": "Fixture Grinder 64",
+        "hotWaterMode": "vol",
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "showOnStreamlineDashboard": true
+    },
+    {
+      "id": "5",
+      "name": "Fixture Steam Time Only",
+      "title": "Fixture Steam Time Only",
+      "barista": "",
+      "drinker": "",
+      "beverage": "",
+      "subtitle": "",
+      "workflow": {
+        "context": {
+          "extras": {
+            "rpm": null,
+            "basketId": null,
+            "feedRate": null,
+            "basketName": null
+          },
+          "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+          "coffeeName": null,
+          "baristaName": null,
+          "beanBatchId": null,
+          "drinkerName": null,
+          "targetYield": 42,
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeRoaster": null,
+          "grinderSetting": "4.5",
+          "targetDoseWeight": 19
+        },
+        "profile": {
+          "$profile": "Classic Italian espresso/426b883ece"
+        },
+        "steamSettings": {
+          "duration": 35
+        }
+      },
+      "profileId": "profile:39e939592679fb194706",
+      "stripSlot": 5,
+      "capturedAt": "2026-11-22T10:00:05.000Z",
+      "decentSyncId": "8171f55f-92ba-444b-92ae-d626d8da931a",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "$profile": "Classic Italian espresso/82d9749fc4"
+      },
+      "dashboardVariables": {
+        "dose": 19,
+        "brewC": 93,
+        "drink": 42,
+        "grind": 4.5,
+        "grinderId": "2c575e88-05ab-4633-938a-25b4c7f6dce2",
+        "steamMode": "time",
+        "steamTimeS": 35,
+        "equipmentIds": [],
+        "grinderModel": "Fixture Grinder 64",
+        "hotWaterMode": "vol",
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "showOnStreamlineDashboard": true
+    }
+  ],
+  "selection": {
+    "kind": "recipe",
+    "id": "1",
+    "modified": true
+  }
+}
