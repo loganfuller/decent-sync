@@ -2668,11 +2668,12 @@ fit.
   1 s, whichever is more, and its peak pressure within 0.5 bar. On the
   corpus of real Shots in `scripts/simulation/corpus/` (#599), its share
   within that margin is held by a test at the level recorded in
-  `corpus/levels.json`: 115 of 123 DE1 coffee Shots and 17 of 23 Bengle
+  `corpus/levels.json`: 126 of 134 DE1 coffee Shots and 17 of 23 Bengle
   Shots with the puck of #602, from 92 and 17 with the machine fitted to it
   (#601) and a puck that was its Shot's resistance replayed, and 55 of 113
   and 12 when the corpus was committed; the designed session's ten Shots
-  (#600) brought the DE1's from 85 of 113. The six Bengle Shots outside
+  (#600) brought the DE1's from 85 of 113, and the Slayer-style session's
+  eleven (#624), all within, from 115 of 123. The six Bengle Shots outside
   were outside before: five miss on the peak pressure of a step whose pump
   controls flow, and one stopped as no run can. The same file holds two
   more levels for #602: one Shot's puck run with another Profile's steps on

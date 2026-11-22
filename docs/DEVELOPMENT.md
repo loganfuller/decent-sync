@@ -136,8 +136,8 @@ where it asks at least 1 bar less than an earlier step; `low pressure` under
 7 bar; and `pressure`.
 
 With no folder named, it scores the committed corpus,
-[scripts/simulation/corpus/](../scripts/simulation/corpus/README.md): about
-160 scrubbed Shots, which a test holds at its recorded share within the
+[scripts/simulation/corpus/](../scripts/simulation/corpus/README.md): 171
+scrubbed Shots, which a test holds at its recorded share within the
 margin for each model, at the median duration error recorded for one Shot's
 puck on another Profile's steps, and at the count of soaks within a second. A
 pull request that changes the simulation reports the scorecard before and

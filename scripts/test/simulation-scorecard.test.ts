@@ -59,7 +59,11 @@ describe("the corpus", () => {
     expect(Math.abs(median(fitted.map((shot) => shot.puck!.holds)) - standardPuck(0).holds)).toBeLessThan(2);
     // Its steps, run on the standard puck at the Shot's own dose and to its own weight, last what the Shot lasted, at the median of the corpus's flat 9 bar Shots.
     const entries = new Map(readShots(SHOTS).map((entry) => [entry.name, entry]));
+    // The Slayer-style session's (#624) were ground for a long low-flow pre-brew, its control's too: those this check
+    // would count fit three to twelve times the standard puck's resistance, so they are no part of the typical puck.
+    const slayerSession = (name: string) => /^de1pro-0(39|4\d)$/.test(name);
     const flat = fitted.filter((shot) => {
+      if (slayerSession(shot.name)) return false;
       const { profile } = simulationShotOf(entries.get(shot.name)!.record, entries.get(shot.name)!.measurements);
       return shot.kind === "pressure" && profile!.steps.every((step) => step.pump === "flow" || step.pressure < 4.5 || Math.abs(step.pressure - 9) < 0.6);
     });
@@ -88,8 +92,8 @@ describe("the corpus", () => {
     }
   });
 
-  it("covers each kind of Profile for each model, with a few tea Shots and sets, a designed session's among them, in no more than 160 Shots", () => {
-    expect(card.shots.length).toBeLessThanOrEqual(160);
+  it("covers each kind of Profile for each model, with a few tea Shots and sets, a designed session's among them, in no more than 180 Shots", () => {
+    expect(card.shots.length).toBeLessThanOrEqual(180);
     for (const model of ["DE1", "Bengle"] as const) expect(Object.keys(card.models[model]!.kinds).sort()).toEqual([...PROFILE_KINDS].sort());
     expect(card.tea.shots).toBeGreaterThanOrEqual(2);
     expect(card.sets.same.pairs).toBeGreaterThan(0);
