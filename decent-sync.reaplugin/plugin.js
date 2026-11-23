@@ -3700,14 +3700,14 @@ var __decentSync = (() => {
   var DAILY_MS = 24 * 60 * 6e4;
   var FROM_MACHINE = /* @__PURE__ */ new Set([...MACHINE_SETTINGS, ...DAILY]);
   var CollectionCapture = class {
-    constructor(outbox, library, settings, pollMs, machine, sawRecipes = () => {
-    }) {
+    constructor(outbox, library, settings, pollMs, machine, sawRecipes, software) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "library", library);
       __publicField(this, "settings", settings);
       __publicField(this, "pollMs", pollMs);
       __publicField(this, "machine", machine);
       __publicField(this, "sawRecipes", sawRecipes);
+      __publicField(this, "software", software);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
       /** The ids of the tablet's Profiles as last read, or undefined before the first read. */
@@ -3721,6 +3721,8 @@ var __decentSync = (() => {
       /** The sensor calibration as last read, by target, or undefined where that read was unavailable, or none was made yet. */
       __publicField(this, "sensorCalibration");
       __publicField(this, "wanted");
+      /** What Software Actions change, left unread by a full read while one ran: read in full by the next poll. */
+      __publicField(this, "softwareOwedFull", /* @__PURE__ */ new Set());
       /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
       __publicField(this, "recipesWanted", false);
       /**
@@ -3853,7 +3855,16 @@ var __decentSync = (() => {
             }
             if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
-            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) || SOFTWARE.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
+            if (SOFTWARE.has(source.name)) {
+              if (!this.software.idle) {
+                if (full) this.softwareOwedFull.add(source.name);
+                continue;
+              }
+              const owed = this.softwareOwedFull.delete(source.name);
+              if (await this.software.run(() => this.capture(source, full || owed))) sentLists.add(source.name);
+              continue;
+            }
+            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
             if (sent) sentLists.add(source.name);
           }
         }
@@ -3912,8 +3923,8 @@ var __decentSync = (() => {
     }
     /**
      * Reads the plugin list and the plugins' settings, or Decaid's own update
-     * state (`decaid`), within `SettingsAccess.run`, as a Software Action
-     * does before and after it acts, and queues a report of each: if it
+     * state (`decaid`), within Software Actions' `SettingsAccess.run`, as a
+     * Software Action does before and after it acts, and queues a report of each: if it
      * changed since the last one queued, or, for an action's read-back,
      * whatever it holds, naming the action (`readBackOf`), whose answer
      * follows it, so it is kept where it is, as a Settings Edit's is.
@@ -5206,13 +5217,19 @@ var __decentSync = (() => {
   var SettingsAccess = class {
     constructor() {
       __publicField(this, "queue", Promise.resolve());
+      __publicField(this, "waiting", 0);
     }
     /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
     run(work) {
-      const done = this.queue.then(work);
+      this.waiting++;
+      const done = this.queue.then(work).finally(() => this.waiting--);
       this.queue = done.catch(() => {
       });
       return done;
+    }
+    /** Whether nothing asked for is running or waiting its turn. */
+    get idle() {
+      return this.waiting === 0;
     }
   };
   var SettingsEdits = class {
@@ -5545,8 +5562,9 @@ var __decentSync = (() => {
           report = await this.joinUpdateCheck().catch(() => void 0);
           if (report !== void 0 && !this.stopped) plugins = await this.reports.readSoftware("plugins", kept.id) ?? plugins;
         }
+        const ownSettings = reloaded && kept.kind === "changePluginSettings" ? await readOwnSettings() : void 0;
         if (this.stopped) return void 0;
-        const answer = plugins === void 0 ? void 0 : settled(kept, plugins, report, reloaded);
+        const answer = plugins === void 0 ? void 0 : settled(kept, plugins, report, reloaded, ownSettings);
         if (answer !== void 0) return answer;
         if (Date.now() + WATCH_STEP_MS > until) return void 0;
         await new Promise((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
@@ -5623,12 +5641,18 @@ var __decentSync = (() => {
       if (decaid.phase === "error") return refusedByDecaid2(action.id, null, typeof decaid.error === "string" && decaid.error !== "" ? decaid.error : "Decaid could not check for its update");
       return { type: "softwareActed", id: action.id, outcome: "done", result: { decaid: updateState(decaid) } };
     }
-    /** Sends Decaid's update socket the command to check, and resolves once its state has left `checking`: with null, or with why Decaid would not check. */
+    /**
+     * Sends Decaid's update socket the command to check, and resolves once its
+     * state has left `checking`: with null, or with why Decaid would not check,
+     * as where the state it opens with is downloading or installing its update,
+     * when it takes no command to check (`requestCheck`).
+     */
     async checkOverSocket() {
       const handle = await this.transports.open(UPDATE_SOCKET);
       try {
         return await new Promise((resolve, reject) => {
           let checking = false;
+          let opened = false;
           const timer = setTimeout(() => reject(new Error("its check for an update did not finish in time")), UPDATE_CHECK_MS);
           const settle = (settled2) => {
             clearTimeout(timer);
@@ -5639,6 +5663,10 @@ var __decentSync = (() => {
             const frame = parsed5(event.data);
             if (!isObject8(frame)) return;
             if (typeof frame.error === "string" && frame.phase === void 0) return settle(() => resolve(frame.error));
+            if (!opened) {
+              opened = true;
+              if (frame.phase === "downloading" || frame.phase === "installing") return settle(() => resolve(`Decaid is ${String(frame.phase)} its update, so it checks for none now`));
+            }
             if (frame.phase === "checking") checking = true;
             else if (checking) settle(() => resolve(null));
           });
@@ -5761,7 +5789,7 @@ var __decentSync = (() => {
     if (!plugin) return { pluginId };
     return { pluginId, ...named(plugin), ...typeof plugin.version === "string" ? { version: plugin.version } : {}, ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {} };
   }
-  function settled(kept, plugins, report, reloaded) {
+  function settled(kept, plugins, report, reloaded, ownSettings) {
     const entries = plugins.filter(isObject8);
     const builds = buildsOf(plugins);
     const done = (given) => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
@@ -5803,11 +5831,16 @@ var __decentSync = (() => {
       }
       case "changePluginSettings": {
         const own = entries.find((entry) => entry.id === "decent-sync.reaplugin");
-        return reloaded && own && kept.pluginId === "decent-sync.reaplugin" ? done(resultFor(own)) : void 0;
+        const saved = kept.pollSeconds === void 0 || kept.pollSeconds === null || isObject8(ownSettings) && sameValue(ownSettings[OWN_CHANGEABLE_SETTING], kept.pollSeconds);
+        return reloaded && own && kept.pluginId === "decent-sync.reaplugin" && saved ? done(resultFor(own)) : void 0;
       }
       default:
         return void 0;
     }
+  }
+  async function readOwnSettings() {
+    const read = await request("GET", `/plugins/${encodeURIComponent("decent-sync.reaplugin")}/settings`).catch(() => void 0);
+    return read?.ok ? parsed5(read.text) : void 0;
   }
   function ownBuildChanged(kept, plugins) {
     const now2 = buildsOf(plugins)["decent-sync.reaplugin"];
@@ -6840,16 +6873,18 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         }
       );
       const settingsAccess = new SettingsAccess();
+      const softwareAccess = new SettingsAccess();
       this.collections = new CollectionCapture(
         this.outbox,
         library,
         settingsAccess,
         settings.pollSeconds * 1e3,
         this.activity,
-        (value) => this.loadedRecipes.sawRecipes(value)
+        (value) => this.loadedRecipes.sawRecipes(value),
+        softwareAccess
       );
       this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
-      this.softwareActions = new SoftwareActions(settingsAccess, this.outbox, this.collections, this.storage, localTransports, log);
+      this.softwareActions = new SoftwareActions(softwareAccess, this.outbox, this.collections, this.storage, localTransports, log);
       this.writes = new LibraryWrites(
         library,
         this.outbox,

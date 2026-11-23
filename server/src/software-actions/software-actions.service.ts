@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import {
   DECENT_SYNC_PLUGIN_ID,
+  MAX_SOFTWARE_ACTION_MS,
   MISSED_HEARTBEATS,
   OWN_CHANGEABLE_SETTING,
   SOFTWARE_ACTIONS_WIRE_REVISION,
@@ -125,10 +126,14 @@ interface Held {
  * They are held in the row apart from what is shown (`held`), given to the
  * plugin as the action is claimed and removed by that same statement; one
  * never claimed loses them once it is no longer awaited (`forgetHeld`),
- * by a timer of the instance that made it, and by every instance as it
- * starts and before it reads or makes an action, so that none outlives its
- * action whatever instance stops. No response, log line or notification
- * ever holds one.
+ * by a timer of every instance that hears it was made, the one that made
+ * it included, and by every instance as it starts, again once any action
+ * made before it started is past its time, and before it reads or makes an
+ * action, so that none outlives its action whatever instance stops. No
+ * response, log line or notification ever holds one. A removed value is
+ * gone from the row, not from PostgreSQL's own history of it until that is
+ * cleared: its dead row versions until a vacuum, its write-ahead log and
+ * any backup taken meanwhile.
  */
 @Injectable()
 export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
@@ -141,9 +146,10 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
     @Inject(CONFIG) private readonly config: Config,
   ) {}
 
-  /** Removes what an instance that stopped left held past its time. */
+  /** Removes what an instance that stopped left held past its time, now and once any action made before now is past its time. */
   onModuleInit(): void {
     void this.forgetHeld().catch((error: unknown) => this.logger.warn(`Could not remove the values of Software Actions past their time: ${describe(error)}`));
+    this.forgetHeldLater(undefined);
   }
 
   onModuleDestroy(): void {
@@ -195,7 +201,7 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
       await notify(tx, "software_actions", machineId);
       return { id: row.id, holds: held !== null };
     });
-    if (made.holds) this.forgetHeldAfter(machineId, timeMs);
+    if (made.holds) this.forgetHeldLater(machineId, timeMs);
     return this.get(machineId, made.id, maker.scope);
   }
 
@@ -330,8 +336,14 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
       WHERE held IS NOT NULL AND ${machineId === undefined ? Prisma.sql`true` : Prisma.sql`machine_id = ${machineId}::uuid`} AND ${this.noLongerAwaited()}`;
   }
 
-  /** Removes a Machine's held values once an action made now is past its time, with a moment's room for the clocks to differ. */
-  private forgetHeldAfter(machineId: string, timeMs: number): void {
+  /**
+   * Removes a Machine's held values, or every Machine's, once an action
+   * made now is past its time, with a moment's room for the clocks to
+   * differ: on the instance that made it, and on each that hears it was
+   * made (`SyncGateway`), so that it is removed though the one that made it
+   * stops first.
+   */
+  forgetHeldLater(machineId: string | undefined, timeMs = MAX_SOFTWARE_ACTION_MS): void {
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       void this.forgetHeld(machineId).catch((error: unknown) => this.logger.warn(`Could not remove the values of a Software Action past its time: ${describe(error)}`));

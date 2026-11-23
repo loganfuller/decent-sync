@@ -45,7 +45,7 @@ const WATCH_STEP_MS = 3_000;
  */
 const RESUME_WATCH_MS = 30_000;
 
-/** How Software Actions read the lists and report them, within `SettingsAccess.run` (`CollectionCapture.readSoftware`). */
+/** How Software Actions read the lists and report them, within their own `SettingsAccess.run` (`CollectionCapture.readSoftware`). */
 export interface SoftwareReports {
   readSoftware(what: "plugins" | "decaid", readBackOf?: string): Promise<unknown[] | undefined>;
 }
@@ -71,8 +71,9 @@ interface Pending {
 
 /**
  * Carries out the server's Software Actions one at a time, in the order
- * they arrive, in the queue the Settings Edits and the reads of the settings
- * share, and answers each through the outbox. An action is never queued for
+ * they arrive, in a queue of their own that the reads of what they change
+ * share, apart from the Settings Edits', as one may wait minutes on Decaid,
+ * and answers each through the outbox. An action is never queued for
  * later (ADR-0034): one whose connection has closed, or with less than
  * SOFTWARE_ACTION_START_MARGIN_MS of its time left, is refused as `expired`,
  * and one still waiting its turn as the plugin unloads is dropped,
@@ -180,8 +181,10 @@ export class SoftwareActions {
         report = await this.joinUpdateCheck().catch(() => undefined);
         if (report !== undefined && !this.stopped) plugins = (await this.reports.readSoftware("plugins", kept.id)) ?? plugins;
       }
+      // A change of its own poll interval shows in the settings it was loaded again with.
+      const ownSettings = reloaded && kept.kind === "changePluginSettings" ? await readOwnSettings() : undefined;
       if (this.stopped) return undefined;
-      const answer = plugins === undefined ? undefined : settled(kept, plugins, report, reloaded);
+      const answer = plugins === undefined ? undefined : settled(kept, plugins, report, reloaded, ownSettings);
       if (answer !== undefined) return answer;
       if (Date.now() + WATCH_STEP_MS > until) return undefined;
       await new Promise<void>((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
@@ -271,12 +274,18 @@ export class SoftwareActions {
     return { type: "softwareActed", id: action.id, outcome: "done", result: { decaid: updateState(decaid) } };
   }
 
-  /** Sends Decaid's update socket the command to check, and resolves once its state has left `checking`: with null, or with why Decaid would not check. */
+  /**
+   * Sends Decaid's update socket the command to check, and resolves once its
+   * state has left `checking`: with null, or with why Decaid would not check,
+   * as where the state it opens with is downloading or installing its update,
+   * when it takes no command to check (`requestCheck`).
+   */
   private async checkOverSocket(): Promise<string | null> {
     const handle = await this.transports.open(UPDATE_SOCKET);
     try {
       return await new Promise<string | null>((resolve, reject) => {
         let checking = false;
+        let opened = false;
         const timer = setTimeout(() => reject(new Error("its check for an update did not finish in time")), UPDATE_CHECK_MS);
         const settle = (settled: () => void) => {
           clearTimeout(timer);
@@ -288,6 +297,10 @@ export class SoftwareActions {
           if (!isObject(frame)) return;
           // Its answer to a command it can't carry out, as on a platform it does not update itself on.
           if (typeof frame.error === "string" && frame.phase === undefined) return settle(() => resolve(frame.error as string));
+          if (!opened) {
+            opened = true;
+            if (frame.phase === "downloading" || frame.phase === "installing") return settle(() => resolve(`Decaid is ${String(frame.phase)} its update, so it checks for none now`));
+          }
           if (frame.phase === "checking") checking = true;
           else if (checking) settle(() => resolve(null));
         });
@@ -447,13 +460,14 @@ function resultOf(action: SoftwareAction, answer: Answer, before: unknown[], aft
  * - an update check is done once Decaid gives its results (`report`), each
  *   plugin's as given, and updated where its build changed since the
  *   action: a check run again after the first ended finds those current;
- * - a change of its own poll interval is done once Decaid loaded it again:
- *   Decaid saves a plugin's settings before it loads it again.
+ * - a change of its own poll interval is done once Decaid loaded it again
+ *   with the value asked for (`ownSettings`): Decaid saves a plugin's
+ *   settings before it loads it again.
  *
  * A build is a plugin's version with its release or commit, as a branch's
  * new commit may keep the version.
  */
-function settled(kept: Pending, plugins: unknown[], report: unknown[] | undefined, reloaded: boolean): SoftwareActed | undefined {
+function settled(kept: Pending, plugins: unknown[], report: unknown[] | undefined, reloaded: boolean, ownSettings?: unknown): SoftwareActed | undefined {
   const entries = plugins.filter(isObject);
   const builds = buildsOf(plugins);
   const done = (given: SoftwareActionResult): SoftwareActed => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
@@ -495,11 +509,18 @@ function settled(kept: Pending, plugins: unknown[], report: unknown[] | undefine
     }
     case "changePluginSettings": {
       const own = entries.find((entry) => entry.id === __PLUGIN_ID__);
-      return reloaded && own && kept.pluginId === __PLUGIN_ID__ ? done(resultFor(own)) : undefined;
+      const saved = kept.pollSeconds === undefined || kept.pollSeconds === null || (isObject(ownSettings) && sameValue(ownSettings[OWN_CHANGEABLE_SETTING], kept.pollSeconds));
+      return reloaded && own && kept.pluginId === __PLUGIN_ID__ && saved ? done(resultFor(own)) : undefined;
     }
     default:
       return undefined;
   }
+}
+
+/** The plugin's own settings as Decaid holds them, or undefined where it does not answer with them. */
+async function readOwnSettings(): Promise<unknown> {
+  const read = await request("GET", `/plugins/${encodeURIComponent(__PLUGIN_ID__)}/settings`).catch(() => undefined);
+  return read?.ok ? parsed(read.text) : undefined;
 }
 
 /** Whether the plugin's own build in a plugin list is another than before the action kept. */

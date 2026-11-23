@@ -116,6 +116,21 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     }
   });
 
+  it("goes on capturing the Tablet's lists while a Software Action waits on Decaid", async () => {
+    const plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
+    plugins.installMs = 12_000;
+    plugins.offer("example/uploader", { manifest: { ...recordedPlugin("shot-upload.reaplugin"), id: "uploader.reaplugin", version: "0.4.0" } });
+    const { machine, tablet } = await connected("Deadline capture meanwhile", server, { plugins });
+    const install = await make(machine, { kind: "installPlugin", repo: "example/uploader" });
+    await expect.poll(async () => (await read(machine, install.id)).sentAt).not.toBeNull();
+    // A Bean added on the Tablet while Decaid installs reaches the server well before the install is done.
+    await tablet.callApi("POST", "/beans", { roaster: "Roux", name: "Added meanwhile" });
+    const beans = async () => ((await api.get<{ collection: { value: { name: string }[] } | null }>(`/machines/${machine.machine.id}/collections/beans`)).collection?.value ?? []).map((bean) => bean.name);
+    await expect.poll(beans, { timeout: 6_000 }).toContain("Added meanwhile");
+    expect((await read(machine, install.id)).answeredAt).toBeNull();
+    expect(await answered(machine, install.id)).toMatchObject({ outcome: "done", result: { pluginId: "uploader.reaplugin" } });
+  });
+
   it("answers an install Decaid stopped waiting on, but went on with, once the plugin list shows it", async () => {
     const plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
     // host.localApi gives up after its time, as Decaid's does after a minute, while the install goes on.
@@ -327,8 +342,19 @@ describe("Software Actions, their time and the plugin's own protections", () => 
       const { machine, tablet, plugins } = await connected("Deadline frozen instance", frozen);
       const password = "a third made-up password 2342 for the test";
       rememberSecret(password);
-      frozen.signal("SIGSTOP");
-      const made = await make(machine, { kind: "changePluginSettings", pluginId: VISUALIZER, values: { Password: password }, expected: { Password: { isSet: false } } });
+      // Stopped inside one of its transactions on the Machine's row, as a heartbeat's, it holds that row until PostgreSQL ends
+      // the transaction (idle_in_transaction_session_timeout), and the action can't be made meanwhile: it is let go and stopped again.
+      let made: ActionView | undefined;
+      for (let attempt = 1; made === undefined; attempt++) {
+        frozen.signal("SIGSTOP");
+        const response = await api.call("POST", path(machine), { kind: "changePluginSettings", pluginId: VISUALIZER, values: { Password: password }, expected: { Password: { isSet: false } } });
+        if (response.status === 201) made = ((await response.json()) as { softwareAction: ActionView }).softwareAction;
+        else {
+          expect(attempt, await response.text()).toBeLessThan(3);
+          frozen.signal("SIGCONT");
+          await api.waitForOnline(machine);
+        }
+      }
       expect((await heldOf(made.id)).held).not.toBeNull();
       // 61 s and a moment on, the instance that made it has taken its values out, with no read of the Machine's actions.
       await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(made.madeAt) + 63_000 - Date.now())));
@@ -345,5 +371,5 @@ describe("Software Actions, their time and the plugin's own protections", () => 
       frozen.signal("SIGCONT");
       await frozen.stop();
     }
-  }, 120_000);
+  }, 200_000);
 });

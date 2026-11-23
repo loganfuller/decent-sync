@@ -173,6 +173,11 @@ export class SettingsEditsService {
     if (withSoftware.length > 0) {
       throw new BadRequestException(withSoftware.map((field) => `${field.label} can't be changed through an assistant: an Admin changes them on the Machine's Software tab`));
     }
+    // The plugin writes such a field in a request of its own, so an edit holding another field too could apply in part.
+    const alone = SETTINGS_FIELDS[edit.collection].filter((field) => isEditable(field) && field.withSoftware && field.path in edit.fields);
+    if (alone.length > 0 && Object.keys(edit.fields).length > 1) {
+      throw new BadRequestException(alone.map((field) => `${field.label} is changed in an edit of its own, as on the Machine's Software tab`));
+    }
     const onlineSinceMs = this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
     const id = await this.prisma.$transaction(async (tx) => {
       if (!(await lockMachine(tx, machineId))) throw machineNotFound();

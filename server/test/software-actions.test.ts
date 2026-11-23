@@ -303,6 +303,14 @@ describe("Software Actions", () => {
     plugins.offerDecaid(null);
     expect(await done(machine, { kind: "checkDecaidUpdate" })).toMatchObject({ outcome: "done", result: { decaid: { phase: "idle", latestVersion: null } } });
 
+    // Downloading its update, Decaid takes no command to check: refused at once, rather than once the plugin stops waiting.
+    const before = plugins.update;
+    plugins.update = { ...before, phase: "downloading", latestVersion: "0.9.4", progress: 0.4 };
+    const started = Date.now();
+    expect(await done(machine, { kind: "checkDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "Decaid is downloading its update, so it checks for none now" } });
+    expect(Date.now() - started).toBeLessThan(20_000);
+    plugins.update = before;
+
     // Where Decaid can't check, as on a platform it does not update itself on, its own words.
     plugins.refuseDecaidCheck(true);
     expect(await done(machine, { kind: "checkDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", status: null, message: "In-app install is not supported on this platform" } });
@@ -345,6 +353,10 @@ describe("Software Actions", () => {
       return read();
     };
     await expect.poll(async () => (await software(machine)).decaid.automaticUpdateCheck).toBe(true);
+    // Written in a request of its own, it is never edited with another field, which could leave the edit applied in part.
+    const combined = await api.call("POST", `/machines/${machine.machine.id}/settings-edits`, { collection: "appSettings", fields: { automaticUpdateCheck: false, nightModeEnabled: true }, expected: { automaticUpdateCheck: true, nightModeEnabled: false } });
+    expect(combined.status).toBe(400);
+    expect(await combined.text()).toContain("Automatic update checks is changed in an edit of its own");
     expect(await edit(false)).toMatchObject({ outcome: "applied" });
     expect((await software(machine)).decaid.automaticUpdateCheck).toBe(false);
     expect((await tablet.callApi("POST", "/settings", { automaticUpdateCheck: true })).status).toBe(401);

@@ -301,9 +301,9 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
      automatic update checks go through `host.localApi`, in a request of
      their own, as Decaid takes them turned on from a plain request only
      while its "Require authorization for extension management" setting is
-     off, and `localApi` takes no other Tablet Setting; any other field of
-     the edit follows through `fetch`, unless Decaid refused the first
-     (`writeFields`). Decaid follows a change of the checks made over its API
+     off, and `localApi` takes no other Tablet Setting; so the server
+     takes an edit of them with no other field, which could be left
+     applied in part (`writeFields`). Decaid follows a change of the checks made over its API
      when it next starts. Decaid writes each field in
      turn, so a refusal part-way leaves the fields before it written, as
      `/settings` does as it refuses a value with 400 and its `message`. A
@@ -749,9 +749,13 @@ the plugin list as JSON whose keys PostgreSQL does not keep in order. It is
 read after the plugin list, on every poll, one plugin at a time. `decaidUpdate` is Decaid's own update state as `GET /update`
 answers it: `{ phase, currentVersion, latestVersion, releaseNotes,
 releaseUrl, installable, progress, error }`. Both are read, with the plugin
-list, in the queue Settings Edits and Software Actions share
-(`SettingsAccess`), so a report of one either holds each action begun before
-it or is queued before that action's read-back.
+list, in Software Actions' own queue (a `SettingsAccess` apart from the
+Settings Edits'), so a report of one either holds each action begun before
+it or is queued before that action's read-back. A poll skips the three while
+an action runs, which may wait minutes on Decaid, so the rest of the poll,
+DYE2's recipes and the Library lists included, is never held up by one: the
+action's read-back reports them, and the next poll, in full where the
+skipped read was a full one.
 
 ### Tablet Software
 
@@ -881,14 +885,18 @@ How each is made, carried out and answered:
   an earlier one: an action is never queued.
 - **A settings change's values** are held in the row apart from what is
   shown (`software_actions.held`), only until the action is claimed, by the
-  same statement that claims it, or is no longer awaited: removed by a timer
-  of the instance that made it, a second after its time, and by every
-  instance as it starts and before it makes or lists an action of that
-  Machine, so none outlives its action whatever instance stops. No response,
-  log line or notification holds one.
+  same statement that claims it, or is no longer awaited: removed a second
+  after its time by a timer of every instance that hears it was made, the
+  one that made it included, by every instance as it starts and again once
+  any action made before it started is past its time, and before it makes
+  or lists an action of that Machine, so none outlives its action whatever
+  instance stops. No response, log line or notification holds one. A value
+  removed is gone from the row, not from PostgreSQL's own history of it
+  until that is cleared: its dead row versions until a vacuum, its
+  write-ahead log, and any backup taken meanwhile.
 - **Carried out** (`plugin/src/software-actions.ts`), one at a time in the
-  order received, in the queue Settings Edits and the reads of the settings
-  and software collections share (`SettingsAccess`). The plugin counts down
+  order received, in a queue of their own that the reads of the software
+  collections share (`SettingsAccess`), apart from the Settings Edits'. The plugin counts down
   `timeLeftMs` as it does a Settings Edit's, and refuses an action as
   `expired`, asking nothing of Decaid, once the connection that sent it has
   closed, or where it would start with less than
@@ -941,15 +949,30 @@ How each is made, carried out and answered:
   to it. So before an action that may do that to the plugin itself, any
   install or update check, an approval of its own update and a change of its
   own poll interval, the plugin keeps it in Decaid's plugin storage (key
-  `softwareAction`: its id, kind, what it named and each plugin's version
-  before, never a setting's value). Its next load answers it first, within
-  10 minutes, from the plugin list it then reads (`resume` and `afterReload`):
-  an approval of its own update is done once no update waits and its version
-  changed; an install, once it comes from the repository and branch asked
-  for; an update check, once its own version changed, with each plugin's
-  result told from the list; and a change of its poll interval at once, as
-  Decaid saves the settings before it loads the plugin again. One it can't
-  tell the outcome of is left unanswered, and so not confirmed.
+  `softwareAction`: its id, kind, what it named, and each plugin's version,
+  build and install time before, never a setting's value). A plugin's build
+  is its version with the commit or release it came from, as a branch's new
+  commit may keep the version. Its next load answers it first, within 10
+  minutes, from the plugin list it then reads, read again every 3 s for up
+  to 30 s, as Decaid writes where a plugin came from and clears an update
+  that waited only once it has loaded the new build and settled its
+  notification permission (`resume`, `watch` and `settled`): an approval of
+  its own update is done once no update waits and its build changed; an
+  install, once a plugin from the repository and branch asked for was
+  installed since; an update check, once its own build changed and Decaid
+  gives the check's results, asked for again with `POST /plugins/update`,
+  which Decaid answers with the check still under way (it goes on to the
+  plugins after this one) or, where it ended, with a new one's, each plugin
+  `updated` where its build changed since; and a change of its poll interval
+  at once, as Decaid saves the settings before it loads the plugin again.
+  One it can't tell the outcome of by then is left unanswered, and so not
+  confirmed.
+- **When Decaid stops waiting.** `host.localApi` rejects a call after a
+  minute (`localApiTimeout`) while Decaid goes on with it, so a slow install
+  or update check is not refused for that: the plugin reads the lists again
+  every 3 s, the same way, until what came of it shows or the action's time
+  is up, and otherwise leaves it unanswered, kept for the plugin's next load
+  where it was kept.
 - **Not confirmed.** An action still unanswered is `notConfirmed` once its
   time has passed since it was made, or where it was never sent and its
   connection no longer holds the Machine, so that it never will be. Unlike a

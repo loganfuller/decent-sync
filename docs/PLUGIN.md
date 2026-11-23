@@ -221,7 +221,10 @@ out one at a time, refuses one while the Machine is busy, and reads the
 plugins back afterwards, so the Machine's Settings History ties what changed
 to the action. Whatever it is sent, it never disables or removes itself, and
 of its own settings changes only the poll interval: its server address and
-Token are set on the tablet. A tablet still running the plugin of the
+Token are set on the tablet. An install from a repository whose plugin is
+`decent-sync.reaplugin` replaces this plugin with that build, as Decaid
+installs it: like every Software Action, it is an Admin's, trusted with the
+tablet. A tablet still running the plugin of the
 release before Software Actions is sent none until its plugin updates, and
 its Software tab says so. [COLLECTIONS.md](COLLECTIONS.md#software-actions)
 has the detail.

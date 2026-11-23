@@ -229,6 +229,8 @@ export class SimulatedPlugins {
       return [];
     }
     if (command !== "check" || this.noCheck) return [structuredClone(this.noCheck ?? MANAGEMENT.updateInstall!.frames![0]!)];
+    // Downloading or installing its update, it takes no command to check, and says nothing (`requestCheck`).
+    if (this.update.phase === "downloading" || this.update.phase === "installing") return [];
     const [checking] = MANAGEMENT.updateChecked!.frames!;
     this.update = structuredClone(this.found ?? decaidUpdateState());
     return [{ ...structuredClone(this.update), phase: checking!.phase, latestVersion: null, installable: false }, structuredClone(this.update)];

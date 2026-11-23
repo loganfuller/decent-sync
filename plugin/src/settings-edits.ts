@@ -57,12 +57,19 @@ const WITHOUT_MACHINE: ReadonlySet<SettingsCollectionName> = new Set(["appSettin
  */
 export class SettingsAccess {
   private queue: Promise<unknown> = Promise.resolve();
+  private waiting = 0;
 
   /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
   run<T>(work: () => Promise<T>): Promise<T> {
-    const done = this.queue.then(work);
+    this.waiting++;
+    const done = this.queue.then(work).finally(() => this.waiting--);
     this.queue = done.catch(() => {});
     return done;
+  }
+
+  /** Whether nothing asked for is running or waiting its turn. */
+  get idle(): boolean {
+    return this.waiting === 0;
   }
 }
 

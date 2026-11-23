@@ -263,11 +263,19 @@ export class SyncConnection {
       },
     );
     const settingsAccess = new SettingsAccess();
-    this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1000, this.activity, (value) =>
-      this.loadedRecipes.sawRecipes(value),
+    // Software Actions take their own turns, apart from the Settings Edits', as one may wait minutes on Decaid.
+    const softwareAccess = new SettingsAccess();
+    this.collections = new CollectionCapture(
+      this.outbox,
+      library,
+      settingsAccess,
+      settings.pollSeconds * 1000,
+      this.activity,
+      (value) => this.loadedRecipes.sawRecipes(value),
+      softwareAccess,
     );
     this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
-    this.softwareActions = new SoftwareActions(settingsAccess, this.outbox, this.collections, this.storage, localTransports, log);
+    this.softwareActions = new SoftwareActions(softwareAccess, this.outbox, this.collections, this.storage, localTransports, log);
     this.writes = new LibraryWrites(
       library,
       this.outbox,

@@ -135,14 +135,19 @@ describe("Settings Edits of the Tablet Settings", () => {
     expect(await response.text()).toMatch(/Only an Admin can change Automatic update checks/);
     expect(writes(tablet)).toEqual([]);
 
-    // With another field of the Tablet Settings, which goes after it by the plugin's fetch, as localApi takes no other.
+    // Never with another field of the Tablet Settings, which the plugin's fetch would write after it, as localApi takes no other:
+    // a refusal of that second write would leave the edit applied in part.
+    const gatewayMode = (await held(tablet)).gatewayMode;
+    const combined = await api.call("POST", path(machine), { collection: "appSettings", fields: { automaticUpdateCheck: false, gatewayMode: "tracking" }, expected: { automaticUpdateCheck: true, gatewayMode } });
+    expect(combined.status).toBe(400);
+    expect(await combined.text()).toMatch(/Automatic update checks is changed in an edit of its own/);
+    expect(writes(tablet)).toEqual([]);
     const edit = async (fields: Record<string, unknown>, expected: Record<string, unknown>) =>
       (await api.send<{ settingsEdit: SettingsEditView }>("POST", path(machine), { collection: "appSettings", fields, expected }, 201)).settingsEdit;
-    const gatewayMode = (await held(tablet)).gatewayMode;
-    const off = await edit({ automaticUpdateCheck: false, gatewayMode: "tracking" }, { automaticUpdateCheck: true, gatewayMode });
-    expect(await answered(machine, off.id)).toMatchObject({ outcome: "applied", readBack: { automaticUpdateCheck: false, gatewayMode: "tracking" } });
-    expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: false, gatewayMode: "tracking" });
-    expect(writes(tablet)).toEqual(["POST /settings", "POST /settings"]);
+    const off = await edit({ automaticUpdateCheck: false }, { automaticUpdateCheck: true });
+    expect(await answered(machine, off.id)).toMatchObject({ outcome: "applied", readBack: { automaticUpdateCheck: false } });
+    expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: false, gatewayMode });
+    expect(writes(tablet)).toEqual(["POST /settings"]);
     const on = await edit({ automaticUpdateCheck: true }, { automaticUpdateCheck: false });
     expect(await answered(machine, on.id)).toMatchObject({ outcome: "applied", readBack: { automaticUpdateCheck: true } });
     expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: true });

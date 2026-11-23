@@ -84,10 +84,11 @@ const SETTINGS: ReadonlySet<CollectionName> = new Set(SETTINGS_COLLECTION_NAMES)
 
 /**
  * What Software Actions change (ADR-0034): the plugin list, the plugins'
- * settings and Decaid's own update state, read only between Settings Edits
- * and Software Actions too (`SettingsAccess`), so a report of one either
- * holds each action that began before it, or is queued before that action's
- * read-back and answer.
+ * settings and Decaid's own update state, read only between Software
+ * Actions (their own `SettingsAccess`), so a report of one either holds each
+ * action that began before it, or is queued before that action's read-back
+ * and answer. A poll reads none of them while an action runs, which may wait
+ * minutes on Decaid: the action's read-back reports them, and the next poll.
  */
 const SOFTWARE: ReadonlySet<CollectionName> = new Set(["plugins", "pluginSettings", "decaidUpdate"]);
 
@@ -174,6 +175,8 @@ export class CollectionCapture {
   /** The sensor calibration as last read, by target, or undefined where that read was unavailable, or none was made yet. */
   private sensorCalibration: Record<string, unknown> | undefined;
   private wanted: "changes" | "full" | undefined;
+  /** What Software Actions change, left unread by a full read while one ran: read in full by the next poll. */
+  private readonly softwareOwedFull = new Set<CollectionName>();
   /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
   private recipesWanted = false;
   /**
@@ -201,7 +204,9 @@ export class CollectionCapture {
     /** Whether the machine runs nothing, which the reads from it wait for. */
     private readonly machine: Pick<MachineActivity, "runningNothing" | "onRunningNothing">,
     /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
-    private readonly sawRecipes: (value: unknown) => void = () => {},
+    private readonly sawRecipes: (value: unknown) => void,
+    /** Software Actions' turns, which the reads of what they change take too (`SOFTWARE`). */
+    private readonly software: SettingsAccess,
   ) {
     // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
     library.onWrite((list) => this.last.delete(list));
@@ -334,9 +339,19 @@ export class CollectionCapture {
           }
           if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
+          if (SOFTWARE.has(source.name)) {
+            // Left to the next poll while a Software Action runs, as one in a full read is owed in full.
+            if (!this.software.idle) {
+              if (full) this.softwareOwedFull.add(source.name);
+              continue;
+            }
+            const owed = this.softwareOwedFull.delete(source.name);
+            if (await this.software.run(() => this.capture(source, full || owed))) sentLists.add(source.name);
+            continue;
+          }
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
-            : SETTINGS.has(source.name) || SOFTWARE.has(source.name)
+            : SETTINGS.has(source.name)
               ? this.settings.run(() => this.capture(source, full))
               : this.capture(source, full));
           if (sent) sentLists.add(source.name);
@@ -403,8 +418,8 @@ export class CollectionCapture {
 
   /**
    * Reads the plugin list and the plugins' settings, or Decaid's own update
-   * state (`decaid`), within `SettingsAccess.run`, as a Software Action
-   * does before and after it acts, and queues a report of each: if it
+   * state (`decaid`), within Software Actions' `SettingsAccess.run`, as a
+   * Software Action does before and after it acts, and queues a report of each: if it
    * changed since the last one queued, or, for an action's read-back,
    * whatever it holds, naming the action (`readBackOf`), whose answer
    * follows it, so it is kept where it is, as a Settings Edit's is.
