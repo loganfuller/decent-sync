@@ -1298,7 +1298,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 }
 
-/** Why the plugin refused a Settings Edit, as a log line shows it: what Decaid answered is escaped. */
+/** Why the plugin refused a Software Action, as a log line shows it: what Decaid or the plugin said is escaped and cut short. */
 function describeSoftwareRefusal(answer: SoftwareActed): string {
   switch (answer.reason) {
     case "machineBusy":
@@ -1314,6 +1314,7 @@ function describeSoftwareRefusal(answer: SoftwareActed): string {
   }
 }
 
+/** Why the plugin refused a Settings Edit, as a log line shows it: what Decaid answered is escaped. */
 function describeSettingsRefusal(answer: SettingsEdited): string {
   switch (answer.reason) {
     case "machineBusy":
