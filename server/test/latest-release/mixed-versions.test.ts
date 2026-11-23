@@ -406,14 +406,12 @@ describe("the latest release beside the change", () => {
   });
 
   // A grind setting of 0 is a Recipe's (#617), as DYE2 v0.1.42 applies one,
-  // where the latest release reads it as none, as DYE2 v0.1.40 did: the wire
-  // is unchanged, as each carries a 0 as a value. Beside it, a Recipe holding
-  // 0 on the change's server loads as 0 on a tablet with the latest release's
-  // plugin, whose load write reads the Workflow's 0 and the record's as none
-  // alike and so writes nothing; and on the latest release's server a 0 saved
-  // in DYE2's editor is taken as none, as it was, the tablet keeping its 0,
-  // which the change's plugin writes nothing over as it loads.
-  it("keeps a grind setting of 0 on a tablet as its Recipe loads: one the change's server holds, on the latest release's plugin; and one saved on the change's plugin, which the latest release's server takes as none", async () => {
+  // on each release since 1.12.2: the wire carries a 0 as a value. Beside the
+  // latest release, a Recipe holding 0 loads as 0 on a tablet with either
+  // release's plugin, whose load write finds the Workflow's 0 already the
+  // Recipe's and so writes nothing; and a 0 saved in DYE2's editor is the
+  // Recipe's on either release's server.
+  it("keeps a grind setting of 0 on a tablet as its Recipe loads: one the change's server holds, on the latest release's plugin; and one saved on the change's plugin, which the latest release's server holds", async () => {
     type Record_ = Record<string, unknown>;
     const ETHIOPIA = "1";
     for (const { name, plugin, server } of [
@@ -449,7 +447,7 @@ describe("the latest release beside the change", () => {
         // before the editor's save and posted after it would put the Ethiopia back at 2.5 (ADR-0005), and the Recipe with it.
         await quiet();
         await (await openDye2RecipeEditor(tablet, { id: ETHIOPIA })).set({ grind: 0 }).save();
-        await expect.poll(async () => (await content()).grindSetting ?? null, { timeout: 15_000 }).toBeNull();
+        await expect.poll(async () => (await content()).grindSetting ?? null, { timeout: 15_000 }).toBe(0);
       }
       await quiet();
       expect(recorded(), name).toEqual([0, "0"]);
@@ -457,16 +455,15 @@ describe("the latest release beside the change", () => {
       await expect.poll(() => recipeNamedInWorkflow(tablet), { timeout: 15_000 }).toBe(ethiopia);
       await quiet();
       expect([grind(), writes], name).toEqual(["0", []]);
-      expect((await content()).grindSetting ?? null, name).toBe(server === "change" ? 0 : null);
+      expect((await content()).grindSetting ?? null, name).toBe(0);
     }
   });
 
-  // A Basket its Location hides is archived on its tablets' lists from #618,
-  // where the latest release removes it. The change's server archives it
-  // with an ordinary write of its record, which the latest release's plugin
-  // carries out as any other; the latest release's server still removes it,
-  // which the change's plugin carries out as before.
-  it("archives a Basket the change's server hides on a tablet with the latest release's plugin, and unarchives it once shown; the latest release's server removes one it hides from a tablet with the change's plugin", async () => {
+  // A Basket its Location hides is archived on its tablets' lists (#618), by
+  // each release since 1.12.2, with an ordinary write of its record, which
+  // either release's plugin carries out as any other; shown again, it is
+  // unarchived.
+  it("archives a Basket the change's server hides on a tablet with the latest release's plugin, and the latest release's server one it hides on a tablet with the change's plugin, and unarchives it once shown", async () => {
     type Record_ = Record<string, unknown>;
     for (const { name, plugin, server } of [
       { name: "the latest release's plugin", plugin: "latest release", server: "change" },
@@ -481,15 +478,11 @@ describe("the latest release beside the change", () => {
       const localId = record()!.id;
 
       expect((await apis[server].call("PUT", `/baskets/${id}/locations/${location.id}`, { shown: false })).status, name).toBe(200);
-      if (server === "change") {
-        // Archived, its record kept with its id; shown again, unarchived.
-        await expect.poll(() => record()?.archived, { timeout: 15_000, message: name }).toBe(true);
-        expect(record()?.id, name).toBe(localId);
-        expect((await apis.change.call("PUT", `/baskets/${id}/locations/${location.id}`, { shown: true })).status, name).toBe(200);
-        await expect.poll(() => record()?.archived, { timeout: 15_000, message: name }).toBe(false);
-      } else {
-        await expect.poll(record, { timeout: 15_000, message: name }).toBeUndefined();
-      }
+      // Archived, its record kept with its id; shown again, unarchived.
+      await expect.poll(() => record()?.archived, { timeout: 15_000, message: name }).toBe(true);
+      expect(record()?.id, name).toBe(localId);
+      expect((await apis[server].call("PUT", `/baskets/${id}/locations/${location.id}`, { shown: true })).status, name).toBe(200);
+      await expect.poll(() => record()?.archived, { timeout: 15_000, message: name }).toBe(false);
     }
   });
 
