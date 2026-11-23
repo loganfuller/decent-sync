@@ -18,12 +18,12 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Milestones
 
-Each milestone is a GitHub milestone named `Milestone N: <name>`, such as `Milestone 1: Foundation`, `Milestone 2: Shared library` and `Milestone 3: Recipes and equipment`. It holds the milestone's spec issue, its tickets and the pull requests that implement them.
+Each milestone is a GitHub milestone named for the release it ships in, such as `v1.13.0`. It holds that release's spec issue, if it has one, its tickets and the pull requests that implement them. Milestones up to `Milestone 9: Profiles` were named `Milestone N: <name>`; none is named that way now, and the docs' "milestone 4's spec" and the like still mean those.
 
-- **Assign one** when creating a ticket: `gh issue create --milestone "Milestone 2: Shared library" ...`. For an existing issue or pull request, use `gh issue edit <number> --milestone "<title>"` or `gh pr edit <number> --milestone "<title>"`.
+- **Assign one** when creating a ticket: `gh issue create --milestone "v1.13.0" ...`. For an existing issue or pull request, use `gh issue edit <number> --milestone "<title>"` or `gh pr edit <number> --milestone "<title>"`.
 - **Tickets from a spec** go in that spec's milestone, including those `/to-tickets` publishes.
-- **Work that serves a milestone joins it**, fixes to what it built included: Milestone 1 holds the codebase audit's hardening (#60 to #70) and its pull requests. Work waiting on something outside the project, such as an upstream change or a person with access, stays without a milestone (#24, #36, #54).
-- **A milestone closes** once everything in it is closed. Later milestones get a GitHub milestone when their scope is settled.
+- **Work that serves a milestone joins it**, fixes to what it built included. Work waiting on something outside the project, such as an upstream change or a person with access, stays without a milestone (#24, #36, #54).
+- **A milestone closes** once everything in it is closed and its release is out. Later work gets a GitHub milestone when its scope and its release are settled.
 
 ## Pull requests as a triage surface
 

@@ -44,8 +44,24 @@ A change to a machine's or tablet's settings made through the server, as in the 
 _Avoid_: Settings change, command
 
 **Settings History**:
-A machine's record of what its tablet reported for its Machine Settings, Tablet Settings, scale, paired devices, sensors, plugins and Skins: each value from when the server received it, whatever changed it, and for a change made through a Settings Edit, that edit. A change made on the tablet, by another app or by the machine itself is kept too, but tied to no person.
+A machine's record of what its tablet reported for its Machine Settings, Tablet Settings, scale, paired devices, sensors, plugins and Skins: each value from when the server received it, whatever changed it, and for a change made through a Settings Edit or a Software Action, that edit or action. A change made on the tablet, by another app or by the machine itself is kept too, but tied to no person.
 _Avoid_: Settings log, audit log, Settings changes (a Settings Edit is one change made through the server)
+
+**Plugin**:
+An add-on Decaid runs on a tablet, such as DYE2. "The plugin" on its own is Decent Sync's, which connects its tablet to the server.
+_Avoid_: Extension, add-on
+
+**Tablet Software**:
+Decaid, its plugins and its Skins as installed on a tablet, each with its version and how it updates.
+_Avoid_: Installed software, extensions, firmware (which is the machine's)
+
+**Software Action**:
+Something done to a tablet's software through the server, such as installing a plugin, changing a plugin's settings or reloading the Skin, kept with who asked for it and when, and what came of it.
+_Avoid_: Command, Settings Edit (which changes a Machine Setting or a Tablet Setting)
+
+**Pinned**:
+Of a plugin or Skin: installed from one fixed build, so no update check moves it. One that is not pinned follows releases, follows a branch, or is not updated.
+_Avoid_: Held, locked, frozen
 
 **Machine State**:
 What a machine is doing at a moment, such as pulling a shot, steaming, purging after steaming, flushing, pouring hot water, idling or sleeping. Purging is the steam wand's purge after steaming, not a flush of the group head or draining the machine for transport.
