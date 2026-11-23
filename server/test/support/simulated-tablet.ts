@@ -1646,7 +1646,10 @@ export class SimulatedTablet {
       loaded: () => !this.unloaded,
       settings: () => ({ ...this.options.settings }),
       saved: (settings) => this.loadAgain({ settings: settings as unknown as SimulatedTabletOptions["settings"] }),
-      installed: () => this.loadAgain({}),
+      installed: (version) => {
+        this.plugins.ownVersion = version;
+        this.loadAgain({});
+      },
       unloaded: () => void this.unload(),
     };
   }
