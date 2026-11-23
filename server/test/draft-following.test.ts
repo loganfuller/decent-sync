@@ -151,8 +151,8 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
       .poll(
         async () => {
           const following = (await trying(draft)).following;
-          // titleOnTablet rides along so a timeout shows the title it waited for.
-          return following && { state: following.state, has: following.has, titleOnTablet: following.titleOnTablet, hasItsSteps: following.has === following.titleOnTablet };
+          // When the titles differ, hasItsSteps holds both, as toMatchObject's diff drops keys the matcher doesn't name.
+          return following && { state: following.state, hasItsSteps: following.has === following.titleOnTablet || { has: following.has, titleOnTablet: following.titleOnTablet } };
         },
         { timeout: 15_000 },
       )
