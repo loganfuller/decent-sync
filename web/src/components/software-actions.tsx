@@ -331,7 +331,7 @@ function SoftwareActionsLog({ machineId, plugins, answered }: { machineId: strin
               <TableRow key={action.id}>
                 <TableCell className="align-top">{formatTime(action.madeAt)}</TableCell>
                 <TableCell className="min-w-48 align-top whitespace-normal">{actionText(action, plugins)}</TableCell>
-                <TableCell className="align-top whitespace-normal">
+                <TableCell className="min-w-28 align-top whitespace-normal">
                   <SoftwareActionMadeBy action={action} />
                 </TableCell>
                 <TableCell className="min-w-40 align-top whitespace-normal">
