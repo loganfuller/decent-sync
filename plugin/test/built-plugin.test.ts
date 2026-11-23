@@ -18,9 +18,11 @@ describe("the built plugin", () => {
     expect(settings.PollSeconds).toMatchObject({ type: "number", default: 30 });
   });
 
-  it("declares the permissions it uses, plugin storage for the tablet's id and emit for skins among them", () => {
-    // Decaid installs an update that adds a permission only once someone approves it on the tablet.
-    expect(manifest.permissions).toEqual(["log", "api", "emit", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage"]);
+  it("declares the permissions it uses, plugin storage for the tablet's id and emit for skins among them, and those for managing the Tablet's plugins and showing notices on it", () => {
+    // Decaid installs an update that adds a permission only once someone approves it on the tablet: `manage.extensions`
+    // (ADR-0034) and `notifications` (#540) came in one release, so that each Tablet approves once.
+    expect(manifest.permissions).toEqual(["log", "api", "emit", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage", "manage.extensions", "notifications"]);
+    expect(manifest.description).toContain("Requires Decaid v0.9.3 or newer");
   });
 
   it("declares the endpoints a skin uses, each as Decaid reads one: Streamline's HTTP skin and WebSocket changed, and a Skin's HTTP status, shots, shot and reference and WebSocket changes", () => {

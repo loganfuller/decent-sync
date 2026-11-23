@@ -206,13 +206,7 @@ export class DraftFollowingService {
           FOR SHARE OF l`;
         if (now?.assignmentId !== found.assignmentId) throw new ConflictException(`${found.name} moved meanwhile: try again`);
         if (!found.triesDrafts || !now.triesDrafts) throw new ConflictException(`Drafts are not tried at ${found.locationName}: an Admin turns that on for a Location`);
-        if (!canFollow(found.wireRevision)) {
-          throw new ConflictException(
-            found.wireRevision === null
-              ? `${found.name}'s tablet has not connected since the server could have it follow a Draft`
-              : `${found.name} needs its plugin updated before it can follow a Draft`,
-          );
-        }
+        if (!canFollow(found.wireRevision)) throw new ConflictException(`${found.name}'s tablet has not connected since the server could have it follow a Draft`);
         const profile = followedProfile(draft.profile);
         if (profile === null || !sendable(profile)) throw new ConflictException("The Draft needs steps, and no more than a machine takes, before a Machine can follow it");
         const [other] = await tx.$queryRaw<{ title: string | null }[]>`
@@ -318,7 +312,8 @@ export class DraftFollowingService {
       id: row.id,
       name: row.name,
       location: { id: row.locationId, name: row.locationName },
-      needsPluginUpdate: row.wireRevision !== null && !canFollow(row.wireRevision),
+      // Every plugin the server accepts follows a Draft now; the field stays for the previous release's pages (ADR-0025).
+      needsPluginUpdate: false,
       canFollow: canFollow(row.wireRevision),
       follows: row.followsId === null ? null : { id: row.followsId, title: row.followsTitle?.trim() ?? "" },
     }));

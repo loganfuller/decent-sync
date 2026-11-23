@@ -31,6 +31,8 @@ export interface HistoryReport {
   tabletId: string;
   /** The Settings Edit whose read-back it is, if one. */
   settingsEditId: string | undefined;
+  /** The Software Action whose read-back it is, if one (ADR-0034): every change the report holds is then its. */
+  softwareActionId?: string | undefined;
 }
 
 /**
@@ -58,21 +60,33 @@ export async function recordSettingsHistory(tx: Prisma.TransactionClient, credit
     await takeBaselines(tx, holder, [holderId!], report.name);
     before = await latest();
   }
-  const insert = (settingsEditId: string | null, editedFields: string[]) => tx.$executeRaw`
-    INSERT INTO settings_history (${holder}, tablet_id, name, value, utc_offset_minutes, settings_edit_id, edited_fields)
+  const insert = (by: { settingsEditId?: string; softwareActionId?: string }, editedFields: string[]) => tx.$executeRaw`
+    INSERT INTO settings_history (${holder}, tablet_id, name, value, utc_offset_minutes, settings_edit_id, software_action_id, edited_fields)
     VALUES (
       ${holderId}::uuid, ${report.tabletId}::uuid, ${report.name}, ${JSON.stringify(report.value)}::jsonb, ${report.utcOffsetMinutes}::integer,
-      ${settingsEditId}::uuid, ${editedFields}::text[]
+      ${by.settingsEditId ?? null}::uuid, ${by.softwareActionId ?? null}::uuid, ${editedFields}::text[]
     )`;
   if (!before) {
-    await insert(null, []);
+    await insert({}, []);
     return;
   }
   const changed = changedSettingsHistoryFields(report.name, before.value, report.value);
   if (changed.length === 0) return;
+  // An action's read-back follows a read of the same lists just before it acted, so what changed between the two
+  // is what it did: every changed field is the action's.
+  if (report.softwareActionId !== undefined && credit.machineId !== null && (await isActionOf(tx, credit.machineId, report.softwareActionId))) {
+    await insert({ softwareActionId: report.softwareActionId.toLowerCase() }, changed);
+    return;
+  }
   const edit = report.settingsEditId !== undefined && credit.machineId !== null ? await editOf(tx, credit.machineId, report.settingsEditId, report.name) : undefined;
   const edited = edit ? editedSettingsHistoryFields(report.name, edit, before.value, report.value, changed) : [];
-  await insert(edited.length > 0 ? report.settingsEditId! : null, edited);
+  await insert(edited.length > 0 ? { settingsEditId: report.settingsEditId! } : {}, edited);
+}
+
+/** Whether the Machine has a Software Action of that id, as a Settings History labels a change with it. */
+async function isActionOf(tx: Prisma.TransactionClient, machineId: string, id: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM software_actions WHERE id = ${id}::uuid AND machine_id = ${machineId}::uuid`;
+  return rows.length > 0;
 }
 
 /** A wake schedule's edit's action, as `settings_edits` stores it, as an edit names it. */

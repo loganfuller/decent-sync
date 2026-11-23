@@ -2,7 +2,7 @@ import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { expect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
-  de1ProOnDecaid092,
+  de1ProOnDecaid093,
   derivedDe1Pro,
   sensorCalibration,
   settingsFor,
@@ -33,7 +33,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), and the test DE1Pro's sensor
   // calibrations (#232), signed Q16.16 values off their fields' steps.
   const served = {
-    ...de1ProOnDecaid092(),
+    ...de1ProOnDecaid093(),
     ...simulatedLibrary(),
     ...simulatedDevices(),
     "/machine/calibration": { flowMultiplier: 0.596 },

@@ -14,7 +14,7 @@ import {
   validateSettingsEdit,
 } from "@decent-sync/protocol";
 import type { Reading } from "./change-detection.js";
-import { type Answer, request } from "./decaid.js";
+import { type Answer, manage, request } from "./decaid.js";
 import { machineMissing } from "./loaded-recipes.js";
 import type { Outbox } from "./outbox.js";
 import { absoluteSet } from "./sensor-calibration.js";
@@ -186,7 +186,7 @@ export class SettingsEdits {
     let written: Answer | undefined;
     let failure = "";
     try {
-      written = await request("POST", route, edit.fields);
+      written = await writeFields(edit.collection, route, edit.fields);
     } catch (error) {
       failure = describe(error);
     }
@@ -317,6 +317,24 @@ async function readObject(route: string): Promise<{ ok: true; value: Record<stri
   if (isObject(value)) return { ok: true, value };
   return { ok: false, answer: answer.ok ? { ...answer, text: "Decaid's answer is not an object" } : answer };
 }
+
+/**
+ * Writes a collection's fields. The Tablet's automatic update checks go
+ * through `host.localApi`, in a request of their own, as Decaid takes them
+ * turned on from a plain request only while its "Require authorization for
+ * extension management" setting is off, and `localApi` takes that field and
+ * no other of the Tablet Settings (ADR-0034); any other field goes after
+ * it, through `fetch`, unless Decaid refused the first.
+ */
+async function writeFields(collection: EditableSettingsCollection, route: string, fields: Record<string, unknown>): Promise<Answer> {
+  if (collection !== "appSettings" || !(UPDATE_CHECKS in fields)) return request("POST", route, fields);
+  const { [UPDATE_CHECKS]: checks, ...rest } = fields;
+  const managed = await manage("POST", route, { [UPDATE_CHECKS]: checks });
+  return !managed.ok || Object.keys(rest).length === 0 ? managed : request("POST", route, rest);
+}
+
+/** The Tablet Setting that turns Decaid's automatic update checks on or off. */
+const UPDATE_CHECKS = "automaticUpdateCheck";
 
 /** A sensor target's calibration as its read holds it, its `measuredValue`, by target; empty where the read holds none. */
 function calibrated(target: string, read: Record<string, unknown>): Record<string, unknown> {

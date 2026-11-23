@@ -38,6 +38,8 @@ import {
   type ServerMessage,
   type SettingsEdit,
   type SettingsEdited,
+  type SoftwareActed,
+  type SoftwareAction,
   type ShotDelivery,
   type ShotEdit,
   type ShotEdited,
@@ -78,6 +80,7 @@ import { PrismaService } from "../prisma.service.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
 import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
+import { SoftwareActionsService } from "../software-actions/software-actions.service.js";
 import { ShotEditsService } from "../shots/shot-edits.service.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SkinRequestsService } from "../skin-requests/skin-requests.service.js";
@@ -169,6 +172,8 @@ interface Session {
   queue: Promise<void>;
   /** Claims of its Settings Edits, made one at a time, so they are sent in the order they were made. */
   settingsEdits: Promise<void>;
+  /** The claims of the Software Actions made for this connection, one at a time, as its Settings Edits' are. */
+  softwareActions: Promise<void>;
   /**
    * Chunked messages still arriving. They belong to this connection alone: a
    * plugin that reconnects sends a message again from its first chunk.
@@ -290,6 +295,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly collections: CollectionsService,
     private readonly setAside: SetAsideDeliveriesService,
     private readonly settingsEdits: SettingsEditsService,
+    private readonly softwareActions: SoftwareActionsService,
     private readonly prisma: PrismaService,
     private readonly liveViews: LiveViews,
     private readonly skinRequests: SkinRequestsService,
@@ -318,6 +324,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // After listening anew, every connection looks for edits made meanwhile.
     notifications.subscribe("settings_edits", (machineId) => {
       for (const session of this.connections) if (machineId === null || session.machine?.id === machineId) this.sendSettingsEdits(session);
+    });
+    // As for a Settings Edit: after listening anew, every connection looks for actions made meanwhile, which are sent
+    // only within their time.
+    notifications.subscribe("software_actions", (machineId) => {
+      for (const session of this.connections) if (machineId === null || session.machine?.id === machineId) this.sendSoftwareActions(session);
     });
     // An edit of a Shot is for the tablet that holds the Shot, whichever Machine its connection holds. After listening
     // anew, every connection looks for edits made meanwhile.
@@ -403,6 +414,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       remote: clientAddress(request, this.config.clientAddressHeader),
       queue: Promise.resolve(),
       settingsEdits: Promise.resolve(),
+      softwareActions: Promise.resolve(),
       chunks: new Reassembly(),
       handled: new HandledDeliveries(),
       welcomed: false,
@@ -589,6 +601,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.listUnrecognised(session, message);
       case "settingsEdited":
         return this.settingsEdited(session, message);
+      case "softwareActed":
+        return this.softwareActed(session, message);
       case "shotIndex": {
         const shotIds = await this.shots.requested(message, session.machine.id, reporter.tabletId);
         this.acknowledge(session, message.id, { type: "requestShots", shotIds });
@@ -987,7 +1001,49 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Sends a write, delete, removal, leave-out or Settings Edit, an answer
+   * Sends the connection's Software Actions that it has not sent yet
+   * (ADR-0034), once welcomed, as its Settings Edits are sent: claimed
+   * while it still holds its Machine, one claim at a time, and none to a
+   * plugin from before Software Actions.
+   */
+  private sendSoftwareActions(session: Session): void {
+    const live = session.live;
+    if (!live || !session.welcomed || session.closing) return;
+    session.softwareActions = this.track(
+      session.softwareActions.then(async () => {
+        if (session.closing) return;
+        try {
+          for (const action of await this.softwareActions.claim({ sessionId: live.sessionId, machineId: live.machineId, wireRevision: session.wireRevision! })) this.sendCounted(session, action);
+        } catch (error) {
+          this.logger.error(`Could not send the Software Actions of ${this.describe(session)}: ${String(error)}`);
+        }
+      }),
+    );
+  }
+
+  /**
+   * Records the plugin's answer to a Software Action of its Machine,
+   * whichever connection it was sent on, then acknowledges it, as a Settings
+   * Edit's answer is. What Decaid said in refusing is logged cut short; an
+   * action's values never reach an answer.
+   */
+  private async softwareActed(session: Session, answer: SoftwareActed): Promise<void> {
+    try {
+      const recorded = await this.softwareActions.recordAnswer(session.machine!.id, answer);
+      const late = recorded?.late ? ", after it was marked not confirmed" : "";
+      if (recorded?.outcome === "refused") this.logger.log(`The tablet of ${this.describe(session)} refused Software Action ${answer.id}${late}: ${describeSoftwareRefusal(answer)}`);
+      else if (recorded?.late) this.logger.log(`The tablet of ${this.describe(session)} answered Software Action ${answer.id}${late}: ${recorded.outcome}`);
+    } catch (error) {
+      const failure = repeatingFailure(error);
+      if (!failure) throw error;
+      this.logger.warn(`Could not record the answer to Software Action ${answer.id} from ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+    }
+    this.acknowledge(session, answer.id, null);
+  }
+
+  /**
+   * Sends a write, delete, removal, leave-out, Settings Edit or Software
+   * Action, an answer
    * to a request, a Reference Shot copy, or an edit of a Shot, on the
    * connection: through its `Sender`, which keeps what the plugin has not
    * confirmed within Decaid's limit, or, to the previous release's plugin,
@@ -997,7 +1053,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    */
   private sendCounted(
     session: Session,
-    message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer | ReferenceCopy | ShotEdit,
+    message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SoftwareAction | SkinAnswer | ReferenceCopy | ShotEdit,
     text = encode(message),
   ): void {
     if (session.closing) return;
@@ -1103,6 +1159,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     // An edit made while this hello was being accepted was notified before the session could be found.
     this.sendSettingsEdits(session);
+    this.sendSoftwareActions(session);
     // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's.
     if (identity.kind !== "mismatch") {
       this.liveViews.welcomed({
@@ -1242,6 +1299,21 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 }
 
 /** Why the plugin refused a Settings Edit, as a log line shows it: what Decaid answered is escaped. */
+function describeSoftwareRefusal(answer: SoftwareActed): string {
+  switch (answer.reason) {
+    case "machineBusy":
+      return `the machine was ${quoted(answer.state ?? "")}`;
+    case "changedSince":
+      return `the Tablet's software changed since it was made, ${quoted((answer.message ?? "").slice(0, 200))}`;
+    case "notAllowed":
+      return `the plugin would not, ${quoted((answer.message ?? "").slice(0, 200))}`;
+    case "decaid":
+      return `${answer.status === null || answer.status === undefined ? "Decaid did not answer or was not asked" : `Decaid answered ${answer.status}`}, ${quoted((answer.message ?? "").slice(0, 200))}`;
+    default:
+      return "it came too late to start in time, or its connection closed";
+  }
+}
+
 function describeSettingsRefusal(answer: SettingsEdited): string {
   switch (answer.reason) {
     case "machineBusy":

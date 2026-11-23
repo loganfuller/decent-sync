@@ -1,5 +1,6 @@
 import { type MachineHardware, isMilkProbe, isRecordId } from "@decent-sync/protocol";
 import type { Reading } from "./change-detection.js";
+import type { PluginHost } from "./host.js";
 
 // Decaid's local API (assets/api/rest_v1.yml), through the plugin-scoped
 // fetch: everything the plugin captures is read from it, and the Library
@@ -173,6 +174,27 @@ export interface Answer {
   status: number;
   ok: boolean;
   text: string;
+}
+
+/** `host.localApi`, as the plugin's load gave it (`useLocalApi`). */
+let localApi: PluginHost["localApi"] | undefined;
+
+/** Gives `manage` the host's `localApi`, once, as the plugin loads: Decaid evaluates the plugin's code anew for each load. */
+export function useLocalApi(host: Pick<PluginHost, "localApi">): void {
+  localApi = (path, options) => host.localApi(path, options);
+}
+
+/**
+ * Sends a request that manages Decaid's plugins, or one of its two settings
+ * that go with them, through `host.localApi`, with a JSON body if one is
+ * given, and resolves with its answer whatever its status (ADR-0034).
+ * Throws if Decaid does not answer, as when the call times out after 60 s,
+ * the plugin is unloaded under it, or the route is none `localApi` reaches.
+ */
+export async function manage(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<Answer> {
+  if (!localApi) throw new Error("This Decaid gives the plugin no localApi");
+  const answer = await localApi(`/api/v1${path}`, body === undefined ? { method } : { method, body });
+  return { status: answer.status, ok: answer.status >= 200 && answer.status < 300, text: answer.body };
 }
 
 /**

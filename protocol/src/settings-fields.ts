@@ -123,6 +123,13 @@ export interface EditableSettingsField extends SettingsFieldBase {
   choices?: readonly SettingsChoice[];
   /** Whether null is a value too, none, as for a wake schedule's keep-awake time. */
   orNone?: boolean;
+  /**
+   * A field edited on the Machine's Software tab, with the Tablet's plugins
+   * and Skins, and nowhere else: the Settings card shows it as it shows a
+   * read-only one, and no assistant is offered it or may edit it
+   * (ADR-0034, ADR-0026). The plugin writes it through `host.localApi`.
+   */
+  withSoftware?: true;
 }
 
 /** A field shown but never edited, with what sets it. */
@@ -300,12 +307,12 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     // Reported only while Decaid reads the Tablet's battery.
     { path: "chargingState", label: "Charging state", setBy: "A reading of the Tablet's battery" },
     { path: "simulatedDevices", label: "Simulated devices", setBy: "For development" },
-    // Decaid v0.9.2, and v0.9.3 and later while their "Require authorization for extension management" setting is on, turn
-    // it on only for a request carrying a token that may manage plugins and Skins, which the plugin has none of. That
-    // setting is changed only on the Tablet, and the plugin cannot read it. While the checks are off Decaid installs no
-    // update of a plugin or Skin by itself, this plugin's included (`UpdateCheckService`). So an edit could turn them off
-    // and never back on, and there is none (ADR-0023; #542).
-    { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", setBy: "Managed in Decaid on the Tablet" },
+    // Turned on, Decaid checks its plugins and Skins for updates every 12 hours and installs what it finds; turned off,
+    // nothing on the Tablet updates by itself, this plugin included (`UpdateCheckService`). Decaid asks a token of a
+    // plain request that turns it on while its "Require authorization for extension management" setting is on, so the
+    // plugin writes it through `host.localApi`, which that setting leaves alone (ADR-0034). Decaid follows a change
+    // made over its API when it next starts.
+    { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "admin", withSoftware: true },
     { path: "webUiPath", label: "Web UI path", setBy: "Follows the default skin" },
     { path: "defaultSkinId", label: "Default skin", setBy: "Managed with the Tablet's skins" },
     { path: "preferredMachineId", label: "Preferred machine", setBy: "Managed with the preferred devices" },

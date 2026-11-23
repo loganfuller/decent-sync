@@ -340,12 +340,12 @@ var __decentSync = (() => {
       // Reported only while Decaid reads the Tablet's battery.
       { path: "chargingState", label: "Charging state", setBy: "A reading of the Tablet's battery" },
       { path: "simulatedDevices", label: "Simulated devices", setBy: "For development" },
-      // Decaid v0.9.2, and v0.9.3 and later while their "Require authorization for extension management" setting is on, turn
-      // it on only for a request carrying a token that may manage plugins and Skins, which the plugin has none of. That
-      // setting is changed only on the Tablet, and the plugin cannot read it. While the checks are off Decaid installs no
-      // update of a plugin or Skin by itself, this plugin's included (`UpdateCheckService`). So an edit could turn them off
-      // and never back on, and there is none (ADR-0023; #542).
-      { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", setBy: "Managed in Decaid on the Tablet" },
+      // Turned on, Decaid checks its plugins and Skins for updates every 12 hours and installs what it finds; turned off,
+      // nothing on the Tablet updates by itself, this plugin included (`UpdateCheckService`). Decaid asks a token of a
+      // plain request that turns it on while its "Require authorization for extension management" setting is on, so the
+      // plugin writes it through `host.localApi`, which that setting leaves alone (ADR-0034). Decaid follows a change
+      // made over its API when it next starts.
+      { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "admin", withSoftware: true },
       { path: "webUiPath", label: "Web UI path", setBy: "Follows the default skin" },
       { path: "defaultSkinId", label: "Default skin", setBy: "Managed with the Tablet's skins" },
       { path: "preferredMachineId", label: "Preferred machine", setBy: "Managed with the preferred devices" },
@@ -509,6 +509,26 @@ var __decentSync = (() => {
     const [mantissa = "", exponent = "0"] = String(Math.abs(value)).toLowerCase().split("e");
     const [whole = "", fraction = ""] = mantissa.split(".");
     return { digits: whole + fraction, exponent: Number(exponent) - fraction.length };
+  }
+
+  // ../protocol/src/software-actions.ts
+  var SOFTWARE_ACTIONS_WIRE_REVISION = 5;
+  var OWN_CHANGEABLE_SETTING = "PollSeconds";
+  var SOFTWARE_ACTION_KINDS = [
+    "installPlugin",
+    "enablePlugin",
+    "disablePlugin",
+    "changePluginSettings",
+    "checkPluginUpdates",
+    "approvePluginUpdate",
+    "removePlugin",
+    "checkDecaidUpdate"
+  ];
+  var SOFTWARE_ACTION_START_MARGIN_MS = 15e3;
+  var MAX_SOFTWARE_NAME_LENGTH = 200;
+  var MAX_PLUGIN_SETTINGS = 200;
+  function isPluginRepo(value) {
+    return typeof value === "string" && value.length <= MAX_SOFTWARE_NAME_LENGTH && /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(value);
   }
 
   // ../protocol/src/machine-models.ts
@@ -1006,7 +1026,7 @@ var __decentSync = (() => {
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
-  var WIRE_REVISION = 4;
+  var WIRE_REVISION = 5;
   var FIRST_WIRE_REVISION = 1;
   function wireRevisionOf(message) {
     return message.wireRevision ?? FIRST_WIRE_REVISION;
@@ -1104,11 +1124,6 @@ var __decentSync = (() => {
   }
   var WORKFLOW_CAUSES = ["plugin", "other"];
   var PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn", "draft"];
-  function workflowDeliveryFor(delivery, peer) {
-    if (delivery.pluginWrite !== "draft" || peerHasWireRevision(peer, FOLLOWED_DRAFTS_WIRE_REVISION)) return delivery;
-    const { pluginWrite: _, ...rest } = delivery;
-    return { ...rest, cause: "other" };
-  }
   var UTC_OFFSET_COLLECTIONS = ["appSettings", "presenceSettings"];
   function hasUtcOffset(name) {
     return UTC_OFFSET_COLLECTIONS.includes(name);
@@ -1238,7 +1253,6 @@ var __decentSync = (() => {
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var DRAFT_KIND = "draft";
-  var FOLLOWED_DRAFTS_WIRE_REVISION = 4;
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
   function profileAtBrewTemperature(profile, temperature) {
     const temperatures = shiftedTemperatures(
@@ -1517,6 +1531,35 @@ var __decentSync = (() => {
             else schedule.string("id", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
           });
         });
+      case "softwareAction":
+        return check(object3, "softwareAction", (fields) => {
+          fields.uuid("id");
+          fields.oneOf("kind", SOFTWARE_ACTION_KINDS);
+          fields.integer("timeLeftMs", { nonNegative: true });
+          switch (object3.kind) {
+            case "installPlugin":
+              fields.pluginRepo("repo");
+              if (object3.branch !== void 0) fields.string("branch", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              break;
+            case "enablePlugin":
+            case "disablePlugin":
+            case "removePlugin":
+              fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              break;
+            case "approvePluginUpdate":
+              fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              fields.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              fields.array("addedPermissions", (value) => typeof value === "string" && value.length <= MAX_SOFTWARE_NAME_LENGTH, MAX_PLUGIN_SETTINGS);
+              break;
+            case "changePluginSettings":
+              fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              fields.objectField("values");
+              fields.objectField("expected");
+              break;
+            default:
+              break;
+          }
+        });
       case "liveStart":
         return check(object3, "liveStart", () => {
         });
@@ -1675,6 +1718,10 @@ var __decentSync = (() => {
     }
     objectField(key2) {
       if (!isObject2(this.object[key2])) this.problem(key2, "must be an object");
+    }
+    /** A GitHub repository a plugin is installed from (`isPluginRepo`). */
+    pluginRepo(key2) {
+      if (!isPluginRepo(this.object[key2])) this.problem(key2, "must be a GitHub repository, as owner/name");
     }
     /** Any JSON value but null. */
     present(key2) {
@@ -1914,6 +1961,15 @@ var __decentSync = (() => {
     } catch {
       return { kind: "unavailable" };
     }
+  }
+  var localApi;
+  function useLocalApi(host) {
+    localApi = (path, options) => host.localApi(path, options);
+  }
+  async function manage(method, path, body) {
+    if (!localApi) throw new Error("This Decaid gives the plugin no localApi");
+    const answer = await localApi(`/api/v1${path}`, body === void 0 ? { method } : { method, body });
+    return { status: answer.status, ok: answer.status >= 200 && answer.status < 300, text: answer.body };
   }
   async function request(method, path, body) {
     const response = await fetch(
@@ -3625,6 +3681,9 @@ var __decentSync = (() => {
     { name: "machineCalibration", path: "/machine/calibration" },
     { name: "sensorCalibration", read: readSensorCalibration },
     { name: "plugins", path: "/plugins" },
+    // After the plugin list, which names the plugins that declare settings.
+    { name: "pluginSettings", read: () => Promise.resolve({ kind: "unavailable" }) },
+    { name: "decaidUpdate", path: "/update" },
     { name: "skins", read: readSkins },
     { name: "pairedDevices", path: "/devices", select: pairedDevices },
     { name: "scaleInfo", path: "/scale/info" },
@@ -3634,6 +3693,7 @@ var __decentSync = (() => {
   var PROFILES = SOURCES.find((source) => source.name === "profiles");
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
   var SETTINGS = new Set(SETTINGS_COLLECTION_NAMES);
+  var SOFTWARE = /* @__PURE__ */ new Set(["plugins", "pluginSettings", "decaidUpdate"]);
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
   var DAILY = /* @__PURE__ */ new Set(["sensorCalibration"]);
@@ -3652,6 +3712,8 @@ var __decentSync = (() => {
       __publicField(this, "last", /* @__PURE__ */ new Map());
       /** The ids of the tablet's Profiles as last read, or undefined before the first read. */
       __publicField(this, "profileIds");
+      /** The plugin list as last read, or undefined before the first read and after one that failed. */
+      __publicField(this, "pluginList");
       /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
       __publicField(this, "firstReads", /* @__PURE__ */ new Map());
       /** For each collection, the latest delivery queued, and the latest queued with a value. */
@@ -3791,7 +3853,7 @@ var __decentSync = (() => {
             }
             if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
-            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
+            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) || SOFTWARE.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
             if (sent) sentLists.add(source.name);
           }
         }
@@ -3844,9 +3906,36 @@ var __decentSync = (() => {
      */
     reportSettings(name, reading, always, readBackOf) {
       if (this.stopped) return;
-      this.queueReading(name, reading, always, readBackOf);
+      this.queueReading(name, reading, always, readBackOf === void 0 ? void 0 : { settingsEditId: readBackOf });
       this.queued.delete(name);
       if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
+    }
+    /**
+     * Reads the plugin list and the plugins' settings, or Decaid's own update
+     * state (`decaid`), within `SettingsAccess.run`, as a Software Action
+     * does before and after it acts, and queues a report of each: if it
+     * changed since the last one queued, or, for an action's read-back,
+     * whatever it holds, naming the action (`readBackOf`), whose answer
+     * follows it, so it is kept where it is, as a Settings Edit's is.
+     * Resolves with the plugin list, or undefined where Decaid did not answer
+     * with one.
+     */
+    async readSoftware(what, readBackOf) {
+      const tag = readBackOf === void 0 ? void 0 : { softwareActionId: readBackOf };
+      const report = async (name, reading) => {
+        if (this.stopped) return;
+        this.queueReading(name, reading, tag !== void 0, tag);
+        this.queued.delete(name);
+      };
+      if (what === "decaid") {
+        await report("decaidUpdate", await readCollection("/update", null));
+        return void 0;
+      }
+      const plugins = await readCollection("/plugins", null);
+      this.pluginList = plugins.kind === "value" ? plugins.value : void 0;
+      await report("plugins", plugins);
+      await report("pluginSettings", await readPluginSettings(this.pluginList));
+      return Array.isArray(this.pluginList) ? this.pluginList : void 0;
     }
     /**
      * The sensor calibration with one target read again, within
@@ -3865,9 +3954,10 @@ var __decentSync = (() => {
       const last = this.last.get(source.name);
       const reading = selected(
         source,
-        await ("read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)))
+        await (source.name === "pluginSettings" ? readPluginSettings(this.pluginList) : "read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)))
       );
       if (this.stopped) return false;
+      if (source.name === "plugins" && reading.kind !== "notModified") this.pluginList = reading.kind === "value" ? reading.value : void 0;
       if (source.name === PROFILES.name && reading.kind === "value") this.profileIds = profileIdsOf(reading.value);
       if (source.name === RECIPES2.name && reading.kind === "value") {
         this.sawRecipes(reading.value);
@@ -3883,8 +3973,8 @@ var __decentSync = (() => {
      * last one queued, or whatever it holds when `full`. A value of one of the
      * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
      * compared with it, so a daylight saving change is sent too. A value an
-     * edit read back names the edit (`settingsEditId`). Says whether a value
-     * was queued.
+     * edit or a Software Action read back names it (`readBackOf`). Says
+     * whether a value was queued.
      */
     queueReading(name, reading, full, readBackOf) {
       if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? reading.value : void 0;
@@ -3903,7 +3993,7 @@ var __decentSync = (() => {
         value: reading.value,
         ...this.placedInTime(name, reading.value),
         ...utcOffsetMinutes === void 0 ? {} : { utcOffsetMinutes },
-        ...readBackOf === void 0 ? {} : { settingsEditId: readBackOf }
+        ...readBackOf ?? {}
       } : { type: "collection", id, name, available: false };
       const earlier = this.queued.get(name);
       if (earlier) {
@@ -3938,6 +4028,19 @@ var __decentSync = (() => {
       const reading = await readCollection(`/machine/calibration/${target}`, null);
       if (reading.kind !== "value") return { kind: "unavailable" };
       value[target] = reading.value;
+    }
+    return { kind: "value", value, etag: null };
+  }
+  async function readPluginSettings(plugins) {
+    if (!Array.isArray(plugins)) return { kind: "unavailable" };
+    const value = {};
+    for (const plugin of plugins) {
+      const entry = typeof plugin === "object" && plugin !== null ? plugin : {};
+      const declared = typeof entry.settings === "object" && entry.settings !== null ? Object.keys(entry.settings) : [];
+      if (typeof entry.id !== "string" || entry.id === "" || declared.length === 0) continue;
+      const reading = await readCollection(`/plugins/${encodeURIComponent(entry.id)}/settings`, null);
+      if (reading.kind !== "value" || typeof reading.value !== "object" || Array.isArray(reading.value)) return { kind: "unavailable" };
+      value[entry.id] = reading.value;
     }
     return { kind: "value", value, etag: null };
   }
@@ -4094,11 +4197,11 @@ var __decentSync = (() => {
     return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
   }
   function parseSequence(value) {
-    const parsed5 = parse(value);
-    const first = parsed5?.first;
-    const next = parsed5?.next;
+    const parsed6 = parse(value);
+    const first = parsed6?.first;
+    const next = parsed6?.next;
     if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-    return { first, next, token: typeof parsed5?.token === "string" ? parsed5.token : "" };
+    return { first, next, token: typeof parsed6?.token === "string" ? parsed6.token : "" };
   }
   function tokenHash(token) {
     let hash = 2166136261;
@@ -4109,16 +4212,16 @@ var __decentSync = (() => {
     return hash.toString(16).padStart(8, "0");
   }
   function parseSlot(value, seq) {
-    const parsed5 = parse(value);
-    if (parsed5?.seq !== seq || parsed5.delivery === void 0) return void 0;
-    const decoded = decodeMachineEvent(JSON.stringify(parsed5.delivery));
+    const parsed6 = parse(value);
+    if (parsed6?.seq !== seq || parsed6.delivery === void 0) return void 0;
+    const decoded = decodeMachineEvent(JSON.stringify(parsed6.delivery));
     return decoded.ok ? decoded.message : void 0;
   }
   function parse(value) {
     if (typeof value !== "string") return void 0;
     try {
-      const parsed5 = JSON.parse(value);
-      return typeof parsed5 === "object" && parsed5 !== null && !Array.isArray(parsed5) ? parsed5 : void 0;
+      const parsed6 = JSON.parse(value);
+      return typeof parsed6 === "object" && parsed6 !== null && !Array.isArray(parsed6) ? parsed6 : void 0;
     } catch {
       return void 0;
     }
@@ -5180,7 +5283,7 @@ var __decentSync = (() => {
       let written2;
       let failure = "";
       try {
-        written2 = await request("POST", route, edit.fields);
+        written2 = await writeFields(edit.collection, route, edit.fields);
       } catch (error) {
         failure = describe(error);
       }
@@ -5294,6 +5397,13 @@ var __decentSync = (() => {
     if (isObject7(value)) return { ok: true, value };
     return { ok: false, answer: answer.ok ? { ...answer, text: "Decaid's answer is not an object" } : answer };
   }
+  async function writeFields(collection, route, fields) {
+    if (collection !== "appSettings" || !(UPDATE_CHECKS in fields)) return request("POST", route, fields);
+    const { [UPDATE_CHECKS]: checks, ...rest } = fields;
+    const managed = await manage("POST", route, { [UPDATE_CHECKS]: checks });
+    return !managed.ok || Object.keys(rest).length === 0 ? managed : request("POST", route, rest);
+  }
+  var UPDATE_CHECKS = "automaticUpdateCheck";
   function calibrated(target, read) {
     return "measuredValue" in read ? { [target]: read.measuredValue } : {};
   }
@@ -5342,6 +5452,340 @@ var __decentSync = (() => {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function describe(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  // src/software-actions.ts
+  var UPDATE_SOCKET = "ws://localhost:8080/ws/v1/update";
+  var UPDATE_CHECK_MS = 45e3;
+  var PENDING_KEY = "softwareAction";
+  var PENDING_MS = 10 * 6e4;
+  var SoftwareActions = class {
+    constructor(access, outbox, reports, storage, transports, log) {
+      __publicField(this, "access", access);
+      __publicField(this, "outbox", outbox);
+      __publicField(this, "reports", reports);
+      __publicField(this, "storage", storage);
+      __publicField(this, "transports", transports);
+      __publicField(this, "log", log);
+      __publicField(this, "stopped", false);
+    }
+    /**
+     * Carries out an action once the reads, edits and actions before it are
+     * done, and queues its answer. `connected` says whether the connection it
+     * arrived on is still open. It never rejects.
+     */
+    apply(action, connected) {
+      const startBy = action.timeLeftMs - SOFTWARE_ACTION_START_MARGIN_MS;
+      const startByTime = Date.now() + startBy;
+      let outOfTime = startBy < 0;
+      const timer = setTimeout(() => outOfTime = true, Math.max(0, startBy));
+      const tooLate = () => outOfTime || !connected() || Date.now() > startByTime;
+      return this.access.run(async () => {
+        try {
+          if (this.stopped) return;
+          let answer;
+          try {
+            answer = await this.carryOut(action, tooLate);
+          } catch (error) {
+            answer = refusedByDecaid2(action.id, null, `Decaid did not answer: ${describe2(error)}`);
+          }
+          if (answer === void 0 || this.stopped) return;
+          if (answer.outcome === "refused") this.log(`Did not carry out Software Action ${action.id}: ${describeRefusal2(answer)}`);
+          this.outbox.enqueue(answer);
+        } finally {
+          clearTimeout(timer);
+        }
+      });
+    }
+    /** Drops the actions still waiting their turn, and starts none after this, as the plugin unloads. */
+    stop() {
+      this.stopped = true;
+    }
+    /**
+     * Answers the action an earlier load kept, if Decaid loaded the plugin
+     * again under it, from what is installed now: within the queue, so no
+     * action sent to this load runs first. One it can't tell the outcome of
+     * is left unanswered, and so not confirmed. It never rejects.
+     */
+    resume() {
+      return this.access.run(async () => {
+        try {
+          const kept = parsed5(String(await this.storage.read(PENDING_KEY, "the Software Action an earlier load kept") ?? ""));
+          if (!isPending(kept) || this.stopped) return;
+          await this.forget();
+          if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return;
+          const plugins = await this.reports.readSoftware("plugins", kept.id);
+          const answer = plugins === void 0 ? void 0 : afterReload(kept, plugins);
+          if (answer === void 0 || this.stopped) return;
+          this.outbox.enqueue(answer);
+        } catch (error) {
+          this.log(`Could not answer the Software Action an earlier load kept: ${describe2(error)}`);
+        }
+      });
+    }
+    /** The action's answer, or undefined where the plugin unloaded before or under it. */
+    async carryOut(action, tooLate) {
+      if (tooLate()) return expired2(action.id);
+      const forbidden = forbiddenToItself(action);
+      if (forbidden !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "notAllowed", message: forbidden };
+      if (action.kind === "checkDecaidUpdate") return this.checkDecaidUpdate(action, tooLate);
+      const state = await request("GET", "/machine/state");
+      if (state.ok) {
+        const machineState = stateOf2(state.text);
+        if (machineState === null) return refusedByDecaid2(action.id, state.status, "Decaid's answer names no machine state");
+        if (!SETTINGS_EDIT_STATES.includes(machineState)) {
+          return { type: "softwareActed", id: action.id, outcome: "refused", reason: "machineBusy", state: machineState };
+        }
+      } else if (!machineMissing(state)) {
+        return refusedByDecaid2(action.id, state.status, decaidMessage2(state));
+      }
+      const before = await this.reports.readSoftware("plugins");
+      if (before === void 0) return refusedByDecaid2(action.id, null, "Decaid did not answer with its plugins");
+      const changed = await changedSince2(action, before);
+      if (changed !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: changed };
+      if (this.stopped) return void 0;
+      if (tooLate()) return expired2(action.id);
+      const reloads = mayReloadItself(action);
+      if (reloads) await this.keep(action, before);
+      let answer;
+      let failure = "";
+      try {
+        answer = await ask(action);
+      } catch (error) {
+        failure = describe2(error);
+        if (reloads && /unloaded|generation changed/i.test(failure)) return void 0;
+      }
+      if (this.stopped) return void 0;
+      if (reloads) await this.forget();
+      const after = await this.reports.readSoftware("plugins", action.id).catch(() => void 0);
+      if (answer === void 0) return refusedByDecaid2(action.id, null, `Decaid did not answer: ${failure}`);
+      if (!answer.ok) return refusedByDecaid2(action.id, answer.status, decaidMessage2(answer));
+      return { type: "softwareActed", id: action.id, outcome: "done", result: resultOf(action, answer, before, after) };
+    }
+    /**
+     * Has Decaid check for a newer release of itself, over its update socket,
+     * which is the one way it takes the command: done once Decaid's state
+     * leaves `checking`, with that state, in any Machine State, as the check
+     * touches neither the Machine nor the Skin.
+     */
+    async checkDecaidUpdate(action, tooLate) {
+      await this.reports.readSoftware("decaid");
+      if (this.stopped) return void 0;
+      if (tooLate()) return expired2(action.id);
+      let refusal2;
+      try {
+        refusal2 = await this.checkOverSocket();
+      } catch (error) {
+        refusal2 = `Decaid did not answer: ${describe2(error)}`;
+      }
+      if (this.stopped) return void 0;
+      await this.reports.readSoftware("decaid", action.id).catch(() => void 0);
+      if (refusal2 !== null) return refusedByDecaid2(action.id, null, refusal2);
+      const state = await request("GET", "/update");
+      const decaid = state.ok ? parsed5(state.text) : void 0;
+      if (!isObject8(decaid)) return refusedByDecaid2(action.id, state.status, decaidMessage2(state));
+      if (decaid.phase === "error") return refusedByDecaid2(action.id, null, typeof decaid.error === "string" && decaid.error !== "" ? decaid.error : "Decaid could not check for its update");
+      return { type: "softwareActed", id: action.id, outcome: "done", result: { decaid: updateState(decaid) } };
+    }
+    /** Sends Decaid's update socket the command to check, and resolves once its state has left `checking`: with null, or with why Decaid would not check. */
+    async checkOverSocket() {
+      const handle = await this.transports.open(UPDATE_SOCKET);
+      try {
+        return await new Promise((resolve, reject) => {
+          let checking = false;
+          const timer = setTimeout(() => reject(new Error("its check for an update did not finish in time")), UPDATE_CHECK_MS);
+          const settle = (settled) => {
+            clearTimeout(timer);
+            settled();
+          };
+          this.transports.onEvent(handle, (event) => {
+            if (event.type !== "data") return settle(() => reject(new Error("its update socket closed")));
+            const frame = parsed5(event.data);
+            if (!isObject8(frame)) return;
+            if (typeof frame.error === "string" && frame.phase === void 0) return settle(() => resolve(frame.error));
+            if (frame.phase === "checking") checking = true;
+            else if (checking) settle(() => resolve(null));
+          });
+          this.transports.send(handle, JSON.stringify({ command: "check" })).catch((error) => settle(() => reject(error instanceof Error ? error : new Error(String(error)))));
+        });
+      } finally {
+        this.transports.close(handle);
+      }
+    }
+    async keep(action, plugins) {
+      const pending = {
+        id: action.id,
+        kind: action.kind,
+        startedAt: Date.now(),
+        versions: versionsOf(plugins),
+        ..."pluginId" in action ? { pluginId: action.pluginId } : {},
+        ...action.kind === "installPlugin" ? { repo: action.repo, ...action.branch === void 0 ? {} : { branch: action.branch } } : {},
+        ...action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}
+      };
+      await this.storage.write(PENDING_KEY, JSON.stringify(pending), "a Software Action that may load the plugin again");
+    }
+    async forget() {
+      await this.storage.write(PENDING_KEY, "", "that a Software Action is done").catch((error) => this.log(`Could not clear the Software Action kept: ${describe2(error)}`));
+    }
+  };
+  function forbiddenToItself(action) {
+    if (!("pluginId" in action) || action.pluginId !== "decent-sync.reaplugin") return null;
+    if (action.kind === "disablePlugin") return "The Decent Sync plugin does not disable itself: that would cut the Tablet off from the server";
+    if (action.kind === "removePlugin") return "The Decent Sync plugin does not remove itself: that would cut the Tablet off from the server";
+    if (action.kind === "changePluginSettings" && Object.keys(action.values).some((setting) => setting !== OWN_CHANGEABLE_SETTING)) {
+      return "The Decent Sync plugin changes none of its own settings but its poll interval: its server address and Token are set on the Tablet";
+    }
+    return null;
+  }
+  function mayReloadItself(action) {
+    if (action.kind === "installPlugin" || action.kind === "checkPluginUpdates") return true;
+    return (action.kind === "approvePluginUpdate" || action.kind === "changePluginSettings") && action.pluginId === "decent-sync.reaplugin";
+  }
+  async function changedSince2(action, plugins) {
+    if (!("pluginId" in action)) return null;
+    const plugin = plugins.find((entry) => isObject8(entry) && entry.id === action.pluginId);
+    if (!plugin) return `The Tablet has no plugin ${action.pluginId} any more`;
+    if (action.kind === "approvePluginUpdate") {
+      const waiting = isObject8(plugin.pendingUpdate) ? plugin.pendingUpdate : null;
+      if (waiting === null) return "No update of the plugin waits for approval any more";
+      const added = Array.isArray(waiting.addedPermissions) ? [...waiting.addedPermissions].sort() : [];
+      if (waiting.version !== action.version || !sameValue(added, [...action.addedPermissions].sort())) return "Another update of the plugin waits now than the one shown";
+    }
+    if (action.kind === "changePluginSettings") {
+      const read = await request("GET", `/plugins/${encodeURIComponent(action.pluginId)}/settings`);
+      const held = read.ok ? parsed5(read.text) : void 0;
+      if (!isObject8(held)) return "Decaid did not answer with the plugin's settings";
+      const differs = Object.keys(action.values).filter((setting) => !sameValue(held[setting] ?? null, action.expected[setting] ?? null));
+      if (differs.length > 0) return `Changed on the Tablet since the form was shown: ${differs.join(", ")}`;
+    }
+    return null;
+  }
+  function ask(action) {
+    switch (action.kind) {
+      case "installPlugin":
+        return action.branch === void 0 ? manage("POST", "/plugins/install/github-release", { repo: action.repo }) : manage("POST", "/plugins/install/github-branch", { repo: action.repo, branch: action.branch });
+      case "enablePlugin":
+        return manage("POST", `/plugins/${encodeURIComponent(action.pluginId)}/enable`);
+      case "disablePlugin":
+        return manage("POST", `/plugins/${encodeURIComponent(action.pluginId)}/disable`);
+      case "changePluginSettings":
+        return manage("POST", `/plugins/${encodeURIComponent(action.pluginId)}/settings`, action.values);
+      case "checkPluginUpdates":
+        return manage("POST", "/plugins/update");
+      case "approvePluginUpdate":
+        return manage("POST", `/plugins/${encodeURIComponent(action.pluginId)}/update/approve`);
+      case "removePlugin":
+        return manage("DELETE", `/plugins/${encodeURIComponent(action.pluginId)}`);
+      default:
+        return Promise.reject(new Error(`this plugin carries out no ${action.kind}`));
+    }
+  }
+  function resultOf(action, answer, before, after) {
+    const said = parsed5(answer.text);
+    if (action.kind === "checkPluginUpdates") {
+      const results = isObject8(said) && Array.isArray(said.results) ? said.results : [];
+      const versions = versionsOf(after ?? []);
+      return {
+        results: results.filter(isObject8).flatMap((result) => {
+          if (typeof result.item !== "string" || typeof result.status !== "string") return [];
+          return [{ item: result.item, status: result.status, ...typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}, ...versions[result.item] === void 0 ? {} : { version: versions[result.item] } }];
+        })
+      };
+    }
+    const pluginId = "pluginId" in action ? action.pluginId : isObject8(said) && typeof said.id === "string" ? said.id : void 0;
+    if (pluginId === void 0) return {};
+    const plugin = (after ?? before).find((entry) => isObject8(entry) && entry.id === pluginId);
+    if (action.kind === "removePlugin" || !plugin) return { pluginId };
+    return { pluginId, ...typeof plugin.version === "string" ? { version: plugin.version } : {}, ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {} };
+  }
+  function afterReload(kept, plugins) {
+    const own = plugins.find((entry) => isObject8(entry) && entry.id === "decent-sync.reaplugin");
+    if (!own) return void 0;
+    const version = typeof own.version === "string" ? own.version : void 0;
+    const result = { pluginId: "decent-sync.reaplugin", ...version === void 0 ? {} : { version }, loaded: true };
+    const done = (given) => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
+    const updated = version !== void 0 && kept.versions["decent-sync.reaplugin"] !== version;
+    switch (kept.kind) {
+      case "approvePluginUpdate":
+        return kept.pluginId === "decent-sync.reaplugin" && !isObject8(own.pendingUpdate) && updated ? done(result) : void 0;
+      case "installPlugin": {
+        const source = isObject8(own.source) ? own.source : {};
+        const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
+        const sameBranch = kept.branch === void 0 ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
+        return sameRepo && sameBranch ? done(result) : void 0;
+      }
+      case "checkPluginUpdates": {
+        if (!updated) return void 0;
+        const results = plugins.filter(isObject8).flatMap((plugin) => {
+          const source = isObject8(plugin.source) ? plugin.source : null;
+          if (typeof plugin.id !== "string" || source?.kind !== "github_release" && source?.kind !== "github_branch") return [];
+          const now2 = typeof plugin.version === "string" ? plugin.version : void 0;
+          const status = isObject8(plugin.pendingUpdate) ? "pendingApproval" : now2 !== void 0 && kept.versions[plugin.id] !== void 0 && kept.versions[plugin.id] !== now2 ? "updated" : typeof source.lastError === "string" && source.lastError !== "" ? "failed" : "alreadyCurrent";
+          return [{ item: plugin.id, status, ...status === "failed" ? { error: String(source.lastError).slice(0, MAX_REFUSAL_LENGTH) } : {}, ...now2 === void 0 ? {} : { version: now2 } }];
+        });
+        return done({ results });
+      }
+      case "changePluginSettings":
+        return kept.pluginId === "decent-sync.reaplugin" ? done(result) : void 0;
+      default:
+        return void 0;
+    }
+  }
+  function versionsOf(plugins) {
+    return Object.fromEntries(plugins.filter(isObject8).flatMap((plugin) => typeof plugin.id === "string" && typeof plugin.version === "string" ? [[plugin.id, plugin.version]] : []));
+  }
+  function updateState(state) {
+    const { releaseNotes: _notes, ...rest } = state;
+    return rest;
+  }
+  function isPending(value) {
+    return isObject8(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject8(value.versions);
+  }
+  function expired2(id) {
+    return { type: "softwareActed", id, outcome: "refused", reason: "expired" };
+  }
+  function refusedByDecaid2(id, status, message) {
+    return { type: "softwareActed", id, outcome: "refused", reason: "decaid", status, message: message.slice(0, MAX_REFUSAL_LENGTH) };
+  }
+  function stateOf2(text) {
+    const snapshot = parsed5(text);
+    const state = isObject8(snapshot) && isObject8(snapshot.state) ? snapshot.state.state : void 0;
+    return typeof state === "string" && state !== "" ? state : null;
+  }
+  function decaidMessage2(answer) {
+    const body = parsed5(answer.text);
+    const said = isObject8(body) ? [body.error, body.message].filter((part) => typeof part === "string" && part !== "") : [];
+    if (said.length > 0) return said.join(": ");
+    return answer.text === "" ? `Decaid answered ${answer.status}` : answer.text;
+  }
+  function describeRefusal2(answer) {
+    switch (answer.reason) {
+      case "machineBusy":
+        return `the machine is ${answer.state}`;
+      case "changedSince":
+        return answer.message ?? "the Tablet's software changed since it was made";
+      case "expired":
+        return "it came too late to start in time, or its connection closed";
+      case "notAllowed":
+        return answer.message ?? "the plugin does not do that to itself";
+      case "decaid":
+        return `${answer.status === null || answer.status === void 0 ? "" : `Decaid answered ${answer.status}: `}${answer.message}`;
+      default:
+        return String(answer.reason);
+    }
+  }
+  function parsed5(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function isObject8(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function describe2(error) {
     return error instanceof Error ? error.message : String(error);
   }
 
@@ -5518,7 +5962,7 @@ var __decentSync = (() => {
             const head = headOf(await this.storage.read(key(slot), `a read of the Reference Shot copy of Recipe Slot ${slot}`));
             if (head) this.slots.set(slot, head);
           } catch (error) {
-            if (!this.stopped) this.log(`Could not read the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+            if (!this.stopped) this.log(`Could not read the Reference Shot copy of Recipe Slot ${slot}: ${describe3(error)}`);
           }
         }
       })());
@@ -5562,7 +6006,7 @@ var __decentSync = (() => {
           await this.keep(slot, copy);
         }
       } catch (error) {
-        this.log(`Could not keep the Reference Shot copies: ${describe2(error)}`);
+        this.log(`Could not keep the Reference Shot copies: ${describe3(error)}`);
       } finally {
         this.busy = false;
       }
@@ -5576,7 +6020,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         await this.storage.write(key(slot), data, `the Reference Shot copy of Recipe Slot ${slot}`);
       } catch (error) {
         this.slots.delete(slot);
-        if (!this.stopped) this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+        if (!this.stopped) this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe3(error)}`);
         return;
       }
       if (head === null) this.slots.delete(slot);
@@ -5602,7 +6046,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           if (first === void 0 || second === void 0 || headOf(first)?.version !== head.version) return void 0;
           return { recipe: head.recipe, reference: JSON.parse(second) };
         } catch (error) {
-          if (!this.stopped) this.log(`Could not read the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+          if (!this.stopped) this.log(`Could not read the Reference Shot copy of Recipe Slot ${slot}: ${describe3(error)}`);
           return void 0;
         }
       }
@@ -5630,7 +6074,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       return null;
     }
   }
-  function describe2(error) {
+  function describe3(error) {
     return error instanceof Error ? error.message : String(error);
   }
 
@@ -5677,7 +6121,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   }
   async function answerStatus(request2, requests) {
     if (request2.method !== "GET") return methodNotAllowed("GET");
-    const asked = await ask(requests, { ask: "status" });
+    const asked = await ask2(requests, { ask: "status" });
     const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
     if ("unanswered" in asked) return refusal(asked.unanswered, unanswered);
     if (asked.answer.ask !== "status") return refusal("unreachable", unanswered);
@@ -5692,14 +6136,14 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       return invalid2(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
     }
     if (cursor !== void 0 && !askable(cursor)) return refused2("invalidCursor");
-    return answered2(await ask(requests, { ask: "shots", limit: limit === void 0 ? MAX_SHOTS_PAGE : Number(limit), ...cursor !== void 0 && { cursor } }));
+    return answered2(await ask2(requests, { ask: "shots", limit: limit === void 0 ? MAX_SHOTS_PAGE : Number(limit), ...cursor !== void 0 && { cursor } }));
   }
   async function answerShot(request2, requests) {
     if (request2.method === "PUT") return editShot(request2, requests);
     if (request2.method !== "GET") return methodNotAllowed("GET", "PUT");
     const { id } = request2.query;
     if (!askable(id) || id === "") return invalid2(NAME_THE_SHOT);
-    return answered2(await ask(requests, { ask: "shot", shotId: id }));
+    return answered2(await ask2(requests, { ask: "shot", shotId: id }));
   }
   var NAME_THE_SHOT = "Give the Shot's id as id.";
   async function editShot(request2, requests) {
@@ -5714,7 +6158,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     } catch (error) {
       return refusal("shotUnwritten", {}, `Decaid didn't answer the edit of this tablet's own Shot: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (held.status === 404) return answered2(await ask(requests, { ask: "editShot", shotId: id, ...fields }));
+    if (held.status === 404) return answered2(await ask2(requests, { ask: "editShot", shotId: id, ...fields }));
     if (!held.ok) return refusal("shotUnwritten", {}, `Decaid refused the edit of this tablet's own Shot (${held.status}).`);
     try {
       return json(200, shotRatingAndNote(JSON.parse(held.text)));
@@ -5743,7 +6187,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     const recipeId = await recipeIdOf(recipe);
     if (recipeId === void 0) return refusal("recipesUnread");
     if (recipeId === null) return refusal("noSuchRecipe");
-    const asked = await ask(requests, { ask: "reference", recipeId });
+    const asked = await ask2(requests, { ask: "reference", recipeId });
     if (!("unanswered" in asked)) return "refused" in asked.answer ? refused2(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
     const copy = await references?.read(recipeId);
     return copy ? json(200, { ...copy, source: "tablet" }) : refusal(asked.unanswered);
@@ -5756,7 +6200,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     const recipeId = await recipeIdOf(recipe);
     if (recipeId === void 0) return refusal("recipesUnread");
     if (recipeId === null) return refusal("noSuchRecipe");
-    const asked = await ask(requests, { ask: "chooseReference", recipeId, shotId });
+    const asked = await ask2(requests, { ask: "chooseReference", recipeId, shotId });
     if ("unanswered" in asked) return refusal(asked.unanswered);
     if (!("refused" in asked.answer)) return json(200, { ...asked.answer.result, source: "server" });
     return asked.answer.refused === "noSuchShot" ? refusal("noSuchShot", {}, "No Shot this tablet may read whole has that id.") : refused2(asked.answer.refused);
@@ -5770,7 +6214,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   function askable(value) {
     return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
   }
-  function ask(requests, question) {
+  function ask2(requests, question) {
     return requests ? requests.ask(question) : Promise.resolve({ unanswered: "unreachable" });
   }
   function answered2(asked) {
@@ -6223,6 +6667,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       __publicField(this, "writes");
       /** Carries out the Settings Edits the server asks for, one at a time, between reads of the settings collections. */
       __publicField(this, "settingsEdits");
+      /** Carries out the Software Actions the server asks for, one at a time, in the Settings Edits' queue (ADR-0034). */
+      __publicField(this, "softwareActions");
       /** Writes the edits of Shots made through the server into the Shots the tablet holds, one at a time (ADR-0031). */
       __publicField(this, "shotEdits", new ShotEdits());
       /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
@@ -6240,6 +6686,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
       this.storage = new PluginStorage(host);
+      useLocalApi(host);
       this.outbox = new Outbox(
         log,
         {
@@ -6253,6 +6700,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       const skins = tellSkins(host, log);
       const library = new LibraryAccess();
       const localTransports = {
+        send: (handle, data) => this.host.transport.send(handle, { type: "text", data }),
         open: async (url) => {
           if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
           this.transportsInUse++;
@@ -6302,6 +6750,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         (value) => this.loadedRecipes.sawRecipes(value)
       );
       this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
+      this.softwareActions = new SoftwareActions(settingsAccess, this.outbox, this.collections, this.storage, localTransports, log);
       this.writes = new LibraryWrites(
         library,
         this.outbox,
@@ -6329,6 +6778,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       this.steams.start();
       this.collections.start();
       this.loadedRecipes.start();
+      this.setTimer("softwareAction", 0, () => void this.softwareActions.resume());
     }
     /**
      * A machine state update, sent only while a machine is connected: a change
@@ -6360,6 +6810,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       this.collections.stop();
       this.loadedRecipes.stop();
       this.settingsEdits.stop();
+      this.softwareActions.stop();
       this.shot.stop();
       this.liveView.stop();
       this.tabletId.stop();
@@ -6387,7 +6838,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         try {
           tabletId = await this.tabletId.read();
         } catch (error) {
-          if (attempt === this.attempt) this.drop(describe3(error));
+          if (attempt === this.attempt) this.drop(describe4(error));
           return;
         }
         if (this.stopped || attempt !== this.attempt) return;
@@ -6433,7 +6884,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           ...this.yielding ? { yielding: true } : {}
         });
       } catch (error) {
-        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe3(error)}`);
+        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe4(error)}`);
       } finally {
         if (attempt === this.attempt) this.connecting = false;
       }
@@ -6482,7 +6933,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
       const { id, index } = decoded.message;
       this.send(handle, { type: "chunkReceived", id, index }).catch((error) => {
-        this.sendFailed(handle, `could not confirm a chunk: ${describe3(error)}`);
+        this.sendFailed(handle, `could not confirm a chunk: ${describe4(error)}`);
       });
       if (added.status === "incomplete") return;
       const whole = decodeServerMessage(added.text);
@@ -6508,8 +6959,13 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           this.machineEvents.welcome();
           const serverRevision = wireRevisionOf(message);
           this.outbox.welcome(async (delivery) => {
+            if (delivery.type === "softwareActed" && !peerHasWireRevision(serverRevision, SOFTWARE_ACTIONS_WIRE_REVISION)) {
+              this.log("The server is from before Software Actions: dropping one's answer.");
+              this.outbox.acknowledge(delivery.id);
+              return;
+            }
             try {
-              await this.send(handle, delivery.type === "workflow" ? workflowDeliveryFor(delivery, serverRevision) : delivery);
+              await this.send(handle, delivery);
             } catch (error) {
               this.sendFailed(handle, "could not send a delivery");
               throw error;
@@ -6574,10 +7030,13 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         case "settingsEdit":
           void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
           break;
+        case "softwareAction":
+          void this.softwareActions.apply(message, () => this.handle === handle && !this.stopped);
+          break;
         case "shotEdit":
           void this.shotEdits.apply(message, (answer) => {
             this.send(handle, answer).catch((error) => {
-              this.sendFailed(handle, `could not answer an edit of a Shot: ${describe3(error)}`);
+              this.sendFailed(handle, `could not answer an edit of a Shot: ${describe4(error)}`);
             });
           });
           break;
@@ -6614,7 +7073,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         this.send(handle, { type: "heartbeat" }).then(
           () => this.scheduleHeartbeat(handle, intervalMs),
           (error) => {
-            this.sendFailed(handle, `could not send a heartbeat: ${describe3(error)}`);
+            this.sendFailed(handle, `could not send a heartbeat: ${describe4(error)}`);
           }
         );
       });
@@ -6771,7 +7230,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   function describeError(code) {
     return code.replace(/_/g, " ");
   }
-  function describe3(error) {
+  function describe4(error) {
     return error instanceof Error ? error.message : String(error);
   }
 

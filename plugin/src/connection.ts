@@ -7,17 +7,18 @@ import {
   PROTOCOL_VERSION,
   type PluginMessage,
   Reassembly,
+  SOFTWARE_ACTIONS_WIRE_REVISION,
   type ServerMessage,
   WIRE_REVISION,
   acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
   sameHardware,
+  peerHasWireRevision,
   wireRevisionOf,
-  workflowDeliveryFor,
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
-import { findMilkProbe, readMachineHardware, readTabletIdentity } from "./decaid.js";
+import { findMilkProbe, readMachineHardware, readTabletIdentity, useLocalApi } from "./decaid.js";
 import type { PluginHost, TransportEvent, Transports } from "./host.js";
 import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
@@ -29,6 +30,7 @@ import { ShotGate } from "./shot-gate.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { SettingsAccess, SettingsEdits } from "./settings-edits.js";
+import { SoftwareActions } from "./software-actions.js";
 import { ShotEdits } from "./shot-edits.js";
 import { ShotCapture } from "./shots.js";
 import { ReferenceCopies } from "./reference-copies.js";
@@ -92,7 +94,7 @@ const YIELDING_CLOSES = new Map<number, string>([
   [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1000} s.`],
 ]);
 
-type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown" | "sendFailed";
+type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown" | "sendFailed" | "softwareAction";
 
 /**
  * The plugin's one connection to the sync server: `hello` on every connect,
@@ -179,6 +181,8 @@ export class SyncConnection {
   private readonly writes: LibraryWrites;
   /** Carries out the Settings Edits the server asks for, one at a time, between reads of the settings collections. */
   private readonly settingsEdits: SettingsEdits;
+  /** Carries out the Software Actions the server asks for, one at a time, in the Settings Edits' queue (ADR-0034). */
+  private readonly softwareActions: SoftwareActions;
   /** Writes the edits of Shots made through the server into the Shots the tablet holds, one at a time (ADR-0031). */
   private readonly shotEdits = new ShotEdits();
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
@@ -202,6 +206,7 @@ export class SyncConnection {
     private readonly log: (message: string) => void,
   ) {
     this.storage = new PluginStorage(host);
+    useLocalApi(host);
     this.outbox = new Outbox(
       log,
       {
@@ -216,7 +221,8 @@ export class SyncConnection {
     const library = new LibraryAccess();
     // DYE2's socket and the Live View's leave one transport for a connection to the server, as earlier connection
     // attempts may still hold theirs.
-    const localTransports: Transports = {
+    const localTransports: Transports & { send(handle: string, data: string): Promise<void> } = {
+      send: (handle, data) => this.host.transport.send(handle, { type: "text", data }),
       open: async (url) => {
         if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
         this.transportsInUse++;
@@ -261,6 +267,7 @@ export class SyncConnection {
       this.loadedRecipes.sawRecipes(value),
     );
     this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
+    this.softwareActions = new SoftwareActions(settingsAccess, this.outbox, this.collections, this.storage, localTransports, log);
     this.writes = new LibraryWrites(
       library,
       this.outbox,
@@ -289,6 +296,8 @@ export class SyncConnection {
     this.steams.start();
     this.collections.start();
     this.loadedRecipes.start();
+    // The Software Action an earlier load kept, as Decaid loaded the plugin again under it, is answered first.
+    this.setTimer("softwareAction", 0, () => void this.softwareActions.resume());
   }
 
   /**
@@ -323,6 +332,7 @@ export class SyncConnection {
     this.collections.stop();
     this.loadedRecipes.stop();
     this.settingsEdits.stop();
+    this.softwareActions.stop();
     this.shot.stop();
     this.liveView.stop();
     this.tabletId.stop();
@@ -492,8 +502,15 @@ export class SyncConnection {
         this.machineEvents.welcome();
         const serverRevision = wireRevisionOf(message);
         this.outbox.welcome(async (delivery) => {
-          // The previous release's server refuses the name of a write it never asked for (`workflowDeliveryFor`).
-          try { await this.send(handle, delivery.type === "workflow" ? workflowDeliveryFor(delivery, serverRevision) : delivery); }
+          // The previous release's server closes the connection on a message it does not know: an action's answer
+          // that reaches one, as where the connection that sent the action dropped and the next is to such an
+          // instance, is dropped, and the action stays not confirmed.
+          if (delivery.type === "softwareActed" && !peerHasWireRevision(serverRevision, SOFTWARE_ACTIONS_WIRE_REVISION)) {
+            this.log("The server is from before Software Actions: dropping one's answer.");
+            this.outbox.acknowledge(delivery.id);
+            return;
+          }
+          try { await this.send(handle, delivery); }
           catch (error) {
             this.sendFailed(handle, "could not send a delivery");
             throw error;
@@ -566,6 +583,10 @@ export class SyncConnection {
         // write is refused as expired; a write under way finishes, and the next connection takes its answer, which any
         // instance records.
         void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
+        break;
+      case "softwareAction":
+        // Answered as a Settings Edit is, through the outbox, behind the reports of the lists it read back.
+        void this.softwareActions.apply(message, () => this.handle === handle && !this.stopped);
         break;
       case "shotEdit":
         // Answered at once, on this connection alone: an edit whose answer is lost with its connection is still due, and

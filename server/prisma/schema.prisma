@@ -53,6 +53,7 @@ model Account {
   itemVersions  ItemVersion[]
   lostEdits     LostEdit[]
   settingsEdits SettingsEdit[]
+  softwareActions SoftwareAction[]
   shotEdits     ShotEdit[]
   connectedApps ConnectedApp[]
   drafts        Draft[]
@@ -196,6 +197,7 @@ model ConnectedApp {
   itemVersions       ItemVersion[]
   lostEdits          LostEdit[]
   settingsEdits      SettingsEdit[]
+  softwareActions    SoftwareAction[]
   shotEdits          ShotEdit[]
   drafts             Draft[]
 
@@ -406,6 +408,7 @@ model Machine {
   takeover           Takeover?
   loadedRecipes      LoadedRecipe[]
   settingsEdits      SettingsEdit[]
+  softwareActions    SoftwareAction[]
   liveViewLeases     LiveViewLease[]
   shotEdits          ShotEdit[]
   draftFollowings    DraftFollowing[]
@@ -1023,9 +1026,14 @@ model SettingsHistoryEntry {
   /// baseline.
   settingsEditId   String?         @map("settings_edit_id") @db.Uuid
   settingsEdit     SettingsEdit?   @relation(fields: [settingsEditId], references: [id], onDelete: SetNull)
+  /// The Software Action whose read-back this was (ADR-0034), where the
+  /// report held a change; null otherwise, and never beside a Settings
+  /// Edit. No foreign key: an action goes only with its Machine, which
+  /// takes these rows with it.
+  softwareActionId String?         @map("software_action_id") @db.Uuid
   /// The fields, as `settingsHistoryFields` keys them, whose change the
-  /// Settings Edit made; any other field that changed was changed outside
-  /// Decent Sync.
+  /// Settings Edit or the Software Action made; any other field that
+  /// changed was changed outside Decent Sync.
   editedFields     String[]        @default([]) @map("edited_fields")
 
   /// Finds each collection's latest row, by id, the order rows are written in.
@@ -1165,6 +1173,68 @@ model SettingsEdit {
   @@index([sessionId])
   @@index([connectedAppId])
   @@map("settings_edits")
+}
+
+/// A Software Action (ADR-0034): one thing an Admin asked a Machine's Tablet
+/// to do to its plugins or to Decaid, made in the management interface while
+/// the Machine was online, sent only on the connection that held it as it
+/// was made, and answered by the plugin, which reads the lists back after
+/// it. Made, claimed and judged not confirmed as a Settings Edit is. See
+/// server/src/software-actions/.
+model SoftwareAction {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  machineId      String        @map("machine_id") @db.Uuid
+  machine        Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// The connection that held the Machine as it was made (`connected_session_id`), and its tablet.
+  sessionId      String        @map("session_id") @db.Uuid
+  tabletId       String        @map("tablet_id") @db.Uuid
+  /// Who made it.
+  accountId      String?       @map("account_id") @db.Uuid
+  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// The Connected App the account made it through, if one (ADR-0026).
+  connectedAppId String?       @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
+  /// One of SOFTWARE_ACTION_KINDS in protocol/, as text: a kind is added without a migration.
+  kind           String
+  /// What it names, kept for good and shown to everyone who reads the
+  /// Machine: the plugin's id and name, a repository and branch, the
+  /// version and permissions of an update approved, the names of the
+  /// settings changed. Never a setting's value.
+  params         Json          @db.JsonB
+  /// What the plugin needs besides and nobody is shown: for a change of a
+  /// plugin's settings, the new values, a secret's among them, and the
+  /// values the form showed. Held only until the action is sent or its time
+  /// is up, then null (`SoftwareActionsService.claim`, `forgetHeld`).
+  held           Json?         @db.JsonB
+  /// How long it has to be answered from when it was made, in ms, as its kind gives it (`softwareActionMs`).
+  timeMs         Int           @map("time_ms")
+  /// By PostgreSQL's clock: when it was made, sent and answered.
+  madeAt         DateTime      @default(dbgenerated("transaction_timestamp()")) @map("made_at") @db.Timestamptz(3)
+  sentAt         DateTime?     @map("sent_at") @db.Timestamptz(3)
+  answeredAt     DateTime?     @map("answered_at") @db.Timestamptz(3)
+  /// DONE or REFUSED; null until answered. While it is, the action is not
+  /// confirmed once its time has passed since it was made, or, never sent,
+  /// once its connection no longer holds the Machine.
+  outcome        String?
+  /// Whether its answer came after it was marked not confirmed. A late
+  /// `expired` refusal leaves it not confirmed.
+  late           Boolean       @default(false)
+  /// One of SOFTWARE_ACTED_REFUSALS in protocol/.
+  refusal        String?
+  /// For `machineBusy`: the machine's state, as Decaid named it.
+  machineState   String?       @map("machine_state")
+  /// For `decaid`: its HTTP status, or null where it did not answer or was not asked.
+  decaidStatus   Int?          @map("decaid_status")
+  /// What Decaid answered, or the plugin's words for why it refused.
+  message        String?
+  /// What came of it, once done (`SoftwareActionResult` in protocol/).
+  result         Json?         @db.JsonB
+
+  @@index([machineId, madeAt])
+  /// Finds the actions a connection has yet to send.
+  @@index([sessionId])
+  @@index([connectedAppId])
+  @@map("software_actions")
 }
 
 /// A Bean in the Library (ADR-0003): a coffee as sold by a roaster, shared

@@ -92,7 +92,7 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(field(hardware(page), "Connection id")).toHaveText("00:00:5E:00:53:01");
   await expect(field(hardware(page), "Aliases")).toHaveText("00:00:5E:00:53:01");
   await expect(field(hardware(page), "Last seen")).not.toHaveText("Never");
-  await expect(field(page, "Decaid")).toHaveText("0.9.2+3191");
+  await expect(field(page, "Decaid")).toHaveText("0.9.3+3265");
   await expect(field(page, "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
 
   // The tablet its connection came from, known by the id the plugin keeps in Decaid's plugin storage.

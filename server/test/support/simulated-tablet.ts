@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROTOCOL_VERSION, SETTINGS_EDIT_WRITE_MARGIN_MS, SYNC_PATH, WIRE_REVISION } from "@decent-sync/protocol";
+import { PROTOCOL_VERSION, SETTINGS_EDIT_WRITE_MARGIN_MS, SOFTWARE_ACTION_START_MARGIN_MS, SYNC_PATH, WIRE_REVISION } from "@decent-sync/protocol";
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
@@ -11,6 +11,7 @@ import { type DecaidAnswer, createBean, decaidNow, listedBeans, updateBean, with
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { updateShot } from "./decaid-shots.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
+import { type ListedPlugin, type OwnPlugin, SimulatedPlugins, decaidInfo093 } from "./decaid-plugins.js";
 import { type FieldWriteFailure, type KeptMachineSettings, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, resetMachineSettings, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import { latestReleaseDir } from "./latest-release.mjs";
@@ -288,8 +289,8 @@ export class Refusal {
  * fixtures' READMEs): its library, settings and paired devices included, as
  * Decaid 0.8.7 answered them (de1pro-v0.8.7/), and unchanged in 0.9.0, but
  * its app settings as Decaid 0.9.0 answers them (de1pro-v0.9.0/), with the
- * same fields in 0.9.2, and its version as Decaid 0.9.2's release reports it
- * (simulated-devices-v0.9.2/), the oldest the server accepts. Its scale is
+ * same fields in 0.9.3, and its version as Decaid 0.9.3's release reports it
+ * (tablet-software-v0.9.3/), the oldest the server accepts. Its scale is
  * off, so `/scale/info` answers 503, and DYE2 has never written its
  * equipment, which therefore answers `null`. Its DYE2
  * recipes and baskets are in an older DYE2's shape than simulated-dye2.ts
@@ -302,9 +303,9 @@ export class Refusal {
  * (`defaultSkinId` and `webUiPath`; `skinsAt("defaultSwitched")`). Its
  * presence settings are a new install's (`newPresenceSettings`).
  */
-export function de1ProOnDecaid092(): DecaidApi {
+export function de1ProOnDecaid093(): DecaidApi {
   return {
-    "/info": readFixture("info.json", "simulated-devices-v0.9.2"),
+    "/info": decaidInfo093(),
     "/machine/info": readFixture("machine-info.json"),
     "/settings": readFixture("settings.json", "de1pro-v0.9.0"),
     "/workflow": readFixture("workflow.json"),
@@ -524,14 +525,14 @@ function machineSnapshot(state: string, substate: string): Record<string, unknow
 export const NO_DYE2_LISTS: DecaidApi = { "/store/dye2.reaplugin/recipes": [], "/store/dye2.reaplugin/baskets": [], "/store/dye2.reaplugin/equipment": [] };
 
 /**
- * Derived from de1ProOnDecaid092(): the same responses, with the machine's
+ * Derived from de1ProOnDecaid093(): the same responses, with the machine's
  * reported model and serial, the preferred machine's connection id, or
  * Decaid's version (such as 0.8.8+2900, split into its version and build
  * number as Decaid reports them too) changed. Every other field is as Decaid
  * sent it.
  */
 export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string; decaidVersion?: string }): DecaidApi {
-  const api = de1ProOnDecaid092();
+  const api = de1ProOnDecaid093();
   const info = api["/info"] as Record<string, unknown>;
   const machineInfo = api["/machine/info"] as Record<string, unknown>;
   const settings = api["/settings"] as Record<string, unknown>;
@@ -566,7 +567,7 @@ export function helloWith(token: string, extra: Record<string, unknown> = {}): R
     wireRevision: WIRE_REVISION,
     token,
     pluginVersion: "0.1.0",
-    decaidVersion: "0.9.2+3191",
+    decaidVersion: "0.9.3+3265",
     tabletId: randomUUID(),
     connectionId: "00:00:5E:00:53:01",
     ...extra,
@@ -678,7 +679,15 @@ export interface SimulatedTabletOptions {
    * empty one, as on a new tablet.
    */
   storage?: PluginStorage;
-  /** Decaid's API responses; defaults to de1ProOnDecaid092(). */
+  /**
+   * The tablet's plugins besides its own and DYE2, and what manages them,
+   * kept across loads as its storage is: Decaid's install, settings, update
+   * and remove routes, `host.localApi`, and its own update state
+   * (decaid-plugins.ts). Defaults to a Decaid listing no other plugin, whose
+   * "Require authorization for extension management" setting is off.
+   */
+  plugins?: SimulatedPlugins;
+  /** Decaid's API responses; defaults to de1ProOnDecaid093(). */
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info, /machine/state and the machine's settings fail. Defaults to true. */
   machineConnected?: boolean;
@@ -829,6 +838,11 @@ export class SimulatedTablet {
   onEmit?: (event: string, payload: unknown) => void;
   /** Decaid's storage for the plugin, which outlasts this load. */
   readonly storage: PluginStorage;
+  /** The tablet's Decaid's plugins and their management (`SimulatedTabletOptions.plugins`). */
+  readonly plugins: SimulatedPlugins;
+  /** The load Decaid made of the plugin by itself after this one, as it saved the plugin's settings or installed another build of it; undefined until it does. */
+  successor: Promise<SimulatedTablet> | undefined;
+  private loadingAgain = false;
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
   readonly requests: string[] = [];
   /** When the plugin made each of `requests`, by the tablet's clock (`readClock`). */
@@ -962,7 +976,7 @@ export class SimulatedTablet {
   }
 
   private constructor(private readonly options: SimulatedTabletOptions) {
-    this.api = options.api ?? de1ProOnDecaid092();
+    this.api = options.api ?? de1ProOnDecaid093();
     this.machineConnected = options.machineConnected ?? true;
     this.socketState = { ...(options.sockets ?? openingFrames()) };
     this.keepsFlushSettings = options.keepsFlushSettings ?? true;
@@ -978,6 +992,7 @@ export class SimulatedTablet {
     this.upgradeAtTabletPace = options.upgradeAtTabletPace ?? false;
     this.storage = options.storage ?? new PluginStorage();
     this.storage.decaidStarted();
+    this.plugins = options.plugins ?? new SimulatedPlugins();
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { dir, source, manifest } = readBuiltPlugin({ latestRelease: options.latestRelease });
@@ -1008,6 +1023,8 @@ export class SimulatedTablet {
           : () => {
               throw new Error(`Plugin ${String(manifest.id)} requires manifest permission pluginStorage`);
             },
+        // Offered to every plugin, and rejected for one without the permission, as Decaid's host does (plugin_manager.dart).
+        localApi: (path: unknown, options?: unknown) => this.localApi(path, options),
       },
       fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
@@ -1522,6 +1539,7 @@ export class SimulatedTablet {
       ...this.options,
       api: this.api,
       storage: this.storage,
+      plugins: this.plugins,
       machineConnected: this.machineConnected,
       sockets: this.socketState,
       ...options,
@@ -1562,6 +1580,14 @@ export class SimulatedTablet {
   private localSocket(url: string): LocalSocket | undefined {
     const origin = API_ORIGIN.replace(/^http/, "ws");
     if (!url.startsWith(`${origin}/`)) return undefined;
+    if (new URL(url).pathname === "/ws/v1/update") {
+      // Decaid's update socket: its state as it opens, then what it makes of each command (`SimulatedPlugins`).
+      const socket = new LocalSocket((text) => {
+        for (const frame of this.plugins.socketCommand(text)) socket.receive(JSON.stringify(frame));
+      });
+      socket.once("open", () => setImmediate(() => this.plugins.socketOpened().forEach((frame) => socket.receive(JSON.stringify(frame)))));
+      return socket;
+    }
     const decaid = DECAID_SOCKETS.get(new URL(url).pathname);
     if (decaid !== undefined) {
       const socket = new LocalSocket();
@@ -1600,9 +1626,81 @@ export class SimulatedTablet {
 
   /** The plugins Decaid lists at `GET /plugins` (`PluginsHandler.addRoutes`): this one, loaded, and DYE2 where the tablet has it installed. */
   private listedPlugins(): Record<string, unknown>[] {
-    const own = { ...this.manifest, loaded: !this.unloaded, autoLoad: true, source: null, pendingUpdate: null };
+    const own = {
+      ...this.manifest,
+      ...(this.plugins.ownVersion === undefined ? {} : { version: this.plugins.ownVersion }),
+      loaded: !this.unloaded,
+      autoLoad: true,
+      source: this.plugins.ownSource,
+      pendingUpdate: this.plugins.ownPendingUpdate,
+    };
     const dye2 = this.dye2?.listing();
-    return dye2 ? [dye2, own] : [own];
+    return [...(dye2 ? [dye2] : []), ...this.plugins.listed(), own];
+  }
+
+  /** This load's plugin as its Decaid's plugin management holds it (`SimulatedPlugins`): saving its settings or installing another build of it loads it again, as Decaid does. */
+  private ownPlugin(): OwnPlugin {
+    return {
+      id: this.pluginId,
+      manifest: () => this.manifest,
+      loaded: () => !this.unloaded,
+      settings: () => ({ ...this.options.settings }),
+      saved: (settings) => this.loadAgain({ settings: settings as unknown as SimulatedTabletOptions["settings"] }),
+      installed: () => this.loadAgain({}),
+      unloaded: () => void this.unload(),
+    };
+  }
+
+  /**
+   * Has Decaid load the plugin again by itself, as it does to save its
+   * settings or install another build of it: this load is unloaded, a call
+   * to `host.localApi` under way is never answered, and the next load is
+   * `successor`. Its version as listed is its Decaid's (`plugins.ownVersion`),
+   * the code loaded being this build's either way.
+   */
+  private loadAgain(options: Partial<SimulatedTabletOptions>): void {
+    this.loadingAgain = true;
+    this.successor = new Promise((resolve, reject) => setImmediate(() => void this.reload(options).then(resolve, reject)));
+    this.successor.catch(() => {});
+  }
+
+  /**
+   * `host.localApi` as Decaid v0.9.3 gives it (`PluginLocalApiBridge`;
+   * fixtures/decaid/tablet-software-v0.9.3/): rejected for a plugin without
+   * `manage.extensions`, and for a request off its allowlist, with Decaid's
+   * words; otherwise answered by the same API, with the authority to manage
+   * plugins whatever the Tablet's setting asks of a plain request, as
+   * `{ status, headers, body }`, its body as text. One under way as Decaid
+   * loads the plugin again is never answered. Held and delayed as the
+   * plugin's `fetch` is (`holdRequests`, `apiDelayMs`).
+   */
+  private async localApi(path: unknown, options: unknown): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+    if (!this.permissions.includes("manage.extensions")) throw this.plugins.permissionError(this.pluginId);
+    const { method: given = "GET", body } = (options ?? {}) as { method?: string; body?: unknown };
+    const method = given.toUpperCase();
+    const refusal = this.plugins.localApiRefusal(method, String(path), body);
+    if (refusal !== null) throw new Error(refusal);
+    const route = String(path).slice("/api/v1".length).split("?")[0]!;
+    const request: InFlightRequest = { method, route };
+    this.inFlight.add(request);
+    try {
+      const delayMs = this.apiDelayMs(method, route);
+      const hold = this.requestsHeld.get(`${method} ${route}`);
+      if (hold) hold.arrived++;
+      await new Promise<void>((resolve) => this.setTimer(resolve, delayMs));
+      if (hold) await hold.held;
+      this.requests.push(route);
+      this.requestedAt.push(this.now());
+      if (method !== "GET") this.writes.push(`${method} ${route}`);
+      // A string is sent as it is, and any other value as JSON.
+      const text = body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body);
+      const answered = (await this.answer(`${API_ORIGIN}${String(path)}`, method, {}, text, "localApi")) as { status: number; text(): Promise<string> };
+      if (this.loadingAgain || this.unloaded) return await new Promise<never>(() => {});
+      const answer = await answered.text();
+      return { status: answered.status, headers: this.plugins.localApiHeaders(answer), body: answer };
+    } finally {
+      this.inFlight.delete(request);
+    }
   }
 
   /**
@@ -1964,7 +2062,7 @@ export class SimulatedTablet {
   }
 
   /** What Decaid's API answers a request, as its plugin fetch gives it. */
-  private async answer(url: string, method: string, headers: Record<string, string>, requestBody: unknown): Promise<unknown> {
+  private async answer(url: string, method: string, headers: Record<string, string>, requestBody: unknown, via: "fetch" | "localApi" = "fetch"): Promise<unknown> {
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
     const failures = method === "GET" ? (this.apiFailures.get(route) ?? 0) : 0;
     if (failures > 0) {
@@ -1974,6 +2072,12 @@ export class SimulatedTablet {
     const kept = this.answerStore(method, route, requestBody);
     if (kept) return response(kept.status, JSON.stringify(kept.body));
     if (method === "GET" && route === "/plugins") return response(200, JSON.stringify(this.listedPlugins()));
+    if (method === "GET" && route === "/update") return response(200, JSON.stringify(this.plugins.update));
+    if (!this.dye2?.answers(route)) {
+      const dye2 = this.dye2?.listing();
+      const managed = this.plugins.answer(method, route, requestBody, via, this.ownPlugin(), dye2 ? [dye2 as ListedPlugin] : []);
+      if (managed) return response(managed.status, managed.text ?? JSON.stringify(managed.body));
+    }
     if (this.dye2?.answers(route)) {
       const body = typeof requestBody === "string" ? (requestBody === "" ? null : JSON.parse(requestBody)) : (requestBody ?? null);
       const answered = await this.dye2.answer(method, route, body);
@@ -1981,7 +2085,7 @@ export class SimulatedTablet {
     }
     // Decaid refuses a plugin's endpoints while no such plugin is loaded (`_handlePluginApiEndpoint` in plugins_handler.dart).
     if (route.startsWith("/plugins/dye2.reaplugin/")) return response(404, JSON.stringify({ error: "plugin with dye2.reaplugin not loaded" }));
-    const settings = this.answerSettings(method, route, requestBody);
+    const settings = this.answerSettings(method, route, requestBody, via === "localApi" || !this.plugins.requireAuthorization);
     if (settings) return response(settings.status, settings.text ?? JSON.stringify(settings.body));
     const shotId = method === "PUT" ? /^\/shots\/([^/]+)$/.exec(route)?.[1] : undefined;
     if (shotId !== undefined) return this.writeShot(decodeURIComponent(shotId), requestBody);
@@ -2077,7 +2181,7 @@ export class SimulatedTablet {
    * machine is connected, or the wake schedules; undefined for any other
    * request, the machine's settings' reads included.
    */
-  private answerSettings(method: string, route: string, body: unknown): SettingsAnswer | undefined {
+  private answerSettings(method: string, route: string, body: unknown, authorized = true): SettingsAnswer | undefined {
     const presence = this.api["/presence/settings"];
     if (method === "GET" && route === "/presence/settings" && !(presence instanceof Refusal) && presence !== undefined) {
       return { status: 200, body: presenceSettings(presence, this.machineConnected) };
@@ -2119,7 +2223,7 @@ export class SimulatedTablet {
       const served = `/machine/calibration/${decodeURIComponent(target)}`;
       return keep(served, writeSensorCalibration({ ...machine, target: decodeURIComponent(target), current: held(served) }));
     }
-    if (method === "POST" && route === "/settings") return keep(route, writeAppSettings({ current: held(route), body: text, failWrite }));
+    if (method === "POST" && route === "/settings") return keep(route, writeAppSettings({ current: held(route), body: text, failWrite, authorized }));
     const presenceWrite = writePresence(method, route, text, held("/presence/settings"));
     return presenceWrite && keep("/presence/settings", presenceWrite);
   }
@@ -2462,6 +2566,11 @@ export class SimulatedTablet {
     if (this.timeScale === 1) return text;
     try {
       const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown; timeLeftMs?: unknown };
+      if (message.type === "softwareAction" && typeof message.timeLeftMs === "number") {
+        // As for a Settings Edit: the action's time to start is what is scaled, the plugin's margin left as it is.
+        const toStart = (message.timeLeftMs - SOFTWARE_ACTION_START_MARGIN_MS) * this.timeScale;
+        return JSON.stringify({ ...message, timeLeftMs: Math.max(0, Math.round(toStart + SOFTWARE_ACTION_START_MARGIN_MS)) });
+      }
       if (message.type === "settingsEdit" && typeof message.timeLeftMs === "number") {
         // The plugin takes its 15 s margin off what it is told, so the margin is left as it is: the edit's time to start
         // its write is what is scaled.
@@ -2609,7 +2718,8 @@ class LocalSocket extends EventEmitter {
   readyState: number = WebSocket.CONNECTING;
   readonly protocol = "";
 
-  constructor() {
+  /** `heard`, where given, is told each text sent on it, as Decaid's update socket takes commands. */
+  constructor(private readonly heard?: (text: string) => void) {
     super();
     setImmediate(() => {
       if (this.readyState !== WebSocket.CONNECTING) return;
@@ -2623,8 +2733,11 @@ class LocalSocket extends EventEmitter {
     if (this.readyState === WebSocket.OPEN) this.emit("message", text);
   }
 
-  send(_data: string, written: () => void): void {
-    setImmediate(written);
+  send(data: string, written: () => void): void {
+    setImmediate(() => {
+      written();
+      if (this.readyState === WebSocket.OPEN) this.heard?.(data);
+    });
   }
 
   close(code = 1000): void {

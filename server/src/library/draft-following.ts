@@ -1,4 +1,4 @@
-import { DRAFT_KIND, FOLLOWED_DRAFTS_WIRE_REVISION, MAX_PROFILE_STEPS, dye2RecipeIdOf, followedDraftTitle, peerHasWireRevision, readProfile } from "@decent-sync/protocol";
+import { DRAFT_KIND, MAX_PROFILE_STEPS, dye2RecipeIdOf, followedDraftTitle, readProfile } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -47,9 +47,14 @@ export function followedProfile(profile: unknown): Record<string, unknown> | nul
   return read ? { ...read, title: followedDraftTitle(read.title) } : null;
 }
 
-/** Whether a plugin at the wire revision can follow a Draft; one whose revision is not known can't yet. */
+/**
+ * Whether a Machine's plugin can follow a Draft: every plugin the server
+ * accepts can, since the wire moved on from the revision that brought it
+ * (ADR-0025), but one whose revision is not known, as its tablet has not
+ * connected since the revision was kept, can't yet.
+ */
 export function canFollow(wireRevision: number | null): boolean {
-  return wireRevision !== null && peerHasWireRevision(wireRevision, FOLLOWED_DRAFTS_WIRE_REVISION);
+  return wireRevision !== null;
 }
 
 /** Whether the Machine follows a Draft now, and whether it was written the Draft since following began (`written`), which ended its Loaded Recipe; null for none. */
@@ -81,8 +86,8 @@ export async function endFollowings(tx: Prisma.TransactionClient, ended: Prisma.
  * Location, or null: the Draft's profile, under the title a tablet shows it
  * by, while the Location tries Drafts, the Machine is at the Location entry
  * following began at, and the profile the Machine was last
- * written since following began is another, or none. Nothing is due to a
- * plugin from before FOLLOWED_DRAFTS_WIRE_REVISION, nor for a Draft of no
+ * written since following began is another, or none. Nothing is due for a
+ * Draft of no
  * steps or of more than a machine takes, which waits until it is saved with
  * some. The connection's wire revision where it is at hand, as its writer's
  * is, else the one its Machine's latest hello gave. Read in the caller's

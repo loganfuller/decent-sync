@@ -1,0 +1,1081 @@
+{
+  "withoutToken": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/plugins"
+        },
+        "response": {
+          "status": 200,
+          "body": "9 plugins, as in the reads"
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/plugins/visualizer.reaplugin/settings"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "LengthThreshold": 5,
+            "AutoUpload": false,
+            "Username": "alex",
+            "Password": {
+              "isSet": false
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/visualizer.reaplugin/disable"
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/visualizer.reaplugin/settings",
+          "body": {
+            "Username": "sam"
+          }
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/update"
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/install/github-release",
+          "body": {
+            "repo": "loganfuller/decent-sync"
+          }
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/plugins/dcamp.reaplugin"
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "automaticUpdateCheck": false
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "automaticUpdateCheck": true
+          }
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/update"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "phase": "idle",
+            "currentVersion": "0.9.3",
+            "latestVersion": null,
+            "releaseNotes": null,
+            "releaseUrl": "https://github.com/decentespresso/decaid/releases",
+            "installable": false,
+            "progress": null,
+            "error": null
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "version": "0.1.42",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.shots",
+              "events.workflow"
+            ],
+            "drivers": [],
+            "settings": {},
+            "loaded": true,
+            "autoLoad": true,
+            "source": {
+              "kind": "github_branch",
+              "repo": "decentespresso/dye2",
+              "branch": "3a4083728302b3d30e108718cc690d34a13debb0",
+              "commit": "3a4083728302b3d30e108718cc690d34a13debb0",
+              "releaseTag": null,
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-23T20:00:30.546974",
+              "lastChecked": "2026-11-23T20:01:55.018438",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "loaded": true,
+            "autoLoad": true,
+            "source": {
+              "kind": "github_release",
+              "repo": "decentespresso/decaid-dcamp-plugin",
+              "branch": null,
+              "commit": null,
+              "releaseTag": "v0.1.2",
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-23T20:01:51.559980",
+              "lastChecked": "2026-11-23T20:01:55.150759",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "version": "1.0.5",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "api",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "localapi-probe.reaplugin",
+            "name": "localApi probe",
+            "author": "Decent Sync's fixtures",
+            "version": "0.0.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "manage.extensions"
+            ],
+            "drivers": [],
+            "settings": {
+              "Note": {
+                "type": "string",
+                "label": "Note",
+                "description": "Any text"
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-sync.reaplugin",
+            "name": "Decent Sync",
+            "author": "Logan Fuller",
+            "version": "1.12.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "events.machine",
+              "events.shots",
+              "events.workflow",
+              "network.websocket",
+              "pluginStorage"
+            ],
+            "drivers": [],
+            "settings": {
+              "ServerUrl": {
+                "type": "string",
+                "label": "Server URL",
+                "description": "The Decent Sync server's address, shown with the token when the machine entry was created, such as https://sync.example.com or http://192.168.1.20:3000."
+              },
+              "Token": {
+                "type": "string",
+                "label": "Token",
+                "secure": true,
+                "description": "This machine's token, shown once when its machine entry was created on the server."
+              },
+              "PollSeconds": {
+                "type": "number",
+                "label": "Poll interval (seconds)",
+                "default": 30,
+                "description": "How often to check the library, app settings, paired devices, scale, sensors and Steam Records for changes. The machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them. At least 5."
+              }
+            },
+            "loaded": false,
+            "autoLoad": false,
+            "source": {
+              "kind": "github_release",
+              "repo": "loganfuller/decent-sync",
+              "branch": null,
+              "commit": null,
+              "releaseTag": "v1.12.2",
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-23T20:01:58.450306",
+              "lastChecked": "2026-11-23T20:01:58.450306",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "version": "0.1.9",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "version": "0.2.5",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "notifications",
+              "pluginStorage",
+              "proxy.decent_api",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": {
+              "kind": "github_release",
+              "repo": "decentespresso/shot-upload",
+              "branch": null,
+              "commit": null,
+              "releaseTag": "v0.2.5",
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-23T20:00:16.568194",
+              "lastChecked": "2026-11-23T20:01:55.727669",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          }
+        ]
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      }
+    }
+  },
+  "localApi": {
+    "localApi": [
+      {
+        "call": {
+          "path": "/api/v1/plugins"
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "content-length": "14268"
+          },
+          "body": [
+            {
+              "id": "dye2.reaplugin",
+              "name": "Streamline/DYE2",
+              "author": "Streamline",
+              "version": "0.1.42",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "emit",
+                "pluginStorage",
+                "events.shots",
+                "events.workflow"
+              ],
+              "drivers": [],
+              "settings": {},
+              "loaded": true,
+              "autoLoad": true,
+              "source": {
+                "kind": "github_branch",
+                "repo": "decentespresso/dye2",
+                "branch": "3a4083728302b3d30e108718cc690d34a13debb0",
+                "commit": "3a4083728302b3d30e108718cc690d34a13debb0",
+                "releaseTag": null,
+                "assetName": null,
+                "includePrerelease": false,
+                "installedAt": "2026-11-23T20:00:30.546974",
+                "lastChecked": "2026-11-23T20:01:55.018438",
+                "lastError": null
+              },
+              "pendingUpdate": null
+            },
+            {
+              "id": "decent-profile.reaplugin",
+              "name": "Decent Profile Generator",
+              "author": "Stephane Ribes and Alwaysdialingin",
+              "version": "1.1.2",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "emit"
+              ],
+              "drivers": [],
+              "settings": {
+                "roastDegree": {
+                  "type": "string",
+                  "label": "Roast degree",
+                  "secure": false,
+                  "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+                },
+                "roastQuality": {
+                  "type": "string",
+                  "label": "Roast quality",
+                  "secure": false,
+                  "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+                },
+                "origin": {
+                  "type": "string",
+                  "label": "Bean origin",
+                  "secure": false,
+                  "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+                },
+                "highlight": {
+                  "type": "string",
+                  "label": "Flavours to highlight",
+                  "secure": false,
+                  "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+                },
+                "avoid": {
+                  "type": "string",
+                  "label": "Flavours to avoid",
+                  "secure": false,
+                  "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+                },
+                "strength": {
+                  "type": "string",
+                  "label": "Target strength",
+                  "secure": false,
+                  "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+                },
+                "basket": {
+                  "type": "string",
+                  "label": "Basket type",
+                  "secure": false,
+                  "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+                },
+                "dose": {
+                  "type": "string",
+                  "label": "Dose",
+                  "secure": false,
+                  "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+                },
+                "puckPrep": {
+                  "type": "string",
+                  "label": "Puck prep quality",
+                  "secure": false,
+                  "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+                },
+                "profileTitle": {
+                  "type": "string",
+                  "label": "Profile title",
+                  "secure": false,
+                  "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+                },
+                "profileFormat": {
+                  "type": "string",
+                  "label": "Output format",
+                  "secure": false,
+                  "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+                },
+                "layout": {
+                  "type": "string",
+                  "label": "UI layout",
+                  "secure": false,
+                  "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+                }
+              },
+              "loaded": true,
+              "autoLoad": true,
+              "source": null,
+              "pendingUpdate": null
+            },
+            {
+              "id": "dcamp.reaplugin",
+              "name": "dcamp",
+              "author": "Decent Espresso",
+              "version": "0.1.2",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api"
+              ],
+              "drivers": [],
+              "settings": {},
+              "loaded": true,
+              "autoLoad": true,
+              "source": {
+                "kind": "github_release",
+                "repo": "decentespresso/decaid-dcamp-plugin",
+                "branch": null,
+                "commit": null,
+                "releaseTag": "v0.1.2",
+                "assetName": null,
+                "includePrerelease": false,
+                "installedAt": "2026-11-23T20:01:51.559980",
+                "lastChecked": "2026-11-23T20:01:55.150759",
+                "lastError": null
+              },
+              "pendingUpdate": null
+            },
+            {
+              "id": "time-to-ready.reaplugin",
+              "name": "Time To Ready",
+              "author": "Decent Espresso",
+              "version": "1.0.5",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "emit",
+                "api",
+                "pluginStorage",
+                "events.machine"
+              ],
+              "drivers": [],
+              "settings": {
+                "Stabilisation": {
+                  "type": "number",
+                  "label": "Stabilisation time",
+                  "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+                }
+              },
+              "loaded": true,
+              "autoLoad": true,
+              "source": null,
+              "pendingUpdate": null
+            },
+            {
+              "id": "localapi-probe.reaplugin",
+              "name": "localApi probe",
+              "author": "Decent Sync's fixtures",
+              "version": "0.0.1",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "manage.extensions"
+              ],
+              "drivers": [],
+              "settings": {
+                "Note": {
+                  "type": "string",
+                  "label": "Note",
+                  "description": "Any text"
+                }
+              },
+              "loaded": true,
+              "autoLoad": true,
+              "source": null,
+              "pendingUpdate": null
+            },
+            {
+              "id": "decent-sync.reaplugin",
+              "name": "Decent Sync",
+              "author": "Logan Fuller",
+              "version": "1.12.2",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "emit",
+                "events.machine",
+                "events.shots",
+                "events.workflow",
+                "network.websocket",
+                "pluginStorage"
+              ],
+              "drivers": [],
+              "settings": {
+                "ServerUrl": {
+                  "type": "string",
+                  "label": "Server URL",
+                  "description": "The Decent Sync server's address, shown with the token when the machine entry was created, such as https://sync.example.com or http://192.168.1.20:3000."
+                },
+                "Token": {
+                  "type": "string",
+                  "label": "Token",
+                  "secure": true,
+                  "description": "This machine's token, shown once when its machine entry was created on the server."
+                },
+                "PollSeconds": {
+                  "type": "number",
+                  "label": "Poll interval (seconds)",
+                  "default": 30,
+                  "description": "How often to check the library, app settings, paired devices, scale, sensors and Steam Records for changes. The machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them. At least 5."
+                }
+              },
+              "loaded": false,
+              "autoLoad": false,
+              "source": {
+                "kind": "github_release",
+                "repo": "loganfuller/decent-sync",
+                "branch": null,
+                "commit": null,
+                "releaseTag": "v1.12.2",
+                "assetName": null,
+                "includePrerelease": false,
+                "installedAt": "2026-11-23T20:01:58.450306",
+                "lastChecked": "2026-11-23T20:01:58.450306",
+                "lastError": null
+              },
+              "pendingUpdate": null
+            },
+            {
+              "id": "settings.reaplugin",
+              "name": "Settings Viewer",
+              "author": "Decent Espresso",
+              "version": "0.1.9",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api"
+              ],
+              "drivers": [],
+              "settings": {
+                "RefreshInterval": {
+                  "type": "number",
+                  "label": "Auto-refresh interval",
+                  "description": "Auto-refresh interval in seconds (0 to disable)",
+                  "default": 5
+                }
+              },
+              "loaded": true,
+              "autoLoad": true,
+              "source": null,
+              "pendingUpdate": null
+            },
+            {
+              "id": "visualizer.reaplugin",
+              "name": "Visualizer upload",
+              "author": "Decent Espresso",
+              "version": "1.5.11",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "emit",
+                "pluginStorage",
+                "events.machine",
+                "events.shots"
+              ],
+              "drivers": [],
+              "settings": {
+                "Username": {
+                  "type": "string",
+                  "label": "Visualizer username",
+                  "description": "Visualiser username"
+                },
+                "Password": {
+                  "type": "string",
+                  "label": "Visualizer password",
+                  "secure": true,
+                  "description": "Visualiser password"
+                },
+                "AutoUpload": {
+                  "type": "boolean",
+                  "label": "Upload shots automatically",
+                  "description": "Upload shots automatically",
+                  "default": true
+                },
+                "LengthThreshold": {
+                  "type": "number",
+                  "label": "Minimum shot length",
+                  "description": "Only upload shots that are longer than the threshold (in seconds)",
+                  "default": 5
+                },
+                "BackSync": {
+                  "type": "boolean",
+                  "label": "Sync edits back from Visualizer",
+                  "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                  "default": false
+                },
+                "BackSyncIntervalSeconds": {
+                  "type": "number",
+                  "label": "Back-sync check interval",
+                  "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                  "default": 300
+                }
+              },
+              "loaded": true,
+              "autoLoad": true,
+              "source": null,
+              "pendingUpdate": null
+            },
+            {
+              "id": "shot-upload.reaplugin",
+              "name": "Decent shot upload",
+              "author": "Decent Espresso",
+              "version": "0.2.5",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "emit",
+                "notifications",
+                "pluginStorage",
+                "proxy.decent_api",
+                "proxy.decent_api.write",
+                "events.machine",
+                "events.shots"
+              ],
+              "drivers": [],
+              "settings": {
+                "AutoUpload": {
+                  "type": "boolean",
+                  "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                  "default": false
+                },
+                "LengthThreshold": {
+                  "type": "number",
+                  "description": "Only upload shots longer than this many seconds (skips flushes)",
+                  "default": 5
+                }
+              },
+              "loaded": true,
+              "autoLoad": true,
+              "source": {
+                "kind": "github_release",
+                "repo": "decentespresso/shot-upload",
+                "branch": null,
+                "commit": null,
+                "releaseTag": "v0.2.5",
+                "assetName": null,
+                "includePrerelease": false,
+                "installedAt": "2026-11-23T20:00:16.568194",
+                "lastChecked": "2026-11-23T20:01:55.727669",
+                "lastError": null
+              },
+              "pendingUpdate": null
+            }
+          ],
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/plugins/visualizer.reaplugin/settings"
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "85"
+          },
+          "body": {
+            "LengthThreshold": 5,
+            "AutoUpload": false,
+            "Username": "alex",
+            "Password": {
+              "isSet": false
+            }
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/plugins/visualizer.reaplugin/disable",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "57"
+          },
+          "body": {
+            "message": "Plugin disabled",
+            "id": "visualizer.reaplugin"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/plugins/visualizer.reaplugin/enable",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "56"
+          },
+          "body": {
+            "message": "Plugin enabled",
+            "id": "visualizer.reaplugin"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/settings",
+          "options": {
+            "method": "POST",
+            "body": {
+              "automaticUpdateCheck": true
+            }
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "4"
+          },
+          "body": null,
+          "bodyWasText": true
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      }
+    }
+  }
+}

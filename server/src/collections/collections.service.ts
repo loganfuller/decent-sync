@@ -19,6 +19,8 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type PairedDevicesView, pairedDevicesView } from "./paired-devices.js";
 import { recordSettingsHistory } from "./settings-history.js";
+import type { Scope } from "../accounts/scope.js";
+import { shownPluginSettings } from "./plugin-settings.js";
 import { type TabletVersionsView, tabletVersionsView } from "./tablet-versions.js";
 
 /** A collection's latest report, without its value, as the REST API lists it. */
@@ -118,6 +120,7 @@ export class CollectionsService {
           utcOffsetMinutes,
           tabletId: reporter.tabletId,
           settingsEditId: message.settingsEditId,
+          softwareActionId: message.softwareActionId,
         });
       }
       const holder = credit.machineId !== null ? Prisma.sql`machine_id` : Prisma.sql`pending_machine_id`;
@@ -160,11 +163,14 @@ export class CollectionsService {
   }
 
   /** One of the Machine's collections, with its value; null if its tablet has not reported it. */
-  async get(machineId: string, name: string): Promise<CollectionView | null> {
+  async get(machineId: string, name: string, scope: Scope): Promise<CollectionView | null> {
     if (!isCollectionName(name)) throw new NotFoundException("No such collection");
     await this.requireMachine(machineId);
     const row = await this.prisma.reportedCollection.findUnique({ where: { machineId_name: { machineId, name } } });
-    return row ? { ...summary(row, name), value: row.value, utcOffsetMinutes: row.utcOffsetMinutes } : null;
+    // The values of the plugins' settings go to Admins alone (ADR-0034).
+    if (!row) return null;
+    const value = name === "pluginSettings" ? (shownPluginSettings(row.value, scope) as typeof row.value) : row.value;
+    return { ...summary(row, name), value, utcOffsetMinutes: row.utcOffsetMinutes };
   }
 
   /** The Machine's paired scale, auxiliary scale, sensors and other paired devices, from the collections that report them. */

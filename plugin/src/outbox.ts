@@ -8,6 +8,7 @@ import type {
   MachineStateDelivery,
   PluginMessage,
   SettingsEdited,
+  SoftwareActed,
   ShotDelivery,
   ShotIndex,
   SteamDelivery,
@@ -20,7 +21,8 @@ import { type KeptDeliveries, type KeptDelivery, MAX_KEPT, MAX_KEPT_CHARACTERS, 
 /**
  * A logical delivery, acknowledged once the server has stored it: a record,
  * a page of an index, a Workflow or machine state event, a collection, or
- * the answer to one of the server's Library writes or Settings Edits.
+ * the answer to one of the server's Library writes, Settings Edits or
+ * Software Actions.
  */
 export type Delivery =
   | ShotDelivery
@@ -36,7 +38,8 @@ export type Delivery =
   | ItemLeftOut
   | ListUnrecognised
   | WriteRefused
-  | SettingsEdited;
+  | SettingsEdited
+  | SoftwareActed;
 
 /** The kinds of record the server can request by their ids. */
 export type RecordKind = "shot" | "steam";

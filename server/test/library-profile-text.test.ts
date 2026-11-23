@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
-import { type SimulatedTablet, type SimulatedTabletOptions, de1ProOnDecaid092, derivedProfile } from "./support/simulated-tablet.js";
+import { type SimulatedTablet, type SimulatedTabletOptions, de1ProOnDecaid093, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // The REST API for ticket #576: a Profile's title, author and notes edited
@@ -61,7 +61,7 @@ describe("A Profile's title, author and notes edited in the management interface
   /** The built plugin on a tablet of the Machine, its Decaid's Library empty, or with Decaid's bundled Profiles. */
   function load(machine: CreatedMachine, serial: string, instance: TestServer, options: { bundled?: boolean } & CafeOptions = {}): SimulatedTablet {
     const { bundled, ...rest } = options;
-    const profiles = bundled ? (de1ProOnDecaid092()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
+    const profiles = bundled ? (de1ProOnDecaid093()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
     return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles }, ...rest });
   }
 
@@ -233,7 +233,7 @@ describe("A Profile's title, author and notes edited in the management interface
     expect(await refusal({ notes: 4 }, 400)).toEqual(["notes must be text"]);
     expect(await refusal({}, 400)).toBe("Send the fields to change as content, each by Decaid's name for it");
 
-    const bundled = (de1ProOnDecaid092()["/profiles"] as Record_[]).find((record) => record.isDefault === true)!;
+    const bundled = (de1ProOnDecaid093()["/profiles"] as Record_[]).find((record) => record.isDefault === true)!;
     const bundledId = String(bundled.id);
     await expect.poll(async () => (await api.call("GET", profilePath(bundledId))).status).toBe(200);
     // Another Profile's title, whatever its case and spaces, as Streamline finds a tablet's record by title; its own, recased, is fine.

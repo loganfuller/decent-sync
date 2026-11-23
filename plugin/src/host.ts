@@ -24,6 +24,29 @@ export interface PluginHost {
    * plugin_manager.dart, `_handlePluginSocketEndpoint` in plugins_handler.dart).
    */
   emit(event: string, payload: unknown): void;
+  /**
+   * With `manage.extensions`, calls one of Decaid's plugin and Skin
+   * management routes in process, with the authority to manage them
+   * (`PluginLocalApiBridge` in plugin_local_api_bridge.dart, from Decaid
+   * v0.9.2): whatever the Tablet's "Require authorization for extension
+   * management" setting asks of a plain request, which `fetch` is. `path`
+   * is the whole path, from `/api/v1/`. It reaches those routes, the reads
+   * of the plugin list, a plugin's settings and the Skins, and a `POST
+   * /api/v1/settings` of `defaultSkinId` or `automaticUpdateCheck` alone,
+   * and rejects for any other. Resolves with Decaid's answer whatever its
+   * status, its body as text; rejects where Decaid sends none within 60 s,
+   * or once the plugin is unloaded, as Decaid unloads it to install its
+   * update or save its settings (`localApiTimeout` in plugin_manager.dart).
+   */
+  localApi(path: string, options?: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown; contentType?: string }): Promise<LocalApiAnswer>;
+}
+
+/** What `host.localApi` resolves with. */
+export interface LocalApiAnswer {
+  status: number;
+  headers: Record<string, string>;
+  /** The response's body, as text. */
+  body: string;
 }
 
 export type StorageCommand = { type: "read"; key: string } | { type: "write"; key: string; data: unknown };

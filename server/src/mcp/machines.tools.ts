@@ -333,7 +333,7 @@ const AS_OF =
 
 /** The collections a Settings History keeps, for the descriptions of the tools that read one. */
 const HISTORY_COLLECTIONS =
-  "collection: machineSettings, advancedSettings, machineCalibration (its flow calibration) and sensorCalibration are its Machine Settings; appSettings, and presenceSettings, when it sleeps and wakes, its tablet's Tablet Settings; plugins and skins, Decaid's plugins and Skins; pairedDevices, the devices paired with its tablet; scaleInfo, its scale's firmware; sensors, its sensors.";
+  "collection: machineSettings, advancedSettings, machineCalibration (its flow calibration) and sensorCalibration are its Machine Settings; appSettings, and presenceSettings, when it sleeps and wakes, its tablet's Tablet Settings; plugins and skins, Decaid's plugins and Skins; pluginSettings, the plugins' settings, each field a plugin's id, a slash and the setting's name, its value shown to Admins only and a secret's never; pairedDevices, the devices paired with its tablet; scaleInfo, its scale's firmware; sensors, its sensors.";
 
 /** What a Settings History compares none of, which is never a change. */
 const LEFT_OUT =
@@ -418,7 +418,16 @@ const historyOutput = z.object({
             .describe("The Connected App the account made it through; null for the management interface."),
         })
         .nullable()
-        .describe("The Settings Edit that made these changes; null for changes made outside Decent Sync, tied to no person."),
+        .describe("The Settings Edit that made these changes; null for changes made outside Decent Sync, tied to no person, and for a Software Action's."),
+      softwareAction: z
+        .object({
+          id: z.string(),
+          kind: z.string().describe("What it did, as list_software_actions names it."),
+          account: z.object({ id: z.string(), name: z.string().nullable().describe("Shown to Admins only.") }).nullable(),
+          connectedApp: z.object({ id: z.string(), name: z.string(), host: z.string() }).nullable(),
+        })
+        .nullable()
+        .describe("The Software Action that made these changes, of the plugins or their settings, by its id in list_software_actions; null for any other change."),
       fields: z.array(
         z.object({
           field: z.string().describe("A field as Decaid names it; schedules/ and its id for a wake schedule; a target for the sensor calibration; an id for a plugin, paired device or sensor."),
@@ -474,14 +483,15 @@ export class MachinesTools {
     scopes: [READ],
     budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "Its Workflow is far longer asked for whole with raw; the management interface shows the Machine whole." },
   })
-  async getMachine({ machineId, at, raw }: z.infer<typeof machineInput>): Promise<z.infer<typeof machineOutput>> {
+  async getMachine({ machineId, at, raw }: z.infer<typeof machineInput>, context: McpContext): Promise<z.infer<typeof machineOutput>> {
     const id = readMachineId(machineId);
+    const { scope } = callerOf(context);
     const machine = await this.machines.get(id);
     const asOf = at === undefined ? undefined : new Date(at);
     if (asOf && (asOf.getUTCFullYear() < 1 || asOf.getUTCFullYear() > 9999)) throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
     const [workflow, settings, status, tabletVersions] = await Promise.all([
       this.events.currentLinkedWorkflow(id),
-      asOf ? this.history.asOf(id, SETTINGS, asOf).then((views) => SETTINGS.map((name) => views[name])) : Promise.all(SETTINGS.map((name) => this.collections.get(id, name))),
+      asOf ? this.history.asOf(id, SETTINGS, asOf, scope).then((views) => SETTINGS.map((name) => views[name])) : Promise.all(SETTINGS.map((name) => this.collections.get(id, name, scope))),
       sharingStatus(this.prisma, id),
       this.collections.tabletVersions(id),
     ]);
@@ -519,13 +529,14 @@ export class MachinesTools {
     scopes: [READ],
     budget: { rest: "Asked for one collection at a time, it has more of each." },
   })
-  async getMachineReports({ machineId, collections }: z.infer<typeof reportsInput>): Promise<z.infer<typeof reportsOutput>> {
+  async getMachineReports({ machineId, collections }: z.infer<typeof reportsInput>, context: McpContext): Promise<z.infer<typeof reportsOutput>> {
     const machine = await this.machines.get(readMachineId(machineId));
+    const { scope } = callerOf(context);
     const zone = zoneOf(machine);
     const asked = REPORTS.filter((name) => collections === undefined || collections.includes(name));
     const reports = await Promise.all(
       asked.map(async (name) =>
-        name === "pairedDevices" ? pairedDevicesOf(await this.collections.pairedDevices(machine.id), zone) : reportOf(await this.collections.get(machine.id, name), zone),
+        name === "pairedDevices" ? pairedDevicesOf(await this.collections.pairedDevices(machine.id), zone) : reportOf(await this.collections.get(machine.id, name, scope), zone),
       ),
     );
     return Object.fromEntries(asked.map((name, n) => [name, reports[n]]));
@@ -612,11 +623,12 @@ export class MachinesTools {
     const zone = zoneOf(machine);
     return {
       ...pageOf(total, offset, changes.length),
-      changes: changes.map(({ id, receivedAt, collection, settingsEdit, fields }) => ({
+      changes: changes.map(({ id, receivedAt, collection, settingsEdit, softwareAction, fields }) => ({
         id,
         receivedAt: zone(receivedAt),
         collection,
         settingsEdit,
+        softwareAction,
         fields: fields.map((field) => ({ ...field, backAt: zoneMaybe(zone, field.backAt) })),
       })),
     };

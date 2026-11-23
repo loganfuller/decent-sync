@@ -12,6 +12,8 @@ import { readTime } from "../machines/input.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
+import { type SoftwareActionView, SoftwareActionsService } from "../software-actions/software-actions.service.js";
+import { shownPluginSettings, shownSetting } from "./plugin-settings.js";
 import type { CollectionView } from "./collections.service.js";
 
 // Reading a Machine's Settings History (#433), which settings-history.ts
@@ -72,8 +74,10 @@ export interface SettingsHistoryChangeView {
   /** When the server received the value, by PostgreSQL's clock. */
   receivedAt: string;
   collection: SettingsHistoryCollection;
-  /** The Settings Edit whose read-back made these changes; null for changes made outside Decent Sync, which are tied to no person. */
+  /** The Settings Edit whose read-back made these changes; null for changes made outside Decent Sync, which are tied to no person, and for a Software Action's. */
   settingsEdit: SettingsHistorySourceView | null;
+  /** The Software Action whose read-back made these changes (ADR-0034), with what it did; null for any other change. */
+  softwareAction: (SettingsHistorySourceView & { kind: string }) | null;
   fields: SettingsHistoryFieldView[];
 }
 
@@ -107,6 +111,8 @@ export interface SettingsHistoryEntryView {
    * made outside Decent Sync.
    */
   settingsEdit: SettingsEditView | null;
+  /** The Software Action that made the change (ADR-0034), as the REST API gives one; null for any other change. */
+  softwareAction: SoftwareActionView | null;
 }
 
 export interface SettingsHistoryWithEditsPage {
@@ -128,6 +134,7 @@ interface Row {
   value: unknown;
   receivedAt: Date;
   settingsEditId: string | null;
+  softwareActionId: string | null;
   editedFields: string[] | null;
 }
 
@@ -136,6 +143,7 @@ interface Found {
   row: Row;
   collection: SettingsHistoryCollection;
   settingsEditId: string | null;
+  softwareActionId: string | null;
   fields: HistoryFieldChange[];
 }
 
@@ -149,6 +157,7 @@ export class SettingsHistoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly edits: SettingsEditsService,
+    private readonly actions: SoftwareActionsService,
   ) {}
 
   /**
@@ -163,14 +172,19 @@ export class SettingsHistoryService {
     const { found } = await this.found(this.prisma, machineId, filters);
     const shown = found.slice(page.offset, page.offset + page.limit);
     const sources = await this.sources(shown, scope);
+    const actions = await this.actions.viewsOf(this.prisma, [...new Set(shown.flatMap((change) => change.softwareActionId ?? []))], scope);
     return {
-      changes: shown.map(({ row, collection, settingsEditId, fields }) => ({
-        id: String(row.id),
-        receivedAt: row.receivedAt.toISOString(),
-        collection,
-        settingsEdit: settingsEditId === null ? null : (sources.get(settingsEditId) ?? null),
-        fields: fields.map(fieldView),
-      })),
+      changes: shown.map(({ row, collection, settingsEditId, softwareActionId, fields }) => {
+        const action = softwareActionId === null ? undefined : actions.get(softwareActionId);
+        return {
+          id: String(row.id),
+          receivedAt: row.receivedAt.toISOString(),
+          collection,
+          settingsEdit: settingsEditId === null ? null : (sources.get(settingsEditId) ?? null),
+          softwareAction: action ? { id: action.id, kind: action.kind, account: action.account, connectedApp: action.connectedApp } : null,
+          fields: fields.map((field) => fieldView(collection, field, scope)),
+        };
+      }),
       total: found.length,
       ...page,
     };
@@ -210,15 +224,17 @@ export class SettingsHistoryService {
         const shown = merged.slice(page.offset, page.offset + page.limit);
         const ids = shown.flatMap((entry) => ("edit" in entry ? [entry.edit.id] : entry.change.settingsEditId === null ? [] : [entry.change.settingsEditId]));
         const views = await this.edits.viewsOf(tx, [...new Set(ids)], scope);
+        const actions = await this.actions.viewsOf(tx, [...new Set(shown.flatMap((entry) => ("change" in entry ? (entry.change.softwareActionId ?? []) : [])))], scope);
         return {
           entries: shown.map((entry): SettingsHistoryEntryView => {
-            if ("edit" in entry) return { at: entry.edit.madeAt.toISOString(), collection: entry.edit.collection, change: null, settingsEdit: views.get(entry.edit.id) ?? null };
-            const { row, collection, settingsEditId, fields } = entry.change;
+            if ("edit" in entry) return { at: entry.edit.madeAt.toISOString(), collection: entry.edit.collection, change: null, settingsEdit: views.get(entry.edit.id) ?? null, softwareAction: null };
+            const { row, collection, settingsEditId, softwareActionId, fields } = entry.change;
             return {
               at: row.receivedAt.toISOString(),
               collection,
-              change: { id: String(row.id), fields: fields.map(fieldView) },
+              change: { id: String(row.id), fields: fields.map((field) => fieldView(collection, field, scope)) },
               settingsEdit: settingsEditId === null ? null : (views.get(settingsEditId) ?? null),
+              softwareAction: softwareActionId === null ? null : (actions.get(softwareActionId) ?? null),
             };
           }),
           total: merged.length,
@@ -239,7 +255,7 @@ export class SettingsHistoryService {
     // Each once, however often it is named.
     const names = [...new Set(filters.collections ?? SETTINGS_HISTORY_COLLECTIONS)];
     const rows = await db.$queryRaw<Row[]>`
-      SELECT id, name, value, received_at AS "receivedAt", settings_edit_id AS "settingsEditId", edited_fields AS "editedFields"
+      SELECT id, name, value, received_at AS "receivedAt", settings_edit_id AS "settingsEditId", software_action_id AS "softwareActionId", edited_fields AS "editedFields"
       FROM settings_history
       WHERE machine_id = ${machineId}::uuid AND name = ANY(${names}::text[])
       ORDER BY id`;
@@ -249,18 +265,19 @@ export class SettingsHistoryService {
       const values = rows.filter((row) => row.name === collection);
       const changes = settingsHistoryChanges(
         collection,
-        values.map((row) => ({ value: row.value, receivedAt: row.receivedAt.getTime(), settingsEditId: row.settingsEditId, editedFields: row.editedFields ?? [] })),
+        values.map((row) => ({ value: row.value, receivedAt: row.receivedAt.getTime(), settingsEditId: row.settingsEditId, softwareActionId: row.softwareActionId, editedFields: row.editedFields ?? [] })),
       );
-      for (const { index, settingsEditId, fields } of changes) {
+      for (const { index, settingsEditId, softwareActionId, fields } of changes) {
         if (settingsEditId !== null) madeBy.add(settingsEditId);
         const row = values[index]!;
         if (filters.from && row.receivedAt < filters.from) continue;
         if (filters.to && row.receivedAt >= filters.to) continue;
         const shown = filters.includeBrief ? fields : fields.filter((field) => field.backAt === null);
-        if (shown.length > 0) found.push({ row, collection, settingsEditId, fields: shown });
+        if (shown.length > 0) found.push({ row, collection, settingsEditId, softwareActionId, fields: shown });
       }
     }
-    found.sort((a, b) => Number(b.row.id - a.row.id) || (a.settingsEditId === null ? 1 : 0) - (b.settingsEditId === null ? 1 : 0));
+    const outside = (change: Found) => (change.settingsEditId === null && change.softwareActionId === null ? 1 : 0);
+    found.sort((a, b) => Number(b.row.id - a.row.id) || outside(a) - outside(b));
     return { found, madeBy };
   }
 
@@ -273,7 +290,7 @@ export class SettingsHistoryService {
    * a history begins with the value stored as it was first kept, at the time
    * that value was last reported.
    */
-  async asOf<Name extends SettingsHistoryCollection>(machineId: string, names: readonly Name[], at: Date): Promise<Record<Name, CollectionView | null>> {
+  async asOf<Name extends SettingsHistoryCollection>(machineId: string, names: readonly Name[], at: Date, scope: Scope): Promise<Record<Name, CollectionView | null>> {
     await this.requireMachine(this.prisma, machineId);
     const rows = await this.prisma.$queryRaw<{ name: Name; value: CollectionView["value"]; receivedAt: Date; utcOffsetMinutes: number | null }[]>`
       SELECT DISTINCT ON (name) name, value, received_at AS "receivedAt", utc_offset_minutes AS "utcOffsetMinutes"
@@ -285,7 +302,15 @@ export class SettingsHistoryService {
       const row = rows.find((candidate) => candidate.name === name);
       const receivedAt = row?.receivedAt.toISOString() ?? null;
       views[name] = row
-        ? { name, available: true, reportedAt: receivedAt!, receivedAt, items: Array.isArray(row.value) ? row.value.length : null, value: row.value, utcOffsetMinutes: row.utcOffsetMinutes }
+        ? {
+            name,
+            available: true,
+            reportedAt: receivedAt!,
+            receivedAt,
+            items: Array.isArray(row.value) ? row.value.length : null,
+            value: name === "pluginSettings" ? (shownPluginSettings(row.value, scope) as CollectionView["value"]) : row.value,
+            utcOffsetMinutes: row.utcOffsetMinutes,
+          }
         : null;
     }
     return views;
@@ -317,9 +342,10 @@ export class SettingsHistoryService {
   }
 }
 
-/** A field's change as the REST API gives it. */
-function fieldView({ field, change, before, after, backAt }: HistoryFieldChange): SettingsHistoryFieldView {
-  return { field, change, before, after, backAt: backAt === null ? null : new Date(backAt).toISOString() };
+/** A field's change as the REST API gives it: a plugin's setting with its values hidden from anyone but an Admin. */
+function fieldView(collection: SettingsHistoryCollection, { field, change, before, after, backAt }: HistoryFieldChange, scope: Scope): SettingsHistoryFieldView {
+  const shown = (value: unknown) => (collection === "pluginSettings" ? shownSetting(value, scope) : value);
+  return { field, change, before: shown(before), after: shown(after), backAt: backAt === null ? null : new Date(backAt).toISOString() };
 }
 
 /**

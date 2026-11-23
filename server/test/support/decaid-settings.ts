@@ -482,7 +482,7 @@ const NO_TOKEN: SettingsAnswer = { status: 401, body: { error: "Missing or malfo
  * nothing applied: the simulated tablet knows no token, as the plugin's
  * `fetch` carries none, so every request is one without. It answers `null`.
  */
-export function writeAppSettings(write: { current: unknown; body: string | undefined; failWrite?: FieldWriteFailure | undefined }): Written {
+export function writeAppSettings(write: { current: unknown; body: string | undefined; failWrite?: FieldWriteFailure | undefined; authorized?: boolean }): Written {
   let json: unknown;
   try {
     json = JSON.parse(write.body ?? "");
@@ -491,7 +491,7 @@ export function writeAppSettings(write: { current: unknown; body: string | undef
   }
   if (!isObject(json)) return { answer: UNHANDLED };
   if (!isObject(write.current)) throw new Error("The simulated tablet holds no app settings to write to");
-  if (needsToken(json, write.current)) return { answer: NO_TOKEN };
+  if (write.authorized === false && needsToken(json, write.current)) return { answer: NO_TOKEN };
   const value: Json = { ...write.current };
   try {
     for (const [name, take] of APP_SETTINGS) {
