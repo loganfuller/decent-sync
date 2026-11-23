@@ -41,7 +41,8 @@ describe("A Basket's `archived` in its content, from 1.12.1's data", { timeout: 
   let api: AdminApi;
 
   beforeAll(async () => {
-    server = await startTestServer({ env });
+    // From template0, migrated by this release, since later releases' CI runs this suite on a schema of theirs (AI_BUILD_NOTES.md).
+    server = await startTestServer({ env, emptyDatabase: true });
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {

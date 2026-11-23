@@ -22,6 +22,19 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### The Conflict routes are gone
+
+The routes 1.12.2 kept for a page of the release before it, `GET
+/api/conflicts`, each item's `GET .../:id/conflicts`, and `POST
+/api/conflicts/:id/use` and `/dismiss`, are removed, and answer 404. Lost
+Edits are read in each item's `GET .../history`, as in 1.12.2.
+
+No step is needed. The upgrade deletes the Conflicts that were dismissed
+before 1.12.2, which no release has shown since; every other Lost Edit stays
+in its item's History.
+
 ## 1.12.2
 
 ### Tablets need Streamline v0.2.31

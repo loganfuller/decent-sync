@@ -38,11 +38,10 @@ import { lockLocation } from "./location-state.js";
 // once the Profile joins it again, the tablet's record is the Library's.
 //
 // Locks, in the order every other change takes them, so none waits on
-// another in turn: the item's Lost Edits that the release before this one
-// still shows as open Conflicts, which its resolving one locks before its
-// Location's lock, while it runs beside this one (ADR-0025, #642); the tablets that hold it, whose reports lock
-// them before their Location's; the Locations whose state of it changes;
-// then the items.
+// another in turn: the tablets that hold it, whose reports lock them before
+// their Location's; the Locations whose state of it changes; then the items.
+// Its Lost Edits are not locked: nothing changes one, and they go with the
+// item.
 
 /** An item a hard delete removes: its kind and global id. */
 interface Deleted {
@@ -79,10 +78,6 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
     return ids.length === 0 ? [] : [{ kind: KINDS[wanted], ids }];
   });
 
-  await tx.$queryRaw`
-    SELECT 1 FROM conflicts
-    WHERE state = 'OPEN' AND (kind, item_id) IN (SELECT * FROM unnest(${items.map((item) => item.kind)}::text[], ${items.map((item) => item.id)}::text[]))
-    ORDER BY id FOR UPDATE`;
   /** The ids every kind's query finds, as `id` text, in order. */
   const found = async (query: (group: (typeof byKind)[number]) => Prisma.Sql) =>
     (await tx.$queryRaw<{ id: string }[]>`SELECT id FROM (${Prisma.join(byKind.map(query), " UNION ")}) AS found ORDER BY 1`).map((row) => row.id);

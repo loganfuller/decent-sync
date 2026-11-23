@@ -426,10 +426,19 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   (`created_at`), and the history entry it lost to (`lost_to_version_id`,
   added by the migration `20261123000000_lost_edits`, with no foreign key, as
   a history entry goes only with its item, which takes these rows with it):
-  null where that is not known, as for each row the previous release writes.
-  Its `state` (`LostEditState`, PostgreSQL's `conflict_state`) is what the
-  previous release keeps of a Conflict: every row this release writes is
-  `OPEN`, and a row `DISMISSED` is not shown (Lost Edits, below).
+  null where that is not known, as for a row a release before Lost Edits
+  kept as a Conflict. Its `state` (`LostEditState`, PostgreSQL's
+  `conflict_state`) is what such a release made of a Conflict. Every row
+  holds `OPEN` or `USED`: the migration
+  `20261123000001_dismissed_lost_edits_deleted` deleted each row
+  `DISMISSED`. It stays only so 1.12.2, which selects and filters on it,
+  runs beside this release, and goes in the next, with its enum and its
+  index on `state` and `created_at` (#653). This release names it in no
+  query, so that it runs beside that one: it writes a Lost Edit in SQL that
+  leaves `state` to the column's default (`recordLostEdit` in
+  `server/src/library/history.ts`), since Prisma's `create` would send the
+  default itself, and reads Lost Edits omitting it
+  (`lost-edits-without-state.test.ts` drops the column and checks both).
 
 ## Edits
 
@@ -560,17 +569,13 @@ someone used its value or dismissed it. Who wins is as it was (ADR-0020).
   (`server/src/mcp/library.tools.ts`), and each item's page lists them in
   its History card (REST API, below). Staff read them as Admins do, an
   account's name given to Admins only, as a history entry's.
-- **Beside the previous release.** Lost Edits are rows of the table
-  Conflicts were kept in (`conflicts`, Storage, above), which the previous
-  release still writes and resolves Conflicts in during a deploy's overlap
-  (ADR-0025), so this release needs no `breaking-release`. A row that
-  release writes is a Lost Edit here, with no edit it lost to. Every row in
-  state `OPEN` or `USED` is shown, so a Conflict whose value was used
-  through that release stays in the history beside the edit using it made; one in state
-  `DISMISSED`, before the upgrade or during the overlap, is not shown. A
-  page of that release that has not loaded the new build yet is answered by
-  stub routes (REST API, below), to be removed with the hard delete's lock
-  on `OPEN` rows and the table's old form (#642).
+- **Kept from Conflicts.** Lost Edits are rows of the table Conflicts were
+  kept in (`conflicts`, Storage, above), whose name it keeps. A row a
+  release before Lost Edits kept as a Conflict is a Lost Edit, with no edit
+  it lost to: one open or used is shown, so a Conflict whose value was used
+  stays in the history beside the edit using it made, and one dismissed
+  was deleted (#642). The routes that listed, used and dismissed Conflicts,
+  and the stubs left for one release in their place, are gone.
 
 ## Editing in the management interface
 
@@ -1146,14 +1151,13 @@ Archived (`WORKFLOW-AND-STATE.md`, Following the Recipe).
   included, such as one a barista made of it offline; such a batch's Shots,
   which the server could not see when the Bean was deleted, then name a
   batch the tablet no longer holds.
-- **Locks.** It takes the row locks of the item's Lost Edits in state
-  `OPEN`, which the previous release, while it runs beside this one, still
-  resolves as Conflicts, locking one before its Location (ADR-0025; to go
-  with the stub routes, #642), then the row
-  locks of the tablets that hold it, then the locks of the Locations whose
+- **Locks.** It takes the row locks of the tablets that hold it, then the
+  locks of the Locations whose
   state of it changes (for a Profile, each that decided whether it shows
   it), then the items' rows, the order every other change
-  takes them in, and decides whether a Shot names it under them. A tablet or
+  takes them in, and decides whether a Shot names it under them. It takes
+  none on the item's Lost Edits, which nothing changes, and which go with
+  the item (#642). A tablet or
   Location that came to hold the item while those were taken is found once
   the items' rows are locked, as nothing else can come to hold them then,
   and the delete starts again, at most three times. A batch created of the
@@ -3471,23 +3475,14 @@ Every endpoint requires the account session; Staff read them as Admins do.
   PostgreSQL's clock; and the edit it lost to, `{ versionId, value, source,
   editedAt }`, one of the item's `versions` by its id, with the value it set
   the field to, null where it cleared it, and where and when it was made, or
-  null where that is not known, as for one the previous release kept as a
-  Conflict. One that release dismissed is left out. Staff read them as
-  Admins do, and nothing changes one: the routes that listed, used and
-  dismissed Conflicts are gone (#632), but for the stubs below.
+  null where that is not known, as for one a release before Lost Edits kept
+  as a Conflict. Staff read them as Admins do, and nothing changes one: the
+  routes that listed, used and dismissed Conflicts are gone (#632), and so
+  are the stubs left for one release in their place (#642).
 - Each item's Shots are the Shots list's, filtered by it: `GET
   /api/shots?beanId=`, `beanBatchId=`, `grinderId=`, `profileId=`,
   `recipeId=` or `basketId=` (`SHOTS.md`). A Tool lists none, as Shots are
   not linked to their Tools.
-- `GET /api/conflicts`, each item's `GET .../:id/conflicts` (`beans`,
-  `bean-batches`, `grinders`, `profiles`, `baskets`, `tools` and `recipes`),
-  `POST /api/conflicts/:id/use` and `POST /api/conflicts/:id/dismiss` are
-  stubs (`server/src/library/conflicts.controller.ts`), kept for a page of
-  the previous release that has not loaded the new build yet (ADR-0025):
-  each `GET` returns `{ conflicts: [] }`, whatever the id, so such a page
-  shows none, and each `POST` is refused with 410, asking for a reload.
-  Nothing is listed, used or dismissed through them. They are to be removed
-  in the next release (#642).
 - `PUT /api/machines/:id/sharing`, with `{ sharing }`, turns the Machine's
   sharing on or off, off making it a Capture-only Machine, and returns the
   same: Admins only. 400 without a boolean, 404 for no such Machine.

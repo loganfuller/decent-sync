@@ -29,13 +29,15 @@ interface RecipeView {
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 const MIGRATION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261105000000_recipe_steam_time_off/migration.sql");
+const DISMISSED_DELETED = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261123000001_dismissed_lost_edits_deleted/migration.sql");
 
 describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, () => {
   let server: TestServer;
   let api: AdminApi;
 
   beforeAll(async () => {
-    server = await startTestServer({ env });
+    // From template0, migrated by this release, since later releases' CI runs this suite on a schema of theirs (AI_BUILD_NOTES.md).
+    server = await startTestServer({ env, emptyDatabase: true });
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
@@ -106,7 +108,9 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
       expect(new Date(String(after.decidedAt)).getTime()).toBeGreaterThan(new Date(String(before!.decidedAt)).getTime());
       expect((await fieldEdit(kept.id))!.versionId).not.toBe(version!.id);
 
-      // The one it dismissed is no Lost Edit in the Recipe's history (ADR-0033); the others are.
+      // The one it dismissed is deleted by a later migration (#642), so it is no Lost Edit in the Recipe's history (ADR-0033);
+      // the others are.
+      await database.query(fs.readFileSync(DISMISSED_DELETED, "utf8"));
       expect(await lostEdits(zero.id)).toEqual([conflicts.twenty, conflicts.used].sort());
     } finally {
       await database.end();

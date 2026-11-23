@@ -6,7 +6,6 @@ import { BeansController } from "./beans.controller.js";
 import { BeansService } from "./beans.service.js";
 import { BasketsController, ToolsController } from "./equipment.controller.js";
 import { EquipmentService } from "./equipment.service.js";
-import { ConflictsController } from "./conflicts.controller.js";
 import { DraftsController } from "./drafts.controller.js";
 import { DraftsService } from "./drafts.service.js";
 import { DraftFollowingService } from "./draft-following.service.js";
@@ -43,7 +42,6 @@ import { SharingService } from "./sharing.service.js";
     BasketsController,
     ToolsController,
     RecipesController,
-    ConflictsController,
     SharingController,
   ],
   providers: [

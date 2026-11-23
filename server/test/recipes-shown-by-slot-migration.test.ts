@@ -35,7 +35,8 @@ describe("Recipes shown on the strip by their slots alone, from 1.6.0's data", {
   let api: AdminApi;
 
   beforeAll(async () => {
-    server = await startTestServer({ env });
+    // From template0, migrated by this release, since later releases' CI runs this suite on a schema of theirs (AI_BUILD_NOTES.md).
+    server = await startTestServer({ env, emptyDatabase: true });
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {

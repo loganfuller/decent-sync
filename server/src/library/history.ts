@@ -60,11 +60,6 @@ export function itemKey(item: ItemRef): { kind: LibraryKind; itemId: string } {
   return { kind: item.kind, itemId: KINDS[item.kind].idType === "uuid" ? item.id.toLowerCase() : item.id };
 }
 
-/** A value as a version or Lost Edit keeps it: null where the edit cleared the field. */
-function jsonValue(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
-  return value === null || value === undefined ? Prisma.DbNull : (value as Prisma.InputJsonValue);
-}
-
 /** The item a copy was copied from (ticket #144), by its id, and its Location then. */
 export interface CopiedFrom {
   id: string;
@@ -102,7 +97,9 @@ export async function recordVersion(
 /**
  * Keeps an edit's value of one field that lost to a later edit its maker had
  * not seen as a Lost Edit: `lostTo` is that edit's version, null if it is
- * not known.
+ * not known. Written in SQL that names no `state`, which Prisma's `create`
+ * would send as its default, so that this release still runs once the next
+ * drops the column (#653); the database's default fills it until then.
  */
 export async function recordLostEdit(
   tx: Prisma.TransactionClient,
@@ -114,7 +111,13 @@ export async function recordLostEdit(
   editedAt: Date,
   lostTo: string | null,
 ): Promise<void> {
-  await tx.lostEdit.create({ data: { ...itemKey(item), locationId, field, value: jsonValue(value), ...source, editedAt, lostToVersionId: lostTo } });
+  const { kind, itemId } = itemKey(item);
+  // The value as JSON: null where the edit cleared the field.
+  const json = value === null || value === undefined ? null : JSON.stringify(value);
+  await tx.$executeRaw`
+    INSERT INTO conflicts (id, kind, item_id, location_id, field, value, machine_id, tablet_id, account_id, connected_app_id, edited_at, lost_to_version_id)
+    VALUES (gen_random_uuid(), ${kind}, ${itemId}, ${locationId}::uuid, ${field}, ${json}::jsonb, ${source.machineId}::uuid, ${source.tabletId}::uuid,
+      ${source.accountId}::uuid, ${source.connectedAppId}::uuid, ${editedAt}, ${lostTo}::uuid)`;
 }
 
 /**

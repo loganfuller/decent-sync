@@ -130,7 +130,7 @@ describe("Lost Edits", () => {
     return { labLocation, cafeLocation, labMachine, secondMachine, one, two, cafe, id, earlier, later, lost };
   }
 
-  it("keeps a value that an edit made without seeing it replaced in the item's history, with who made it, when and the edit it lost to, for Staff and Viewers to read as Admins do, and nothing to list, use or dismiss", async () => {
+  it("keeps a value that an edit made without seeing it replaced in the item's history, with who made it, when and the edit it lost to, for Staff and Viewers to read as Admins do, and no route to list, use or dismiss it", async () => {
     const { id, lost, labMachine, secondMachine, earlier, later, one, two, cafe } = await notesEdited("Replaced", 20010, "earlier");
     expect(lost).toMatchObject({
       field: "notes",
@@ -158,10 +158,10 @@ describe("Lost Edits", () => {
     const viewer = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Viewer", password: "viewer password 1" }));
     expect((await historyOf(`/beans/${id}`, viewer)).lostEdits).toEqual([lost]);
 
-    // Nothing lists, uses or dismisses it: what a page of the release before this one still asks for is empty or refused (#642).
-    expect(await api.get("/conflicts")).toEqual({ conflicts: [] });
-    expect(await api.get(`/beans/${id}/conflicts`)).toEqual({ conflicts: [] });
-    for (const action of ["use", "dismiss"]) expect((await api.call("POST", `/conflicts/${lost.id}/${action}`, { seen: lost.lostTo!.versionId })).status).toBe(410);
+    // Nothing lists, uses or dismisses it: the routes that did, and the stubs left for one release after them, are gone (#642).
+    expect((await api.call("GET", "/conflicts")).status).toBe(404);
+    expect((await api.call("GET", `/beans/${id}/conflicts`)).status).toBe(404);
+    for (const action of ["use", "dismiss"]) expect((await api.call("POST", `/conflicts/${lost.id}/${action}`, { seen: lost.lostTo!.versionId })).status).toBe(404);
     expect(await beanContent(id)).toMatchObject({ notes: "Later notes" });
     expect(await lostEditsOf(`/beans/${id}`)).toEqual([lost]);
     for (const tablet of [one, two, cafe]) expect(heldBean(tablet, id)).toMatchObject({ notes: "Later notes" });
@@ -444,7 +444,7 @@ describe("Lost Edits", () => {
     await holds(one, id, { notes: "Peach" });
   });
 
-  it("shows what the release before this one kept as a Conflict as a Lost Edit, with nothing it lost to, but one that release dismissed, and nothing for one naming another item's version", async () => {
+  it("shows what a release before Lost Edits kept as a Conflict as a Lost Edit, with nothing it lost to, and nothing for one naming another item's version", async () => {
     const { first, one } = await lab("Previous", 20100);
     await one.addBean({ roaster: "Roux", name: "Previous Guji", notes: "Peach" });
     const id = await libraryBean("Previous Guji");
@@ -452,12 +452,14 @@ describe("Lost Edits", () => {
     const other = await libraryBean("Other Guji");
     const database = await server.connectDatabase();
     try {
-      // As that release writes them: with no edit it lost to, open, and then used or dismissed there.
-      for (const [value, state] of [["Open notes", "OPEN"], ["Used notes", "USED"], ["Dismissed notes", "DISMISSED"]] as const) {
+      // As such a release wrote them: with no edit it lost to. They name no `state`, which this release's suite must not, as
+      // it runs on the next release's schema without it (#653): whether one was used there, or dismissed and so deleted by
+      // the migration `20261123000001_dismissed_lost_edits_deleted`, is dismissed-lost-edits-migration.test.ts's.
+      for (const value of ["First notes", "Second notes"]) {
         await database.query(
-          `INSERT INTO conflicts (id, kind, item_id, field, value, machine_id, edited_at, state)
-           VALUES (gen_random_uuid(), 'bean', $1, 'notes', to_jsonb($2::text), $3, now(), $4::conflict_state)`,
-          [id, value, first.machine.id, state],
+          `INSERT INTO conflicts (id, kind, item_id, field, value, machine_id, edited_at)
+           VALUES (gen_random_uuid(), 'bean', $1, 'notes', to_jsonb($2::text), $3, now())`,
+          [id, value, first.machine.id],
         );
       }
       // One naming a version of another item, which the column's lack of a foreign key allows: it lost to nothing of this one's.
@@ -465,16 +467,55 @@ describe("Lost Edits", () => {
         rows: [elsewhere],
       } = await database.query<{ id: string }>(`SELECT id FROM item_versions WHERE kind = 'bean' AND item_id = $1 LIMIT 1`, [other]);
       await database.query(
-        `INSERT INTO conflicts (id, kind, item_id, field, value, machine_id, edited_at, state, lost_to_version_id)
-         VALUES (gen_random_uuid(), 'bean', $1, 'notes', to_jsonb('Elsewhere notes'::text), $2, now(), 'OPEN', $3)`,
+        `INSERT INTO conflicts (id, kind, item_id, field, value, machine_id, edited_at, lost_to_version_id)
+         VALUES (gen_random_uuid(), 'bean', $1, 'notes', to_jsonb('Elsewhere notes'::text), $2, now(), $3)`,
         [id, first.machine.id, elsewhere!.id],
       );
     } finally {
       await database.end();
     }
     const lost = await lostEditsOf(`/beans/${id}`);
-    expect(lost.map((edit) => edit.value).sort()).toEqual(["Elsewhere notes", "Open notes", "Used notes"]);
+    expect(lost.map((edit) => edit.value).sort()).toEqual(["Elsewhere notes", "First notes", "Second notes"]);
     for (const edit of lost) expect(edit).toMatchObject({ field: "notes", lostTo: null, source: { machine: { id: first.machine.id } } });
+  });
+
+  it("takes no lock on an item's Lost Edits as it hard-deletes the item before the item's own, and deletes them with it", async () => {
+    const location = await api.createLocation("Deleted lost", "America/Chicago");
+    const { basket } = await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Deleted 18g", size: "double" } }, 201);
+    const holder = await server.connectDatabase();
+    const probe = await server.connectDatabase();
+    try {
+      const {
+        rows: [lost],
+      } = await holder.query<{ id: string }>(
+        `INSERT INTO conflicts (id, kind, item_id, field, value, edited_at, lost_to_version_id)
+         VALUES (gen_random_uuid(), 'basket', $1, 'name', to_jsonb('Lost 18g'::text), now(), (SELECT id FROM item_versions WHERE kind = 'basket' AND item_id = $1 LIMIT 1))
+         RETURNING id::text AS id`,
+        [basket.id],
+      );
+      expect(await lostEditsOf(`/baskets/${basket.id}`)).toHaveLength(1);
+      // Holding the Lost Edit's row, the delete waits only to delete it, the item's own lock taken: a release that locked
+      // its Lost Edits first would wait without it (#642).
+      await holder.query("BEGIN");
+      await holder.query("SELECT 1 FROM conflicts WHERE id = $1 FOR UPDATE", [lost!.id]);
+      const deleted = api.call("DELETE", `/baskets/${basket.id}`);
+      const itemLocked = async () => {
+        try {
+          await probe.query("SELECT 1 FROM baskets WHERE id = $1 FOR UPDATE NOWAIT", [basket.id]);
+          return false;
+        } catch (error) {
+          if ((error as { code?: string }).code === "55P03") return true;
+          throw error;
+        }
+      };
+      await expect.poll(itemLocked, { timeout: 10_000 }).toBe(true);
+      await holder.query("ROLLBACK");
+      expect((await deleted).status).toBe(204);
+      expect((await probe.query("SELECT 1 FROM conflicts WHERE id = $1", [lost!.id])).rowCount).toBe(0);
+    } finally {
+      await holder.end();
+      await probe.end();
+    }
   });
 
   /** The batch's remaining weight at its one Location, through the REST API. */
