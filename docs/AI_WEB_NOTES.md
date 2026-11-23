@@ -20,7 +20,7 @@ Conventions of the management interface (`web/`) that no single file states.
 
 ## Tabs
 
-- A link that replaces part of a page, as a Machine page's tabs do, calls `useKeptScroll` (`web/src/lib/use-kept-scroll.ts`) on its click, so the page doesn't shrink under a reader scrolled down while the new part loads.
+- A link that replaces part of a page, as a Machine page's tabs do, passes its click to what `useKeptScroll` (`web/src/lib/use-kept-scroll.ts`) returns, so the page doesn't shrink under a reader scrolled down while the new part loads.
 
 ## Phone width
 

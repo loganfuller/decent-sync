@@ -252,6 +252,13 @@ test("a tab opened while scrolled down to the tabs keeps the page's scroll posit
       return window.scrollY;
     });
     expect(top, "scrolled down Setup").toBeGreaterThan(0);
+    if (tab === "Now") {
+      // A ctrl- or cmd-click opens the tab in a new browser tab, and this one stays as it is: nothing is held for it.
+      const opened = page.context().waitForEvent("page");
+      await page.getByRole("navigation", { name: "Machine" }).getByRole("link", { name: tab, exact: true }).click({ modifiers: ["ControlOrMeta"] });
+      await (await opened).close();
+      expect(await page.evaluate(() => document.documentElement.style.minHeight), "held for a ctrl- or cmd-click").toBe("");
+    }
 
     // The tab's reads held back, so it stays as it is while loading. Each frame's scroll position is noted from before
     // the click, which goes to the link where it is, rather than scrolling it into view first.
@@ -275,24 +282,27 @@ test("a tab opened while scrolled down to the tabs keeps the page's scroll posit
     await twoFrames();
     expect(new Set(await frames()), `${tab}: each frame's scroll position while it loads`).toEqual(new Set([top]));
     expect((await heights()).content, `${tab}'s content while it loads`).toBeLessThan((await scrolled()).bottom);
-    // And on through its reads arriving, to two frames after it has loaded.
+    // And on through its reads arriving, to two frames after its last Loading note has gone.
     release();
     await expect(page.getByRole("main").getByText("Loading", { exact: true })).toHaveCount(0);
     await twoFrames();
-    expect(new Set(await frames()), `${tab}: each frame's scroll position once loaded`).toEqual(new Set([top]));
+    expect(new Set(await frames()), `${tab}: each frame's scroll position once its Loading notes have gone`).toEqual(new Set([top]));
     await page.unroute(reads);
   }
 
-  // Settings, loaded, still falls short of where the window's bottom was: what is held goes as the window is made
-  // shorter, without a scroll, and as the page is scrolled up past it, and all of it at the top.
-  const short = (await scrolled()).bottom - (await heights()).content;
-  expect(short, "Settings, loaded, short of the window's bottom").toBeGreaterThan(1);
+  // Settings, loaded, still falls short of where the window's bottom was. A window made shorter and then taller again
+  // leaves the page where it was, as what is held stays until the reader scrolls.
+  expect((await heights()).content).toBeLessThan((await scrolled()).bottom);
+  const before = (await scrolled()).y;
   const viewport = page.viewportSize()!;
-  await page.setViewportSize({ width: viewport.width, height: viewport.height - Math.floor(short / 2) });
-  await expect.poll(async () => (await heights()).page).toBe((await scrolled()).bottom);
-  // Scrolled halfway up, the window's bottom may be above where the content ends: nothing is held past either.
+  await page.setViewportSize({ width: viewport.width, height: viewport.height - 300 });
+  await twoFrames();
+  await page.setViewportSize(viewport);
+  await twoFrames();
+  expect((await scrolled()).y, "scroll position after the window was made shorter and taller again").toBe(before);
+  // What is held goes as the page is scrolled up past it, and all of it at the top.
   await page.evaluate(() => window.scrollTo(0, window.scrollY / 2));
-  await expect.poll(async () => (await heights()).page).toBe(Math.max((await heights()).content, (await scrolled()).bottom));
+  await expect.poll(async () => (await heights()).page).toBe((await scrolled()).bottom);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(async () => (await heights()).page).toBe((await heights()).content);
 
