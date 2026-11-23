@@ -9,7 +9,7 @@ every one of them, as it does v0.9.2's.
 
 v0.9.3 bundles 94 profiles: v0.9.2's 73, with the same ids, and 21 more
 (`assets/defaultProfiles/manifest.json`), the first of kind `calibrate` and a
-second `cleaning` one. It changes neither how it reads a profile nor how it
+third `cleaning` one. It changes neither how it reads a profile nor how it
 hashes one: `git diff v0.9.2 v0.9.3` of `lib/src/models/data/profile.dart`,
 `profile_hash.dart` and `utils.dart` is empty. Each posted case got the id it
 got on v0.9.2.

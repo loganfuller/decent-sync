@@ -120,8 +120,8 @@ Decaid checks by itself only while its **Automatic update checks** setting is
 on. A Machine's page shows that setting under Tablet Settings, and it is
 changed in Decaid on the tablet: Decaid v0.9.2, and v0.9.3 and later while
 **Require authorization for extension management** is on, turn it on only for a
-request carrying such a token, which the plugin has none of, and the plugin
-cannot tell which way that setting is
+request carrying such a token, which the plugin has none of, and that setting
+is changed only on the tablet, at any time
 ([ADR-0023](adr/0023-decaid-and-the-machine-keep-their-settings.md)).
 
 - **An update that asks for no new permissions** installs by itself.

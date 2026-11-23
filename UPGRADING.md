@@ -44,8 +44,10 @@ This server needs nothing for Decaid v0.9.3. On a tablet that updates to it:
 - Decaid turns its protection of plugin and Skin management off as it
   updates, so anything on the tablet's network can install a plugin there
   until **Require authorization for extension management** is turned on in
-  Decaid's Security settings on the tablet. Turned on, the tablet answers as
-  v0.9.2 did, asking a token (docs/PLUGIN.md, A token for managing plugins).
+  Decaid's Security settings on the tablet. Turned on, the tablet asks a token as
+  v0.9.2 did (docs/PLUGIN.md, A token for managing plugins). Either way,
+  v0.9.3 refuses a browser page whose address is not the tablet's own
+  numeric one or `localhost`, which v0.9.2 did not.
 - v0.9.3 bundles 21 more Profiles: Decaid's calibration and leak tests, a
   forward flush, and espresso Profiles such as the E61 ones. The first tablet
   at a Location to update reports them, and they join the Library shown at

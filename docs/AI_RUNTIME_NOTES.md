@@ -49,7 +49,7 @@ On v0.9.2 the routes that manage plugins and Skins take a request only with a be
 
 v0.9.3 asks the same token, on the same routes and the same `POST /api/v1/settings` bodies, only while Settings → Security → "Require authorization for extension management" is on (`decaid:lib/src/services/webserver/extension_management_auth.dart`, `decaid:lib/src/settings/security_page.dart`; `decaid:doc/Api.md`, Extension management authorization). It is off on a new install and after an update from v0.9.2, whatever tokens the Tablet holds; off, those routes take any request that reaches the Tablet, as before v0.9.2, and ignore an `Authorization` header. `host.localApi` with `manage.extensions` works either way.
 
-v0.9.3's switch is changed only in Decaid on the Tablet: `GET /api/v1/settings` does not report it, and `POST /api/v1/settings`, a backup import and a sync neither set nor carry it, so the plugin cannot tell which way a Tablet is set.
+v0.9.3's switch is changed only in Decaid on the Tablet: `GET /api/v1/settings` does not report it, and `POST /api/v1/settings`, a backup import and a sync neither set nor carry it. So nothing the plugin reads reports which way a Tablet is set, and it can be turned on at any time: a guarded route answering 401 would show it on only at that moment.
 
 In both modes v0.9.3 refuses with 403 a browser page managing plugins and Skins whose `Origin` is not the Tablet's own numeric address or `localhost` (`decaid:doc/Api.md`, Browser origins). A request with no `Origin`, as the plugin's `fetch` and `curl` send, is not checked.
 

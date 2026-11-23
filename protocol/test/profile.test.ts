@@ -116,7 +116,7 @@ describe("Decaid's id", () => {
     const ids = (recording: Recording) => recording.bundled.map((record) => record.id);
     expect(ids(next)).toEqual(expect.arrayContaining(ids(minimum)));
     expect(next.posted.map((exchange) => exchange.response.body.id)).toEqual(minimum.posted.map((exchange) => exchange.response.body.id));
-    // The 21, of kinds calibrate and cleaning that v0.9.2 bundled none or one of: #655's ids, computed from Decaid's files.
+    // The 21, among them the first of kind calibrate and a third cleaning one: #655's ids, computed from Decaid's files.
     expect(ids(next).filter((id) => !ids(minimum).includes(id)).sort()).toEqual(
       [
         "profile:f1b836e535b0b57f44a2",
