@@ -3109,11 +3109,12 @@ A Draft can be tried on a Machine before it is published (#581, ADR-0032;
   loaded. The row stays, so the Draft's page says when it ended, why, and
   what the Machine's Workflow holds now.
 - **Which plugin.** The write came in wire revision 4
-  (`AI_PROTOCOL_NOTES.md`, Wire revision). The server records the revision
-  each accepted hello gave (`machines.wire_revision`), so any instance
-  lists a Machine whose plugin is behind it as needing its plugin updated,
-  and refuses to start following on it; one whose tablet has not connected
-  since the server recorded revisions can't be judged, and is refused too.
+  (`AI_PROTOCOL_NOTES.md`, Wire revision), which every plugin the server
+  accepts has since the wire moved to 5 (#660), so no Machine needs its
+  plugin updated to follow a Draft. The server records the revision each
+  accepted hello gave (`machines.wire_revision`); a Machine whose tablet has
+  not connected since the server recorded revisions is refused, as it can't
+  be judged.
 - **A Trial Shot** is a Shot credited to a Machine the Draft was written
   to, pulled, by the tablet's clock, from when it was written a profile
   whose steps the Shot's Workflow's profile holds: the same steps as the
@@ -3291,7 +3292,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `stopped` and `location`, and `has` the title of the profile the
   Machine's Workflow holds now; `machines`, those taking part at a Location
   that tries Drafts, each `{ id, name, location, needsPluginUpdate,
-  canFollow, follows }`, `follows` another Draft it follows now; and
+  canFollow, follows }`, `needsPluginUpdate` always false since the wire
+  moved to revision 5, kept for the previous release's pages, and `follows`
+  another Draft it follows now; and
   `trialShots`, the latest fifty, each `{ shot, trialId, steps }`, `shot`
   as the Shots list gives one and `steps` `current` or `earlier`. 403 for a
   Viewer, 404 for no such Draft.
@@ -3300,8 +3303,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ trying }`. Following is refused with 403 for Staff working elsewhere
   than at the Machine's Location; 404 for no such Draft or Machine; 409 for
   a Capture-only Machine, a Location that doesn't try Drafts, a Machine
-  following another Draft, one that needs its plugin updated or whose
-  tablet has not connected yet, and a Draft with no steps or more than a
+  following another Draft, one whose tablet has not connected since the
+  server recorded wire revisions, and a Draft with no steps or more than a
   machine takes. Stopping is refused with 409 where no Machine follows it.
 - `GET /api/drafts/:id/trials/:trialId` returns `{ trial }`, a profile the
   Draft was written to a following Machine with, which a Trial Shot ran:

@@ -206,6 +206,14 @@ can't connect.
 - Each Library change and each Settings Edit made through an app is recorded
   as the person's, through the app. It shows as "*account*, through *app*" in
   the item's history, and in the Machine's Settings Edits.
+- An app reads what each Machine's tablet runs, its Tablet Software, and the
+  Software Actions made on it, but makes none: installing, removing,
+  approving or configuring anything on a tablet is done by an Admin in the
+  management interface, as it can put code on the tablet. Nor can an app turn
+  a tablet's automatic update checks on or off
+  ([ADR-0034](adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
+  An app approved by an Admin reads the values of plugins' settings; one
+  approved by Staff or a Viewer reads which are set, not their values.
 - Each person sees their own apps on the **Connected Apps** page, in the
   account menu under their name. Disconnecting one there stops it at once.
 - Admins see and disconnect everyone's apps on the **Accounts** page.
