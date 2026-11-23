@@ -116,6 +116,18 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     }
   });
 
+  it("answers an install Decaid stopped waiting on, but went on with, once the plugin list shows it", async () => {
+    const plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
+    // host.localApi gives up after its time, as Decaid's does after a minute, while the install goes on.
+    plugins.localApiTimeoutMs = 1_000;
+    plugins.installMs = 2_500;
+    plugins.offer("example/uploader", { manifest: { ...recordedPlugin("shot-upload.reaplugin"), id: "uploader.reaplugin", name: "Uploader", version: "0.4.0" } });
+    const { machine } = await connected("Deadline install timed out", server, { plugins });
+    const install = await make(machine, { kind: "installPlugin", repo: "example/uploader" });
+    expect(await answered(machine, install.id)).toMatchObject({ outcome: "done", result: { pluginId: "uploader.reaplugin", name: "Uploader", version: "0.4.0" }, refusal: null });
+    expect((await software(machine))?.find((plugin) => plugin.id === "uploader.reaplugin")).toMatchObject({ version: "0.4.0" });
+  });
+
   it("never sends an action no connection claimed, after a reconnect or once its time is up, and shows it not confirmed", async () => {
     const { machine, tablet, plugins } = await connected("Deadline never queued");
     const password = "another made-up password 0815 for the test";
@@ -237,6 +249,8 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     // As Decaid holds a plugin installed from a release whose newer release adds a permission (pending-update.json).
     plugins.ownSource = { ...(recordedPlugin(DECENT_SYNC_PLUGIN_ID, "staged", "pending").source as Record<string, unknown>), releaseTag: `v${String(manifest.version)}` };
     plugins.offer("loganfuller/decent-sync", { manifest: { ...manifest, version: "99.0.0", permissions: [...(manifest.permissions as string[]), "proxy.decent_api"] }, tag: "v99.0.0" });
+    // Decaid clears the waiting update only after the next load has started.
+    plugins.ownSourceAfterLoadMs = 2_000;
     const { machine, tablet } = await connected("Deadline own update", server, { plugins });
     expect(await own(machine)).toMatchObject({ version: manifest.version, updates: { how: "followsReleases", repo: "loganfuller/decent-sync" }, pendingUpdate: null });
 
@@ -297,6 +311,8 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     const { manifest } = readBuiltPlugin();
     plugins.ownSource = { ...(recordedPlugin("dye2.reaplugin", "branchInstalled").source as Record<string, unknown>), repo: "loganfuller/decent-sync", branch: "trial", commit: "1".repeat(40) };
     plugins.offer("loganfuller/decent-sync", { manifest, branch: "trial", commit: "2".repeat(40) });
+    // Decaid writes the new commit only after the next load has started.
+    plugins.ownSourceAfterLoadMs = 2_000;
     const { machine, tablet } = await connected("Deadline own branch commit", server, { plugins });
     const check = await make(machine, { kind: "checkPluginUpdates" });
     expect(await answered(machine, check.id)).toMatchObject({ outcome: "done", result: { results: [{ item: DECENT_SYNC_PLUGIN_ID, status: "updated", version: manifest.version }] } });

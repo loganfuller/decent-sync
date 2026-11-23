@@ -3605,11 +3605,11 @@ var __decentSync = (() => {
       index = records.findIndex((candidate) => candidate.id === write.localId);
       if (index === -1) return refused(write, 404, "Record not found");
       const current = records[index];
-      const settled = settable(write, (field) => valueAt(current, field));
+      const settled2 = settable(write, (field) => valueAt(current, field));
       const expected = write.expected;
-      if (expected && RECIPE_SLOT_FIELD in expected && !sameValue(current[RECIPE_SLOT_FIELD] ?? null, expected[RECIPE_SLOT_FIELD])) delete settled[RECIPE_SHOWN_FIELD];
-      record3 = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
-      writtenFields = Object.keys(settled);
+      if (expected && RECIPE_SLOT_FIELD in expected && !sameValue(current[RECIPE_SLOT_FIELD] ?? null, expected[RECIPE_SLOT_FIELD])) delete settled2[RECIPE_SHOWN_FIELD];
+      record3 = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled2);
+      writtenFields = Object.keys(settled2);
       if (sameJson(record3, current)) return written(write, current, writtenFields, now2);
     }
     const before = [...records];
@@ -5460,6 +5460,8 @@ var __decentSync = (() => {
   var UPDATE_CHECK_MS = 45e3;
   var PENDING_KEY = "softwareAction";
   var PENDING_MS = 10 * 6e4;
+  var WATCH_STEP_MS = 3e3;
+  var RESUME_WATCH_MS = 3e4;
   var SoftwareActions = class {
     constructor(access, outbox, reports, storage, transports, log) {
       __publicField(this, "access", access);
@@ -5478,6 +5480,7 @@ var __decentSync = (() => {
     apply(action, connected) {
       const startBy = action.timeLeftMs - SOFTWARE_ACTION_START_MARGIN_MS;
       const startByTime = Date.now() + startBy;
+      const endTime = Date.now() + action.timeLeftMs;
       let outOfTime = startBy < 0;
       const timer = setTimeout(() => outOfTime = true, Math.max(0, startBy));
       const tooLate = () => outOfTime || !connected() || Date.now() > startByTime;
@@ -5486,7 +5489,7 @@ var __decentSync = (() => {
           if (this.stopped) return;
           let answer;
           try {
-            answer = await this.carryOut(action, tooLate);
+            answer = await this.carryOut(action, tooLate, endTime);
           } catch (error) {
             answer = refusedByDecaid2(action.id, null, `Decaid did not answer: ${describe2(error)}`);
           }
@@ -5504,35 +5507,53 @@ var __decentSync = (() => {
     }
     /**
      * Answers the action an earlier load kept, if Decaid loaded the plugin
-     * again under it, from what is installed now: within the queue, so no
+     * again under it, from what is installed now, watched for a while as
+     * Decaid finishes the install (`RESUME_WATCH_MS`): within the queue, so no
      * action sent to this load runs first. One it can't tell the outcome of
-     * is left unanswered, and so not confirmed. It never rejects.
+     * by then is left unanswered, and so not confirmed; one this load unloads
+     * under stays kept for the next. It never rejects.
      */
     resume() {
       return this.access.run(async () => {
         try {
           const kept = parsed5(String(await this.storage.read(PENDING_KEY, "the Software Action an earlier load kept") ?? ""));
           if (!isPending(kept) || this.stopped) return;
+          if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return void await this.forget();
+          const answer = await this.watch(kept, true, Math.min(kept.startedAt + PENDING_MS, Date.now() + RESUME_WATCH_MS));
+          if (this.stopped) return;
           await this.forget();
-          if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return;
-          let plugins = await this.reports.readSoftware("plugins", kept.id);
-          if (plugins === void 0) return;
-          let report;
-          if (kept.kind === "checkPluginUpdates" && ownBuildChanged(kept, plugins)) {
-            report = await this.joinUpdateCheck();
-            if (report === void 0 || this.stopped) return;
-            plugins = await this.reports.readSoftware("plugins", kept.id) ?? plugins;
-          }
-          const answer = afterReload(kept, plugins, report);
-          if (answer === void 0 || this.stopped) return;
-          this.outbox.enqueue(answer);
+          if (answer !== void 0) this.outbox.enqueue(answer);
         } catch (error) {
           this.log(`Could not answer the Software Action an earlier load kept: ${describe2(error)}`);
         }
       });
     }
+    /**
+     * What came of a kept action once the plugin list shows it (`settled`),
+     * read again every WATCH_STEP_MS until `until`, each read reported as a
+     * read-back of the action; undefined where it never shows by then, or the
+     * plugin unloads. An update check's results are asked of Decaid again
+     * (`joinUpdateCheck`): after a load of the plugin, only once its own build
+     * shows changed, which is what loaded it again.
+     */
+    async watch(kept, reloaded, until) {
+      for (; ; ) {
+        if (this.stopped) return void 0;
+        let plugins = await this.reports.readSoftware("plugins", kept.id);
+        let report;
+        if (plugins !== void 0 && kept.kind === "checkPluginUpdates" && (!reloaded || ownBuildChanged(kept, plugins))) {
+          report = await this.joinUpdateCheck().catch(() => void 0);
+          if (report !== void 0 && !this.stopped) plugins = await this.reports.readSoftware("plugins", kept.id) ?? plugins;
+        }
+        if (this.stopped) return void 0;
+        const answer = plugins === void 0 ? void 0 : settled(kept, plugins, report, reloaded);
+        if (answer !== void 0) return answer;
+        if (Date.now() + WATCH_STEP_MS > until) return void 0;
+        await new Promise((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
+      }
+    }
     /** The action's answer, or undefined where the plugin unloaded before or under it. */
-    async carryOut(action, tooLate) {
+    async carryOut(action, tooLate, endTime) {
       if (tooLate()) return expired2(action.id);
       const forbidden = forbiddenToItself(action);
       if (forbidden !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "notAllowed", message: forbidden };
@@ -5554,7 +5575,8 @@ var __decentSync = (() => {
       if (this.stopped) return void 0;
       if (tooLate()) return expired2(action.id);
       const reloads = mayReloadItself(action);
-      if (reloads) await this.keep(action, before);
+      const pending = pendingOf(action, before);
+      if (reloads) await this.keep(pending);
       let answer;
       let failure = "";
       try {
@@ -5562,6 +5584,12 @@ var __decentSync = (() => {
       } catch (error) {
         failure = describe2(error);
         if (reloads && /unloaded|generation changed/i.test(failure)) return void 0;
+        if (/timed out/i.test(failure)) {
+          const watched = await this.watch(pending, false, endTime);
+          if (this.stopped) return void 0;
+          if (reloads && watched !== void 0) await this.forget();
+          return watched;
+        }
       }
       if (this.stopped) return void 0;
       if (reloads) await this.forget();
@@ -5602,9 +5630,9 @@ var __decentSync = (() => {
         return await new Promise((resolve, reject) => {
           let checking = false;
           const timer = setTimeout(() => reject(new Error("its check for an update did not finish in time")), UPDATE_CHECK_MS);
-          const settle = (settled) => {
+          const settle = (settled2) => {
             clearTimeout(timer);
-            settled();
+            settled2();
           };
           this.transports.onEvent(handle, (event) => {
             if (event.type !== "data") return settle(() => reject(new Error("its update socket closed")));
@@ -5640,23 +5668,26 @@ var __decentSync = (() => {
       const said = answer.ok ? parsed5(answer.text) : void 0;
       return isObject8(said) && Array.isArray(said.results) ? said.results : void 0;
     }
-    async keep(action, plugins) {
-      const pending = {
-        id: action.id,
-        kind: action.kind,
-        startedAt: Date.now(),
-        versions: versionsOf(plugins),
-        builds: buildsOf(plugins),
-        ..."pluginId" in action ? { pluginId: action.pluginId } : {},
-        ...action.kind === "installPlugin" ? { repo: action.repo, ...action.branch === void 0 ? {} : { branch: action.branch } } : {},
-        ...action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}
-      };
+    async keep(pending) {
       await this.storage.write(PENDING_KEY, JSON.stringify(pending), "a Software Action that may load the plugin again");
     }
     async forget() {
       await this.storage.write(PENDING_KEY, "", "that a Software Action is done").catch((error) => this.log(`Could not clear the Software Action kept: ${describe2(error)}`));
     }
   };
+  function pendingOf(action, plugins) {
+    return {
+      id: action.id,
+      kind: action.kind,
+      startedAt: Date.now(),
+      versions: versionsOf(plugins),
+      builds: buildsOf(plugins),
+      installed: installedOf(plugins),
+      ..."pluginId" in action ? { pluginId: action.pluginId } : {},
+      ...action.kind === "installPlugin" ? { repo: action.repo, ...action.branch === void 0 ? {} : { branch: action.branch } } : {},
+      ...action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}
+    };
+  }
   function forbiddenToItself(action) {
     if (!("pluginId" in action) || action.pluginId !== "decent-sync.reaplugin") return null;
     if (action.kind === "disablePlugin") return "The Decent Sync plugin does not disable itself: that would cut the Tablet off from the server";
@@ -5730,31 +5761,36 @@ var __decentSync = (() => {
     if (!plugin) return { pluginId };
     return { pluginId, ...named(plugin), ...typeof plugin.version === "string" ? { version: plugin.version } : {}, ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {} };
   }
-  function afterReload(kept, plugins, report) {
-    const own = plugins.find((entry) => isObject8(entry) && entry.id === "decent-sync.reaplugin");
-    if (!own) return void 0;
-    const version = typeof own.version === "string" ? own.version : void 0;
-    const result = {
-      pluginId: "decent-sync.reaplugin",
-      ...typeof own.name === "string" && own.name !== "" ? { name: own.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {},
-      ...version === void 0 ? {} : { version },
-      loaded: true
-    };
+  function settled(kept, plugins, report, reloaded) {
+    const entries = plugins.filter(isObject8);
+    const builds = buildsOf(plugins);
     const done = (given) => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
-    const updated = ownBuildChanged(kept, plugins);
+    const resultFor = (plugin) => ({
+      pluginId: String(plugin.id),
+      ...typeof plugin.name === "string" && plugin.name !== "" ? { name: plugin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {},
+      ...typeof plugin.version === "string" ? { version: plugin.version } : {},
+      ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {}
+    });
     switch (kept.kind) {
-      case "approvePluginUpdate":
-        return kept.pluginId === "decent-sync.reaplugin" && !isObject8(own.pendingUpdate) && updated ? done(result) : void 0;
+      case "approvePluginUpdate": {
+        const plugin = entries.find((entry) => entry.id === kept.pluginId);
+        const rebuilt = plugin !== void 0 && builds[kept.pluginId] !== void 0 && builds[kept.pluginId] !== kept.builds[kept.pluginId];
+        return plugin && rebuilt && !isObject8(plugin.pendingUpdate) ? done(resultFor(plugin)) : void 0;
+      }
       case "installPlugin": {
-        const source = isObject8(own.source) ? own.source : {};
-        const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
-        const sameBranch = kept.branch === void 0 ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
-        return sameRepo && sameBranch ? done(result) : void 0;
+        const installed = installedOf(plugins);
+        const plugin = entries.find((entry) => {
+          const source = isObject8(entry.source) ? entry.source : {};
+          const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
+          const sameBranch = kept.branch === void 0 ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
+          const id = String(entry.id);
+          return sameRepo && sameBranch && installed[id] !== void 0 && installed[id] !== kept.installed[id];
+        });
+        return plugin ? done(resultFor(plugin)) : void 0;
       }
       case "checkPluginUpdates": {
-        if (!updated || report === void 0) return void 0;
+        if (report === void 0) return void 0;
         const versions = versionsOf(plugins);
-        const builds = buildsOf(plugins);
         const results = report.filter(isObject8).flatMap((given) => {
           const item = given.item;
           if (typeof item !== "string" || typeof given.status !== "string") return [];
@@ -5765,8 +5801,10 @@ var __decentSync = (() => {
         });
         return done({ results });
       }
-      case "changePluginSettings":
-        return kept.pluginId === "decent-sync.reaplugin" ? done(result) : void 0;
+      case "changePluginSettings": {
+        const own = entries.find((entry) => entry.id === "decent-sync.reaplugin");
+        return reloaded && own && kept.pluginId === "decent-sync.reaplugin" ? done(resultFor(own)) : void 0;
+      }
       default:
         return void 0;
     }
@@ -5785,6 +5823,14 @@ var __decentSync = (() => {
       })
     );
   }
+  function installedOf(plugins) {
+    return Object.fromEntries(
+      plugins.filter(isObject8).flatMap((plugin) => {
+        const source = isObject8(plugin.source) ? plugin.source : {};
+        return typeof plugin.id === "string" && typeof source.installedAt === "string" ? [[plugin.id, source.installedAt]] : [];
+      })
+    );
+  }
   function versionsOf(plugins) {
     return Object.fromEntries(plugins.filter(isObject8).flatMap((plugin) => typeof plugin.id === "string" && typeof plugin.version === "string" ? [[plugin.id, plugin.version]] : []));
   }
@@ -5793,7 +5839,7 @@ var __decentSync = (() => {
     return rest;
   }
   function isPending(value) {
-    return isObject8(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject8(value.versions) && isObject8(value.builds);
+    return isObject8(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject8(value.versions) && isObject8(value.builds) && isObject8(value.installed);
   }
   function expired2(id) {
     return { type: "softwareActed", id, outcome: "refused", reason: "expired" };

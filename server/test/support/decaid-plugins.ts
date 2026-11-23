@@ -158,6 +158,17 @@ export class SimulatedPlugins {
   ownCheckedFirst = false;
   /** How long an update check takes over each plugin, as a release's fetch takes: none by default. */
   checkStepMs = 0;
+  /** How long an install, or an approved update's, takes before Decaid has it: none by default. */
+  installMs = 0;
+  /**
+   * How long after it loads the tablet's own plugin again, having installed
+   * another build of it, Decaid writes where it came from and clears its
+   * waiting update, as it does once the plugin's notification permission is
+   * settled (`PluginSourceService._install`): at once by default.
+   */
+  ownSourceAfterLoadMs = 0;
+  /** How long `host.localApi` waits on Decaid before rejecting a call, which goes on all the same (`PluginManager.localApiTimeout`). */
+  localApiTimeoutMs = 60_000;
   /** The update check under way, which a request for one while it runs is answered with, as Decaid's `checkForPluginUpdates` is. */
   private checking: Promise<PluginAnswer> | undefined;
   /** Decaid's own update state (`GET /update`), and what a check finds. */
@@ -282,6 +293,8 @@ export class SimulatedPlugins {
     };
     if (this.requireAuthorization && via === "fetch") return record(this.unauthorized());
     if (route === "/plugins/update") return this.checkUpdates(own).then(record);
+    const installs = route.startsWith("/plugins/install/") || route.endsWith("/update/approve");
+    if (installs && this.installMs > 0) return new Promise<void>((resolve) => setTimeout(resolve, this.installMs)).then(() => record(this.manage(method, route, body, own, others)));
     return record(this.manage(method, route, body, own, others));
   }
 
@@ -328,16 +341,23 @@ export class SimulatedPlugins {
         if (!offered) throw new Error(`Nothing is offered for ${id} to install its waiting update from`);
         const version = String(offered.manifest.version);
         if (plugin) Object.assign(plugin, withManifest(plugin, offered.manifest), { pendingUpdate: null, source: { ...source, ...(offered.tag === undefined ? {} : { releaseTag: offered.tag }) } });
-        else {
-          this.ownPendingUpdate = null;
-          this.ownSource = { ...source, ...(offered.tag === undefined ? {} : { releaseTag: offered.tag }) };
-        }
         const answer = structuredClone(recorded(PENDING.approved, 0));
         Object.assign(answer.body as Json, { id, version, loaded: isOwn ? own.loaded() : plugin!.loaded });
-        if (isOwn) own.installed(version);
+        if (isOwn) this.ownInstalled(own, version, { ...source, ...(offered.tag === undefined ? {} : { releaseTag: offered.tag }) });
         return answer;
       }
     }
+  }
+
+  /** Decaid installed another build of the tablet's own plugin and loads it again, writing where it came from at once or after `ownSourceAfterLoadMs`. */
+  private ownInstalled(own: OwnPlugin, version: string, source: Json): void {
+    const written = (): void => {
+      this.ownSource = source;
+      this.ownPendingUpdate = null;
+    };
+    if (this.ownSourceAfterLoadMs > 0) setTimeout(written, this.ownSourceAfterLoadMs);
+    else written();
+    own.installed(version);
   }
 
   /** What a source's repository offers now: its latest release, or its branch's head. */
@@ -367,10 +387,8 @@ export class SimulatedPlugins {
       : { ...installed, repo, releaseTag: (build as { tag: string }).tag, installedAt: now, lastChecked: now };
     const answer = structuredClone(recorded(MANAGEMENT.releaseInstalled, 0));
     if (id === own.id) {
-      this.ownSource = source;
-      this.ownPendingUpdate = null;
       Object.assign(answer.body as Json, { id, version, loaded: own.loaded() });
-      own.installed(version);
+      this.ownInstalled(own, version, source);
       return answer;
     }
     const existing = this.plugins.find((entry) => entry.id === id);
@@ -438,11 +456,7 @@ export class SimulatedPlugins {
       check(
         own.id,
         { version: this.ownVersion ?? String(ownManifest.version), permissions: ownManifest.permissions as string[], source: this.ownSource, pendingUpdate: this.ownPendingUpdate },
-        (manifest, source) => {
-          this.ownSource = source;
-          this.ownPendingUpdate = null;
-          own.installed(String(manifest.version));
-        },
+        (manifest, source) => this.ownInstalled(own, String(manifest.version), source),
         (pending) => (this.ownPendingUpdate = pending),
       );
     };

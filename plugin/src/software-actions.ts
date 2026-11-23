@@ -34,6 +34,17 @@ const PENDING_KEY = "softwareAction";
 /** How long an action kept across a load is still answered: longer than any action has, with room for a slow install. */
 const PENDING_MS = 10 * 60_000;
 
+/** How often the lists are read again while what came of an action does not show in them yet. */
+const WATCH_STEP_MS = 3_000;
+
+/**
+ * How long the next load watches for what came of an action kept across a
+ * load: Decaid writes where a plugin came from, and clears an update that
+ * waited, only once the plugin it installed is loaded and its notification
+ * permission settled (`PluginSourceService._install`).
+ */
+const RESUME_WATCH_MS = 30_000;
+
 /** How Software Actions read the lists and report them, within `SettingsAccess.run` (`CollectionCapture.readSoftware`). */
 export interface SoftwareReports {
   readSoftware(what: "plugins" | "decaid", readBackOf?: string): Promise<unknown[] | undefined>;
@@ -54,6 +65,8 @@ interface Pending {
   versions: Record<string, string>;
   /** Each plugin's build before the action, by its id: its version with its release or commit (`buildsOf`). */
   builds: Record<string, string>;
+  /** When Decaid last installed each plugin, as its source says, by its id. */
+  installed: Record<string, string>;
 }
 
 /**
@@ -99,6 +112,7 @@ export class SoftwareActions {
     // Counted down as a Settings Edit's time is: by a host timer and by the tablet's clock.
     const startBy = action.timeLeftMs - SOFTWARE_ACTION_START_MARGIN_MS;
     const startByTime = Date.now() + startBy;
+    const endTime = Date.now() + action.timeLeftMs;
     let outOfTime = startBy < 0;
     const timer = setTimeout(() => (outOfTime = true), Math.max(0, startBy));
     const tooLate = () => outOfTime || !connected() || Date.now() > startByTime;
@@ -107,7 +121,7 @@ export class SoftwareActions {
         if (this.stopped) return;
         let answer: SoftwareActed | undefined;
         try {
-          answer = await this.carryOut(action, tooLate);
+          answer = await this.carryOut(action, tooLate, endTime);
         } catch (error) {
           answer = refusedByDecaid(action.id, null, `Decaid did not answer: ${describe(error)}`);
         }
@@ -127,38 +141,55 @@ export class SoftwareActions {
 
   /**
    * Answers the action an earlier load kept, if Decaid loaded the plugin
-   * again under it, from what is installed now: within the queue, so no
+   * again under it, from what is installed now, watched for a while as
+   * Decaid finishes the install (`RESUME_WATCH_MS`): within the queue, so no
    * action sent to this load runs first. One it can't tell the outcome of
-   * is left unanswered, and so not confirmed. It never rejects.
+   * by then is left unanswered, and so not confirmed; one this load unloads
+   * under stays kept for the next. It never rejects.
    */
   resume(): Promise<void> {
     return this.access.run(async () => {
       try {
         const kept = parsed(String((await this.storage.read(PENDING_KEY, "the Software Action an earlier load kept")) ?? ""));
         if (!isPending(kept) || this.stopped) return;
+        if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return void (await this.forget());
+        const answer = await this.watch(kept, true, Math.min(kept.startedAt + PENDING_MS, Date.now() + RESUME_WATCH_MS));
+        if (this.stopped) return;
         await this.forget();
-        if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return;
-        let plugins = await this.reports.readSoftware("plugins", kept.id);
-        if (plugins === undefined) return;
-        let report: unknown[] | undefined;
-        // Decaid loads the plugin again partway through an update check, which goes on to the plugins after it:
-        // the check's own results, once it ends, tell what came of each.
-        if (kept.kind === "checkPluginUpdates" && ownBuildChanged(kept, plugins)) {
-          report = await this.joinUpdateCheck();
-          if (report === undefined || this.stopped) return;
-          plugins = (await this.reports.readSoftware("plugins", kept.id)) ?? plugins;
-        }
-        const answer = afterReload(kept, plugins, report);
-        if (answer === undefined || this.stopped) return;
-        this.outbox.enqueue(answer);
+        if (answer !== undefined) this.outbox.enqueue(answer);
       } catch (error) {
         this.log(`Could not answer the Software Action an earlier load kept: ${describe(error)}`);
       }
     });
   }
 
+  /**
+   * What came of a kept action once the plugin list shows it (`settled`),
+   * read again every WATCH_STEP_MS until `until`, each read reported as a
+   * read-back of the action; undefined where it never shows by then, or the
+   * plugin unloads. An update check's results are asked of Decaid again
+   * (`joinUpdateCheck`): after a load of the plugin, only once its own build
+   * shows changed, which is what loaded it again.
+   */
+  private async watch(kept: Pending, reloaded: boolean, until: number): Promise<SoftwareActed | undefined> {
+    for (;;) {
+      if (this.stopped) return undefined;
+      let plugins = await this.reports.readSoftware("plugins", kept.id);
+      let report: unknown[] | undefined;
+      if (plugins !== undefined && kept.kind === "checkPluginUpdates" && (!reloaded || ownBuildChanged(kept, plugins))) {
+        report = await this.joinUpdateCheck().catch(() => undefined);
+        if (report !== undefined && !this.stopped) plugins = (await this.reports.readSoftware("plugins", kept.id)) ?? plugins;
+      }
+      if (this.stopped) return undefined;
+      const answer = plugins === undefined ? undefined : settled(kept, plugins, report, reloaded);
+      if (answer !== undefined) return answer;
+      if (Date.now() + WATCH_STEP_MS > until) return undefined;
+      await new Promise<void>((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
+    }
+  }
+
   /** The action's answer, or undefined where the plugin unloaded before or under it. */
-  private async carryOut(action: SoftwareAction, tooLate: () => boolean): Promise<SoftwareActed | undefined> {
+  private async carryOut(action: SoftwareAction, tooLate: () => boolean, endTime: number): Promise<SoftwareActed | undefined> {
     if (tooLate()) return expired(action.id);
     const forbidden = forbiddenToItself(action);
     if (forbidden !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "notAllowed", message: forbidden };
@@ -185,7 +216,8 @@ export class SoftwareActions {
     if (this.stopped) return undefined;
     if (tooLate()) return expired(action.id);
     const reloads = mayReloadItself(action);
-    if (reloads) await this.keep(action, before);
+    const pending = pendingOf(action, before);
+    if (reloads) await this.keep(pending);
     let answer: Answer | undefined;
     let failure = "";
     try {
@@ -194,6 +226,14 @@ export class SoftwareActions {
       failure = describe(error);
       // Decaid unloaded this load under the call: the next load answers, from what it finds installed.
       if (reloads && /unloaded|generation changed/i.test(failure)) return undefined;
+      // Decaid stops waiting on a call after a minute (`localApiTimeout`), and goes on with it: what came of it is watched for
+      // until the action's time is up, kept for the next load meanwhile, and left unanswered where it never shows.
+      if (/timed out/i.test(failure)) {
+        const watched = await this.watch(pending, false, endTime);
+        if (this.stopped) return undefined;
+        if (reloads && watched !== undefined) await this.forget();
+        return watched;
+      }
     }
     if (this.stopped) return undefined;
     if (reloads) await this.forget();
@@ -279,23 +319,28 @@ export class SoftwareActions {
     return isObject(said) && Array.isArray(said.results) ? said.results : undefined;
   }
 
-  private async keep(action: SoftwareAction, plugins: unknown[]): Promise<void> {
-    const pending: Pending = {
-      id: action.id,
-      kind: action.kind,
-      startedAt: Date.now(),
-      versions: versionsOf(plugins),
-      builds: buildsOf(plugins),
-      ...("pluginId" in action ? { pluginId: action.pluginId } : {}),
-      ...(action.kind === "installPlugin" ? { repo: action.repo, ...(action.branch === undefined ? {} : { branch: action.branch }) } : {}),
-      ...(action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}),
-    };
+  private async keep(pending: Pending): Promise<void> {
     await this.storage.write(PENDING_KEY, JSON.stringify(pending), "a Software Action that may load the plugin again");
   }
 
   private async forget(): Promise<void> {
     await this.storage.write(PENDING_KEY, "", "that a Software Action is done").catch((error: unknown) => this.log(`Could not clear the Software Action kept: ${describe(error)}`));
   }
+}
+
+/** An action as it is kept, over the plugin list as it was before it. */
+function pendingOf(action: SoftwareAction, plugins: unknown[]): Pending {
+  return {
+    id: action.id,
+    kind: action.kind,
+    startedAt: Date.now(),
+    versions: versionsOf(plugins),
+    builds: buildsOf(plugins),
+    installed: installedOf(plugins),
+    ...("pluginId" in action ? { pluginId: action.pluginId } : {}),
+    ...(action.kind === "installPlugin" ? { repo: action.repo, ...(action.branch === undefined ? {} : { branch: action.branch }) } : {}),
+    ...(action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}),
+  };
 }
 
 /** Why the plugin's own protections forbid an action, or null where they allow it. */
@@ -390,48 +435,54 @@ function resultOf(action: SoftwareAction, answer: Answer, before: unknown[], aft
 }
 
 /**
- * The answer to an action kept across a load of the plugin, from the plugin
- * list as it is now, or undefined where that does not show what came of it:
+ * The answer to a kept action from the plugin list as it is now, or
+ * undefined where that does not show what came of it yet. `reloaded` says
+ * whether Decaid loaded this plugin again since, which is all a change of
+ * its own poll interval shows.
  *
- * - an approval of its own update is done once no update waits and its
- *   build changed;
- * - an install is done where the plugin itself now comes from the
- *   repository, and branch, asked for;
- * - an update check is done where the plugin's own build changed, which
- *   is what loaded it again, with each plugin's result as the check's
- *   results (`report`) give it, and updated where its build changed since
- *   the action: a check run again after the first ended finds those current;
- * - a change of its poll interval is done: Decaid saves a plugin's settings
- *   before it loads it again.
+ * - an approval of an update is done once no update of the plugin waits
+ *   and its build changed;
+ * - an install is done where a plugin from the repository, and branch,
+ *   asked for was installed since;
+ * - an update check is done once Decaid gives its results (`report`), each
+ *   plugin's as given, and updated where its build changed since the
+ *   action: a check run again after the first ended finds those current;
+ * - a change of its own poll interval is done once Decaid loaded it again:
+ *   Decaid saves a plugin's settings before it loads it again.
  *
  * A build is a plugin's version with its release or commit, as a branch's
  * new commit may keep the version.
  */
-function afterReload(kept: Pending, plugins: unknown[], report?: unknown[]): SoftwareActed | undefined {
-  const own = plugins.find((entry) => isObject(entry) && entry.id === __PLUGIN_ID__) as Record<string, unknown> | undefined;
-  if (!own) return undefined;
-  const version = typeof own.version === "string" ? own.version : undefined;
-  const result: SoftwareActionResult = {
-    pluginId: __PLUGIN_ID__,
-    ...(typeof own.name === "string" && own.name !== "" ? { name: own.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
-    ...(version === undefined ? {} : { version }),
-    loaded: true,
-  };
+function settled(kept: Pending, plugins: unknown[], report: unknown[] | undefined, reloaded: boolean): SoftwareActed | undefined {
+  const entries = plugins.filter(isObject);
+  const builds = buildsOf(plugins);
   const done = (given: SoftwareActionResult): SoftwareActed => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
-  const updated = ownBuildChanged(kept, plugins);
+  const resultFor = (plugin: Record<string, unknown>): SoftwareActionResult => ({
+    pluginId: String(plugin.id),
+    ...(typeof plugin.name === "string" && plugin.name !== "" ? { name: plugin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
+    ...(typeof plugin.version === "string" ? { version: plugin.version } : {}),
+    ...(typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {}),
+  });
   switch (kept.kind) {
-    case "approvePluginUpdate":
-      return kept.pluginId === __PLUGIN_ID__ && !isObject(own.pendingUpdate) && updated ? done(result) : undefined;
+    case "approvePluginUpdate": {
+      const plugin = entries.find((entry) => entry.id === kept.pluginId);
+      const rebuilt = plugin !== undefined && builds[kept.pluginId!] !== undefined && builds[kept.pluginId!] !== kept.builds[kept.pluginId!];
+      return plugin && rebuilt && !isObject(plugin.pendingUpdate) ? done(resultFor(plugin)) : undefined;
+    }
     case "installPlugin": {
-      const source = isObject(own.source) ? own.source : {};
-      const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
-      const sameBranch = kept.branch === undefined ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
-      return sameRepo && sameBranch ? done(result) : undefined;
+      const installed = installedOf(plugins);
+      const plugin = entries.find((entry) => {
+        const source = isObject(entry.source) ? entry.source : {};
+        const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
+        const sameBranch = kept.branch === undefined ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
+        const id = String(entry.id);
+        return sameRepo && sameBranch && installed[id] !== undefined && installed[id] !== kept.installed[id];
+      });
+      return plugin ? done(resultFor(plugin)) : undefined;
     }
     case "checkPluginUpdates": {
-      if (!updated || report === undefined) return undefined;
+      if (report === undefined) return undefined;
       const versions = versionsOf(plugins);
-      const builds = buildsOf(plugins);
       const results = report.filter(isObject).flatMap((given): UpdateResult[] => {
         const item = given.item;
         if (typeof item !== "string" || typeof given.status !== "string") return [];
@@ -442,8 +493,10 @@ function afterReload(kept: Pending, plugins: unknown[], report?: unknown[]): Sof
       });
       return done({ results });
     }
-    case "changePluginSettings":
-      return kept.pluginId === __PLUGIN_ID__ ? done(result) : undefined;
+    case "changePluginSettings": {
+      const own = entries.find((entry) => entry.id === __PLUGIN_ID__);
+      return reloaded && own && kept.pluginId === __PLUGIN_ID__ ? done(resultFor(own)) : undefined;
+    }
     default:
       return undefined;
   }
@@ -467,6 +520,16 @@ function buildsOf(plugins: unknown[]): Record<string, string> {
   );
 }
 
+/** When Decaid last installed each plugin in a plugin list, as its source says, by its id. */
+function installedOf(plugins: unknown[]): Record<string, string> {
+  return Object.fromEntries(
+    plugins.filter(isObject).flatMap((plugin) => {
+      const source = isObject(plugin.source) ? plugin.source : {};
+      return typeof plugin.id === "string" && typeof source.installedAt === "string" ? [[plugin.id, source.installedAt]] : [];
+    }),
+  );
+}
+
 /** Each plugin's version in a plugin list, by its id. */
 function versionsOf(plugins: unknown[]): Record<string, string> {
   return Object.fromEntries(plugins.filter(isObject).flatMap((plugin) => (typeof plugin.id === "string" && typeof plugin.version === "string" ? [[plugin.id, plugin.version]] : [])));
@@ -479,7 +542,7 @@ function updateState(state: Record<string, unknown>): Record<string, unknown> {
 }
 
 function isPending(value: unknown): value is Pending {
-  return isObject(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject(value.versions) && isObject(value.builds);
+  return isObject(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject(value.versions) && isObject(value.builds) && isObject(value.installed);
 }
 
 function expired(id: string): SoftwareActed {

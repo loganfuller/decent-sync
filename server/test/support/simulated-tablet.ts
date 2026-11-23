@@ -1697,7 +1697,12 @@ export class SimulatedTablet {
       if (method !== "GET") this.writes.push(`${method} ${route}`);
       // A string is sent as it is, and any other value as JSON.
       const text = body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body);
-      const answered = (await this.answer(`${API_ORIGIN}${String(path)}`, method, {}, text, "localApi")) as { status: number; text(): Promise<string> };
+      // Decaid stops waiting after its time, and the request goes on all the same.
+      const answering = this.answer(`${API_ORIGIN}${String(path)}`, method, {}, text, "localApi") as Promise<{ status: number; text(): Promise<string> }>;
+      answering.catch(() => {});
+      let timeout: NodeJS.Timeout | undefined;
+      const timedOut = new Promise<never>((_resolve, reject) => (timeout = setTimeout(() => reject(new Error("Local API request timed out")), this.plugins.localApiTimeoutMs)));
+      const answered = await Promise.race([answering, timedOut]).finally(() => clearTimeout(timeout));
       if (this.loadingAgain || this.unloaded) return await new Promise<never>(() => {});
       const answer = await answered.text();
       return { status: answered.status, headers: this.plugins.localApiHeaders(answer), body: answer };
