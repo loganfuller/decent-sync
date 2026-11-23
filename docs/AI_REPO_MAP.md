@@ -141,6 +141,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | Recipes, Recipe Slots, Baskets, Tools, DYE2's lists | ADR-0005 (interim), ADR-0006, ADR-0008, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022 (interim); `LIBRARY.md`; milestone 3's spec; `server/test/support/simulated-dye2.ts`, `simulated-streamline.ts` |
 | A Recipe's Reference Shot | ADR-0029, ADR-0030; `LIBRARY.md`; `AI_PROTOCOL_NOTES.md`, Reference Shot copies |
 | Collections, Machine Settings, Tablet Settings, Settings Edits, Settings History | ADR-0023; `COLLECTIONS.md`; milestone 4's spec; `server/test/support/decaid-settings.ts` |
+| Tablet Software, Software Actions, reloading the Skin, notices on the tablet | ADR-0034, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657) |
 | The Live View | ADR-0009, ADR-0016, ADR-0024; `AI_PROTOCOL_NOTES.md`, Live frames; `AI_RUNTIME_NOTES.md`; its spec (#258) |
 | Rolling upgrades, keeping a change working beside the latest release | ADR-0025; `AI_STORAGE_NOTES.md`, Writing a migration; `AI_PROTOCOL_NOTES.md`, Wire revision and Between releases; `DEVELOPMENT.md`, Releasing; `server/test/latest-release/` |
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `SELF-HOSTING.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |

@@ -500,22 +500,27 @@ for how to turn assistants off.
 
 ## Status
 
-Milestones 1 to 9 are released. See [all releases](https://github.com/loganfuller/decent-sync/releases).
+What each release added. See [all releases](https://github.com/loganfuller/decent-sync/releases).
 
-| Milestone | What it adds | Spec | Released |
-|---|---|---|---|
-| 1. [Foundation](https://github.com/loganfuller/decent-sync/milestone/1) | Adopting Machines, Locations and accounts. Captures Shots, Steam Records, Workflow changes, machine state, the library, settings and paired devices. | [#1](https://github.com/loganfuller/decent-sync/issues/1) | [v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0) |
-| 2. [Shared library](https://github.com/loganfuller/decent-sync/milestone/2) | Beans, Bean Batches, Grinders and Profiles shared across Locations, with history and Lost Edits (Conflicts, until #632). Shots linked to what they used. | [#77](https://github.com/loganfuller/decent-sync/issues/77) | v1.0.0 |
-| 3. [Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3) | DYE2 Recipes, Baskets and Tools, Recipe Slots, and each Machine's Loaded Recipe. | [#134](https://github.com/loganfuller/decent-sync/issues/134) | v1.0.0 |
-| 4. [Machine management](https://github.com/loganfuller/decent-sync/milestone/4) | Settings Edits from the management interface, then each Machine's Live View. No remote commands such as sleep and wake. | [#220](https://github.com/loganfuller/decent-sync/issues/220), [#258](https://github.com/loganfuller/decent-sync/issues/258) | [v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0), [v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0) |
-| 5. [Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5) | Each release runs beside the previous one. | [#277](https://github.com/loganfuller/decent-sync/issues/277) | [v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0) |
-| 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App, then answers sized for them, with more of each Machine and Shot. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0), [v1.8.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.8.0) |
-| 7. [Analytics](https://github.com/loganfuller/decent-sync/milestone/7) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) | [v1.9.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.9.0) |
-| 8. [Tablets](https://github.com/loganfuller/decent-sync/milestone/8) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) |
-| 9. [Profiles](https://github.com/loganfuller/decent-sync/milestone/12) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) |
-| 10. Monitoring | Noticing lost Shots, low water and dropped scale or Machine connections, with alerts. | | Planned |
-| 11. Calibration | Checks of stop-at-weight, flow and temperature. | | Planned |
-| 12. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |
+| Released | What it added | Spec |
+|---|---|---|
+| [v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0) | Adopting Machines, Locations and accounts. Captures Shots, Steam Records, Workflow changes, machine state, the library, settings and paired devices. | [#1](https://github.com/loganfuller/decent-sync/issues/1) |
+| [v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0) | Beans, Bean Batches, Grinders and Profiles shared across Locations, with history and Lost Edits (Conflicts, until #632). Shots linked to what they used. | [#77](https://github.com/loganfuller/decent-sync/issues/77) |
+| [v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0) | DYE2 Recipes, Baskets and Tools, Recipe Slots, and each Machine's Loaded Recipe. | [#134](https://github.com/loganfuller/decent-sync/issues/134) |
+| [v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0), [v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0) | Settings Edits from the management interface, then each Machine's Live View. No remote commands such as sleep and wake. | [#220](https://github.com/loganfuller/decent-sync/issues/220), [#258](https://github.com/loganfuller/decent-sync/issues/258) |
+| [v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0) | Each release runs beside the previous one. | [#277](https://github.com/loganfuller/decent-sync/issues/277) |
+| [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0), [v1.8.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.8.0) | AI assistants through an MCP endpoint, each approved as a Connected App, then answers sized for them, with more of each Machine and Shot. | [#405](https://github.com/loganfuller/decent-sync/issues/405) |
+| [v1.9.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.9.0) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) |
+| [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) |
+| [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) |
+
+Next, in v1.13.0: each Tablet's plugins, Skins and Decaid seen and managed from the management interface, and a notice on the Tablet when its plugin stops.
+
+Planned after that, in no fixed order:
+
+- **Monitoring**: noticing lost Shots, low water and dropped scale or Machine connections, with alerts.
+- **Calibration**: checks of stop-at-weight, flow and temperature.
+- **Stock**: deliveries, transfers, counts, and the coffee each Shot uses.
 
 ## Documentation
 
