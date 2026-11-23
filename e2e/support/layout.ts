@@ -14,8 +14,7 @@ export interface Box {
  * Each element's box, all of them measured in one layout, for checks that
  * compare where one element is with where another is. Each `boundingBox()`
  * is a trip to the browser of its own, and the page may scroll or reflow
- * between two of them: a tab whose content shrinks while it loads pulls the
- * page's scroll position up and back, moving whatever is measured second.
+ * between two of them, moving whatever is measured second.
  * Each locator must match one element, and is waited for until it does.
  * Main frame only: inside an iframe, `getBoundingClientRect()` is from that
  * frame's corner, so the box would be off by where the frame is.
