@@ -271,6 +271,39 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     await api.waitForOnline(machine);
   });
 
+  it("answers an update check that loaded the plugin again partway through with the check's results once it ends, as Decaid goes on to the plugins after it", async () => {
+    const uploader = { ...recordedPlugin("shot-upload.reaplugin", "checked"), id: "uploader.reaplugin", name: "Uploader", version: "0.3.1" };
+    const plugins = new SimulatedPlugins({ plugins: [uploader, ...bundledPlugins()] });
+    const { manifest } = readBuiltPlugin();
+    plugins.ownSource = { ...(recordedPlugin(DECENT_SYNC_PLUGIN_ID, "staged", "pending").source as Record<string, unknown>), releaseTag: `v${String(manifest.version)}` };
+    plugins.offer("loganfuller/decent-sync", { manifest: { ...manifest, version: "99.1.0" }, tag: "v99.1.0" });
+    plugins.offer(String((uploader.source as Record<string, unknown>).repo), { manifest: { ...uploader, version: "0.3.2" }, tag: "v0.3.2" });
+    // The plugin is checked first, and each check takes a while: the next load starts while the uploader is still to come.
+    plugins.ownCheckedFirst = true;
+    plugins.checkStepMs = 1_500;
+    const { machine, tablet } = await connected("Deadline own update mid-check", server, { plugins });
+    const check = await make(machine, { kind: "checkPluginUpdates" });
+    expect(await answered(machine, check.id)).toMatchObject({
+      outcome: "done",
+      result: { results: [{ item: DECENT_SYNC_PLUGIN_ID, status: "updated", version: "99.1.0" }, { item: "uploader.reaplugin", status: "updated", version: "0.3.2" }] },
+    });
+    const next = await tablet.successor!;
+    expect((next.sent as Frame[]).filter((frame) => frame.type === "softwareActed").map((frame) => frame.id)).toEqual([check.id]);
+    await api.waitForOnline(machine);
+  });
+
+  it("answers an update check that installed a new commit of the plugin's own branch under the same version", async () => {
+    const plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
+    const { manifest } = readBuiltPlugin();
+    plugins.ownSource = { ...(recordedPlugin("dye2.reaplugin", "branchInstalled").source as Record<string, unknown>), repo: "loganfuller/decent-sync", branch: "trial", commit: "1".repeat(40) };
+    plugins.offer("loganfuller/decent-sync", { manifest, branch: "trial", commit: "2".repeat(40) });
+    const { machine, tablet } = await connected("Deadline own branch commit", server, { plugins });
+    const check = await make(machine, { kind: "checkPluginUpdates" });
+    expect(await answered(machine, check.id)).toMatchObject({ outcome: "done", result: { results: [{ item: DECENT_SYNC_PLUGIN_ID, status: "updated", version: manifest.version }] } });
+    expect(((await tablet.successor!).sent as Frame[]).filter((frame) => frame.type === "softwareActed").map((frame) => frame.id)).toEqual([check.id]);
+    await api.waitForOnline(machine);
+  });
+
   it("marks an action no instance could send not confirmed once its time is up, its values gone by then without a read, and never sends it", async () => {
     // Its connection's instance stops answering, as when its host hangs: the action is made through the other one.
     const frozen = await startTestServer({ env, sharing: server });

@@ -150,6 +150,16 @@ export class SimulatedPlugins {
   requireAuthorization: boolean;
   /** Every managing request Decaid took or refused, as `METHOD route`, with how it came. */
   readonly managed: { request: string; via: "fetch" | "localApi"; status: number }[] = [];
+  /**
+   * Whether an update check reaches the tablet's own plugin before the
+   * others, as Decaid checks plugins in the order it loaded them: one
+   * installed after the plugin comes after it. Last otherwise.
+   */
+  ownCheckedFirst = false;
+  /** How long an update check takes over each plugin, as a release's fetch takes: none by default. */
+  checkStepMs = 0;
+  /** The update check under way, which a request for one while it runs is answered with, as Decaid's `checkForPluginUpdates` is. */
+  private checking: Promise<PluginAnswer> | undefined;
   /** Decaid's own update state (`GET /update`), and what a check finds. */
   update: Json = decaidUpdateState();
   private found: Json | undefined;
@@ -262,13 +272,17 @@ export class SimulatedPlugins {
    * other: the settings reads, and each managing request, refused without a
    * token while the Tablet asks one of a plain request.
    */
-  answer(method: string, route: string, body: unknown, via: "fetch" | "localApi", own: OwnPlugin, others: ListedPlugin[] = []): PluginAnswer | undefined {
+  answer(method: string, route: string, body: unknown, via: "fetch" | "localApi", own: OwnPlugin, others: ListedPlugin[] = []): PluginAnswer | Promise<PluginAnswer> | undefined {
     const settings = /^\/plugins\/([^/]+)\/settings$/.exec(route);
     if (method === "GET" && settings) return { status: 200, body: this.settingsOf(decodeURIComponent(settings[1]!), own) };
     if (!this.manages(method, route)) return undefined;
-    const taken = this.requireAuthorization && via === "fetch" ? this.unauthorized() : this.manage(method, route, body, own, others);
-    this.managed.push({ request: `${method} ${route}`, via, status: taken.status });
-    return taken;
+    const record = (taken: PluginAnswer): PluginAnswer => {
+      this.managed.push({ request: `${method} ${route}`, via, status: taken.status });
+      return taken;
+    };
+    if (this.requireAuthorization && via === "fetch") return record(this.unauthorized());
+    if (route === "/plugins/update") return this.checkUpdates(own).then(record);
+    return record(this.manage(method, route, body, own, others));
   }
 
   /** Decaid's 401 for a managing request without a token, as recorded with its setting on. */
@@ -278,7 +292,6 @@ export class SimulatedPlugins {
 
   private manage(method: string, route: string, body: unknown, own: OwnPlugin, others: ListedPlugin[]): PluginAnswer {
     if (route === "/plugins/install/github-release" || route === "/plugins/install/github-branch") return this.install(route.endsWith("branch"), body, own);
-    if (route === "/plugins/update") return this.checkUpdates(own);
     const [, , encoded, action, approve] = route.split("/");
     const id = decodeURIComponent(encoded!);
     const isOwn = id === own.id;
@@ -369,12 +382,22 @@ export class SimulatedPlugins {
     return answer;
   }
 
-  /** Decaid's check of every plugin it updates, those from a release or a branch: each installed where newer, unless it adds a permission, which waits. */
-  private checkUpdates(own: OwnPlugin): PluginAnswer {
+  /** Decaid's answer to a request for an update check: the results of the one under way, or of a new one. */
+  private checkUpdates(own: OwnPlugin): Promise<PluginAnswer> {
+    this.checking ??= this.runUpdateCheck(own).finally(() => (this.checking = undefined));
+    return this.checking.then((answer) => structuredClone(answer));
+  }
+
+  /**
+   * Decaid's check of every plugin it updates, those from a release or a
+   * branch, one at a time: each installed where newer, unless it adds a
+   * permission, which waits. Installing the tablet's own has Decaid load it
+   * again there and then, and the check goes on to the rest.
+   */
+  private async runUpdateCheck(own: OwnPlugin): Promise<PluginAnswer> {
     const answer = structuredClone(recorded(MANAGEMENT.checked, 0));
     const results: Json[] = [];
     const now = new Date().toISOString().replace("Z", "");
-    let ownVersion: string | undefined;
     const check = (id: string, entry: { version: string; permissions: string[]; source: Json | null; pendingUpdate: Json | null }, apply: (manifest: Json, source: Json) => void, wait: (pending: Json) => void): void => {
       const source = entry.source;
       if (source?.kind !== "github_release" && source?.kind !== "github_branch") return;
@@ -402,27 +425,32 @@ export class SimulatedPlugins {
       apply(offered.manifest, { ...source, ...(offered.tag === undefined ? {} : { releaseTag: offered.tag }), ...(offered.commit === undefined ? {} : { commit: offered.commit }) });
       results.push({ item: id, status: "updated" });
     };
-    for (const plugin of this.plugins) {
+    const others = this.plugins.map((plugin) => () =>
       check(
         plugin.id,
         plugin,
         (manifest, source) => Object.assign(plugin, withManifest(plugin, manifest), { source, pendingUpdate: null }),
         (pending) => (plugin.pendingUpdate = pending),
-      );
-    }
-    const ownManifest = own.manifest();
-    check(
-      own.id,
-      { version: this.ownVersion ?? String(ownManifest.version), permissions: ownManifest.permissions as string[], source: this.ownSource, pendingUpdate: this.ownPendingUpdate },
-      (manifest, source) => {
-        this.ownSource = source;
-        this.ownPendingUpdate = null;
-        ownVersion = String(manifest.version);
-      },
-      (pending) => (this.ownPendingUpdate = pending),
+      ),
     );
+    const itself = (): void => {
+      const ownManifest = own.manifest();
+      check(
+        own.id,
+        { version: this.ownVersion ?? String(ownManifest.version), permissions: ownManifest.permissions as string[], source: this.ownSource, pendingUpdate: this.ownPendingUpdate },
+        (manifest, source) => {
+          this.ownSource = source;
+          this.ownPendingUpdate = null;
+          own.installed(String(manifest.version));
+        },
+        (pending) => (this.ownPendingUpdate = pending),
+      );
+    };
+    for (const step of this.ownCheckedFirst ? [itself, ...others] : [...others, itself]) {
+      if (this.checkStepMs > 0) await new Promise((resolve) => setTimeout(resolve, this.checkStepMs));
+      step();
+    }
     (answer.body as Json).results = results;
-    if (ownVersion !== undefined) own.installed(ownVersion);
     return answer;
   }
 

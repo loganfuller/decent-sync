@@ -5515,8 +5515,15 @@ var __decentSync = (() => {
           if (!isPending(kept) || this.stopped) return;
           await this.forget();
           if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return;
-          const plugins = await this.reports.readSoftware("plugins", kept.id);
-          const answer = plugins === void 0 ? void 0 : afterReload(kept, plugins);
+          let plugins = await this.reports.readSoftware("plugins", kept.id);
+          if (plugins === void 0) return;
+          let report;
+          if (kept.kind === "checkPluginUpdates" && ownBuildChanged(kept, plugins)) {
+            report = await this.joinUpdateCheck();
+            if (report === void 0 || this.stopped) return;
+            plugins = await this.reports.readSoftware("plugins", kept.id) ?? plugins;
+          }
+          const answer = afterReload(kept, plugins, report);
           if (answer === void 0 || this.stopped) return;
           this.outbox.enqueue(answer);
         } catch (error) {
@@ -5613,12 +5620,33 @@ var __decentSync = (() => {
         this.transports.close(handle);
       }
     }
+    /**
+     * The results of the update check that loaded this plugin again, once it
+     * ends: Decaid answers a request for a check while one runs with that
+     * check's results (`checkForPluginUpdates`), and one made after it ended
+     * with a new check's, which finds what the first left. Undefined, and so
+     * not confirmed, where the Machine is busy by now, as no new check is
+     * started then, or Decaid answers with no results.
+     */
+    async joinUpdateCheck() {
+      const state = await request("GET", "/machine/state");
+      if (state.ok) {
+        const machineState = stateOf2(state.text);
+        if (machineState === null || !SETTINGS_EDIT_STATES.includes(machineState)) return void 0;
+      } else if (!machineMissing(state)) {
+        return void 0;
+      }
+      const answer = await manage("POST", "/plugins/update");
+      const said = answer.ok ? parsed5(answer.text) : void 0;
+      return isObject8(said) && Array.isArray(said.results) ? said.results : void 0;
+    }
     async keep(action, plugins) {
       const pending = {
         id: action.id,
         kind: action.kind,
         startedAt: Date.now(),
         versions: versionsOf(plugins),
+        builds: buildsOf(plugins),
         ..."pluginId" in action ? { pluginId: action.pluginId } : {},
         ...action.kind === "installPlugin" ? { repo: action.repo, ...action.branch === void 0 ? {} : { branch: action.branch } } : {},
         ...action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}
@@ -5702,7 +5730,7 @@ var __decentSync = (() => {
     if (!plugin) return { pluginId };
     return { pluginId, ...named(plugin), ...typeof plugin.version === "string" ? { version: plugin.version } : {}, ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {} };
   }
-  function afterReload(kept, plugins) {
+  function afterReload(kept, plugins, report) {
     const own = plugins.find((entry) => isObject8(entry) && entry.id === "decent-sync.reaplugin");
     if (!own) return void 0;
     const version = typeof own.version === "string" ? own.version : void 0;
@@ -5713,7 +5741,7 @@ var __decentSync = (() => {
       loaded: true
     };
     const done = (given) => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
-    const updated = version !== void 0 && kept.versions["decent-sync.reaplugin"] !== version;
+    const updated = ownBuildChanged(kept, plugins);
     switch (kept.kind) {
       case "approvePluginUpdate":
         return kept.pluginId === "decent-sync.reaplugin" && !isObject8(own.pendingUpdate) && updated ? done(result) : void 0;
@@ -5724,13 +5752,16 @@ var __decentSync = (() => {
         return sameRepo && sameBranch ? done(result) : void 0;
       }
       case "checkPluginUpdates": {
-        if (!updated) return void 0;
-        const results = plugins.filter(isObject8).flatMap((plugin) => {
-          const source = isObject8(plugin.source) ? plugin.source : null;
-          if (typeof plugin.id !== "string" || source?.kind !== "github_release" && source?.kind !== "github_branch") return [];
-          const now2 = typeof plugin.version === "string" ? plugin.version : void 0;
-          const status = isObject8(plugin.pendingUpdate) ? "pendingApproval" : now2 !== void 0 && kept.versions[plugin.id] !== void 0 && kept.versions[plugin.id] !== now2 ? "updated" : typeof source.lastError === "string" && source.lastError !== "" ? "failed" : "alreadyCurrent";
-          return [{ item: plugin.id, status, ...status === "failed" ? { error: String(source.lastError).slice(0, MAX_REFUSAL_LENGTH) } : {}, ...now2 === void 0 ? {} : { version: now2 } }];
+        if (!updated || report === void 0) return void 0;
+        const versions = versionsOf(plugins);
+        const builds = buildsOf(plugins);
+        const results = report.filter(isObject8).flatMap((given) => {
+          const item = given.item;
+          if (typeof item !== "string" || typeof given.status !== "string") return [];
+          const rebuilt = kept.builds[item] !== void 0 && builds[item] !== void 0 && kept.builds[item] !== builds[item];
+          const status = rebuilt ? "updated" : given.status;
+          const error = !rebuilt && typeof given.error === "string" ? { error: given.error.slice(0, MAX_REFUSAL_LENGTH) } : {};
+          return [{ item, status, ...error, ...versions[item] === void 0 ? {} : { version: versions[item] } }];
         });
         return done({ results });
       }
@@ -5740,6 +5771,20 @@ var __decentSync = (() => {
         return void 0;
     }
   }
+  function ownBuildChanged(kept, plugins) {
+    const now2 = buildsOf(plugins)["decent-sync.reaplugin"];
+    return now2 !== void 0 && kept.builds["decent-sync.reaplugin"] !== now2;
+  }
+  function buildsOf(plugins) {
+    return Object.fromEntries(
+      plugins.filter(isObject8).flatMap((plugin) => {
+        if (typeof plugin.id !== "string" || typeof plugin.version !== "string") return [];
+        const source = isObject8(plugin.source) ? plugin.source : {};
+        const from = typeof source.commit === "string" ? source.commit : typeof source.releaseTag === "string" ? source.releaseTag : "";
+        return [[plugin.id, `${plugin.version} ${from}`]];
+      })
+    );
+  }
   function versionsOf(plugins) {
     return Object.fromEntries(plugins.filter(isObject8).flatMap((plugin) => typeof plugin.id === "string" && typeof plugin.version === "string" ? [[plugin.id, plugin.version]] : []));
   }
@@ -5748,7 +5793,7 @@ var __decentSync = (() => {
     return rest;
   }
   function isPending(value) {
-    return isObject8(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject8(value.versions);
+    return isObject8(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject8(value.versions) && isObject8(value.builds);
   }
   function expired2(id) {
     return { type: "softwareActed", id, outcome: "refused", reason: "expired" };

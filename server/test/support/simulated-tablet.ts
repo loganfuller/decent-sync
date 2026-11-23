@@ -2078,7 +2078,7 @@ export class SimulatedTablet {
     if (method === "GET" && route === "/update") return response(200, JSON.stringify(this.plugins.update));
     if (!this.dye2?.answers(route)) {
       const dye2 = this.dye2?.listing();
-      const managed = this.plugins.answer(method, route, requestBody, via, this.ownPlugin(), dye2 ? [dye2 as ListedPlugin] : []);
+      const managed = await this.plugins.answer(method, route, requestBody, via, this.ownPlugin(), dye2 ? [dye2 as ListedPlugin] : []);
       if (managed) return response(managed.status, managed.text ?? JSON.stringify(managed.body));
     }
     if (this.dye2?.answers(route)) {

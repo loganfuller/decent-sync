@@ -52,6 +52,8 @@ interface Pending {
   pollSeconds?: unknown;
   /** Each plugin's version before the action, by its id. */
   versions: Record<string, string>;
+  /** Each plugin's build before the action, by its id: its version with its release or commit (`buildsOf`). */
+  builds: Record<string, string>;
 }
 
 /**
@@ -136,8 +138,17 @@ export class SoftwareActions {
         if (!isPending(kept) || this.stopped) return;
         await this.forget();
         if (Date.now() - kept.startedAt > PENDING_MS || Date.now() < kept.startedAt) return;
-        const plugins = await this.reports.readSoftware("plugins", kept.id);
-        const answer = plugins === undefined ? undefined : afterReload(kept, plugins);
+        let plugins = await this.reports.readSoftware("plugins", kept.id);
+        if (plugins === undefined) return;
+        let report: unknown[] | undefined;
+        // Decaid loads the plugin again partway through an update check, which goes on to the plugins after it:
+        // the check's own results, once it ends, tell what came of each.
+        if (kept.kind === "checkPluginUpdates" && ownBuildChanged(kept, plugins)) {
+          report = await this.joinUpdateCheck();
+          if (report === undefined || this.stopped) return;
+          plugins = (await this.reports.readSoftware("plugins", kept.id)) ?? plugins;
+        }
+        const answer = afterReload(kept, plugins, report);
         if (answer === undefined || this.stopped) return;
         this.outbox.enqueue(answer);
       } catch (error) {
@@ -247,12 +258,34 @@ export class SoftwareActions {
     }
   }
 
+  /**
+   * The results of the update check that loaded this plugin again, once it
+   * ends: Decaid answers a request for a check while one runs with that
+   * check's results (`checkForPluginUpdates`), and one made after it ended
+   * with a new check's, which finds what the first left. Undefined, and so
+   * not confirmed, where the Machine is busy by now, as no new check is
+   * started then, or Decaid answers with no results.
+   */
+  private async joinUpdateCheck(): Promise<unknown[] | undefined> {
+    const state = await request("GET", "/machine/state");
+    if (state.ok) {
+      const machineState = stateOf(state.text);
+      if (machineState === null || !(SETTINGS_EDIT_STATES as readonly string[]).includes(machineState)) return undefined;
+    } else if (!machineMissing(state)) {
+      return undefined;
+    }
+    const answer = await manage("POST", "/plugins/update");
+    const said = answer.ok ? parsed(answer.text) : undefined;
+    return isObject(said) && Array.isArray(said.results) ? said.results : undefined;
+  }
+
   private async keep(action: SoftwareAction, plugins: unknown[]): Promise<void> {
     const pending: Pending = {
       id: action.id,
       kind: action.kind,
       startedAt: Date.now(),
       versions: versionsOf(plugins),
+      builds: buildsOf(plugins),
       ...("pluginId" in action ? { pluginId: action.pluginId } : {}),
       ...(action.kind === "installPlugin" ? { repo: action.repo, ...(action.branch === undefined ? {} : { branch: action.branch }) } : {}),
       ...(action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}),
@@ -361,17 +394,20 @@ function resultOf(action: SoftwareAction, answer: Answer, before: unknown[], aft
  * list as it is now, or undefined where that does not show what came of it:
  *
  * - an approval of its own update is done once no update waits and its
- *   version changed;
+ *   build changed;
  * - an install is done where the plugin itself now comes from the
  *   repository, and branch, asked for;
- * - an update check is done where the plugin's own version changed, which
- *   is what loaded it again, with each plugin's result told from the list:
- *   updated where its version changed, waiting where an update waits,
- *   failed where its source holds an error, and current otherwise;
+ * - an update check is done where the plugin's own build changed, which
+ *   is what loaded it again, with each plugin's result as the check's
+ *   results (`report`) give it, and updated where its build changed since
+ *   the action: a check run again after the first ended finds those current;
  * - a change of its poll interval is done: Decaid saves a plugin's settings
  *   before it loads it again.
+ *
+ * A build is a plugin's version with its release or commit, as a branch's
+ * new commit may keep the version.
  */
-function afterReload(kept: Pending, plugins: unknown[]): SoftwareActed | undefined {
+function afterReload(kept: Pending, plugins: unknown[], report?: unknown[]): SoftwareActed | undefined {
   const own = plugins.find((entry) => isObject(entry) && entry.id === __PLUGIN_ID__) as Record<string, unknown> | undefined;
   if (!own) return undefined;
   const version = typeof own.version === "string" ? own.version : undefined;
@@ -382,7 +418,7 @@ function afterReload(kept: Pending, plugins: unknown[]): SoftwareActed | undefin
     loaded: true,
   };
   const done = (given: SoftwareActionResult): SoftwareActed => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
-  const updated = version !== undefined && kept.versions[__PLUGIN_ID__] !== version;
+  const updated = ownBuildChanged(kept, plugins);
   switch (kept.kind) {
     case "approvePluginUpdate":
       return kept.pluginId === __PLUGIN_ID__ && !isObject(own.pendingUpdate) && updated ? done(result) : undefined;
@@ -393,19 +429,16 @@ function afterReload(kept: Pending, plugins: unknown[]): SoftwareActed | undefin
       return sameRepo && sameBranch ? done(result) : undefined;
     }
     case "checkPluginUpdates": {
-      if (!updated) return undefined;
-      const results = plugins.filter(isObject).flatMap((plugin): UpdateResult[] => {
-        const source = isObject(plugin.source) ? plugin.source : null;
-        if (typeof plugin.id !== "string" || (source?.kind !== "github_release" && source?.kind !== "github_branch")) return [];
-        const now = typeof plugin.version === "string" ? plugin.version : undefined;
-        const status = isObject(plugin.pendingUpdate)
-          ? "pendingApproval"
-          : now !== undefined && kept.versions[plugin.id] !== undefined && kept.versions[plugin.id] !== now
-            ? "updated"
-            : typeof source.lastError === "string" && source.lastError !== ""
-              ? "failed"
-              : "alreadyCurrent";
-        return [{ item: plugin.id, status, ...(status === "failed" ? { error: String(source.lastError).slice(0, MAX_REFUSAL_LENGTH) } : {}), ...(now === undefined ? {} : { version: now }) }];
+      if (!updated || report === undefined) return undefined;
+      const versions = versionsOf(plugins);
+      const builds = buildsOf(plugins);
+      const results = report.filter(isObject).flatMap((given): UpdateResult[] => {
+        const item = given.item;
+        if (typeof item !== "string" || typeof given.status !== "string") return [];
+        const rebuilt = kept.builds[item] !== undefined && builds[item] !== undefined && kept.builds[item] !== builds[item];
+        const status = rebuilt ? "updated" : given.status;
+        const error = !rebuilt && typeof given.error === "string" ? { error: given.error.slice(0, MAX_REFUSAL_LENGTH) } : {};
+        return [{ item, status, ...error, ...(versions[item] === undefined ? {} : { version: versions[item]! }) }];
       });
       return done({ results });
     }
@@ -414,6 +447,24 @@ function afterReload(kept: Pending, plugins: unknown[]): SoftwareActed | undefin
     default:
       return undefined;
   }
+}
+
+/** Whether the plugin's own build in a plugin list is another than before the action kept. */
+function ownBuildChanged(kept: Pending, plugins: unknown[]): boolean {
+  const now = buildsOf(plugins)[__PLUGIN_ID__];
+  return now !== undefined && kept.builds[__PLUGIN_ID__] !== now;
+}
+
+/** Each plugin's build in a plugin list, by its id: its version, with the release or commit it was installed from. */
+function buildsOf(plugins: unknown[]): Record<string, string> {
+  return Object.fromEntries(
+    plugins.filter(isObject).flatMap((plugin) => {
+      if (typeof plugin.id !== "string" || typeof plugin.version !== "string") return [];
+      const source = isObject(plugin.source) ? plugin.source : {};
+      const from = typeof source.commit === "string" ? source.commit : typeof source.releaseTag === "string" ? source.releaseTag : "";
+      return [[plugin.id, `${plugin.version} ${from}`]];
+    }),
+  );
 }
 
 /** Each plugin's version in a plugin list, by its id. */
@@ -428,7 +479,7 @@ function updateState(state: Record<string, unknown>): Record<string, unknown> {
 }
 
 function isPending(value: unknown): value is Pending {
-  return isObject(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject(value.versions);
+  return isObject(value) && typeof value.id === "string" && typeof value.kind === "string" && typeof value.startedAt === "number" && isObject(value.versions) && isObject(value.builds);
 }
 
 function expired(id: string): SoftwareActed {
