@@ -43,9 +43,9 @@ const NAMES: Readonly<Record<NoticeReason, string>> = {
 
 /**
  * Puts the notice up for one reason at a time, replacing the last, and
- * withdraws it. It asks Decaid only when what should show changes, so a
- * notice Decaid refuses is logged and asked for again only once the reason
- * changes, never in a loop.
+ * withdraws it. It asks Decaid to put one up only when the reason changes,
+ * so a notice Decaid refuses is logged and asked for again only once the
+ * reason changes, never in a loop. A withdrawal is asked for each time.
  *
  * A load starts not knowing what an earlier load left up. The first outcome
  * of its first connection settles it: a welcome withdraws it, a refusal puts
@@ -75,8 +75,14 @@ export class TabletNotice {
     }
   }
 
+  /**
+   * Asks Decaid to withdraw the notice, whatever this load thinks shows:
+   * Decaid sends no result for a withdrawal, and one whose save fails leaves
+   * the notice up, so each call asks again. Withdrawing a notice Decaid
+   * doesn't hold changes nothing there (`removeSource` in
+   * notification_center.dart), so asking again costs nothing.
+   */
   withdraw(): void {
-    if (this.shown === null) return;
     this.shown = null;
     try {
       this.host.dismissNotification(NOTICE_ID);

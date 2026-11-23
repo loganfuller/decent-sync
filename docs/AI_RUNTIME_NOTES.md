@@ -75,7 +75,7 @@ What v0.9.3 does with a plugin's notices, run on its Linux release headless on 2
 
 - `host.notify({ id, message })` returns a request id (`notice_1`, ...) at once; a `notificationResult` event follows to that load only, `{ requestId, id, status: "accepted" }` or `{ requestId, id?, status: "rejected", reason }`, `id` left out where it was not valid.
 - An id or message that is not a string, is blank, is longer than 128 or 600 UTF-16 code units, or holds a control character other than tab and line feed is rejected as `validation`. A plugin's sixth notice, of a new id, is rejected as `capacity`; replacing one of its five is not.
-- A notice with the id of one the plugin holds replaces it in place: the same message keeps its revision and read state, another is a new revision, unread. `host.dismissNotification(id)` withdraws one, and with no id every notice of the plugin; an id it does not hold changes nothing. Neither answers.
+- A notice with the id of one the plugin holds replaces it in place: the same message keeps its revision and read state, another is a new revision, unread. `host.dismissNotification(id)` withdraws one, and with no id every notice of the plugin; an id it does not hold changes nothing and saves nothing. Neither answers, so a withdrawal whose save fails leaves the notice up without a word (from `removeSource` in notification_center.dart, not recorded); the plugin asks again at each heartbeat.
 - Saving a plugin's settings, which reloads it, and restarting Decaid keep its notices; disabling it removes them. No REST route lists notices: the center is saved in `shared_preferences.json` as `flutter.private.notificationCenter.v1`.
 
 | Data | Host source to inspect | Milestone 1 approach |

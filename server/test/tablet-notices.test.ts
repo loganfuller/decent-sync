@@ -162,6 +162,25 @@ describe("Notices on the tablet", () => {
     expectOneNotice(tablet);
   });
 
+  it("asks again at each heartbeat for a withdrawal Decaid failed to save", async () => {
+    // A notice an earlier load put up, and Decaid's save of its withdrawal at the welcome fails, telling the plugin
+    // nothing. The simulated tablet keeps heartbeats at real time whatever its pace, so the stand-in asks for them often.
+    const notices = new NotificationCenter();
+    notices.publish(PLUGIN, "Decent Sync", { id: "sync", message: NOTICES.unreachable });
+    notices.failNextSaves(1);
+    const standIn = await StandInServer.start({ heartbeatIntervalMs: 200 });
+    try {
+      const tablet = load({ settings: { ServerUrl: standIn.url, Token: "any" }, notices });
+      await tablet.waitForLog(/^Connected to /);
+      await showing(tablet, null);
+      const withdrawals = notices.calls.filter((call) => call.op === "dismiss" && call.pluginId === PLUGIN);
+      expect(withdrawals.length).toBeGreaterThanOrEqual(2);
+      await tablet.unload();
+    } finally {
+      await standIn.stop();
+    }
+  });
+
   describe("while another tablet holds the Machine", () => {
     /** The plugin's 5-minute wait before each `yielding` hello takes 3 s at this pace. */
     const TIME_SCALE = 100;

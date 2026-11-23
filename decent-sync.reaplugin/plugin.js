@@ -6768,8 +6768,14 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         this.log(`Decaid refused the notice on the tablet that ${NAMES[reason]}: ${describe4(error)}`);
       }
     }
+    /**
+     * Asks Decaid to withdraw the notice, whatever this load thinks shows:
+     * Decaid sends no result for a withdrawal, and one whose save fails leaves
+     * the notice up, so each call asks again. Withdrawing a notice Decaid
+     * doesn't hold changes nothing there (`removeSource` in
+     * notification_center.dart), so asking again costs nothing.
+     */
     withdraw() {
-      if (this.shown === null) return;
       this.shown = null;
       try {
         this.host.dismissNotification(NOTICE_ID);
@@ -7269,6 +7275,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           this.references.apply(message);
           break;
         case "heartbeat":
+          this.notice.withdraw();
           break;
         case "error": {
           this.log(`The server reported ${describeError(message.code)}: ${message.message}`);

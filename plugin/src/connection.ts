@@ -143,7 +143,8 @@ type TimerName =
  * from another tablet holding the Machine, and from the server out of reach
  * for UNREACHABLE_NOTICE_MS, counted from a failed attempt or a lost
  * connection until a connection is welcomed. A welcome withdraws it, and so
- * does the machine reporting other hardware than was dismissed.
+ * does the machine reporting other hardware than was dismissed; each
+ * heartbeat the server answers asks for the withdrawal again.
  *
  * A Skin on the tablet asks the plugin what the server holds (ADR-0030): the
  * plugin sends each request on the connection welcomed then, behind what the
@@ -651,7 +652,9 @@ export class SyncConnection {
         this.references.apply(message);
         break;
       case "heartbeat":
-        // Its arrival is what counts.
+        // Its arrival is what counts. While welcomed, nothing should show on the tablet: asking Decaid again each
+        // heartbeat takes down a notice whose withdrawal at the welcome Decaid failed to save.
+        this.notice.withdraw();
         break;
       case "error": {
         this.log(`The server reported ${describeError(message.code)}: ${message.message}`);

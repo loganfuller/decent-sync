@@ -44,7 +44,7 @@ export class NotificationCenter {
   private held: HeldNotice[] = [];
   /** The highest revision given, which the next changed notice goes past. */
   private revision = 0;
-  /** Saves that fail with `storage` before the center changes, as Decaid's do when its preferences can't be written. */
+  /** Saves that fail before the center changes, as Decaid's do when its preferences can't be written: a notice's with `storage`, a withdrawal's without a word. */
   private failingSaves = 0;
   /** Each call a plugin made, in order: a notice it asked for, with what came of it, or a withdrawal. */
   readonly calls: ({ op: "notify"; pluginId: string; notice: unknown; result: Omit<NoticeResult, "requestId"> } | { op: "dismiss"; pluginId: string; id: string | null })[] = [];
@@ -54,7 +54,7 @@ export class NotificationCenter {
     return structuredClone(this.held.filter((notice) => pluginId === undefined || notice.sourceId === pluginId));
   }
 
-  /** Fails the next `count` saves with `storage`, the center left as it was. */
+  /** Fails the next `count` saves, of a notice or a withdrawal, the center left as it was. */
   failNextSaves(count: number): void {
     this.failingSaves = count;
   }
@@ -70,10 +70,21 @@ export class NotificationCenter {
     return result;
   }
 
-  /** Withdraws a plugin's notice with that id, or every one of its notices for none. Unknown ids change nothing. */
+  /**
+   * Withdraws a plugin's notice with that id, or every one of its notices for
+   * none. Unknown ids change nothing and save nothing. A save that fails
+   * leaves the notices up, and the plugin is not told, as Decaid sends no
+   * result for a withdrawal (`removeSource` in notification_center.dart).
+   */
   dismiss(pluginId: string, id: unknown): void {
     this.calls.push({ op: "dismiss", pluginId, id: id === undefined || id === null ? null : String(id) });
-    this.held = this.held.filter((notice) => notice.sourceId !== pluginId || (id !== undefined && id !== null && notice.id !== id));
+    const kept = this.held.filter((notice) => notice.sourceId !== pluginId || (id !== undefined && id !== null && notice.id !== id));
+    if (kept.length === this.held.length) return;
+    if (this.failingSaves > 0) {
+      this.failingSaves--;
+      return;
+    }
+    this.held = kept;
   }
 
   /** Removes a plugin's notices, as disabling, removing or uninstalling it does. */

@@ -33,6 +33,8 @@ export class StandInServer {
     private readonly wireRevision: number,
     /** The refusal it answers every hello with in place of a welcome, if any. */
     private readonly refusal: { code: ErrorCode; message: string } | undefined,
+    /** The heartbeat interval its welcome gives. */
+    private readonly heartbeatIntervalMs: number,
   ) {
     server.on("connection", (socket) => {
       this.socket?.terminate();
@@ -53,15 +55,18 @@ export class StandInServer {
    * `wireRevision`, as a server of another release would, or refuses every
    * hello with `refuse`: an `error` with its code and message, then a close
    * with that code's close code and the code as its reason, as the server's
-   * refusals are sent (`refuse` in server/src/sync/sync.gateway.ts).
+   * refusals are sent (`refuse` in server/src/sync/sync.gateway.ts). Its
+   * welcome asks for a heartbeat every 30 s, or every `heartbeatIntervalMs`.
    */
-  static async start(options: { wireRevision?: number; refuse?: { code: ErrorCode; message: string } } = {}): Promise<StandInServer> {
+  static async start(
+    options: { wireRevision?: number; refuse?: { code: ErrorCode; message: string }; heartbeatIntervalMs?: number } = {},
+  ): Promise<StandInServer> {
     const server = new WebSocketServer({ host: "127.0.0.1", port: 0, path: SYNC_PATH });
     await new Promise<void>((resolve, reject) => {
       server.once("listening", resolve);
       server.once("error", reject);
     });
-    return new StandInServer(server, `http://127.0.0.1:${(server.address() as AddressInfo).port}`, options.wireRevision ?? WIRE_REVISION, options.refuse);
+    return new StandInServer(server, `http://127.0.0.1:${(server.address() as AddressInfo).port}`, options.wireRevision ?? WIRE_REVISION, options.refuse, options.heartbeatIntervalMs ?? 30_000);
   }
 
   /** Resolves once the plugin has been welcomed. */
@@ -118,7 +123,7 @@ export class StandInServer {
     if (message.type === "hello" && this.refusal) {
       this.reply(socket, { type: "error", ...this.refusal });
       socket.close(CLOSE_CODES[this.refusal.code], this.refusal.code);
-    } else if (message.type === "hello") this.reply(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION, wireRevision: this.wireRevision, heartbeatIntervalMs: 30_000 });
+    } else if (message.type === "hello") this.reply(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION, wireRevision: this.wireRevision, heartbeatIntervalMs: this.heartbeatIntervalMs });
     else if (message.type === "heartbeat") this.reply(socket, { type: "heartbeat" });
     else if (typeof message.id === "string" && message.type !== "request") {
       const acknowledge = () => this.reply(socket, { type: "ack", id: String(message.id) });
