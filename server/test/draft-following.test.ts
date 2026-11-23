@@ -151,7 +151,8 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
       .poll(
         async () => {
           const following = (await trying(draft)).following;
-          return following && { state: following.state, has: following.has, hasItsSteps: following.has === following.titleOnTablet };
+          // titleOnTablet rides along so a timeout shows the title it waited for.
+          return following && { state: following.state, has: following.has, titleOnTablet: following.titleOnTablet, hasItsSteps: following.has === following.titleOnTablet };
         },
         { timeout: 15_000 },
       )
