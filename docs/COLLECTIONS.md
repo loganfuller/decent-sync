@@ -740,10 +740,13 @@ to each change; `AI_RUNTIME_NOTES.md` (Skins) has the routes.
 
 Two more collections go with the plugins (#660). `pluginSettings` holds the
 settings of each plugin in the list that declares any, by the plugin's id,
-each as Decaid's `GET /plugins/{id}/settings` answers: the settings that
-were set, without defaults, a `secure` one only as `{ "isSet": true|false }`,
-never its value. It is read after the plugin list, on every poll, one plugin
-at a time. `decaidUpdate` is Decaid's own update state as `GET /update`
+each as `{ declared, values }`: `values` as Decaid's `GET
+/plugins/{id}/settings` answers, the settings that were set, without
+defaults, a `secure` one only as `{ "isSet": true|false }`, never its value;
+and `declared`, the names of the settings its manifest declares, in the
+manifest's order, which the settings form shows them in, as the server keeps
+the plugin list as JSON whose keys PostgreSQL does not keep in order. It is
+read after the plugin list, on every poll, one plugin at a time. `decaidUpdate` is Decaid's own update state as `GET /update`
 answers it: `{ phase, currentVersion, latestVersion, releaseNotes,
 releaseUrl, installable, progress, error }`. Both are read, with the plugin
 list, in the queue Settings Edits and Software Actions share
@@ -922,8 +925,9 @@ How each is made, carried out and answered:
      plugin list and the plugins' settings, or for `checkDecaidUpdate`
      Decaid's update state; then queues its answer, `softwareActed`, behind
      them.
-- **Outcomes.** `done`, with a `result`: the plugin it acted on, its version
-  afterwards and whether it was loaded; for `checkPluginUpdates`, a result
+- **Outcomes.** `done`, with a `result`: the plugin it acted on, by its id
+  and the name the Tablet listed it under, its version afterwards and
+  whether it was loaded; for `checkPluginUpdates`, a result
   for each plugin Decaid checked (`item`, `status`: `updated`,
   `alreadyCurrent`, `pendingApproval` or `failed`, with Decaid's `error`,
   and the version installed afterwards); for `checkDecaidUpdate`, Decaid's
@@ -1315,8 +1319,8 @@ Workflow, the paired devices, and its Settings History with its Settings
 Edits, a row per field changed, with brief changes shown on asking and a
 control that narrows it to what was made through a Settings Edit. Its
 Software tab shows the Tablet Software (Software Actions, above). Its Setup
-tab shows the DYE2 and Streamline in its Hardware and software card, which
-keeps the last reported while the Machine is offline, and how many of each
+tab shows its hardware and firmware in its Hardware card, with a link to the
+Software tab for Decaid, the plugins and the Skins, and how many of each
 library collection its tablet reported. Through
 the MCP endpoint, `get_machine` gives the Machine Settings, the Tablet
 Settings and the DYE2 and Streamline, and `get_machine_reports` (ticket
