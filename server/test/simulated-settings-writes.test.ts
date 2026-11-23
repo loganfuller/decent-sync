@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { type DecaidApi, de1ProOnDecaid093, derivedDe1Pro, Refusal, SimulatedTablet } from "./support/simulated-tablet.js";
+import { SimulatedPlugins } from "./support/decaid-plugins.js";
 
 // The simulated tablet's settings writes against those recorded on Decaid
 // v0.9.0's Linux release (fixtures/decaid/settings-writes-v0.9.0/): a tablet
@@ -289,9 +290,11 @@ describe("The simulated tablet's settings writes", () => {
     expect(kept(reconnects.restartedAfterReset!.reads)).toEqual([55, 2, 1.2]);
   });
 
-  it("refuse a change of the Skin served, or the automatic update checks turned on, with nothing applied, as Decaid v0.9.2 did a request with no token", async () => {
+  it("refuse a change of the Skin served, or the automatic update checks turned on, with nothing applied, where the Tablet asks a token of a plain request, as Decaid v0.9.2 always did, and take them through localApi's authority", async () => {
     const started = Object.fromEntries(Object.entries(gate.started!.reads).map(([route, read]) => [route, read.body]));
-    const tablet = SimulatedTablet.load({ settings: {}, api: { ...de1ProOnDecaid093(), ...started } });
+    // Decaid v0.9.3 asks the token only while its "Require authorization for extension management" setting is on
+    // (tablet-software-v0.9.3/protected.json): with it on, it answers as v0.9.2 was recorded answering.
+    const tablet = SimulatedTablet.load({ settings: {}, api: { ...de1ProOnDecaid093(), ...started }, plugins: new SimulatedPlugins({ requireAuthorization: true }) });
     const refused: string[] = [];
     for (const [step, { exchanges, reads }] of Object.entries(gate)) {
       // The simulated tablet knows no token, as the plugin's `fetch` carries none: the replay ends at the first request Decaid took one with.

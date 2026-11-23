@@ -127,18 +127,25 @@ describe("Settings Edits of the Tablet Settings", () => {
     expect(writes(tablet)).toEqual(["POST /settings"]);
   });
 
-  it("refuses an edit of the automatic update checks, an Admin's too, saying where they are managed, and writes nothing", async () => {
+  it("turns the automatic update checks off and on for an Admin, through localApi in a request of their own, and refuses Staff", async () => {
     const { machine, tablet } = await connected("Tablet update checks");
     expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: true });
-    for (const [as, automaticUpdateCheck] of [[staff, false], [api, false], [api, true]] as const) {
-      const response = await as.call("POST", path(machine), { collection: "appSettings", fields: { automaticUpdateCheck }, expected: { automaticUpdateCheck: true } });
-      const text = await response.text();
-      expect(response.status, text).toBe(400);
-      expect(text).toMatch(/Automatic update checks can't be changed here: managed in Decaid on the Tablet/);
-    }
+    const response = await staff.call("POST", path(machine), { collection: "appSettings", fields: { automaticUpdateCheck: false }, expected: { automaticUpdateCheck: true } });
+    expect(response.status).toBe(403);
+    expect(await response.text()).toMatch(/Only an Admin can change Automatic update checks/);
     expect(writes(tablet)).toEqual([]);
+
+    // With another field of the Tablet Settings, which goes after it by the plugin's fetch, as localApi takes no other.
+    const edit = async (fields: Record<string, unknown>, expected: Record<string, unknown>) =>
+      (await api.send<{ settingsEdit: SettingsEditView }>("POST", path(machine), { collection: "appSettings", fields, expected }, 201)).settingsEdit;
+    const gatewayMode = (await held(tablet)).gatewayMode;
+    const off = await edit({ automaticUpdateCheck: false, gatewayMode: "tracking" }, { automaticUpdateCheck: true, gatewayMode });
+    expect(await answered(machine, off.id)).toMatchObject({ outcome: "applied", readBack: { automaticUpdateCheck: false, gatewayMode: "tracking" } });
+    expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: false, gatewayMode: "tracking" });
+    expect(writes(tablet)).toEqual(["POST /settings", "POST /settings"]);
+    const on = await edit({ automaticUpdateCheck: true }, { automaticUpdateCheck: false });
+    expect(await answered(machine, on.id)).toMatchObject({ outcome: "applied", readBack: { automaticUpdateCheck: true } });
     expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: true });
-    // It is still reported, to be shown.
     expect((await reported(machine))?.value).toMatchObject({ automaticUpdateCheck: true });
   });
 

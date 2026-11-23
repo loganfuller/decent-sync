@@ -21,6 +21,7 @@ import {
   simulatedLibrary,
   skinsAt,
 } from "./support/simulated-tablet.js";
+import { decaidUpdateState } from "./support/decaid-plugins.js";
 import { SimulatedDye2, dye2Migrated } from "./support/simulated-dye2.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
@@ -173,6 +174,10 @@ describe("Library, settings and paired devices", () => {
       sensorCalibration: { available: true, value: sensorCalibrationIn(served) },
       // Decaid lists the plugin itself, loaded; this tablet has no DYE2.
       plugins: { available: true, value: [expect.objectContaining({ id: "decent-sync.reaplugin", loaded: true, source: null })] },
+      // The settings of each plugin that declares any, here its own: the secret one only as whether it is set.
+      pluginSettings: { available: true, value: { "decent-sync.reaplugin": { ServerUrl: server.url, PollSeconds: expect.any(Number), Token: { isSet: true } } } },
+      // Decaid's own update state, as a new v0.9.3 answers it (tablet-software-v0.9.3/).
+      decaidUpdate: { available: true, value: decaidUpdateState() },
       skins: { available: true, value: skinsIn(served) },
       pairedDevices: { available: true, value: paired(served["/devices"]) },
       scaleInfo: value("/scale/info"),

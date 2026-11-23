@@ -1026,6 +1026,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         receivedAt: expect.any(String),
         collection: "machineSettings",
         settingsEdit: { id: applied.id, account: { id: expect.any(String), name: "Ada Admin" }, connectedApp: null },
+        softwareAction: null,
         fields: [{ field: "fan", change: "changed", before: 55, after: 40, backAt: null }],
       },
     ]);
