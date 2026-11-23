@@ -18,6 +18,10 @@ Conventions of the management interface (`web/`) that no single file states.
 - The axes' numbers keep clear of what is drawn near them: a lane writes as many values as fit at its height without touching (`laneTicks`), a Draft's point handles stand inside the plot (`pointInPlot`), the lanes' values end `LANE_VALUES_GAP` left of the plot, clear of a bracket on its edge, and the cup row's names are held right of them.
 - `graphClashes` (`e2e/support/graph-text.ts`) lists each piece of the graph's text drawn over another, or under a handle, its tag or the bracket; a spec that draws a new state of the graph expects it empty.
 
+## Tabs
+
+- A link that replaces part of a page, as a Machine page's tabs do, calls `useKeptScroll` (`web/src/lib/use-kept-scroll.ts`) on its click, so the page doesn't shrink under a reader scrolled down while the new part loads.
+
 ## Phone width
 
 - Every page fits a phone's width, which `e2e/phone-width.spec.ts` checks.

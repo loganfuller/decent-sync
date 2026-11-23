@@ -55,6 +55,7 @@ import {
   type TakeoverConnection,
   type WorkflowEvent,
 } from "@/lib/api";
+import { useKeptScroll } from "@/lib/use-kept-scroll";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { cn } from "@/lib/utils";
 import { formatInZone, fromZonedInput, toZonedInput } from "@/lib/zoned-time";
@@ -115,6 +116,8 @@ function MachineDetails({ id }: { id: string }) {
   const isAdmin = useIsAdmin();
   const [params] = useSearchParams();
   const tab: Tab = TABS.find((each) => each.tab === params.get("tab"))?.tab ?? "now";
+  // A tab opened while scrolled down keeps the page's scroll position while its content is shorter, as while it loads.
+  const keepScroll = useKeptScroll();
   const [notFound, setNotFound] = useState(false);
   const path = `/machines/${encodeURIComponent(id)}`;
   // With when the page asked for it, by its own clock, which the Live View orders its frames against.
@@ -213,6 +216,7 @@ function MachineDetails({ id }: { id: string }) {
                 key={each}
                 to={{ search: tabSearch(params, each) }}
                 aria-current={each === tab ? "page" : undefined}
+                onClick={each === tab ? undefined : keepScroll}
                 className={cn(
                   "-mb-px border-b-2 py-2",
                   each === tab ? "border-foreground font-semibold" : "border-transparent font-medium text-muted-foreground hover:text-foreground",

@@ -227,10 +227,66 @@ test("what needs attention stays above the tabs, whichever is open: a new token"
   for (const tab of ["Now", "Activity", "Settings", "Setup"] as const) {
     await openMachineTab(page, tab);
     await expect(notice).toBeVisible();
-    // Above the tabs, the two measured in one layout: Settings shrinks the page while it loads, pulling its scroll position up and back (#635).
+    // Above the tabs, the two measured in one layout, as the page may reflow between two measurements (#635).
     const [noticeBox, tabsBox] = await boxes(notice, page.getByRole("navigation", { name: "Machine" }));
     expect(noticeBox!.y + noticeBox!.height).toBeLessThanOrEqual(tabsBox!.y);
   }
+});
+
+test("a tab opened while scrolled down keeps the page's scroll position while it loads, and gives the space it held back as the page is scrolled up (#641)", async ({ page }) => {
+  // The Spare's tabs, which no tablet ever reported for, are shorter than its Setup, more so while they load.
+  const reads = (url: URL) => url.pathname.startsWith(`/api/machines/${spareId}/`);
+  const scrolled = () => page.evaluate(() => ({ y: window.scrollY, bottom: window.scrollY + window.innerHeight }));
+  /** How tall the page's own content is, and the page with what is held for it. */
+  const heights = () => page.evaluate(() => ({ content: document.body.offsetHeight, page: document.documentElement.scrollHeight }));
+  const link = (name: string) => page.getByRole("navigation", { name: "Machine" }).getByRole("link", { name, exact: true });
+  for (const tab of ["Now", "Activity", "Settings"] as const) {
+    await page.goto(`/machines/${spareId}?tab=setup`);
+    await expect(region(page, "Token")).toBeVisible();
+    await expect(page.getByRole("main").getByText("Loading", { exact: true })).toHaveCount(0);
+    await page.evaluate(() => window.scrollTo(0, 400));
+    expect((await scrolled()).y, "scrolled down Setup").toBe(400);
+
+    // The tab's reads held back, so it stays as it is while loading. Each frame's scroll position is noted from before
+    // the click, which goes to the link where it is, as a reader's would, rather than scrolling it into view first.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(reads, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.evaluate(() => {
+      const frames: number[] = [];
+      Object.assign(window, { scrollFrames: frames });
+      const note = () => {
+        frames.push(window.scrollY);
+        requestAnimationFrame(note);
+      };
+      note();
+    });
+    await link(tab).evaluate((element) => (element as HTMLElement).click());
+    await expect(link(tab)).toHaveAttribute("aria-current", "page");
+    // Two frames on. The tab's own content is short of the window's bottom, so only what is held kept the page there.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const frames = await page.evaluate(() => (window as unknown as { scrollFrames: number[] }).scrollFrames);
+    expect(new Set(frames), `${tab}: each frame's scroll position`).toEqual(new Set([400]));
+    expect((await heights()).content, `${tab}'s content while it loads`).toBeLessThan((await scrolled()).bottom);
+    release();
+    await expect(page.getByRole("main").getByText("Loading", { exact: true })).toHaveCount(0);
+    await page.unroute(reads);
+  }
+
+  // Settings, loaded, still falls short of where the window's bottom was: what is held goes as the page is scrolled up
+  // past it, and all of it at the top.
+  expect((await heights()).content).toBeLessThan((await scrolled()).bottom);
+  await page.evaluate(() => window.scrollTo(0, 200));
+  await expect.poll(async () => (await heights()).page).toBe((await scrolled()).bottom);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(async () => (await heights()).page).toBe((await heights()).content);
+
+  // At the top, nothing is held for the next tab opened, though it loads short too.
+  await openMachineTab(page, "Now");
+  expect(await page.evaluate(() => document.documentElement.style.minHeight)).toBe("");
 });
 
 test("Now's Workflow card names the Loaded Recipe it was loaded from, with its Recipe Slot and since when, in place of a card of its own", async ({ page }) => {
