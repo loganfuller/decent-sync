@@ -37,9 +37,17 @@ No step is needed. The upgrade deletes the Conflicts that were dismissed
 before 1.12.2, which no release has shown since; every other Lost Edit stays
 in its item's History.
 
-### Tablets updated to Decaid v0.9.3
+### Tablets need Decaid v0.9.3
 
-This server needs nothing for Decaid v0.9.3. On a tablet that updates to it:
+This release follows Decaid v0.9.3
+([ADR-0017](docs/adr/0017-supported-versions.md)), as its plugin manages a
+tablet's plugins through it
+([ADR-0034](docs/adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
+Before deploying, update each tablet's Decaid to v0.9.3 or later, at the
+tablet: Android asks someone there to confirm the install. Then deploy the
+server. It refuses a tablet on Decaid v0.9.2 or older, and its Machine's
+page says why, though 1.12.2 still accepts one while it serves beside this
+release. On a tablet that updates to it:
 
 - Decaid turns its protection of plugin and Skin management off as it
   updates, so anything on the tablet's network can install a plugin there
@@ -57,6 +65,88 @@ This server needs nothing for Decaid v0.9.3. On a tablet that updates to it:
 - v0.9.3 bundles DYE2 v0.1.42 and Streamline v0.2.31, the minimums
   [ADR-0017](docs/adr/0017-supported-versions.md) names, so it puts neither
   over a supported one.
+
+### Check every tablet runs the 1.12.0 plugin or later before deploying
+
+This release raises the wire revision, for Software Actions
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
+Deploying). Before deploying, check on each Machine's page that it runs the
+plugin of 1.12.0 or later, 1.12.2's among them. A tablet still on the 1.11.1
+plugin or earlier is refused as too old until its plugin is updated, at the
+tablet or through Decaid's API from its network with
+`POST /api/v1/plugins/update`.
+
+A tablet on the 1.12.2 plugin keeps syncing with this server, but is sent no
+Software Action until it runs this release's plugin: its Machine's Software
+tab says the plugin must update, and an action made for it is refused. The
+Draft page's list of Machines no longer has one needing its plugin updated:
+every plugin this server accepts can follow a Draft, and the REST API's
+`needsPluginUpdate` is always false.
+
+### The plugin's update waits for approval on each tablet once
+
+This release's plugin adds two permissions: `manage.extensions`, with which
+it manages the tablet's plugins when an Admin asks (docs/PLUGIN.md,
+Permissions), and `notifications`, for the notices on the tablet a later
+release brings ([#540](https://github.com/loganfuller/decent-sync/issues/540)).
+Decaid installs an update that adds a permission only once someone approves
+it, so each tablet keeps the plugin it runs until then, which works with this
+server and the previous one. Approve it once on each tablet, before or after
+deploying:
+
+- at the tablet, in Decaid's **Settings**, **Plugins**: **Review**, then
+  **Approve and update**; or
+- from the tablet's network, with a token where the tablet asks one (above):
+
+  ```bash
+  curl -X POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+
+Decaid finds the update at its next update check, within 12 hours while its
+automatic update checks are on, or at once with
+`POST /api/v1/plugins/update` or **Check for updates** under **Plugins**.
+This approval can't be made from the management interface, as the plugin it
+replaces takes no Software Actions. From the next release that adds a
+permission, an Admin approves the plugin's own waiting update on the
+Machine's Software tab.
+
+With `manage.extensions`, an Admin's account, or the server itself, can put
+code on every connected tablet: install any plugin, change any plugin's
+settings and approve any update's permissions. Decaid shows no warning on the
+tablet for a plugin installed through its API. Give the Admin role only to
+people trusted with every tablet.
+
+### A Machine's Software tab manages its tablet's plugins
+
+Each Machine's page gains a Software tab, between Settings and Setup, which
+shows its tablet's Decaid, with the update it offers, and every plugin and
+Skin, each with its version and how it updates (docs/COLLECTIONS.md,
+Software Actions). An Admin installs, enables, disables, configures, checks
+for updates, approves and removes plugins there, and asks Decaid to check for
+its own update, each a Software Action made once while the tablet is
+connected and the Machine idle, and logged on the tab. Staff and Viewers read
+the tab; the values of plugins' settings show to Admins only, and a secret
+only as set or not set. Assistants read a Machine's software with
+`get_machine_software` and `list_software_actions`, and make no Software
+Action. Each plugin's settings now join the Machine's Settings History. Nothing
+is needed.
+
+### Automatic update checks are changed on the Software tab, by Admins
+
+An Admin turns a tablet's automatic update checks on or off on its Machine's
+Software tab again, as a Settings Edit, once the tablet runs this release's
+plugin, which writes them through Decaid's plugin host. Decaid follows the
+change when it next starts. Staff can't change them, nor can an assistant:
+`edit_machine_settings` refuses them. On a tablet still running the previous
+release's plugin, the edit is refused, and the page says its plugin must
+update.
+
+While the checks are off nothing on the tablet updates by itself, this
+plugin included, so Decaid finds this release's plugin there only when
+someone checks for updates, at the tablet or with
+`POST /api/v1/plugins/update`. Check each Machine's Software tab for checks
+left off, and turn them on where the tablet should keep up to date.
 
 ## 1.12.2
 

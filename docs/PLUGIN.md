@@ -10,7 +10,9 @@ what the server holds.
 - [Installing](#installing)
 - [Connecting to the server](#connecting-to-the-server)
 - [Settings](#settings)
+- [Permissions](#permissions)
 - [Updates](#updates)
+- [Managing the tablet's software](#managing-the-tablets-software)
 - [What it sends the server](#what-it-sends-the-server)
 - [What it writes to the tablet](#what-it-writes-to-the-tablet)
 - [Tablet identity and backups](#tablet-identity-and-backups)
@@ -20,7 +22,7 @@ what the server holds.
 
 | App | Minimum | Needed for |
 |---|---|---|
-| Decaid | v0.9.2 | Everything |
+| Decaid | v0.9.3 | Everything |
 | DYE2 | v0.1.42 | Following Recipes |
 | Streamline | v0.2.31 | Following Recipes, where Streamline is the skin |
 
@@ -47,17 +49,19 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 
 ### A token for managing plugins
 
-Decaid v0.9.2 answers 401 to a request from the network that installs,
-updates, approves, enables, disables or removes a plugin or Skin, or saves a
-plugin's settings, unless it carries a token made on the tablet, and 403 to
-one made without **Manage plugins and skins** turned on. Decaid v0.9.3 and
-later do so only while **Require authorization for extension management** is on
-in Decaid's **Security** settings on the tablet. That setting is off on a new
-install and after an update from v0.9.2, and is changed only on the tablet.
-While it is off, Decaid takes such a request without a token and ignores an
-`Authorization` header, so the `$TOKEN` header in the commands on this page
-does no harm there. Decaid's own screens and its own update checks need
-none, so the plugin installs and updates as this page says without one.
+While **Require authorization for extension management** is on in Decaid's
+**Security** settings on the tablet, Decaid answers 401 to a request from the
+network that installs, updates, approves, enables, disables or removes a
+plugin or Skin, or saves a plugin's settings, unless it carries a token made
+on the tablet, and 403 to one made without **Manage plugins and skins**
+turned on. That setting is off on a new install and after an update from
+v0.9.2, and is changed only on the tablet. While it is off, Decaid takes such
+a request without a token and ignores an `Authorization` header, so the
+`$TOKEN` header in the commands on this page does no harm there. Decaid v0.9.2
+asked the token whatever the setting. Decaid's own screens, its own update
+checks and the plugin's Software Actions (below) need none, so the plugin
+installs, updates and manages the tablet's plugins as this page says without
+one.
 
 To make a token, on the tablet:
 
@@ -95,7 +99,8 @@ This disconnects any tablet still using the old one.
 | Poll interval | Seconds between checks for changes on the tablet. Default 30, minimum 5. |
 
 Each poll checks the library, Tablet Settings, paired devices, installed
-plugins and Skins, scale, sensors and Steam Records.
+plugins and their settings, Skins, Decaid's own update, scale, sensors and
+Steam Records.
 
 The machine's own settings are read every 60 seconds, or every poll interval
 if that is longer, and whenever a Workflow change writes them. These reads
@@ -103,6 +108,37 @@ happen only while the machine is idle, asleep or out of water. A read that
 falls due during a Shot, steaming, hot water, a flush or cleaning waits until
 the machine is idle again. The sensors' calibration is read as the plugin
 connects and once a day, also only while the machine is idle.
+
+## Permissions
+
+The plugin's manifest asks Decaid for these permissions:
+
+| Permission | What the plugin does with it |
+|---|---|
+| `log` | Writes to Decaid's log. |
+| `api` | Reads and writes Decaid's local API: the records, the Library, settings, devices, plugins and Skins. |
+| `emit` | Tells a Skin on the tablet that something changed. |
+| `events.machine`, `events.shots`, `events.workflow` | Hears machine state, Shots and Workflow changes as they happen. |
+| `network.websocket` | Connects to the server, and to Decaid's own sockets. |
+| `pluginStorage` | Keeps the tablet's id, what the server hasn't yet acknowledged, and a Software Action under way while Decaid loads the plugin again. |
+| `manage.extensions` | Installs, enables, disables, configures, updates and removes the tablet's plugins, and turns its automatic update checks on or off, when an Admin asks through the management interface ([Managing the tablet's software](#managing-the-tablets-software)). |
+| `notifications` | Nothing yet. A later release shows a notice on the tablet when the plugin stops syncing ([#540](https://github.com/loganfuller/decent-sync/issues/540)). |
+
+`manage.extensions` is full trust. With it, an Admin's account, or the
+server itself, can put code on every connected tablet: install any plugin,
+change any plugin's settings, and approve any update's new permissions, the
+plugin's own included. Before it, the server could change settings and
+Library items only
+([ADR-0034](adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
+Decaid shows no warning on the tablet for a plugin installed through its API,
+even one that asks for `manage.extensions`. Give the Admin role only to
+people trusted with every tablet, and keep the server and its accounts as
+secure as the tablets themselves.
+
+The release that added `manage.extensions` and `notifications` together
+waits for approval on each tablet once, as each adds a permission
+([Updates](#updates)). That release's own update can't be approved from the
+management interface, as the plugin it replaces takes no Software Actions.
 
 ## Updates
 
@@ -117,16 +153,19 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/update \
 ```
 
 Decaid checks by itself only while its **Automatic update checks** setting is
-on. A Machine's page shows that setting under Tablet Settings, and it is
-changed in Decaid on the tablet: Decaid v0.9.2, and v0.9.3 and later while
-**Require authorization for extension management** is on, turn it on only for a
-request carrying such a token, which the plugin has none of, and that setting
-is changed only on the tablet, at any time
+on. While it is off, nothing on the tablet updates by itself, the plugin
+included. A Machine's Software tab shows that setting, and an Admin turns it
+on or off there, as a Settings Edit, while the tablet is connected and the
+Machine idle. Decaid follows a change made this way when it next starts. It
+is changed in Decaid on the tablet too
 ([ADR-0023](adr/0023-decaid-and-the-machine-keep-their-settings.md)).
 
 - **An update that asks for no new permissions** installs by itself.
 - **An update that adds permissions** waits under **Plugins**, saying it needs
-  approval and which permissions it adds. Someone at the tablet presses
+  approval and which permissions it adds. An Admin approves it on the
+  Machine's Software tab, where the tablet's plugin already takes Software
+  Actions, and the Software Action is answered once the plugin has loaded
+  again, with the version then installed. Or someone at the tablet presses
   **Review**, then **Approve and update**. Or send the tablet, with a
   [token for managing plugins](#a-token-for-managing-plugins):
 
@@ -153,6 +192,40 @@ A plugin works with a server of its own release, or of the release before or
 after it ([ADR-0025](adr/0025-each-release-runs-beside-the-previous-one.md)).
 So a tablet can take a plugin update before or after its server is upgraded.
 
+## Managing the tablet's software
+
+A Machine's Software tab shows its tablet's Tablet Software: Decaid, with the
+update it offers, every plugin, with its version, whether it is enabled, how
+it updates and any update that waits, and every Skin. Everyone who reads the
+Machine reads it; the values of plugins' settings show to Admins only, and a
+secret setting only as set or not set, to anyone.
+
+An Admin acts on it through Software Actions, which the plugin carries out
+through Decaid's own plugin routes with `manage.extensions`:
+
+- install a plugin from a GitHub repository's latest release, or from a
+  branch or commit, which pins it (Decaid installs by no release tag); a new
+  plugin is installed disabled;
+- enable or disable a plugin;
+- change a plugin's settings, from a form built from what its manifest
+  declares, secrets included; saving has Decaid load that plugin again;
+- check the plugins for updates, with a result for each, and approve an
+  update that waits on new permissions;
+- remove a plugin with its settings;
+- ask Decaid to check for its own update. Installing it still needs someone
+  at the tablet.
+
+Each is made once, only while the tablet is connected and the Machine runs
+nothing, as a Settings Edit is, and never kept for later. The plugin carries
+out one at a time, refuses one while the Machine is busy, and reads the
+plugins back afterwards, so the Machine's Settings History ties what changed
+to the action. Whatever it is sent, it never disables or removes itself, and
+of its own settings changes only the poll interval: its server address and
+Token are set on the tablet. A tablet still running the plugin of the
+release before Software Actions is sent none until its plugin updates, and
+its Software tab says so. [COLLECTIONS.md](COLLECTIONS.md#software-actions)
+has the detail.
+
 ## What it sends the server
 
 - **Shots and Steam Records.** Each time the plugin loads, it sends the server
@@ -166,8 +239,11 @@ So a tablet can take a plugin update before or after its server is upgraded.
   token was changed in the meantime. During a long outage, the plugin keeps
   the newest 2,000, up to 2 Mi characters, and drops the oldest.
 - **The library, settings, paired devices, scale, sensors, plugins and
-  Skins**, as each poll finds them. A setting a Settings Edit changed is sent
-  naming the edit, for the Machine's Settings History.
+  Skins**, as each poll finds them, with each plugin's settings, a secret one
+  only as set or not set, and Decaid's own update state. A setting a Settings
+  Edit changed is sent naming the edit, and a plugin list or plugin settings
+  a Software Action changed naming the action, for the Machine's Settings
+  History.
 
 ## What it writes to the tablet
 

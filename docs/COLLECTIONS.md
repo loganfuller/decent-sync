@@ -5,7 +5,7 @@ protocol version 1 with one delivery, defined and validated in `protocol/`:
 
 | Direction | Message | Fields |
 |---|---|---|
-| Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available; for one of `LIBRARY_LISTS`, `updatedAt` too (ticket #80); for one of `UTC_OFFSET_COLLECTIONS`, `utcOffsetMinutes` too (ticket #229); for a Settings Edit's read-back, `settingsEditId` too (ticket #432, Settings History below) |
+| Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available; for one of `LIBRARY_LISTS`, `updatedAt` too (ticket #80); for one of `UTC_OFFSET_COLLECTIONS`, `utcOffsetMinutes` too (ticket #229); for a Settings Edit's read-back, `settingsEditId` too (ticket #432, Settings History below); for a Software Action's read-back, `softwareActionId` instead (ticket #660, Software Actions below) |
 
 It is acknowledged with `ack` once stored, or set aside because storing it
 fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
@@ -69,6 +69,8 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `machineCalibration` | `GET /machine/calibration` | content |
 | `sensorCalibration` | `GET /machine/calibration/{flow,pressure,temperature}`, three reads | content |
 | `plugins` | `GET /plugins` | content |
+| `pluginSettings` | `GET /plugins/{id}/settings` for each plugin in the list just read that declares settings, one read each | content |
+| `decaidUpdate` | `GET /update` | content |
 | `skins` | `GET /webui/skins`, `/webui/skins/default` and `/webui/server/status`, three reads | content |
 | `pairedDevices` | `GET /devices`, without devices only discovered nearby | content |
 | `scaleInfo` | `GET /scale/info` | content |
@@ -80,7 +82,9 @@ A read is unavailable when it fails or has nothing to report: any status but
 `null` for a collection read from Decaid's API. `sensorCalibration` is
 unavailable if any of its three reads is, and its later reads are then not
 made: a partial set would be compared with another Machine's complete one.
-It is sent as unavailable, never as an empty collection. So is `skins` if any
+It is sent as unavailable, never as an empty collection. So is
+`pluginSettings` where the plugin list was not read or any of its reads
+fails, as a partial set would read as settings cleared. So is `skins` if any
 of its reads is, as a partial set could name another Skin active than the
 tablet's, but for the default Skin with no Skin installed (Plugins and
 Skins, below). One of DYE2's keys never written answers `null`
@@ -120,12 +124,10 @@ a replacement Tablet or a reset of Decaid's data puts Decaid's default back
 (ADR-0023); written again by the Tablet as the Machine connects, where it
 was last written through that Tablet, so a value set from elsewhere lasts
 only until then, the flow calibration's (ADR-0023); or to restart the Machine
-after a change. Decaid's automatic update checks are read-only, managed in
-Decaid on the Tablet: Decaid v0.9.2, and v0.9.3 and later while their
-"Require authorization for extension management" setting is on, turn them on
-only with a token, which the plugin has none of, and that setting is changed
-only on the Tablet, at any time, so an edit could turn them off and not back on
-(ADR-0023, #542). Streamline's settings
+after a change. Decaid's automatic update checks are an Admin's, and marked
+`withSoftware`: edited on the Machine's Software tab with the Tablet's
+plugins and Skins, shown read-only on the Settings card, and offered to no
+assistant (Settings Edits, below; ADR-0023, ADR-0034). Streamline's settings
 page no longer puts back a fan threshold of 50 or a refill kit of
 Auto-Detect from v0.2.22 on Decaid v0.9.1, so no note says it does.
 Labels, units, ranges, steps and choices follow Streamline's settings page at
@@ -192,9 +194,11 @@ multiplier), all an Admin's, and
 [#228](https://github.com/loganfuller/decent-sync/issues/228) sets a
 sensor's calibration (`sensorCalibration`), an Admin's too, and
 [#230](https://github.com/loganfuller/decent-sync/issues/230) the Tablet
-Settings (`appSettings`), Staff's but for gateway mode, an Admin's, and the
-automatic update checks, shown only (ticket
-[#549](https://github.com/loganfuller/decent-sync/issues/549)), and
+Settings (`appSettings`), Staff's but for gateway mode and the automatic
+update checks, an Admin's (the checks shown only from ticket
+[#549](https://github.com/loganfuller/decent-sync/issues/549), and edited
+again on the Software tab from ticket
+[#660](https://github.com/loganfuller/decent-sync/issues/660)), and
 [#231](https://github.com/loganfuller/decent-sync/issues/231) the presence
 settings (`presenceSettings`), Staff's: presence and the sleep timeout, and
 each wake schedule added, changed or deleted on its own. That is every
@@ -239,9 +243,11 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   same reader (`readSettingsEdit`), and makes the edit as the account,
   through its Connected App, so it is refused as the REST API refuses it,
   with its message. Its description lists each collection's settings from
-  `SETTINGS_FIELDS`, so it stays in step with them. It answers with the edit
-  as `list_settings_edits` gives it, its outcome usually still to come, which
-  the assistant reads there.
+  `SETTINGS_FIELDS`, so it stays in step with them, leaving out the fields
+  marked `withSoftware`, the automatic update checks, which it refuses with
+  400: whether anything on the Tablet updates is no assistant's to change
+  (ADR-0034). It answers with the edit as `list_settings_edits` gives it, its
+  outcome usually still to come, which the assistant reads there.
 - **Kept and sent** (`server/src/settings-edits/`, ADR-0016). An edit is a row
   of `settings_edits`, inserted with the Machine's row locked, which also
   judges it online, naming the connection (`connected_session_id`) and tablet
@@ -291,7 +297,14 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
      holds its expected value (`sameValue`);
   4. writes only the edit's fields through the collection's route: `POST
      /machine/settings`, `/machine/settings/advanced`,
-     `/machine/calibration`, `/settings` or `/presence/settings`. Decaid writes each field in
+     `/machine/calibration`, `/settings` or `/presence/settings`. The
+     automatic update checks go through `host.localApi`, in a request of
+     their own, as Decaid takes them turned on from a plain request only
+     while its "Require authorization for extension management" setting is
+     off, and `localApi` takes no other Tablet Setting; any other field of
+     the edit follows through `fetch`, unless Decaid refused the first
+     (`writeFields`). Decaid follows a change of the checks made over its API
+     when it next starts. Decaid writes each field in
      turn, so a refusal part-way leaves the fields before it written, as
      `/settings` does as it refuses a value with 400 and its `message`. A
      scaled register's value is truncated (`_writeMMRScaled`), so a flow
@@ -661,8 +674,11 @@ disconnects mid-read, and 504 if it doesn't answer in time.
 
 Ticket [#236](https://github.com/loganfuller/decent-sync/issues/236) reports
 the DYE2 and Streamline on each tablet, which the Machine page's Hardware and
-software card shows. They are only shown: nothing is refused at `hello` or flagged below
-ADR-0017's minimums.
+software card shows. Those two rows are only shown: nothing is refused at
+`hello` or flagged below ADR-0017's minimums. Ticket
+[#660](https://github.com/loganfuller/decent-sync/issues/660) shows every
+plugin and Skin, with Decaid, as the Machine's Tablet Software, and has an
+Admin manage the plugins through Software Actions (below).
 
 `plugins` is Decaid's plugin list as sent: each plugin's manifest with
 `loaded`, `autoLoad`, `source` (how it was installed, such as
@@ -722,6 +738,259 @@ Neither row is anything until its collection is reported. The recording in
 `server/test/fixtures/decaid/plugins-and-skins-v0.9.0/` shows Decaid's answers
 to each change; `AI_RUNTIME_NOTES.md` (Skins) has the routes.
 
+Two more collections go with the plugins (#660). `pluginSettings` holds the
+settings of each plugin in the list that declares any, by the plugin's id,
+each as Decaid's `GET /plugins/{id}/settings` answers: the settings that
+were set, without defaults, a `secure` one only as `{ "isSet": true|false }`,
+never its value. It is read after the plugin list, on every poll, one plugin
+at a time. `decaidUpdate` is Decaid's own update state as `GET /update`
+answers it: `{ phase, currentVersion, latestVersion, releaseNotes,
+releaseUrl, installable, progress, error }`. Both are read, with the plugin
+list, in the queue Settings Edits and Software Actions share
+(`SettingsAccess`), so a report of one either holds each action begun before
+it or is queued before that action's read-back.
+
+### Tablet Software
+
+A Machine's Tablet Software (`GLOSSARY.md`) is worked out by the server from
+the latest `plugins`, `pluginSettings`, `skins`, `decaidUpdate` and
+`appSettings` its tablet reported, each kept while a later read is
+unavailable (`server/src/software-actions/tablet-software.ts`, module tests
+in `server/test/tablet-software.test.ts` on the recorded lists):
+
+- **Decaid**: its release and build, from the `fullVersion` its tablet's
+  latest `hello` gave; its update state (`phase`, `latestVersion`,
+  `installable`, `error`, and when it was reported), null until reported;
+  and the Tablet's `automaticUpdateCheck`.
+- **Each plugin**: its id, name, version and permissions; `enabled` where
+  `loaded`, `disabled` where `autoLoad` is false, and otherwise `notLoaded`,
+  as while it updates or where it failed to load; how it updates; the
+  latest update check's `lastError`; any `pendingUpdate`, with its version
+  and the permissions it adds; whether it is Decent Sync's own
+  (`decent-sync.reaplugin`); and each setting its manifest declares, in its
+  order: its `type` read as `text`, `number` (`number`), `switch`
+  (`boolean`) or `choice` (`enum`, with its `values`), a type Decaid adds
+  later as text; its `label`, `description` and `default`; whether it is a
+  secret (`secure`); whether a Software Action may change it, which of the
+  plugin's own settings only `PollSeconds` may; and, to an Admin alone, what
+  the Tablet holds: a value, null for one not set, or `{ isSet }` for a
+  secret.
+- **Each Skin**: its id, name and version, whether it is the default, and
+  whether Decaid's Skin server is serving its folder now, and how it
+  updates.
+- **Whether its plugin must update**: its plugin's wire revision, as its
+  latest `hello` gave it, is from before Software Actions.
+
+How a plugin or Skin updates is worked out from where Decaid says it was
+installed from, with no list of Decaid's ids, and is shown, never switched:
+Decaid has one setting for update checks, Tablet-wide, and nothing per item
+(ADR-0034).
+
+| Decaid reports | Shown as (`how`) |
+|---|---|
+| A plugin whose `source.kind` is `github_release` | Follows releases (`followsReleases`), with its `repo` |
+| A plugin from `github_branch` whose `branch` names a commit, 7 to 40 hexadecimal digits (`namesCommit`), as Decaid records an install of a commit, with the commit as both `branch` and `commit` | Pinned (`pinned`), with its `repo` and commit |
+| A plugin from any other `github_branch` | Follows a branch (`followsBranch`), with its `repo` and `branch` |
+| A plugin with no `source`, as a plugin Decaid bundles is until its first update check, or one from a zip or folder | Not updated (`notUpdated`) |
+| A Skin Decaid flags `isBundled` | Comes with Decaid (`comesWithDecaid`): Decaid may put its latest release back as it starts |
+| A Skin whose `reaMetadata.sourceUrl` is `github_release:<repo>@…` | Follows releases |
+| A Skin whose `sourceUrl` is `github_branch:<repo>@<branch>` | Follows a branch |
+| A Skin from an `http` or `https` URL with a segment of 40 hexadecimal digits, a commit's archive | Pinned, with its URL and commit |
+| A Skin from any other URL | Follows its URL (`followsUrl`) |
+| A Skin with no `sourceUrl` | Not updated |
+
+## Software Actions
+
+A Software Action (ADR-0034, `GLOSSARY.md`) is one thing an Admin asks a
+Machine's Tablet to do to its plugins or to Decaid, made in the management
+interface and carried out at once by the plugin on the Tablet whose
+connection holds the Machine, through Decaid's own routes. As with a Settings
+Edit, nothing holds what the Tablet should run afterwards: its software is
+whatever it next reports, and a change made on the Tablet later stands.
+Ticket [#660](https://github.com/loganfuller/decent-sync/issues/660) builds
+the kinds that act on plugins and on Decaid's own update check
+(`SOFTWARE_ACTION_KINDS` in `protocol/src/software-actions.ts`):
+
+- `installPlugin`: installs a plugin from a GitHub repository, `owner/name`,
+  its latest release, or the head of a `branch`, or a commit given as the
+  branch, which never moves and so is Pinned. Decaid installs by no release
+  tag (decentespresso/decaid#1030). A plugin newly installed is not enabled;
+- `enablePlugin`, `disablePlugin`: loads a plugin and has Decaid load it as
+  it starts, or neither;
+- `changePluginSettings`: saves some of a plugin's settings, which makes
+  Decaid load that plugin again;
+- `checkPluginUpdates`: has Decaid check every plugin it updates, those with
+  a `github_release` or `github_branch` source, installing each update it
+  finds unless the update adds a permission, which then waits;
+- `approvePluginUpdate`: installs a plugin's update that waits, the one shown;
+- `removePlugin`: removes a plugin with its settings. One Decaid bundles is
+  back after Decaid next starts;
+- `checkDecaidUpdate`: has Decaid check for a newer release of itself.
+  Installing one still needs someone at the Tablet.
+
+How each is made, carried out and answered:
+
+- **Made through REST.** `POST /api/machines/:id/software-actions` takes `{
+  kind, ... }`: for `installPlugin`, `repo` and `branch`, null or absent for
+  the latest release; for the kinds that act on one plugin, its `pluginId`;
+  for `approvePluginUpdate`, also the `version` and `addedPermissions` of the
+  update shown; for `changePluginSettings`, `values`, each setting changed
+  by its name with its new value, null clearing one, and `expected`, each of
+  those settings as the page showed it: a value, null for one not set, or `{
+  "isSet": true|false }` for a secret. Only an Admin makes one, of any kind:
+  Staff and Viewers are refused with 403, as each can put code on the
+  Tablet. It is refused at once, with nothing kept: 400 for a body of the
+  wrong shape, a setting the plugin's manifest declares none of, a value not
+  of the setting's type, or disabling, removing or changing any but the poll
+  interval of Decent Sync's own plugin, which the plugin refuses too; 409
+  while the Machine is offline, as its status judges it, while its
+  connection's Tablet reports another machine's hardware, while its plugin
+  is from before `SOFTWARE_ACTIONS_WIRE_REVISION` ("The Tablet's plugin must
+  update before it takes a Software Action", ADR-0025), for a plugin the
+  Tablet's latest list does not hold, or for an approval of an update other
+  than the one that waits now. No refusal repeats a setting's value. It
+  answers 201 with `{ softwareAction }`, its outcome pending (null). `GET
+  /api/machines/:id/software-actions/:actionId` reads one, which the page
+  reads until it has an outcome, and `GET /api/machines/:id/software-actions`
+  lists the Machine's actions, newest first, paged by `limit` and `offset`,
+  as `{ softwareActions, total, limit, offset }`: both are marked for Staff,
+  so Staff and Viewers read them. Each action is `{ id, machineId, kind,
+  params, account, connectedApp, madeAt, sentAt, answeredAt, outcome, late,
+  refusal, result }`: `params` what it named, the plugin as `{ id, name }`,
+  with its name as the Tablet reported it then, the `repo` and `branch`, the
+  update's `version` and `addedPermissions`, and for a settings change the
+  names of the settings changed (`settings`), never their values; `account`
+  named to Admins and to others by its id only, and `connectedApp` as a
+  Settings Edit's.
+- **Kept and sent** (`server/src/software-actions/`, ADR-0016), as a Settings
+  Edit is. An action is a row of `software_actions`, inserted with the
+  Machine's row locked, which also judges it online, naming the connection
+  and tablet holding it then, with its time (`softwareActionMs`): 2 minutes
+  for an install, an update check, of the plugins or Decaid, and an approval,
+  which installs, and 1 minute for the rest. It is announced with `NOTIFY
+  software_actions` in the same transaction. The instance holding that
+  connection claims it with the row locked again, while the connection still
+  holds the Machine and its plugin is at the revision, by setting when it was
+  sent, and sends it as `softwareAction` with the time it has left by
+  PostgreSQL's clock; one with none left is never sent. A connection looks for
+  its actions once welcomed, and every connection after its instance listens
+  anew. A later connection, even from the same Tablet, sends nothing made for
+  an earlier one: an action is never queued.
+- **A settings change's values** are held in the row apart from what is
+  shown (`software_actions.held`), only until the action is claimed, by the
+  same statement that claims it, or is no longer awaited: removed by a timer
+  of the instance that made it, a second after its time, and by every
+  instance as it starts and before it makes or lists an action of that
+  Machine, so none outlives its action whatever instance stops. No response,
+  log line or notification holds one.
+- **Carried out** (`plugin/src/software-actions.ts`), one at a time in the
+  order received, in the queue Settings Edits and the reads of the settings
+  and software collections share (`SettingsAccess`). The plugin counts down
+  `timeLeftMs` as it does a Settings Edit's, and refuses an action as
+  `expired`, asking nothing of Decaid, once the connection that sent it has
+  closed, or where it would start with less than
+  `SOFTWARE_ACTION_START_MARGIN_MS` (15 s) left, judged as its turn comes and
+  again just before Decaid is asked. An install Decaid has started can still
+  finish later, as Decaid answers it only once it is done. One waiting its
+  turn as the plugin unloads is dropped unanswered. For each action the
+  plugin:
+  1. refuses as `notAllowed`, whatever it is sent, what its own protections
+     forbid: disabling or removing itself, and changing any of its own
+     settings but `PollSeconds`, as its server address and Token are its
+     connection to the server;
+  2. reads `GET /machine/state`, going ahead only in a state a Settings Edit
+     goes ahead in (`SETTINGS_EDIT_STATES`), or where no machine is connected
+     to the Tablet, and otherwise refusing it as `machineBusy`, naming the
+     state. `checkDecaidUpdate` skips this, as Decaid's check touches neither
+     the Machine nor the Skin;
+  3. reads the plugin list and the plugins' settings, reports them if they
+     changed, and refuses the action as `changedSince`, in words, where what
+     it was made over no longer holds: the plugin it names is gone, another
+     update waits than the one shown, or none, or a setting it changes holds
+     another value than the form showed, a secret compared by whether it is
+     set;
+  4. asks Decaid through `host.localApi` (`manage` in `plugin/src/decaid.ts`):
+     `POST /plugins/install/github-release` or `/install/github-branch`,
+     `POST /plugins/{id}/enable` or `/disable`, `POST /plugins/{id}/settings`
+     with the values, `POST /plugins/update`, `POST
+     /plugins/{id}/update/approve` or `DELETE /plugins/{id}`; or, for
+     `checkDecaidUpdate`, sends `{"command":"check"}` on Decaid's update
+     socket (`/ws/v1/update`) and waits, up to 45 s, for its state to leave
+     `checking`;
+  5. whether Decaid took it or not, reads the lists again and queues each as
+     a `collection` delivery naming the action (`softwareActionId`): the
+     plugin list and the plugins' settings, or for `checkDecaidUpdate`
+     Decaid's update state; then queues its answer, `softwareActed`, behind
+     them.
+- **Outcomes.** `done`, with a `result`: the plugin it acted on, its version
+  afterwards and whether it was loaded; for `checkPluginUpdates`, a result
+  for each plugin Decaid checked (`item`, `status`: `updated`,
+  `alreadyCurrent`, `pendingApproval` or `failed`, with Decaid's `error`,
+  and the version installed afterwards); for `checkDecaidUpdate`, Decaid's
+  update state without its release notes, refused as `decaid` where the
+  check left it in `error`. Or `refused`, with a reason: `machineBusy`, with
+  the state; `changedSince` or `notAllowed`, with the plugin's words;
+  `expired`; or `decaid`, with Decaid's HTTP status, null where it did not
+  answer or was not asked, and its words. Or not confirmed.
+- **When Decaid loads the plugin again.** Decaid unloads a plugin to install
+  its update or save its settings, and the call that asked is never answered
+  to it. So before an action that may do that to the plugin itself, any
+  install or update check, an approval of its own update and a change of its
+  own poll interval, the plugin keeps it in Decaid's plugin storage (key
+  `softwareAction`: its id, kind, what it named and each plugin's version
+  before, never a setting's value). Its next load answers it first, within
+  10 minutes, from the plugin list it then reads (`resume` and `afterReload`):
+  an approval of its own update is done once no update waits and its version
+  changed; an install, once it comes from the repository and branch asked
+  for; an update check, once its own version changed, with each plugin's
+  result told from the list; and a change of its poll interval at once, as
+  Decaid saves the settings before it loads the plugin again. One it can't
+  tell the outcome of is left unanswered, and so not confirmed.
+- **Not confirmed.** An action still unanswered is `notConfirmed` once its
+  time has passed since it was made, or where it was never sent and its
+  connection no longer holds the Machine, so that it never will be. Unlike a
+  Settings Edit, one that was sent stays awaited for its whole time though
+  its connection closed, as an action that has Decaid load the plugin again
+  is answered on the next connection. Every instance judges it from the
+  database by PostgreSQL's clock whenever it is read; nothing marks it.
+- **Answered.** Whichever instance the answer reaches, on the connection it
+  was sent on or a later one, records it for that Machine's action still
+  unanswered and acknowledges it. An answer arriving once the action was not
+  confirmed replaces the mark, marked `late`, but for an `expired` refusal,
+  which leaves it not confirmed. The plugin drops an answer that would go to
+  a server from before `SOFTWARE_ACTIONS_WIRE_REVISION`, as that server
+  closes the connection on a message it does not know, and the action stays
+  not confirmed.
+- **Settings History.** The read-back's changes are tied to the action: as
+  it follows a read of the same lists just before Decaid was asked, every
+  field it changes is the action's (Settings History, below).
+- **Through an assistant** (ADR-0026). `get_machine_software` gives a
+  Machine's Tablet Software as `GET /api/machines/:id/tablet-software` does,
+  and `list_software_actions` its actions as the list above does, times in
+  the zone of the Location the Machine was at. No tool makes a Software
+  Action: installing code on a Tablet is no assistant's to do (ADR-0034).
+- **The Software tab.** The Machine page's fifth tab, between Settings and
+  Setup, shows the Machine's Tablet Software: a Decaid card, with its
+  version, the update it offers, Check now, and the automatic update checks,
+  which an Admin turns on or off there as a Settings Edit, with the notes
+  that Decaid follows a change when it next starts and that nothing on the
+  Tablet updates by itself while they are off; a Plugins table; a Skins
+  table, shown only; and a Software Actions log, which starts collapsed. With
+  the automatic update checks off, the tab says so above the lists. Where
+  the Tablet's plugin is from before Software Actions, it says the plugin
+  must update. The Setup tab keeps the firmware version and links to it.
+
+`server/test/software-actions.test.ts` covers this through Seam 1, with the
+built plugin on two instances sharing PostgreSQL and a simulated Decaid
+managing its plugins as v0.9.3 does
+(`server/test/support/decaid-plugins.ts`),
+`server/test/software-action-deadline.test.ts` the times, actions never
+sent, unloads, the plugin's own protections and the actions answered after
+it loads again, `server/test/assistant-software.test.ts` the two tools,
+`protocol/test/software-actions.test.ts` the messages, and
+`server/test/latest-release/mixed-versions.test.ts` the previous release's
+plugin beside this server.
+
 ## Server
 
 `server/src/collections/collections.service.ts` stores the latest value of
@@ -769,8 +1038,10 @@ Ticket [#432](https://github.com/loganfuller/decent-sync/issues/432) keeps
 each Machine's Settings History (`GLOSSARY.md`): every value its tablet
 reports for a collection other than the Library's lists
 (`SETTINGS_HISTORY_COLLECTIONS` in `protocol/src/settings-history.ts`: the
-Machine Settings, the Tablet Settings and presence settings, the plugins and
-Skins, the paired devices, the scale's information and the sensors) that
+Machine Settings, the Tablet Settings and presence settings, the plugins,
+their settings and the Skins, the paired devices, the scale's information and
+the sensors, but not Decaid's own update state, `decaidUpdate`, which changes
+by itself with each check) that
 differs from the one before it, whatever changed it, as a row of
 `settings_history`, kept forever
 (`server/src/collections/settings-history.ts`). A row holds the Machine, or
@@ -798,7 +1069,9 @@ latest value's `received_at`), and its source. Ticket
   to be approved. The wake schedules are compared one by one, by their ids, each as
   a wake schedule's Settings Edit names its fields; the sensor calibration by
   target, its `measuredValue`; the plugins, paired devices and sensors entry
-  by entry, by their ids, in any order. A field absent counts as null, and an
+  by entry, by their ids, in any order; the plugins' settings setting by
+setting, each keyed `<plugin id>/<setting>` (`pluginSettingKey`), a secret
+as Decaid reports it, whether it is set. A field absent counts as null, and an
   object's keys may come in any order, as `sameValue` judges an edit's
   expected values. The value stored stays whole. A report changed only in what
   is left out, or only in its UTC offset, records nothing, and neither does an
@@ -822,7 +1095,12 @@ latest value's `received_at`), and its source. Ticket
   its id only in the edit's answer, which follows the read-back. Any other
   field changed in the same report, and every change in a report naming no
   edit, or one of another Machine or collection, was made outside Decent
-  Sync, and is tied to no person.
+  Sync, and is tied to no person. A report naming a Software Action of its
+  Machine (`softwareActionId`), which the plugin sends only with an action's
+  read-back, labels every field it changed with that action
+  (`settings_history.software_action_id`, and `edited_fields`), as the
+  read-back follows a read of the same lists made just before Decaid was
+  asked, so what changed between the two is what the action did.
 - **Recorded once.** A report is compared with the latest row of its
   collection, the last written, in the transaction storing it, before the
   latest value is replaced, under the locks of its credit, so two instances
@@ -887,14 +1165,19 @@ its Settings Edits:
   one before it. A read-back's changes of the fields its Settings Edit set
   are one change, naming the edit and who made it, as a Settings Edit names
   them (an Admin sees the account's name, Staff and Viewers its id); the
-  fields changed outside it are another, of the same id, naming none.
+  fields changed outside it are another, of the same id, naming none. A
+  Software Action's read-back is one change naming the action, its kind and
+  who made it. A plugin setting's values, before and after, are shown to
+  Admins alone: to Staff and Viewers `{ "hidden": true }` stands in for a
+  value, but for null and a secret's `{ isSet }`, as a plugin's settings may
+  name an account on another service (`server/src/collections/plugin-settings.ts`).
 - **Brief changes.** A field changed from outside Decent Sync and changed
   back to its value before, by its next change, also from outside, within
   `BRIEF_CHANGE_MS` (2 minutes), is a brief change: one change, its
   `backAt` saying when it changed back, and the change back left out. That
   covers the refill kit Decaid shows on automatic as the machine reconnects
   (ADR-0023) and a remembered scale left out while it connects. A change made
-  or undone through a Settings Edit is never brief. Brief changes are left
+  or undone through a Settings Edit or a Software Action is never brief. Brief changes are left
   out unless asked for, a field at a time, so a change holding only brief
   ones is left out too. Each collection's whole history is read to work them
   out, and only then are those received in the range kept, so a brief change
@@ -930,7 +1213,11 @@ its Settings Edits:
 
 All endpoints require the account session, and answer 404 for an unknown
 Machine. Pending Machines' collections are not exposed; they appear on the
-Machine that takes their hardware over. Staff read them as Admins do.
+Machine that takes their hardware over. Staff read them as Admins do, but
+for the values of plugins' settings, which only Admins are shown: to anyone
+else `pluginSettings` holds `{ "hidden": true }` in place of each value but
+null and a secret's `{ isSet }`, in its latest value, as of a time, and in
+the Settings History.
 
 - `GET /api/machines/:id/collections` returns `{ collections }`, each reported
   collection's `{ name, available, reportedAt, receivedAt, items }`, without
@@ -944,8 +1231,10 @@ Machine that takes their hardware over. Staff read them as Admins do.
 - `GET /api/machines/:id/settings-history` returns `{ changes, total, limit,
   offset }`, the Machine's Settings History's changes newest first (Reading
   the Settings History, above), each `{ id, receivedAt, collection,
-  settingsEdit, fields }`: `settingsEdit` is `{ id, account, connectedApp }`,
-  or null for a change made outside Decent Sync, and each field `{ field,
+  settingsEdit, softwareAction, fields }`: `settingsEdit` is `{ id, account,
+  connectedApp }`, or null for a change made outside Decent Sync or by a
+  Software Action; `softwareAction` is `{ id, kind, account, connectedApp }`
+  for a change a Software Action made, and null otherwise; and each field `{ field,
   change, before, after, backAt }`. It takes `collection`, once or more, each
   a collection the history keeps; `from`, included, and `to`, not, moments
   with their offsets, by when each change was received; `includeBrief`,
@@ -956,7 +1245,9 @@ Machine that takes their hardware over. Staff read them as Admins do.
   Edits, newest first, as its page lists them (ticket
   [#545](https://github.com/loganfuller/decent-sync/issues/545); Reading the
   Settings History, above). Each entry is `{ at, collection, change,
-  settingsEdit }`. A change has `change: { id, fields }`, as the list above
+  settingsEdit, softwareAction }`, `softwareAction` the whole Software Action
+  that made a change, as `GET /api/machines/:id/software-actions/:actionId`
+  gives it, or null. A change has `change: { id, fields }`, as the list above
   gives them, `at` when it was received, and `settingsEdit` the whole Settings
   Edit that made it, as `GET /api/machines/:id/settings-edits/:editId` gives
   it, so with its outcome, or null for a change made outside Decent Sync. A
@@ -977,6 +1268,21 @@ Machine that takes their hardware over. Staff read them as Admins do.
   or `notActive`, with the `activeSkin`'s `name` and `version`, or null if
   none is. Every field from Decaid's payload is null
   where it is missing or not a string.
+- `GET /api/machines/:id/tablet-software` returns `{ tabletSoftware: {
+  decaid, plugins, skins, pluginMustUpdate } }` (Tablet Software, above):
+  `decaid` as `{ version, build, update, automaticUpdateCheck }`; each
+  plugin `{ id, name, version, state, updates, lastError, pendingUpdate,
+  permissions, own, settings }`; each Skin `{ id, name, version, default,
+  served, updates }`; `updates` as `{ how, ... }` with its `repo`, `branch`,
+  `commit` or `url`; `plugins` and `skins` null until reported. Everyone who
+  reads the Machine reads it; a setting's `value` is given to Admins only.
+- `GET /api/machines/:id/plugin-sources` returns `{ pluginSources }`, the
+  distinct sources the plugins on the other Machines were installed from,
+  which the install form suggests, most used first: each `{ pluginId, name,
+  version, repo, branch, updates, machines }`, `branch` the branch or commit
+  an install names, null for the latest release, `version` the highest
+  reported, and `machines` how many use it. Admins only.
+- The Software Actions routes are under Software Actions, above.
 - `GET /api/machines/:id/paired-devices` returns `{ pairedDevices: { reportedAt,
   available, receivedAt, scale, auxiliaryScale, sensors, others } }`, each
   device `{ id, type, model, vendor, state, firmware, batteryLevel }`
@@ -1001,13 +1307,14 @@ Machine that takes their hardware over. Staff read them as Admins do.
 
 The Machine page (ticket
 [#545](https://github.com/loganfuller/decent-sync/issues/545)) shows these on
-two of its tabs, each loading what it shows only while it is open, every 30 s
-rather than every 5 s as the Machine's status is. Its Settings tab shows the
+three of its tabs, each loading what it shows only while it is open, every
+30 s rather than every 5 s as the Machine's status is. Its Settings tab shows the
 Machine Settings and Tablet Settings by their field definitions (Settings
 fields, above), the steam, hot water and flush settings of the current
 Workflow, the paired devices, and its Settings History with its Settings
 Edits, a row per field changed, with brief changes shown on asking and a
-control that narrows it to what was made through a Settings Edit. Its Setup
+control that narrows it to what was made through a Settings Edit. Its
+Software tab shows the Tablet Software (Software Actions, above). Its Setup
 tab shows the DYE2 and Streamline in its Hardware and software card, which
 keeps the last reported while the Machine is offline, and how many of each
 library collection its tablet reported. Through
@@ -1018,7 +1325,10 @@ Settings and the DYE2 and Streamline, and `get_machine_reports` (ticket
 `reportedAt`, `receivedAt` and `value` that
 `GET /api/machines/:id/collections/:name` gives, and the paired devices as
 `GET /api/machines/:id/paired-devices` and the Machine page do, each the latest
-reported.
+reported. `get_machine_software` and `list_software_actions` give the Tablet
+Software and the Software Actions (Software Actions, above), and
+`list_settings_history` names a change's Software Action and keeps the
+`pluginSettings`, a setting's value to Admins only.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL,
