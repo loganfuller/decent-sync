@@ -42,7 +42,8 @@ describe("Lost Edits on a database without their `state`", { timeout: 90_000 }, 
 
     const database = await server.connectDatabase();
     try {
-      await database.query("ALTER TABLE conflicts DROP COLUMN state");
+      // If it exists: on the next release's schema, where its CI runs this suite, it is gone already.
+      await database.query("ALTER TABLE conflicts DROP COLUMN IF EXISTS state");
     } finally {
       await database.end();
     }
