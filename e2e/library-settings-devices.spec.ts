@@ -19,7 +19,7 @@ import { field, openMachineTab } from "./support/locators.js";
 import { expectTip, tap } from "./support/tooltips.js";
 
 // A Machine's paired devices and settings, on its page's Settings tab, and its
-// library and the DYE2 and Streamline on its tablet, on its Setup tab, in the management interface. A simulated tablet running the built plugin serves the test
+// library on its Setup tab, and the DYE2 and Streamline on its tablet on its Software tab, in the management interface. A simulated tablet running the built plugin serves the test
 // tablet's Decaid API with Decaid's own simulated devices and the library
 // recorded with them (see the fixtures' READMEs), or responses derived from
 // them by the changes named.
@@ -117,9 +117,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Night mode sleep time", "22:00 (UTC\u22124)"],
     ["Volume look-ahead", "0.3 s"],
     ["Simulated devices", "machine, bengle, scale, sensor", "For development"],
-    // Shown, with where it is managed: Decaid v0.9.2, and v0.9.3 while a setting the plugin cannot read is on, turns it on
-    // only with a token, which the plugin has none of (#549, #655).
-    ["Automatic update checks", "On", "Managed in Decaid on the Tablet"],
+    // Shown, with where it is edited: with the Tablet's software, by an Admin (#660).
+    ["Automatic update checks", "On", "Edited on the Software tab"],
     ["Default skin", "streamline.js", "Managed with the Tablet's skins"],
     ["Preferred machine", "MockDe1", "Managed with the preferred devices"],
     ["updateChannel", "beta", "Not known to Decent Sync, so shown as Decaid names it, read-only"],
@@ -193,41 +192,51 @@ test("the Settings card shows a Tablet's presence settings and wake schedules un
   await expect(presenceSettings.getByRole("button", { name: "Add", exact: true })).toBeEnabled();
 });
 
-test("the Hardware and software card shows the DYE2 and Streamline on the tablet, follows their changes, and keeps them while the Machine is offline", async ({ page }) => {
+test("the Software tab shows the DYE2 and Streamline on the tablet, follows their changes, and keeps them while the Machine is offline", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 3");
   const dye2 = new SimulatedDye2();
   // Hardware of its own, as Bar 2's tablet holds the test tablet's.
   const served = { ...derivedDe1Pro({ serial: "20003" }), ...dye2Migrated() };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, dye2, timeScale: 50 });
   // What the server holds from the tablet, which the page loads every 30 s.
-  const reported = async () =>
-    ((await (await page.request.get(`/api/machines/${id}/tablet-versions`)).json()) as { tabletVersions: Record<string, { status: string; loaded?: boolean; branch?: string }> })
-      .tabletVersions;
+  type Reported = { plugins: { id: string; state: string; updates: { how: string } }[] | null; skins: { id: string; served: boolean }[] | null };
+  const reported = async () => ((await (await page.request.get(`/api/machines/${id}/tablet-software`)).json()) as { tabletSoftware: Reported }).tabletSoftware;
+  const dye2State = async () => (await reported()).plugins?.find((plugin) => plugin.id === "dye2.reaplugin");
+  const servedSkin = async () => (await reported()).skins?.find((skin) => skin.served)?.id;
   await tablet.waitForLog(/^Connected to /);
-  await expect.poll(async () => (await reported()).streamline!.status).toBe("active");
+  await expect.poll(servedSkin).toBe("streamline.js");
+  await expect.poll(async () => (await dye2State())?.state).toBe("enabled");
 
   await page.clock.install();
   await page.goto(`/machines/${id}?tab=setup`);
+  // The Setup tab keeps the firmware, and links to the Software tab for the rest.
   const hardwareAndSoftware = page.getByRole("region", { name: "Hardware and software" });
-  await expectTip(hardwareAndSoftware, "Hardware and software", /^Its versions are as last reported by its Tablet\./);
-  await expect(page.getByText("As reported by the latest accepted connection.")).toHaveCount(0);
+  await expectTip(hardwareAndSoftware, "Hardware and software", /^Its firmware is as last reported by its Tablet\./);
   const software = hardwareAndSoftware.getByLabel("Software", { exact: true });
+  await expect(software.getByRole("term")).toHaveText(["Firmware"]);
+  await hardwareAndSoftware.getByRole("link", { name: "Software tab" }).click();
+  await expect(page).toHaveURL(`/machines/${id}?tab=software`);
+
+  const dye2Row = rows(page.getByRole("region", { name: "Plugins" })).filter({ hasText: /^DYE2/ });
+  const skins = page.getByRole("region", { name: "Skins" });
+  const skinRow = (name: string) => rows(skins).filter({ has: page.getByRole("cell", { name: new RegExp(`^${name}(Default|Showing now)*$`) }) });
   // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
-  await expect(field(software, "DYE2")).toHaveText("0.1.33");
-  await expect(field(software, "Streamline")).toHaveText("0.2.18 (release)");
+  await expect(dye2Row.getByRole("cell").nth(1)).toHaveText("0.1.33");
+  await expect(dye2Row.getByRole("cell").nth(3)).toHaveText("Enabled");
+  await expect(skinRow("Streamline").first().getByRole("cell").first()).toContainText("Showing now");
+  await expect(rows(skins).filter({ hasText: "Default" })).toHaveCount(1);
 
   // DYE2 is disabled, and Decaid serves another Skin, as Quick Settings can.
   dye2.disable();
   tablet.serve({ ...served, ...skinsAt("servedOther") });
-  await expect.poll(async () => (await reported()).streamline!.status).toBe("notActive");
-  await expect.poll(async () => (await reported()).dye2!.loaded).toBe(false);
+  await expect.poll(servedSkin).not.toBe("streamline.js");
+  await expect.poll(async () => (await dye2State())?.state).toBe("disabled");
   await afterDetailsPolls(page, async () => {
-    await expect(field(software, "DYE2")).toHaveText("0.1.33 (not loaded)", { timeout: CHECK_MS });
-    await expect(field(software, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: CHECK_MS });
+    await expect(dye2Row.getByRole("cell").nth(3)).toHaveText("Disabled", { timeout: CHECK_MS });
+    await expect(rows(skins).filter({ hasText: "Showing now" })).toContainText("Passione", { timeout: CHECK_MS });
   });
 
-  // Derived: Decaid serves Streamline Cafe's release, installed beside Streamline, which is shown as the Streamline its
-  // version names (#556).
+  // Derived: Decaid serves Streamline Cafe's release, installed beside Streamline (#556).
   const other = skinsAt("servedOther");
   const cafe = { id: "streamline-cafe.js", name: "Streamline Cafe", path: "/root/.local/share/decaid/web-ui/streamline-cafe.js", version: "0.2.27-cafe.1" };
   tablet.serve({
@@ -236,24 +245,21 @@ test("the Hardware and software card shows the DYE2 and Streamline on the tablet
     "/webui/skins": [...(other["/webui/skins"] as object[]), { ...cafe, description: "A recipe-first main page for cafes", isBundled: false, reaMetadata: null }],
     "/webui/server/status": { ...(other["/webui/server/status"] as object), path: cafe.path },
   });
-  await expect.poll(async () => (await reported()).streamline).toMatchObject({ status: "active", skin: "streamlineCafe" });
+  await expect.poll(servedSkin).toBe("streamline-cafe.js");
   await afterDetailsPolls(page, async () => {
-    await expect(field(page, "Streamline")).toHaveText("Streamline Cafe 0.2.27-cafe.1 (release), built on Streamline 0.2.27", { timeout: CHECK_MS });
+    await expect(rows(skins).filter({ hasText: "Showing now" })).toHaveText(/^Streamline CafeShowing now0\.2\.27-cafe\.1Not updated$/, { timeout: CHECK_MS });
   });
 
-  // DYE2 is installed from its dist branch and Decaid serves Streamline's build of main, both builds of main, and the
-  // Machine then goes offline.
+  // DYE2 is installed from its dist branch, and the Machine then goes offline: the lists stay as last reported.
   await dye2.install("branch");
-  tablet.serve({ ...served, ...skinsAt("servedMain") });
-  await expect.poll(async () => (await reported()).dye2!.branch).toBe("dist");
-  await expect.poll(async () => (await reported()).streamline).toMatchObject({ status: "active", build: "main" });
+  await expect.poll(async () => (await dye2State())?.updates.how).toBe("followsBranch");
   await tablet.unload();
   await afterDetailsPolls(page, async () => {
     // Its status badge, beside its name above the tabs.
     await expect(page.getByRole("main").getByText("Offline", { exact: true })).toBeVisible({ timeout: CHECK_MS });
-    await expect(field(software, "DYE2")).toHaveText("0.1.26 (branch dist)", { timeout: CHECK_MS });
+    await expect(dye2Row.getByRole("cell").nth(1)).toHaveText("0.1.26", { timeout: CHECK_MS });
   });
-  await expect(field(software, "Streamline")).toHaveText("0.2.18 (main build)");
+  await expect(dye2Row.getByRole("cell").nth(2)).toHaveText("Follows a branch · decentespresso/dye2, dist");
 });
 
 test("a Machine whose tablet has reported nothing says so", async ({ page }) => {
@@ -270,9 +276,10 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await expect(settings.getByRole("region", { name: "Steam, hot water and rinse" })).toContainText("Its tablet has not reported its Workflow yet.");
   await openMachineTab(page, "Setup");
   await expect(rows(page.getByRole("region", { name: "Library" })).first()).toHaveText("BeansNoneNot reported yet");
-  const software = page.getByRole("region", { name: "Hardware and software" }).getByLabel("Software", { exact: true });
-  await expect(field(software, "DYE2")).toHaveText("Not reported");
-  await expect(field(software, "Streamline")).toHaveText("Not reported");
+  await openMachineTab(page, "Software");
+  await expect(field(page.getByRole("region", { name: "Decaid" }), "Version")).toHaveText("Not reported");
+  await expect(page.getByRole("region", { name: "Plugins" })).toContainText("Its Tablet has not reported its plugins yet.");
+  await expect(page.getByRole("region", { name: "Skins" })).toContainText("Its Tablet has not reported its Skins yet.");
 });
 
 const KEPT = "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.";

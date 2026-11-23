@@ -111,6 +111,8 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       // Which of its Settings History it lists, which a Viewer chooses as anyone does.
       filters: [/^checkbox Show brief changes$/, /^button Hide Settings History$/, /^radio (All changes|Settings Edits)$/],
     },
+    // Its Tablet Software and Software Actions, which Staff and Viewers read and are offered nothing on (#660).
+    { path: `/machines/${machineId}?tab=software`, loaded: (page) => page.getByRole("table", { name: "Plugins" }), closed: ["Software Actions"] },
     { path: `/machines/${machineId}?tab=setup`, loaded: (page) => page.getByRole("region", { name: "Location" }).getByRole("definition").first() },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },

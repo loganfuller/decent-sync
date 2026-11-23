@@ -7,7 +7,7 @@ import { datesPreset, field, filterChip, machineRow, openCard, openMachineTab, r
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
 
-// A Machine's page in four tabs, and the Machines list that leads with the
+// A Machine's page in five tabs, and the Machines list that leads with the
 // Machines (#545), as an Admin, at a desktop's width and at a phone's: what
 // stays above the tabs, each tab opened by its link and by its address, what
 // each loads only while it is open, the Workflow card naming the Loaded
@@ -133,9 +133,9 @@ test("above a Machine's tabs are its name and status, what it was doing, its las
   await expect(status(page)).toHaveText(reads("Never connected · No Shots yet · No Location"), { useInnerText: true });
 });
 
-test("its four tabs open by their links and by their address, Now where the address names none, and each shows only its own cards", async ({ page }) => {
+test("its five tabs open by their links and by their address, Now where the address names none, and each shows only its own cards", async ({ page }) => {
   await page.goto(`/machines/${machines.left.id}`);
-  await expect(tabs(page)).toHaveText(["Now", "Activity", "Settings", "Setup"]);
+  await expect(tabs(page)).toHaveText(["Now", "Activity", "Settings", "Software", "Setup"]);
   const current = page.getByRole("navigation", { name: "Machine" }).locator("[aria-current=page]");
   await expect(current).toHaveText("Now");
   await expect.poll(() => cardNames(page)).toEqual(["Live View", "Workflow", "Shots"]);
@@ -156,10 +156,17 @@ test("its four tabs open by their links and by their address, Now where the addr
   await expect(region(page, "Settings Edits")).toHaveCount(0);
   await expect(region(page, "Use")).toHaveCount(0);
 
+  await openMachineTab(page, "Software");
+  await expect(page).toHaveURL(`/machines/${machines.left.id}?tab=software`);
+  await expect(region(page, "Decaid")).toBeVisible();
+  await expect(region(page, "Software Actions")).toBeVisible();
+  await expect(region(page, "Paired devices")).toHaveCount(0);
+
   await openMachineTab(page, "Setup");
   await expect(page).toHaveURL(`/machines/${machines.left.id}?tab=setup`);
   await expect(region(page, "Hardware and software")).toBeVisible();
   await expect(region(page, "Settings")).toHaveCount(0);
+  await expect(region(page, "Decaid")).toHaveCount(0);
 
   await openMachineTab(page, "Now");
   await expect(page).toHaveURL(`/machines/${machines.left.id}`);
@@ -169,6 +176,7 @@ test("its four tabs open by their links and by their address, Now where the addr
   for (const [tab, name, card] of [
     ["activity", "Activity", "Use"],
     ["settings", "Settings", "Paired devices"],
+    ["software", "Software", "Plugins"],
     ["setup", "Setup", "Hardware and software"],
   ] as const) {
     await page.goto(`/machines/${machines.left.id}?tab=${tab}`);
@@ -204,7 +212,13 @@ test("a tab reads what it shows only while it is open: the Live View streams on 
   await openMachineTab(page, "Setup");
   await expect(region(page, "Library").getByRole("table")).toBeVisible();
   await expect(region(page, "Deliveries set aside")).toBeVisible();
-  expect(new Set(asked)).toEqual(new Set(["tablet-versions", "collections", "sharing-status", "set-aside-deliveries"]));
+  expect(new Set(asked)).toEqual(new Set(["collections", "sharing-status", "set-aside-deliveries"]));
+
+  // Software reads its Tablet Software alone, and its Software Actions only once their card is opened.
+  asked.length = 0;
+  await openMachineTab(page, "Software");
+  await expect(region(page, "Plugins").getByRole("table")).toBeVisible();
+  expect(new Set(asked)).toEqual(new Set(["tablet-software"]));
 
   asked.length = 0;
   await openMachineTab(page, "Activity");
@@ -224,7 +238,7 @@ test("what needs attention stays above the tabs, whichever is open: a new token"
   await page.getByRole("alertdialog").getByRole("button", { name: "Issue new token" }).click();
   const notice = region(page, "Token for Spare");
   await expect(notice).toBeVisible();
-  for (const tab of ["Now", "Activity", "Settings", "Setup"] as const) {
+  for (const tab of ["Now", "Activity", "Settings", "Software", "Setup"] as const) {
     await openMachineTab(page, tab);
     await expect(notice).toBeVisible();
     // Above the tabs, the two measured in one layout, as the page may reflow between two measurements (#635).
