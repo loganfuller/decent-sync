@@ -121,8 +121,10 @@ a replacement Tablet or a reset of Decaid's data puts Decaid's default back
 was last written through that Tablet, so a value set from elsewhere lasts
 only until then, the flow calibration's (ADR-0023); or to restart the Machine
 after a change. Decaid's automatic update checks are read-only, managed in
-Decaid on the Tablet: Decaid v0.9.2 turns them on only with a token, which
-the plugin has none of, so an edit could turn them off and not back on
+Decaid on the Tablet: Decaid v0.9.2, and v0.9.3 and later while their
+"Require authorization for extension management" setting is on, turn them on
+only with a token, which the plugin has none of, and the plugin cannot read
+that setting, so an edit could turn them off and not back on
 (ADR-0023, #542). Streamline's settings
 page no longer puts back a fan threshold of 50 or a refill kit of
 Auto-Detect from v0.2.22 on Decaid v0.9.1, so no note says it does.

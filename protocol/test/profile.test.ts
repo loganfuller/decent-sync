@@ -24,10 +24,11 @@ import {
 } from "../src/index.js";
 import { sha256Hex } from "../src/sha256.js";
 
-// The ids Decaid v0.9.2 gave every profile it bundles, and profiles posted to
-// it that differ in what its hash covers or only in what it leaves out
-// (server/test/fixtures/decaid/profile-ids-v0.9.2/README.md). v0.9.2 is the
-// oldest supported Decaid and its newest release.
+// The ids Decaid gave every profile it bundles, and profiles posted to it that
+// differ in what its hash covers or only in what it leaves out, recorded on
+// v0.9.2, the oldest supported Decaid, and v0.9.3, which bundles 21 more
+// (server/test/fixtures/decaid/profile-ids-v0.9.2/README.md and
+// profile-ids-v0.9.3/README.md).
 
 interface Posted {
   name: string;
@@ -36,10 +37,22 @@ interface Posted {
   response: { status: number; body: { id: string; profile: unknown } };
 }
 
-const recorded = JSON.parse(fs.readFileSync(new URL("../../server/test/fixtures/decaid/profile-ids-v0.9.2/profile-ids.json", import.meta.url), "utf8")) as {
+interface Recording {
   bundled: Array<{ id: string; profile: unknown; isDefault: boolean }>;
   posted: Posted[];
-};
+}
+
+function recording(version: string): Recording {
+  return JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/profile-ids-${version}/profile-ids.json`, import.meta.url), "utf8")) as Recording;
+}
+
+const RECORDINGS = [
+  { version: "v0.9.2", recorded: recording("v0.9.2"), bundled: 73 },
+  { version: "v0.9.3", recorded: recording("v0.9.3"), bundled: 94 },
+];
+
+/** The minimum's recording, for the tests that need only one. */
+const recorded = RECORDINGS[0]!.recorded;
 
 function read(value: unknown): Profile {
   const read = readProfile(value);
@@ -47,8 +60,8 @@ function read(value: unknown): Profile {
   return read.profile;
 }
 
-function posted(name: string): Posted {
-  return recorded.posted.find((exchange) => exchange.name === name)!;
+function posted(name: string, from: Recording = recorded): Posted {
+  return from.posted.find((exchange) => exchange.name === name)!;
 }
 
 /** A plain profile of two steps, for the limits and checks. */
@@ -71,29 +84,64 @@ function plain(): Profile {
 }
 
 describe("Decaid's id", () => {
-  it("is Decaid's for every profile it bundles", () => {
-    expect(recorded.bundled).toHaveLength(73);
-    for (const record of recorded.bundled) expect(profileId(read(record.profile)), record.id).toBe(record.id);
+  describe.each(RECORDINGS)("on Decaid $version", ({ recorded, bundled }) => {
+    it("is Decaid's for every profile it bundles", () => {
+      expect(recorded.bundled).toHaveLength(bundled);
+      for (const record of recorded.bundled) expect(profileId(read(record.profile)), record.id).toBe(record.id);
+    });
+
+    it("is Decaid's for each profile posted to it, as sent, before Decaid read it", () => {
+      for (const exchange of recorded.posted) {
+        expect(exchange.response.status, exchange.name).toBe(201);
+        expect(profileId(read(exchange.request.body.profile)), exchange.name).toBe(exchange.response.body.id);
+      }
+    });
+
+    it("tells apart what Decaid's hash tells apart, and nothing else", () => {
+      const id = (name: string) => posted(name, recorded).response.body.id;
+      for (const exchange of recorded.posted) {
+        if (exchange.sameIdAs === "differs") expect(id(exchange.name), exchange.name).not.toBe(id("base"));
+        else expect(id(exchange.name), exchange.name).toBe(id(exchange.sameIdAs));
+      }
+      // The hand-made cases #576 names.
+      expect(id("weightZero")).not.toBe(id("base"));
+      expect(id("limiterZero")).not.toBe(id("base"));
+      expect(id("numbersAsText")).toBe(id("base"));
+      expect(id("stepRenamed")).not.toBe(id("base"));
+    });
   });
 
-  it("is Decaid's for each profile posted to it, as sent, before Decaid read it", () => {
-    for (const exchange of recorded.posted) {
-      expect(exchange.response.status, exchange.name).toBe(201);
-      expect(profileId(read(exchange.request.body.profile)), exchange.name).toBe(exchange.response.body.id);
-    }
-  });
-
-  it("tells apart what Decaid's hash tells apart, and nothing else", () => {
-    const id = (name: string) => posted(name).response.body.id;
-    for (const exchange of recorded.posted) {
-      if (exchange.sameIdAs === "differs") expect(id(exchange.name), exchange.name).not.toBe(id("base"));
-      else expect(id(exchange.name), exchange.name).toBe(id(exchange.sameIdAs));
-    }
-    // The hand-made cases the ticket names.
-    expect(id("weightZero")).not.toBe(id("base"));
-    expect(id("limiterZero")).not.toBe(id("base"));
-    expect(id("numbersAsText")).toBe(id("base"));
-    expect(id("stepRenamed")).not.toBe(id("base"));
+  it("is the same on v0.9.3 for every profile v0.9.2 bundles or was posted, and v0.9.3 bundles 21 more", () => {
+    const [minimum, next] = RECORDINGS.map(({ recorded }) => recorded) as [Recording, Recording];
+    const ids = (recording: Recording) => recording.bundled.map((record) => record.id);
+    expect(ids(next)).toEqual(expect.arrayContaining(ids(minimum)));
+    expect(next.posted.map((exchange) => exchange.response.body.id)).toEqual(minimum.posted.map((exchange) => exchange.response.body.id));
+    // The 21, of kinds calibrate and cleaning that v0.9.2 bundled none or one of: #655's ids, computed from Decaid's files.
+    expect(ids(next).filter((id) => !ids(minimum).includes(id)).sort()).toEqual(
+      [
+        "profile:f1b836e535b0b57f44a2",
+        "profile:0ef8e395628904bd569a",
+        "profile:676679ab3b3a0aff25c6",
+        "profile:a258c0df3be3b337299f",
+        "profile:5dcb9d71df6f51e695b8",
+        "profile:474283e3a1fe28dc288c",
+        "profile:06788710759408842c45",
+        "profile:d555bef4d3eabbdef1c5",
+        "profile:cd62fa222bb9f96ee318",
+        "profile:be84050f7564ed7e7cce",
+        "profile:28d47321846585be3d40",
+        "profile:9e902a31f13fb8ea2c8e",
+        "profile:242a62e1111b4a1bc47e",
+        "profile:badeb80f41ebf99c93e3",
+        "profile:ebbb87f21857d2265eca",
+        "profile:df9b460c57d718fe7a26",
+        "profile:e25775e340d9105fb043",
+        "profile:622c4e81ee33585caced",
+        "profile:27405f374ef44c8a96ef",
+        "profile:109e603197b501223f15",
+        "profile:dc4323dd98c57603d583",
+      ].sort(),
+    );
   });
 
   it("leaves out title, author and notes", () => {
@@ -103,17 +151,17 @@ describe("Decaid's id", () => {
 });
 
 describe("reading a profile", () => {
-  it("reads a profile Decaid wrote as it is, its fields in Decaid's order", () => {
+  it.each(RECORDINGS)("reads a profile Decaid $version wrote as it is, its fields in Decaid's order", ({ recorded }) => {
     const written = [...recorded.bundled.map((record) => record.profile), ...recorded.posted.map((exchange) => exchange.response.body.profile)];
     for (const profile of written) expect(JSON.stringify(read(profile))).toBe(JSON.stringify(profile));
   });
 
-  it("reads it as Decaid writes it back", () => {
+  it.each(RECORDINGS)("reads it as Decaid $version writes it back", ({ recorded }) => {
     for (const exchange of recorded.posted) {
-      const held = readProfile(posted(exchange.sameIdAs === "differs" ? exchange.name : exchange.sameIdAs).response.body.profile);
+      const held = readProfile(posted(exchange.sameIdAs === "differs" ? exchange.name : exchange.sameIdAs, recorded).response.body.profile);
       expect(held.problem, exchange.name).toBeUndefined();
     }
-    expect(read(posted("numbersAsText").request.body.profile)).toEqual(read(posted("base").request.body.profile));
+    expect(read(posted("numbersAsText", recorded).request.body.profile)).toEqual(read(posted("base", recorded).request.body.profile));
   });
 
   it("keeps only the fields Decaid knows, typed as Decaid writes them", () => {
@@ -280,7 +328,7 @@ describe("the ranges by model", () => {
     const noisy: Profile = { ...profile, steps: [profile.steps[0]!, { ...profile.steps[1]!, pressure: -3.885780586188048e-16 } as ProfileStep] };
     expect(outOfRange(noisy)).toEqual([]);
     expect(outOfRange({ ...profile, steps: [profile.steps[0]!, { ...profile.steps[1]!, pressure: -0.001 } as ProfileStep] })).toHaveLength(1);
-    for (const record of recorded.bundled) expect(unrunnable(read(record.profile), "DE1"), record.id).toEqual([]);
+    for (const { recorded } of RECORDINGS) for (const record of recorded.bundled) expect(unrunnable(read(record.profile), "DE1"), record.id).toEqual([]);
   });
 });
 

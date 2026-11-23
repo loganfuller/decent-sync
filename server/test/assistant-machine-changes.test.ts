@@ -246,7 +246,8 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     for (const [args, status] of [
       [{ collection: "machineSettings", fields: { fan: 70 }, expected: { fan: 40 } }, 400],
       [{ collection: "machineSettings", fields: { steamFlow: 1.5 }, expected: { steamFlow: 1 } }, 400],
-      // Shown, not edited: Decaid turns them back on only with a token (#549).
+      // Shown, not edited: Decaid v0.9.2, and v0.9.3 while a setting the plugin cannot read is on, turns them back on only
+      // with a token (#549, #655).
       [{ collection: "appSettings", fields: { automaticUpdateCheck: false }, expected: { automaticUpdateCheck: true } }, 400],
       [{ collection: "machineSettings", fields: { fan: 45 }, expected: {} }, 400],
       [{ collection: "presenceSettings", schedule: { action: "change" }, fields: { enabled: false }, expected: {} }, 400],

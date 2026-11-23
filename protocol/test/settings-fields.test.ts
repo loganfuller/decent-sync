@@ -45,7 +45,8 @@ describe("validateSettingsEdit", () => {
   });
 
   it("refuses the automatic update checks turned off or on, saying where they are managed", () => {
-    // Decaid v0.9.2 turns them on only with a token, which the plugin has none of, so an edit could only turn them off for good.
+    // Decaid v0.9.2, and v0.9.3 while a setting the plugin cannot read is on, turn them on only with a token, which the
+    // plugin has none of, so an edit could only turn them off for good.
     for (const automaticUpdateCheck of [false, true]) {
       const refusals = validateSettingsEdit({ collection: "appSettings", fields: { automaticUpdateCheck } }, "admin");
       expect(refusals).toEqual([{ reason: "readOnly", field: "automaticUpdateCheck" }]);

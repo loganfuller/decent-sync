@@ -3629,8 +3629,22 @@ under another id (`_retireStaleDefaults` in
 `decaid:lib/src/controllers/profile_controller.dart`). So once tablets at one
 Location run Decaid releases that bundle different Profiles, the first to
 upgrade hides the old one at the Location, on the others too, which lack the
-new one: bundled Profiles are never written. v0.8.7, v0.8.8 and v0.9.0 bundle
-the same Profiles.
+new one: bundled Profiles are never written. v0.9.3 adds 21 Profiles to
+v0.9.2's 73 and changes or retires none
+(`decaid:assets/defaultProfiles/manifest.json`), so it hides nothing: its new
+ones, cleaning and calibration ones among them, join the Library at a
+Location as its first tablet on v0.9.3 reports them, and a tablet there still
+on v0.9.2 lacks them.
+
+Read in Decaid's source and not reproduced: as Decaid starts,
+`_loadDefaultProfilesIfNeeded` (`decaid:lib/src/controllers/profile_controller.dart`)
+makes a record it already holds under a bundled Profile's id a bundled one,
+with Decaid's title, author and notes. So a user's Profile whose steps are
+those of one a newer Decaid bundles becomes bundled on the tablet as it
+updates, while the Library holds it as a user's: `profiles.bundled` is set
+only as the row is inserted (`server/src/library/profiles.ts`). The Library
+would go on writing its title, author and notes to a tablet that refuses
+them. This is not handled.
 
 `server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`,
 `server/test/library-grinders.test.ts`,

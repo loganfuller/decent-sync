@@ -47,12 +47,17 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 
 ### A token for managing plugins
 
-Decaid answers 401 to a request from the network that installs, updates,
-approves, enables, disables or removes a plugin or Skin, or saves a plugin's
-settings, unless it carries a token made on the tablet, and 403 to one made
-without **Manage plugins and skins** turned on. Decaid's own
-screens and its own update checks need none, so the plugin installs and
-updates as this page says without one.
+Decaid v0.9.2 answers 401 to a request from the network that installs,
+updates, approves, enables, disables or removes a plugin or Skin, or saves a
+plugin's settings, unless it carries a token made on the tablet, and 403 to
+one made without **Manage plugins and skins** turned on. Decaid v0.9.3 and
+later do so only while **Require authorization for extension management** is on
+in Decaid's **Security** settings on the tablet. That setting is off on a new
+install and after an update from v0.9.2, and is changed only on the tablet.
+While it is off, Decaid takes such a request without a token and ignores an
+`Authorization` header, so the `$TOKEN` header in the commands on this page
+does no harm there. Decaid's own screens and its own update checks need
+none, so the plugin installs and updates as this page says without one.
 
 To make a token, on the tablet:
 
@@ -113,8 +118,10 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/update \
 
 Decaid checks by itself only while its **Automatic update checks** setting is
 on. A Machine's page shows that setting under Tablet Settings, and it is
-changed in Decaid on the tablet: Decaid turns it on only for a request
-carrying such a token, which the plugin has none of
+changed in Decaid on the tablet: Decaid v0.9.2, and v0.9.3 and later while
+**Require authorization for extension management** is on, turn it on only for a
+request carrying such a token, which the plugin has none of, and the plugin
+cannot tell which way that setting is
 ([ADR-0023](adr/0023-decaid-and-the-machine-keep-their-settings.md)).
 
 - **An update that asks for no new permissions** installs by itself.
@@ -414,7 +421,9 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   be rated while a tablet catches up.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
-own API but for managing plugins and Skins: Decaid checks no caller of them.
+own API but for managing plugins and Skins where Decaid asks a token for it
+([A token for managing plugins](#a-token-for-managing-plugins)): Decaid
+checks no caller of them.
 That network can already change the Workflow and delete Shots through Decaid. The server holds each tablet to its
 own Machine's Location, whatever a caller asks for.
 

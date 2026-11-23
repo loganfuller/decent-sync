@@ -250,8 +250,10 @@ of step come before the deploy, and the release's notes name them:
   `POST http://<tablet>:8080/api/v1/plugins/update`, or approve an update that
   adds a permission with
   `POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve`,
-  each sent with `Authorization: Bearer <token>`, a token made on the tablet
-  in Decaid, on its Decent Account page under API access tokens, with
+  each sent with `Authorization: Bearer <token>` where the tablet asks one
+  (Decaid v0.9.2 always, v0.9.3 and later while "Require authorization for
+  extension management" is on in Decaid's Security settings), a token made on
+  the tablet in Decaid, on its Decent Account page under API access tokens, with
   "Manage plugins and skins" turned on, and shown once. It needs no Decent
   Account sign-in ([PLUGIN.md](PLUGIN.md#a-token-for-managing-plugins)).
 
