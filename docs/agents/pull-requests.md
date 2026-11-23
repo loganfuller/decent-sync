@@ -40,7 +40,7 @@ GitHub's API cannot attach images to a pull request description, so the images g
 2. Embed each image by that commit's id, which keeps working after the branch is deleted:
 
    ```md
-   ![Conflicts page](https://github.com/loganfuller/decent-sync/raw/<commit id>/1-conflicts-page.png)
+   ![A Recipe's history with a Lost Edit](https://github.com/loganfuller/decent-sync/raw/<commit id>/1-recipe-history-lost-edit.png)
    ```
 
    Edit the description with `gh pr edit <number> --body-file <file>`, after reading the current one with `gh pr view <number> --json body --jq .body`.

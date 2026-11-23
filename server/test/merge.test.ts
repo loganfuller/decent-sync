@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { type FieldEdits, changedFields, editsAfter, holdsContentAsDecided, latestDecision, mergeEdit } from "../src/library/merge.js";
 
-// The per-field merge of Library edits and its Conflicts (ADR-0020), through
-// the pure module's interface: which fields an edit changed, which of them it
-// decides, and which values are kept as Conflicts. Tablet and version ids are
-// made up.
+// The per-field merge of Library edits and its Lost Edits (ADR-0020,
+// ADR-0033), through the pure module's interface: which fields an edit
+// changed, which of them it decides, which values are kept as Lost Edits and
+// what each lost to. Tablet and version ids are made up.
 
 const UPTOWN = "0f1e2d3c-4b5a-4968-8776-655443322110";
 const BELMONT = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
@@ -41,41 +41,42 @@ describe("mergeEdit", () => {
   it("decides each field an edit changed that its tablet had seen the latest edit of, whatever its time", () => {
     // Belmont was written the Bean after Uptown's notes were decided, then edited them with a clock behind.
     const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("09:30:00.000"), tabletId: BELMONT, seenAt: at("10:01:00.000") });
-    expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, overwritten: [] });
+    expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, lostTo: {}, overwritten: [] });
   });
 
   it("decides a field whose latest edit was its own tablet's, whatever else its record has seen", () => {
     const merged = mergeEdit(current, edits, { values: { notes: "Apricot" }, at: at("09:30:00.000"), tabletId: UPTOWN, seenAt: null });
-    expect(merged).toEqual({ applied: { notes: "Apricot" }, lost: {}, overwritten: [] });
+    expect(merged).toEqual({ applied: { notes: "Apricot" }, lost: {}, lostTo: {}, overwritten: [] });
   });
 
-  it("merges edits of different fields made without seeing each other, with no Conflict", () => {
+  it("merges edits of different fields made without seeing each other, with no Lost Edit", () => {
     // Belmont, offline since it was written the Bean at 09:00:01, edits its country; Uptown's notes stand.
     const merged = mergeEdit(current, edits, { values: { country: "Kenya" }, at: at("09:45:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") });
-    expect(merged).toEqual({ applied: { country: "Kenya" }, lost: {}, overwritten: [] });
+    expect(merged).toEqual({ applied: { country: "Kenya" }, lost: {}, lostTo: {}, overwritten: [] });
   });
 
-  it("lets a later edit of a field win over one it had not seen, keeping the value it replaced as a Conflict from where that came", () => {
+  it("lets a later edit of a field win over one it had not seen, keeping the value it replaced as a Lost Edit from where that came", () => {
     const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") });
-    expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, overwritten: [{ field: "notes", value: "Peach", versionId: edits.notes!.versionId }] });
+    expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, lostTo: {}, overwritten: [{ field: "notes", value: "Peach", versionId: edits.notes!.versionId }] });
   });
 
-  it("keeps an earlier edit of a field that its tablet had not seen the latest edit of as a Conflict, even when it arrives later", () => {
+  it("keeps an earlier edit of a field that its tablet had not seen the latest edit of as a Lost Edit, lost to that edit, even when it arrives later", () => {
     const merged = mergeEdit(current, edits, { values: { notes: "Jasmine", country: "Kenya" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") });
-    expect(merged).toEqual({ applied: { country: "Kenya" }, lost: { notes: "Jasmine" }, overwritten: [] });
+    expect(merged).toEqual({ applied: { country: "Kenya" }, lost: { notes: "Jasmine" }, lostTo: { notes: edits.notes!.versionId }, overwritten: [] });
   });
 
-  it("keeps no Conflict between two edits that set a field to the same value, and the later one still decides it", () => {
+  it("keeps no Lost Edit between two edits that set a field to the same value, and the later one still decides it", () => {
     const later = mergeEdit(current, edits, { values: { notes: "Peach" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: null });
-    expect(later).toEqual({ applied: { notes: "Peach" }, lost: {}, overwritten: [] });
+    expect(later).toEqual({ applied: { notes: "Peach" }, lost: {}, lostTo: {}, overwritten: [] });
     const earlier = mergeEdit(current, edits, { values: { notes: "Peach" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: null });
-    expect(earlier).toEqual({ applied: {}, lost: {}, overwritten: [] });
+    expect(earlier).toEqual({ applied: {}, lost: {}, lostTo: {}, overwritten: [] });
   });
 
   it("decides a field nobody has edited yet, and one cleared, as null", () => {
     expect(mergeEdit(current, edits, { values: { region: "Guji", notes: null }, at: at("10:05:00.000"), tabletId: UPTOWN, seenAt: null })).toEqual({
       applied: { region: "Guji", notes: null },
       lost: {},
+      lostTo: {},
       overwritten: [],
     });
   });
@@ -87,13 +88,44 @@ describe("mergeEdit", () => {
     const recipeEdits: FieldEdits = { beanId: edits.roaster!, beanBatchId: edits.notes! };
     const pick = { values: { beanId: "brazil", beanBatchId: "brazil-1" }, at: at("09:30:00.000"), tabletId: BELMONT, seenAt: null };
     const together = [["beanId", "beanBatchId"]];
-    expect(mergeEdit(recipe, recipeEdits, pick)).toEqual({ applied: { beanId: "brazil" }, lost: { beanBatchId: "brazil-1" }, overwritten: [expect.objectContaining({ field: "beanId" })] });
-    expect(mergeEdit(recipe, recipeEdits, pick, together)).toEqual({ applied: {}, lost: { beanId: "brazil", beanBatchId: "brazil-1" }, overwritten: [] });
+    expect(mergeEdit(recipe, recipeEdits, pick)).toEqual({ applied: { beanId: "brazil" }, lost: { beanBatchId: "brazil-1" }, lostTo: { beanBatchId: edits.notes!.versionId }, overwritten: [expect.objectContaining({ field: "beanId" })] });
+    // The Bean lost with its batch, so to the edit its batch lost to.
+    expect(mergeEdit(recipe, recipeEdits, pick, together)).toEqual({
+      applied: {},
+      lost: { beanId: "brazil", beanBatchId: "brazil-1" },
+      lostTo: { beanId: edits.notes!.versionId, beanBatchId: edits.notes!.versionId },
+      overwritten: [],
+    });
     // One made after both wins both; one holding only the batch is decided as any field.
     expect(mergeEdit(recipe, recipeEdits, { ...pick, at: at("10:05:00.000") }, together).applied).toEqual({ beanId: "brazil", beanBatchId: "brazil-1" });
-    expect(mergeEdit(recipe, recipeEdits, { ...pick, values: { beanBatchId: "ethiopia-3" } }, together)).toEqual({ applied: {}, lost: { beanBatchId: "ethiopia-3" }, overwritten: [] });
-    // A field of the choice that the edit leaves as it is loses with it and is kept as no Conflict.
-    expect(mergeEdit(recipe, recipeEdits, { ...pick, values: { beanId: "ethiopia", beanBatchId: "ethiopia-3" } }, together)).toEqual({ applied: {}, lost: { beanBatchId: "ethiopia-3" }, overwritten: [] });
+    expect(mergeEdit(recipe, recipeEdits, { ...pick, values: { beanBatchId: "ethiopia-3" } }, together)).toEqual({ applied: {}, lost: { beanBatchId: "ethiopia-3" }, lostTo: { beanBatchId: edits.notes!.versionId }, overwritten: [] });
+    // A field of the choice that the edit leaves as it is loses with it and is kept as no Lost Edit.
+    expect(mergeEdit(recipe, recipeEdits, { ...pick, values: { beanId: "ethiopia", beanBatchId: "ethiopia-3" } }, together)).toEqual({
+      applied: {},
+      lost: { beanBatchId: "ethiopia-3" },
+      lostTo: { beanBatchId: edits.notes!.versionId },
+      overwritten: [],
+    });
+  });
+
+  it("keeps no Lost Edit for a value the editing tablet's last known record held, though it had not seen the edit that set it (ADR-0033)", () => {
+    // Belmont's record held Uptown's Peach, as one written it whose answer never reached the server, and changed it later.
+    const edit = { values: { notes: "Jasmine" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") };
+    expect(mergeEdit(current, edits, { ...edit, held: { notes: "Peach" } })).toEqual({ applied: { notes: "Jasmine" }, lost: {}, lostTo: {}, overwritten: [] });
+    // Holding another value, or none the server knows of, it replaced one it never had, which is kept.
+    const replaced = [{ field: "notes", value: "Peach", versionId: edits.notes!.versionId }];
+    expect(mergeEdit(current, edits, { ...edit, held: { notes: "Plum" } }).overwritten).toEqual(replaced);
+    expect(mergeEdit(current, edits, { ...edit, held: {} }).overwritten).toEqual(replaced);
+    expect(mergeEdit(current, edits, edit).overwritten).toEqual(replaced);
+    // A field the record held no value for held none: a value cleared since is replaced unkept, one set since is kept.
+    expect(mergeEdit({ ...current, notes: null }, edits, { ...edit, held: { notes: null } }).overwritten).toEqual([]);
+    expect(mergeEdit(current, edits, { ...edit, held: { notes: null } }).overwritten).toEqual(replaced);
+  });
+
+  it("lets an earlier edit lose to one it had not seen though its tablet's record held the value now, and keeps it as a Lost Edit: holding a value is not seeing its edit", () => {
+    // Belmont, offline, changed the notes from Peach at 09:55. Uptown set them to Peach again at 10:00, which Belmont never saw.
+    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000"), held: { notes: "Peach" } });
+    expect(merged).toEqual({ applied: {}, lost: { notes: "Jasmine" }, lostTo: { notes: edits.notes!.versionId }, overwritten: [] });
   });
 
   it("lets an edit made at the same time as the field's latest win, as the later to arrive", () => {
@@ -138,6 +170,7 @@ describe("holdsContentAsDecided", () => {
     expect(mergeEdit(current, retitled, { values: { notes: "Jasmine" }, at: at("09:59:00.000"), tabletId: BELMONT, seenAt: written })).toEqual({
       applied: { notes: "Jasmine" },
       lost: {},
+      lostTo: {},
       overwritten: [],
     });
   });
@@ -168,20 +201,20 @@ interface Arrival {
   at: Date;
 }
 
-/** The notes once the edits have arrived in this order, and every value kept as a Conflict on the way, sorted. */
-function arrive(order: Arrival[]): { notes: unknown; conflicts: unknown[] } {
+/** The notes once the edits have arrived in this order, and every value kept as a Lost Edit on the way, sorted. */
+function arrive(order: Arrival[]): { notes: unknown; lostEdits: unknown[] } {
   let content: Record<string, unknown> = {};
   let fieldEdits: FieldEdits = {};
-  const conflicts: unknown[] = [];
+  const lostEdits: unknown[] = [];
   order.forEach((edit, n) => {
     // No tablet's record had seen what the server wrote of another's edit.
     const merged = mergeEdit(content, fieldEdits, { values: { notes: edit.notes }, at: edit.at, tabletId: edit.tabletId, seenAt: null });
-    conflicts.push(...Object.values(merged.lost), ...merged.overwritten.map(({ value }) => value));
+    lostEdits.push(...Object.values(merged.lost), ...merged.overwritten.map(({ value }) => value));
     content = { ...content, ...merged.applied };
     // Decided a minute apart by PostgreSQL's clock, in the order they arrived.
     fieldEdits = editsAfter(fieldEdits, merged.applied, edit, new Date(Date.UTC(2026, 9, 9, 12, n)), VERSION);
   });
-  return { notes: content.notes, conflicts: conflicts.sort() };
+  return { notes: content.notes, lostEdits: lostEdits.sort() };
 }
 
 /** Every order of the items. */
@@ -193,27 +226,27 @@ function orders<T>(items: T[]): T[][] {
 const named = (order: Arrival[]) => order.map((edit) => edit.notes).join(", ");
 
 describe("edits of one field made out of each other's sight", () => {
-  it("keep the latest, and every other as a Conflict, whatever order they arrive in, where each is another tablet's", () => {
+  it("keep the latest, and every other as a Lost Edit, whatever order they arrive in, where each is another tablet's", () => {
     const tablets = [UPTOWN, BELMONT, LAB, ANNEX];
     const notes = ["Peach", "Jasmine", "Apricot", "Bergamot"];
     for (let count = 2; count <= tablets.length; count++) {
       const made = tablets.slice(0, count).map((tabletId, n) => ({ tabletId, notes: notes[n]!, at: at(`10:${n}0:00.000`) }));
-      const kept = { notes: made.at(-1)!.notes, conflicts: made.slice(0, -1).map((edit) => edit.notes).sort() };
+      const kept = { notes: made.at(-1)!.notes, lostEdits: made.slice(0, -1).map((edit) => edit.notes).sort() };
       for (const order of orders(made)) expect(arrive(order), named(order)).toEqual(kept);
     }
   });
 
-  it("keep a tablet's own earlier value as a Conflict only where another tablet's edit arrived between its two", () => {
+  it("keep a tablet's own earlier value as a Lost Edit only where another tablet's edit arrived between its two", () => {
     const peach = { tabletId: UPTOWN, notes: "Peach", at: at("10:00:00.000") };
     const jasmine = { tabletId: BELMONT, notes: "Jasmine", at: at("10:10:00.000") };
     const apricot = { tabletId: UPTOWN, notes: "Apricot", at: at("10:20:00.000") };
     // Belmont's edit overwrote Peach before Uptown's next arrived, so Peach is kept, and then Belmont's own.
-    expect(arrive([peach, jasmine, apricot])).toEqual({ notes: "Apricot", conflicts: ["Jasmine", "Peach"] });
+    expect(arrive([peach, jasmine, apricot])).toEqual({ notes: "Apricot", lostEdits: ["Jasmine", "Peach"] });
     // Uptown had replaced Peach itself by the time Belmont's edit arrived, so only Belmont's is kept.
-    expect(arrive([peach, apricot, jasmine])).toEqual({ notes: "Apricot", conflicts: ["Jasmine"] });
+    expect(arrive([peach, apricot, jasmine])).toEqual({ notes: "Apricot", lostEdits: ["Jasmine"] });
   });
 
-  it("keep the latest, and every other tablet's last value as a Conflict, whatever order they arrive in, each tablet's own in the order it made them", () => {
+  it("keep the latest, and every other tablet's last value as a Lost Edit, whatever order they arrive in, each tablet's own in the order it made them", () => {
     // Two tablets, then three, taking turns for up to five edits.
     for (const tablets of [
       [UPTOWN, BELMONT],
@@ -229,14 +262,14 @@ describe("edits of one field made out of each other's sight", () => {
             return own.every((edit, n) => n === 0 || edit.at.getTime() > own[n - 1]!.at.getTime());
           });
         for (const order of orders(made).filter(inOwnOrder)) {
-          const { notes, conflicts } = arrive(order);
+          const { notes, lostEdits } = arrive(order);
           expect(notes, named(order)).toBe(latest.notes);
           for (const tabletId of tablets) {
             const last = lastOf(tabletId);
-            if (last && tabletId !== latest.tabletId) expect(conflicts, named(order)).toContain(last.notes);
+            if (last && tabletId !== latest.tabletId) expect(lostEdits, named(order)).toContain(last.notes);
           }
           // Nothing is kept but a value that lost.
-          expect(made.slice(0, -1).map((edit) => edit.notes), named(order)).toEqual(expect.arrayContaining(conflicts));
+          expect(made.slice(0, -1).map((edit) => edit.notes), named(order)).toEqual(expect.arrayContaining(lostEdits));
         }
       }
     }

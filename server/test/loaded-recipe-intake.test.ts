@@ -6,6 +6,7 @@ import {
   PARTS,
   type WorkflowParts,
   dueParts,
+  heldFromWorkflow,
   heldAlready,
   heldByRecord,
   nonePart,
@@ -518,6 +519,31 @@ describe("The dial written into a Workflow", () => {
     expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: renamed }, classic)).toEqual({ ...target, profile: undefined });
     // A record holding no profile at all, which DYE2 compares nothing with, holds nothing back.
     expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: null }, classic)).toEqual(target);
+  });
+
+  it("counts as held only the parts the Workflow last held as the Recipe's are written, its Bean with its batch, and no Grinder, Basket or batch the tablet holds no record of, though its Workflow held none (#632)", () => {
+    const content = { grinderId: "grinder", basketId: "basket", beanBatchId: "batch", beanId: "bean", dose: 18, yield: 36 };
+    const values = { grinderId: "other-grinder", basketId: "other-basket", beanBatchId: "other-batch", beanId: "other-bean", dose: 19, yield: 40 };
+    const none = Object.fromEntries(PARTS.map((part) => [part, null])) as WorkflowParts;
+    // Another tablet named items this one holds no record of yet; its Workflow held none of them, and the Recipe's dose.
+    expect(heldFromWorkflow(content, recipeParts(content, () => undefined), { ...none, dose: 18 }, values)).toEqual({ dose: 18 });
+    // Held as written under the tablet's own ids, they are held; a yield the Workflow held otherwise is not.
+    const local = (_kind: string, itemId: string) => `local-${itemId}`;
+    const held = { ...none, grinder: "local-grinder", basket: "local-basket", batch: "local-batch", dose: 18, yield: 30 };
+    expect(heldFromWorkflow(content, recipeParts(content, local), held, values)).toEqual({ grinderId: "grinder", basketId: "basket", beanBatchId: "batch", beanId: "bean", dose: 18 });
+    // A Recipe naming a Bean and no batch: the Workflow holding no batch held none, but shows nothing of the Bean.
+    const batchless = { ...content, beanBatchId: undefined };
+    expect(heldFromWorkflow(batchless, recipeParts(batchless, local), { ...held, batch: null }, values)).toEqual({ grinderId: "grinder", basketId: "basket", beanBatchId: null, dose: 18 });
+    // A Recipe holding "Off" is written a steam time of 0 whatever its own is: a Workflow holding 0 held none of it.
+    const off = { ...content, steamTemperature: 0, steamDuration: 40 };
+    const steam = { steamTemperature: 150, steamDuration: 50 };
+    expect(heldFromWorkflow(off, recipeParts(off, local), { ...held, steamTemperature: 0, steamDuration: 0 }, steam)).toEqual({ steamTemperature: 0 });
+    // One holding no brew temperature is written its Profile's: a Workflow holding that held none of the Recipe's. The
+    // Workflow intake builds its target with no Profile temperature, which holds nothing here already; this keeps it so
+    // for a target built with one, as `targetParts` builds it.
+    expect(heldFromWorkflow(content, recipeParts(content, local, 93), { ...held, brewTemperature: 93 }, { brewTemperature: 95 })).toEqual({});
+    const heated = { ...content, brewTemperature: 93 };
+    expect(heldFromWorkflow(heated, recipeParts(heated, local, 90), { ...held, brewTemperature: 93 }, { brewTemperature: 95 })).toEqual({ brewTemperature: 93 });
   });
 });
 

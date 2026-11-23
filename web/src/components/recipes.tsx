@@ -4,7 +4,7 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo,
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import { batchName } from "@/components/bean-batches";
-import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
+import { ItemHistoryCard, attributePairs } from "@/components/item-history";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
@@ -1452,7 +1452,7 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
 
 /**
  * One Recipe, in the order a reader asks (#547): its name, Recipe Slot and
- * Location, with its actions; its open Conflicts; how it is pulling, over
+ * Location, with its actions; how it is pulling, over
  * a period its address keeps, which is its Reference Shot beside its
  * numbers by Machine, then its 30-day trend; the fields it has set; how
  * many Shots it has in the period, which the Shots list opens; and its
@@ -1472,7 +1472,7 @@ export function RecipeDetails({ id }: { id: string }) {
   const [loaded, setLoaded] = useState<{ recipe: Recipe; recipes: Recipe[] }>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // A change here, or using a Conflict's value, changes the Recipe, so it is loaded again, with its history.
+  // A change here changes the Recipe, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const changed = useCallback(() => setChanges((count) => count + 1), []);
 
@@ -1564,7 +1564,6 @@ export function RecipeDetails({ id }: { id: string }) {
         <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>
       )}
 
-      <ItemConflictsCard kind="recipe" id={id} onResolved={changed} names={names} />
 
       <PeriodTabs period={period} onPeriod={setPeriod} className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">

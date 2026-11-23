@@ -30,7 +30,7 @@ import { MAX_PROFILE_VERSIONS, ProfilesService } from "./profiles.service.js";
 // Drafts (ADR-0032, ticket #579): profiles being written or changed in the
 // management interface, which the server alone holds and no tablet is ever
 // written. Not Library content: a Draft is shown at no Location, makes no
-// Conflict and has no history but who saved it last, and anyone who may
+// Lost Edit and has no history but who saved it last, and anyone who may
 // change the Library may read, change and discard any of them. A Viewer
 // sees none. A save names the count it started from: it is taken either way,
 // the later save winning, and the answer says whether another came between.

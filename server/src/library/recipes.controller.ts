@@ -5,7 +5,7 @@ import type { SignedIn } from "../accounts/sessions.service.js";
 import { readLocationId } from "../locations/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
-import { type ConflictView, HistoryService, type VersionView, readHistoryField } from "./history.service.js";
+import { type HistoryView, HistoryService, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewRecipe, readRecipeCopy, readReferenceShot, readSlot } from "./item-input.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
@@ -13,7 +13,7 @@ import { type RecipeView, RecipesService, readRecipeId } from "./recipes.service
 
 /**
  * Each Location's Recipes, slotted and unslotted, and each Recipe's history
- * and Conflicts (ADR-0005, ADR-0020), which Staff read as Admins do. They
+ * (ADR-0005, ADR-0020, ADR-0033), which Staff read as Admins do. They
  * join the Library from tablets, or are created or copied here; Staff create,
  * edit, slot, take out of their slots, Archive and restore them, choose and
  * clear their Reference Shots (ADR-0029), and copy one to a Location, only
@@ -70,7 +70,7 @@ export class RecipesController {
   /**
    * Makes a Shot its Reference Shot (ADR-0029), or clears it: `{ shotId }`, a
    * Shot's id, one the Shots list lists, from any Machine or Location, or
-   * null for none. Not its content, so it makes no Conflict and reaches no
+   * null for none. Not its content, so no change of it is a Lost Edit and it reaches no
    * tablet.
    */
   @AllowStaff()
@@ -115,17 +115,10 @@ export class RecipesController {
     await hardDelete(this.prisma, "recipe", readRecipeId(id));
   }
 
-  /** Its versions, the latest taken in first (ADR-0020). */
+  /** Its history (ADR-0020, ADR-0033): its versions, the latest taken in first, and its Lost Edits, the latest lost first, or those of the field its query names. */
   @AllowStaff()
   @Get("recipes/:id/history")
-  async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.history.versions({ kind: "recipe", id: readRecipeId(id) }, scope, readHistoryField(query)) };
-  }
-
-  /** Its open Conflicts, the latest first (ADR-0020). */
-  @AllowStaff()
-  @Get("recipes/:id/conflicts")
-  async conflicts(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ conflicts: ConflictView[] }> {
-    return { conflicts: await this.history.openConflicts(scope, { kind: "recipe", id: readRecipeId(id) }) };
+  async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<HistoryView> {
+    return this.history.history({ kind: "recipe", id: readRecipeId(id) }, scope, readHistoryField(query));
   }
 }

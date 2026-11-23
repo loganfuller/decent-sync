@@ -140,6 +140,32 @@ export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolea
   return sameValue(a, b);
 }
 
+/**
+ * What the tablet held of the Recipe (`content`) of each field an edit taken
+ * from its Workflow sets (`values`), for that edit (`ItemEdit.held`): each
+ * part the Workflow last held (`held`) as the Recipe's is written to it
+ * (`target`, `recipeParts`), its Bean with a batch it held, so a value it
+ * replaces there is kept as no Lost Edit. A Grinder, Basket or batch the
+ * tablet holds no record of (undefined in `target`) is none it held, though
+ * its Workflow held none; holding no batch shows nothing of the Bean; a
+ * Recipe holding "Off" is written a steam time of 0 whatever its own is; and
+ * one holding no brew temperature is written its Profile's.
+ */
+export function heldFromWorkflow(
+  content: Readonly<Record<string, unknown>>,
+  target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
+  held: Readonly<WorkflowParts>,
+  values: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const hidden = new Set<LoadedRecipePart>([
+    ...(steamHeldOff(content.steamTemperature, null) ? (["steamDuration"] as const) : []),
+    ...(typeof content.brewTemperature !== "number" ? (["brewTemperature"] as const) : []),
+  ]);
+  const parts = PARTS.filter((part) => !hidden.has(part) && target[part] !== undefined && samePart(part, target[part], held[part]));
+  const fields = [...parts.map((part) => RECIPE_FIELDS[part]), ...(parts.includes("batch") && target.batch !== null ? ["beanId"] : [])];
+  return Object.fromEntries(fields.filter((field) => Object.prototype.hasOwnProperty.call(values, field)).map((field) => [field, content[field] ?? null]));
+}
+
 /** The key of `BaseParts` holding the Recipe's Bean as the Workflow last took it. */
 export const BEAN_TAKEN = "bean";
 

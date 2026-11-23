@@ -13,11 +13,11 @@ import { expectTip } from "./support/tooltips.js";
 // Recipe form, offering slots 1 to 9, moved between slots, taken out of its
 // slot, Archived and restored; what the form offers at the Location, and
 // when every slot holds a Recipe; a Recipe whose batch is finished there
-// flagged; its Conflicts; and what Staff may change; and a
+// flagged; its Lost Edits; and what Staff may change; and a
 // Recipe copied to another Location (ticket #144); its steam, hot water and
 // flush settings, each held or the Machine's own (ticket #173). Simulated tablets running
 // the built plugin save Profiles, which have no REST create, and make
-// Conflicts; what each Location's tablets are written is
+// Lost Edits; what each Location's tablets are written is
 // server/test/library-recipe-management.test.ts's and
 // library-recipe-copies.test.ts's. Serials are made up, from 45501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -345,14 +345,14 @@ test("a Recipe whose Bean Batch is finished at its Location is flagged", async (
   void recipe;
 });
 
-test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on its page, and using its value makes it current on every tablet", async ({ page }) => {
-  const lab = await createLocation(page, "Conflict lab");
-  const one = await tabletAt(page, server, "Conflict lab 1", lab, "45521", tabletApi);
-  const two = await tabletAt(page, server, "Conflict lab 2", lab, "45522", tabletApi);
+test("a Recipe's name that lost, saved on two tablets offline, is shown in its History with the name it lost to", async ({ page }) => {
+  const lab = await createLocation(page, "Lost lab");
+  const one = await tabletAt(page, server, "Lost lab 1", lab, "45521", tabletApi);
+  const two = await tabletAt(page, server, "Lost lab 2", lab, "45522", tabletApi);
   const recipe = await createRecipe(page, lab, 1, { name: "House Espresso" });
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso");
 
-  // Offline, each tablet's DYE2 editor saves a name of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
+  // Offline, each tablet's DYE2 editor saves a name of its own: the later wins on reconnecting, the earlier is kept as a Lost Edit.
   // A save is timed when its tablet's plugin first reads it (ADR-0005), which may be before the plugin hears that its
   // connection is lost, so the later is saved once the earlier has reached the Library: it is then timed no earlier,
   // whenever it is read.
@@ -364,22 +364,16 @@ test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on
   await saveName(two, 1, "House Espresso (Kenya)");
   two.restoreNetwork();
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso (Kenya)");
-  await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts.length).toBe(1);
+  await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}/history`)).json()) as { lostEdits: unknown[] }).lostEdits.length).toBe(1);
 
   await page.goto(`/library/recipes/${recipe.id}`);
-  const open = page.getByRole("region", { name: "Open Conflicts" });
-  const conflict = rows(open.getByRole("table", { name: "Conflicts" }));
-  await expect(conflict).toHaveCount(1);
-  await expect(conflict.getByRole("cell").nth(0)).toHaveText("Name");
-  await expect(conflict.getByRole("cell").nth(1)).toContainText("House Espresso (Brazil)");
-  await expect(conflict.getByRole("cell").nth(1)).toContainText("Conflict lab 1");
-  await expect(conflict.getByRole("cell").nth(2)).toContainText("House Espresso (Kenya)");
-
-  await open.getByRole("button", { name: "Use the losing value of Name" }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Use this value" }).click();
-  await expect(open).toBeHidden();
-  await expect(page.getByRole("heading", { name: "House Espresso (Brazil)", level: 1 })).toBeVisible();
-  for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso (Brazil)");
+  await expect(page.getByRole("heading", { name: "House Espresso (Kenya)", level: 1 })).toBeVisible();
+  // A Recipe's History is closed until opened (#547).
+  const lost = rows((await openCard(page, "History")).getByRole("table", { name: "History" })).filter({ hasText: "Lost Edit" });
+  await expect(lost).toHaveCount(1);
+  await expect(lost.getByRole("cell").nth(1)).toHaveText("Lost lab 1");
+  await expect(lost.getByRole("cell").nth(2)).toContainText("NameHouse Espresso (Brazil)");
+  await expect(lost.getByRole("cell").nth(2)).toContainText("Lost to House Espresso (Kenya), by Lost lab 2,");
 });
 
 test("a Recipe whose RPM a tablet's DYE2 saved as 0 shows no RPM, as a dose or RPM of 0 is none, keeps a yield of 0, and takes a grind setting of 0", async ({ page }) => {

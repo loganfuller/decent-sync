@@ -1,10 +1,10 @@
 ---
-status: accepted (amended by ADR-0016, ADR-0019 and ADR-0020; corrected in place on 2026-10-08, while building milestone 2, and on 2026-10-12, while scoping milestone 3: baskets and tools are in the library like profiles)
+status: accepted (amended by ADR-0016, ADR-0019 and ADR-0020; corrected in place on 2026-10-08, while building milestone 2, and on 2026-10-12, while scoping milestone 3: baskets and tools are in the library like profiles; and on 2026-11-22, for ticket #632: an edit that loses is shown in the item's history, ADR-0033)
 ---
 
 # The server is the source of truth, and tablets can still edit
 
-Shared data (beans, batches, equipment, profiles, recipes) is owned by the server, and each tablet holds a replica. Tablets stay editable, because baristas will keep adding batches and dialling in recipes in Decaid and DYE2. A tablet's edit is sent to the server and then out to the other machines that share it. Conflicting edits to the same record are resolved last-writer-wins, and the management interface shows each conflict rather than overwriting silently. Profiles rarely conflict, because Decaid content-hashes what the machine executes: a profile whose steps change is a new profile, while its title, author and notes are edits of the same one (ADR-0006).
+Shared data (beans, batches, equipment, profiles, recipes) is owned by the server, and each tablet holds a replica. Tablets stay editable, because baristas will keep adding batches and dialling in recipes in Decaid and DYE2. A tablet's edit is sent to the server and then out to the other machines that share it. Conflicting edits to the same record are resolved last-writer-wins, and the management interface shows each edit that lost, in the item's history (ADR-0033), rather than overwriting silently. Profiles rarely conflict, because Decaid content-hashes what the machine executes: a profile whose steps change is a new profile, while its title, author and notes are edits of the same one (ADR-0006).
 
 We rejected management-interface-only editing, because it would force baristas off the tablet for routine work.
 

@@ -220,7 +220,7 @@ export interface TabletChange {
    * `loadedRecipe` (its Workflow's Loaded Recipe, named by the Recipe).
    */
   kind: ItemKind | "workflow" | "loadedRecipe" | "draft";
-  /** The item, named as Conflicts name it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
+  /** The item, named as its page names it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
   item: { kind: ItemKind | "workflow" | "loadedRecipe" | "draft"; id: string; name: string | null } | null;
   /** Decaid's id for the tablet's record; null for a create, a Workflow or a Loaded Recipe. */
   localId: string | null;
@@ -1384,10 +1384,10 @@ export interface ReferenceShot {
 /** The kinds of Library item (`LIBRARY_KINDS`). */
 export type { LibraryKind };
 
-/** What has versions and Conflicts: Library items. */
+/** What has a history: Library items. */
 export type ItemKind = LibraryKind;
 
-/** Where a version or a Conflict came from: a Machine's tablet, or an account in the management interface. */
+/** Where a version or a Lost Edit came from: a Machine's tablet, or an account in the management interface. */
 export interface EditSource {
   /** The Machine whose tablet made it, if one did and it still exists. */
   machine: { id: string; name: string } | null;
@@ -1418,11 +1418,13 @@ export interface ItemVersion {
   copiedFrom: { id: string; name: string | null; location: Location | null } | null;
 }
 
-/** An edit of a field of a Library item that lost to another made without seeing it. */
-export interface Conflict {
+/**
+ * A Lost Edit: an edit to a field of a Library item that did not apply, because it lost to another edit of the same
+ * field made without seeing it, or because a joining tablet's value differed from the Library's. Kept in the item's
+ * history, to be read.
+ */
+export interface LostEdit {
   id: string;
-  /** The item. */
-  item: { kind: ItemKind; id: string; name: string | null };
   field: string;
   /** The losing value; null where the edit cleared the field. */
   value: unknown;
@@ -1431,11 +1433,14 @@ export interface Conflict {
   source: EditSource;
   /** When the losing edit was made. */
   editedAt: string;
-  /** When it became a Conflict. */
-  createdAt: string;
-  state: "open" | "used" | "dismissed";
-  /** The field's value now, and where and when that came from and its version, where known. Using the value names that version. */
-  current: { value: unknown; source: EditSource | null; editedAt: string | null; versionId: string | null };
-  /** Whether the signed-in account may use its value or dismiss it. */
-  resolvable: boolean;
+  /** When it lost. */
+  lostAt: string;
+  /** The edit it lost to, one of the item's versions, with the value it set the field to; null where that is not known. */
+  lostTo: { versionId: string; value: unknown; source: EditSource; editedAt: string } | null;
+}
+
+/** An item's history. The previous release answers without `lostEdits`, as it may during a deploy (ADR-0025). */
+export interface ItemHistory {
+  versions: ItemVersion[];
+  lostEdits?: LostEdit[];
 }

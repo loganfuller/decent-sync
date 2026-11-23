@@ -1566,7 +1566,7 @@ export interface ItemWritten {
    * holding the same coffee without a global id, entered there before it was
    * reported, and wrote only the global id to it: the record is linked to the
    * Bean, and so takes the Bean's content, each field it held otherwise kept
-   * as a Conflict (ADR-0018).
+   * as a Lost Edit (ADR-0018, ADR-0033).
    */
   linked?: boolean;
   /** The write's `contentDecidedAt`, repeated. */

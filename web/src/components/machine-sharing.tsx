@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useId, useState } from "react";
-import { ItemLink, itemPath } from "@/components/conflicts";
+import { ItemLink, itemPath } from "@/components/item-history";
 import { draftPath } from "@/components/drafts";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";

@@ -16,7 +16,7 @@ import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBean
 import { type BeanSummary, type BeanView, BeansService, readBeanId } from "../library/beans.service.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "../library/equipment.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
-import { type ConflictView, HistoryService, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
+import { HistoryService, type LostEditView, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
 import { type ProfileSummary, type ProfileVersionView, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
 import { type RecipeOnProfileView, type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
 import { locationNotFound, readLocationId } from "../locations/input.js";
@@ -29,9 +29,9 @@ import { callerOf } from "./token-verifier.js";
 
 // The Library, read through an assistant as the REST API reads it, calling
 // the same services (#409, ADR-0026): its items of each kind, each one with
-// its history and Conflicts, and the open Conflicts. Every account reads
-// every item, as through the REST API; who made an edit or a Conflict is
-// named as the REST API names it to the account.
+// its history, Lost Edits among it. Every account reads every item, as
+// through the REST API; who made an edit, applied or lost, is named as the
+// REST API names it to the account.
 
 const id = z.string();
 
@@ -55,7 +55,7 @@ const RECORD_FIELDS = "Decaid's record fields, as the tablet that created it sen
 
 /** Each time's offset, which every tool's description states. */
 export const TIMES =
-  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to, but a Recipe's Reference Shot's pulledAt, with that of the Location it was pulled at. Others, such as a Bean's content edits, are in UTC.";
+  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit of that state, applied or lost, with that Location's; and a Grinder's or Recipe's other times and edits with that of the Location it belongs to, but a Recipe's Reference Shot's pulledAt, with that of the Location it was pulled at. Others, such as a Bean's content edits, are in UTC.";
 
 /** What the Library's items hold, for the descriptions of the tools that read or change them. */
 export const ITEMS =
@@ -248,26 +248,22 @@ const version = z.object({
     .describe("For a copy, as a Recipe copied to a Location, its first version names the item it was copied from, and that item's Location then."),
 });
 
-/** A Conflict as list_conflicts and get_library_item read it, and as resolve_conflict returns it. */
-export const conflict = z.object({
-  id,
-  item: z.object({ kind, id, name: z.string().nullable() }).describe("The Library item it is about, by its kind, id and name."),
-  field: z.string().describe("The field it is about: of the item's content, by Decaid's names, or of a Location's state of it (atLocation, remainingWeight, shown)."),
-  value: z.unknown().describe("The losing value; null where the edit cleared the field."),
-  location: location.nullable().describe("The Location whose state of the item the field is; null for the item's content."),
-  source,
-  editedAt: time("When the losing edit was made."),
-  createdAt: time("When it became a Conflict."),
-  state: z.enum(["open", "used", "dismissed"]),
-  current: z
+/** An entry of an item's history as get_library_item reads it: a version, or a Lost Edit. */
+const historyEntry = version.extend({
+  lost: z
+    .boolean()
+    .describe(
+      "Whether this is a Lost Edit: an edit that did not apply, because it lost to another edit of the same field made without seeing it, or because a joining tablet's value differed from the Library's. Its fields hold the one field with the value that lost, and receivedAt is when it lost. It is kept to be read: to bring its value back, edit the item.",
+    ),
+  lostTo: z
     .object({
-      value: z.unknown().describe("Null where nothing set it, or the edit that set it last cleared it."),
-      source: source.nullable().describe("Where the edit that set it came from; null if not known."),
-      editedAt: time("When that edit was made.").nullable(),
-      versionId: z.string().nullable().describe("That edit's version; null if not known."),
+      versionId: id.describe("That edit's id, as the history lists it."),
+      value: z.unknown().describe("The value it set the field to; null where it cleared it."),
+      source,
+      editedAt: time("When it was made."),
     })
-    .describe("The field's value now, which the losing value lost to or was replaced by."),
-  resolvable: z.boolean().describe("Whether this account may use its value or dismiss it."),
+    .nullable()
+    .describe("For a Lost Edit, the edit it lost to, null where that is not known; null for an edit that applied."),
 });
 
 const findInput = z.object({
@@ -301,14 +297,16 @@ const findOutput = z.object({
 const getInput = z.object({
   kind,
   id: id.describe("Its id, as find_library_items gives it."),
-  history: z.boolean().default(false).describe("Whether to include its history: each edit accepted, the latest taken in first, with the fields it set, who or which Machine made it, and when."),
+  history: z
+    .boolean()
+    .default(false)
+    .describe("Whether to include its history: each edit accepted, and each Lost Edit, one that did not apply, the latest taken in first, with the fields it set, who or which Machine made it, and when."),
   historyField: z
     .string()
     .min(1)
     .max(MAX_HISTORY_FIELD)
     .optional()
     .describe("Only the edits of its history that set this field, to a value or cleared: of its content, by its name there, such as a Recipe's grindSetting, or of a Location's state of it (atLocation, remainingWeight, shown). Given alone, it asks for its history."),
-  conflicts: z.boolean().default(false).describe("Whether to include its open Conflicts, the latest first."),
   ...page,
 });
 
@@ -350,11 +348,8 @@ export const itemOutput = z.object({
 });
 
 const getOutput = itemOutput.extend({
-  history: listed(version, "Only when asked for: its versions, each an edit accepted, the latest taken in first. limit and offset page it."),
-  conflicts: listed(conflict, "Only when asked for: its open Conflicts, the latest first. limit and offset page them."),
+  history: listed(historyEntry, "Only when asked for: its versions, each an edit accepted, and its Lost Edits (lost), each an edit that did not apply, the latest taken in first. limit and offset page it."),
 });
-
-const conflictsOutput = z.object({ ...pageOutput, conflicts: z.array(conflict) });
 
 const profileVersionsInput = z.object({ profileId: id.describe("The Library Profile whose versions to read, as find_library_items gives it.") });
 
@@ -388,7 +383,6 @@ type FindInput = z.infer<typeof findInput>;
 type FindOutput = z.infer<typeof findOutput>;
 type GetOutput = z.infer<typeof getOutput>;
 export type ItemOutput = z.infer<typeof itemOutput>;
-export type ConflictOutput = z.infer<typeof conflict>;
 
 /**
  * What Decaid hashes of a Profile for its id (`profileId`), in its record
@@ -406,8 +400,8 @@ export function profileWhole(profile: string): string[] {
 /**
  * The Library, read through an assistant: each kind's items as the REST API
  * lists them, filtered by Location, name and whether Archived and paged, one
- * item as the REST API returns it, with its history and open Conflicts when
- * asked for, and every open Conflict. Times are given with the offset of the
+ * item as the REST API returns it, with its history, Lost Edits among it,
+ * when asked for. Times are given with the offset of the
  * Location they happened at (`TIMES`).
  */
 @Injectable()
@@ -486,31 +480,26 @@ export class LibraryTools {
   @BudgetedTool({
     name: "get_library_item",
     title: "Get a Library item",
-    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history and open Conflicts, such as what changed on a Recipe today and who changed it. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; each Conflict, the losing value of a field and the field's value now. historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history and its Conflicts. ${PAGED} ${TIMES}`,
+    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history, such as what changed on a Recipe today and who changed it. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; a Lost Edit among them (lost) gives the value of a field that did not apply and the edit it lost to (lostTo). historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history. ${PAGED} ${TIMES}`,
     inputSchema: getInput,
     outputSchema: getOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { whole: PROFILE_WHOLE, rest: "Asked for without its history and Conflicts, or fewer of them at a time, it has more of its text." },
+    budget: { whole: PROFILE_WHOLE, rest: "Asked for without its history, or fewer of its entries at a time, it has more of its text." },
   })
   async getLibraryItem(input: z.infer<typeof getInput>, context: McpContext): Promise<GetOutput> {
     const { item, ref, itemLocation } = await this.item(input.kind, input.id);
     const { scope } = callerOf(context);
-    const [versions, conflicts] = await Promise.all([
-      // A field alone asks for its history.
-      input.history || input.historyField !== undefined ? this.history.versions(ref, scope, input.historyField) : undefined,
-      input.conflicts ? this.history.openConflicts(scope, ref) : undefined,
-    ]);
-    const paged = <T, R>(list: readonly T[] | undefined, view: (entry: T) => R) => {
-      if (list === undefined) return undefined;
-      const entries = list.slice(input.offset, input.offset + input.limit);
-      return { ...pageOf(list.length, input.offset, entries.length), entries: entries.map(view) };
-    };
-    return {
-      ...item,
-      history: paged(versions, (entry) => versionOf(entry, itemLocation)),
-      conflicts: paged(conflicts, (entry) => conflictOf(entry, itemLocation)),
-    };
+    // A field alone asks for its history.
+    if (!input.history && input.historyField === undefined) return item;
+    const { versions, lostEdits } = await this.history.history(ref, scope, input.historyField);
+    // Each by when the server took it in or it lost, the latest first: both are PostgreSQL's times, read as ISO 8601 in UTC.
+    const all = [
+      ...versions.map((entry) => ({ at: entry.receivedAt, view: () => versionOf(entry, itemLocation) })),
+      ...lostEdits.map((entry) => ({ at: entry.lostAt, view: () => lostEditOf(entry, itemLocation) })),
+    ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const entries = all.slice(input.offset, input.offset + input.limit);
+    return { ...item, history: { ...pageOf(all.length, input.offset, entries.length), entries: entries.map((entry) => entry.view()) } };
   }
 
   @BudgetedTool({
@@ -530,35 +519,9 @@ export class LibraryTools {
     return { versions: versions.map(profileVersionOf), recipes: recipes.map(recipeOnProfileOf) };
   }
 
-  @BudgetedTool({
-    name: "list_conflicts",
-    title: "List Conflicts",
-    description: `Lists the Library's open Conflicts, the latest first, a page at a time: for each, its item and field, the losing value and the value now, where and when each came from, and whether this account may use or dismiss it. A field is of the item's content, by Decaid's names, or of a Location's state of it: atLocation, remainingWeight in grams, or shown. ${PAGED} ${TIMES}`,
-    inputSchema: z.object({ ...page }),
-    outputSchema: conflictsOutput,
-    annotations: { readOnlyHint: true },
-    scopes: [READ],
-    budget: { rest: "Asked for fewer at a time, it has more of each." },
-  })
-  async listConflicts({ limit, offset }: { limit: number; offset: number }, context: McpContext): Promise<z.infer<typeof conflictsOutput>> {
-    const open = await this.history.openConflicts(callerOf(context).scope);
-    const shown = open.slice(offset, offset + limit);
-    const itemLocations = await this.itemLocations(shown);
-    return {
-      ...pageOf(open.length, offset, shown.length),
-      conflicts: shown.map((entry) => conflictOf(entry, itemLocations.get(`${entry.item.kind}:${entry.item.id}`) ?? null)),
-    };
-  }
-
-  /** One item as get_library_item reads it, without its history or Conflicts: 404's message, as the REST API's, for none. */
+  /** One item as get_library_item reads it, without its history: 404's message, as the REST API's, for none. */
   async read(kind: LibraryKind, itemId: string): Promise<ItemOutput> {
     return (await this.item(kind, itemId)).item;
-  }
-
-  /** A Conflict as list_conflicts reads it. */
-  async conflict(entry: ConflictView): Promise<ConflictOutput> {
-    const itemLocations = await this.itemLocations([entry]);
-    return conflictOf(entry, itemLocations.get(`${entry.item.kind}:${entry.item.id}`) ?? null);
   }
 
   /** A Location a list is filtered by, by its id in lower case, as the REST API reads one; refused as no Location if there is none. */
@@ -574,7 +537,7 @@ export class LibraryTools {
     return new Set((await this.prisma.bean.findMany({ where: { archived: true }, select: { id: true } })).map((bean) => bean.id));
   }
 
-  /** One item as the REST API returns it, with how history and Conflicts name it and the Location it belongs to, if one. */
+  /** One item as the REST API returns it, with how its history names it and the Location it belongs to, if one. */
   private async item(kind: LibraryKind, itemId: string): Promise<{ item: ItemOutput; ref: { kind: LibraryKind; id: string }; itemLocation: LocationView | null }> {
     switch (kind) {
       case "bean": {
@@ -603,17 +566,6 @@ export class LibraryTools {
         return { item: { recipe: recipeOf(found) }, ref: { kind, id: found.id }, itemLocation: found.location };
       }
     }
-  }
-
-  /** The Locations the Grinders and Recipes these Conflicts are about belong to, by `kind:id`; null for one that belongs to none now. */
-  private async itemLocations(conflicts: readonly ConflictView[]): Promise<Map<string, LocationView | null>> {
-    const ids = (kind: LibraryKind) => [...new Set(conflicts.flatMap((entry) => (entry.item.kind === kind ? [entry.item.id] : [])))];
-    const where = (kind: LibraryKind) => ({ where: { id: { in: ids(kind) } }, select: { id: true, location: true } });
-    const [grinders, recipes] = await Promise.all([this.prisma.grinder.findMany(where("grinder")), this.prisma.recipe.findMany(where("recipe"))]);
-    return new Map([
-      ...grinders.map((grinder) => [`grinder:${grinder.id}`, grinder.location && viewLocation(grinder.location)] as const),
-      ...recipes.map((found) => [`recipe:${found.id}`, found.location && viewLocation(found.location)] as const),
-    ]);
   }
 }
 
@@ -818,7 +770,7 @@ function sourceOf({ machine, tabletId, account, connectedApp }: SourceView): z.i
 }
 
 /** A version, its times with the offset of the Location whose state it changed, or else of the one its item belongs to. */
-function versionOf(entry: VersionView, itemLocation: LocationView | null): z.infer<typeof version> {
+function versionOf(entry: VersionView, itemLocation: LocationView | null): z.infer<typeof historyEntry> {
   const where = entry.location ?? itemLocation;
   return {
     id: entry.id,
@@ -828,29 +780,28 @@ function versionOf(entry: VersionView, itemLocation: LocationView | null): z.inf
     editedAt: timeAt(entry.editedAt, where),
     receivedAt: timeAt(entry.receivedAt, where),
     copiedFrom: entry.copiedFrom && { id: entry.copiedFrom.id, name: entry.copiedFrom.name, location: maybeLocation(entry.copiedFrom.location) },
+    lost: false,
+    lostTo: null,
   };
 }
 
-/** A Conflict, its times with the offset of the Location whose state it is about, or else of the one its item belongs to. */
-function conflictOf(entry: ConflictView, itemLocation: LocationView | null): ConflictOutput {
+/** A Lost Edit as an entry of its item's history, its times with the offset of the Location whose state it is of, or else of the one its item belongs to. */
+function lostEditOf(entry: LostEditView, itemLocation: LocationView | null): z.infer<typeof historyEntry> {
   const where = entry.location ?? itemLocation;
-  const { current } = entry;
   return {
     id: entry.id,
-    item: { kind: entry.item.kind, id: entry.item.id, name: entry.item.name },
-    field: entry.field,
-    value: entry.value,
+    fields: { [entry.field]: entry.value ?? null },
     location: maybeLocation(entry.location),
     source: sourceOf(entry.source),
     editedAt: timeAt(entry.editedAt, where),
-    createdAt: timeAt(entry.createdAt, where),
-    state: entry.state,
-    current: {
-      value: current.value,
-      source: current.source && sourceOf(current.source),
-      editedAt: current.editedAt && timeAt(current.editedAt, where),
-      versionId: current.versionId,
+    receivedAt: timeAt(entry.lostAt, where),
+    copiedFrom: null,
+    lost: true,
+    lostTo: entry.lostTo && {
+      versionId: entry.lostTo.versionId,
+      value: entry.lostTo.value ?? null,
+      source: sourceOf(entry.lostTo.source),
+      editedAt: timeAt(entry.lostTo.editedAt, where),
     },
-    resolvable: entry.resolvable,
   };
 }

@@ -5,7 +5,7 @@ import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkShots } from "../shots/links.js";
 import { type LocationEdit, type ReportedBatch, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
-import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
+import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -82,6 +82,8 @@ export async function takeInBatches(
     FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The Location's latest decision of each batch that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((batch) => [batch.batchId, batch.seenAt]));
+  /** The tablet's last known record of each batch, which its edit is worked out from. */
+  const knownRecords = new Map(mapped.map((batch) => [batch.batchId, batch]));
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((batch) => [batch.batchId, batch.contentSeenAt]));
   // The Library Beans the tablet's records of its beans are, by their ids there.
@@ -155,13 +157,14 @@ export async function takeInBatches(
     // What a joining tablet changed before it joined is written over.
     if (step.kind === "add" || step.kind === "map" || joining) writesDue = true;
     if (step.kind === "update" && !joining) {
-      const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null };
+      const known = knownRecords.get(batchId);
+      const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null, ...(known ? { held: heldIn(batchContent(known.record), step.content) } : {}) };
       writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)).writesDue || writesDue;
     }
     const applied =
       step.kind === "map" || (step.kind === "update" && joining)
         ? null
-        : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source);
+        : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source, heldThere(step.kind === "update" ? knownRecords.get(batchId) : undefined));
     if (applied?.changed) writesDue = true;
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
     const decided = applied?.decidedAt ?? null;
@@ -173,6 +176,11 @@ export async function takeInBatches(
   return takenInAt;
 }
 
+/** Whether a tablet's record of a batch (`known`) had it at its Location, as one not archived is; undefined without one. */
+function heldThere(known: { archived: boolean } | undefined): boolean | undefined {
+  return known === undefined ? undefined : !known.archived;
+}
+
 /** A reported batch as what the Library leaves out is judged: set aside when archived on the tablet. */
 function leftOutRecord(batch: ReportedBatch): { localId: string; setAside: boolean } {
   return { localId: batch.localId, setAside: batch.archived };
@@ -182,7 +190,9 @@ function leftOutRecord(batch: ReportedBatch): { localId: string; setAside: boole
  * Makes a tablet's changes to a batch at its Location, timed by the edit,
  * from a tablet whose record of the batch had seen the Location's decision of
  * its presence there at `seenAt`, or none, each kept as a version, or, if it
- * lost, as a Conflict (location-state.ts). Says whether any changed the
+ * lost, as a Lost Edit (location-state.ts). `held` is whether the tablet's
+ * last known record of the batch had it at the Location, absent where the
+ * server holds no such record. Says whether any changed the
  * Location's state, and when the edit decided the batch's presence there,
  * which the tablet's record has seen then; null if it did not.
  */
@@ -194,12 +204,13 @@ async function applyEdits(
   at: Date,
   seenAt: Date | null,
   source: EditSource,
+  held?: boolean,
 ): Promise<{ changed: boolean; decidedAt: Date | null }> {
   let changed = false;
   let decidedAt: Date | null = null;
   for (const edit of edits) {
     if (edit.field === "at") {
-      decidedAt = edit.value ? await addBatchAt(tx, batchId, locationId, at, seenAt, source) : await finishBatchAt(tx, batchId, locationId, at, seenAt, source);
+      decidedAt = edit.value ? await addBatchAt(tx, batchId, locationId, at, seenAt, source, held) : await finishBatchAt(tx, batchId, locationId, at, seenAt, source, held);
       changed = decidedAt !== null || changed;
     } else {
       changed = (await enterRemainingWeight(tx, batchId, locationId, edit, at, source)) || changed;
@@ -255,7 +266,7 @@ export async function recordBatchWritten(
     let changed = false;
     if (locationId !== null && edits.length > 0) {
       await lockLocation(tx, locationId);
-      const applied = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null, source);
+      const applied = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null, source, heldThere(known));
       changed = applied.changed;
       decided = applied.decidedAt === null ? null : { at: applied.decidedAt, locationId };
     }
@@ -263,7 +274,8 @@ export async function recordBatchWritten(
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
-      edited = await editContent(tx, { kind: "beanBatch", id: batchId }, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, held: heldIn(batchContent(known.record), values) };
+      edited = await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source);
       changed = edited.writesDue || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);

@@ -7,7 +7,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { EquipmentKind } from "./equipment.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "./equipment.service.js";
 import { hardDelete } from "./hard-deletes.js";
-import { type ConflictView, HistoryService, type VersionView, readHistoryField } from "./history.service.js";
+import { type HistoryView, HistoryService, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewEquipment, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
@@ -68,14 +68,9 @@ abstract class EquipmentController {
     return hardDelete(this.prisma, this.kind, readEquipmentId(this.kind, id));
   }
 
-  /** Its versions, the latest taken in first, or those that set the field its query names (ADR-0020). */
-  protected versions(id: string, query: Record<string, unknown>, scope: Scope): Promise<VersionView[]> {
-    return this.history.versions({ kind: this.kind, id: readEquipmentId(this.kind, id) }, scope, readHistoryField(query));
-  }
-
-  /** Its open Conflicts, the latest first (ADR-0020). */
-  protected conflicts(id: string, scope: Scope): Promise<ConflictView[]> {
-    return this.history.openConflicts(scope, { kind: this.kind, id: readEquipmentId(this.kind, id) });
+  /** Its history (ADR-0020, ADR-0033): its versions, the latest taken in first, and its Lost Edits, the latest lost first, or those of the field its query names. */
+  protected versions(id: string, query: Record<string, unknown>, scope: Scope): Promise<HistoryView> {
+    return this.history.history({ kind: this.kind, id: readEquipmentId(this.kind, id) }, scope, readHistoryField(query));
   }
 }
 
@@ -131,14 +126,8 @@ export class BasketsController extends EquipmentController {
 
   @AllowStaff()
   @Get(":id/history")
-  async versionsOf(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.versions(id, query, scope) };
-  }
-
-  @AllowStaff()
-  @Get(":id/conflicts")
-  async openConflicts(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ conflicts: ConflictView[] }> {
-    return { conflicts: await this.conflicts(id, scope) };
+  async versionsOf(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<HistoryView> {
+    return this.versions(id, query, scope);
   }
 }
 
@@ -194,13 +183,7 @@ export class ToolsController extends EquipmentController {
 
   @AllowStaff()
   @Get(":id/history")
-  async versionsOf(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.versions(id, query, scope) };
-  }
-
-  @AllowStaff()
-  @Get(":id/conflicts")
-  async openConflicts(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ conflicts: ConflictView[] }> {
-    return { conflicts: await this.conflicts(id, scope) };
+  async versionsOf(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<HistoryView> {
+    return this.versions(id, query, scope);
   }
 }

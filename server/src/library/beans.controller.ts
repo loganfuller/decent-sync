@@ -4,7 +4,7 @@ import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
-import { type ConflictView, HistoryService, type VersionView, readHistoryField } from "./history.service.js";
+import { type HistoryView, HistoryService, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewContent } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
@@ -69,17 +69,10 @@ export class BeansController {
     await hardDelete(this.prisma, "bean", readBeanId(id));
   }
 
-  /** Its versions, the latest taken in first (ADR-0020). */
+  /** Its history (ADR-0020, ADR-0033): its versions, the latest taken in first, and its Lost Edits, the latest lost first, or those of the field its query names. */
   @AllowStaff()
   @Get(":id/history")
-  async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.history.versions({ kind: "bean", id: readBeanId(id) }, scope, readHistoryField(query)) };
-  }
-
-  /** Its open Conflicts, the latest first (ADR-0020). */
-  @AllowStaff()
-  @Get(":id/conflicts")
-  async conflicts(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ conflicts: ConflictView[] }> {
-    return { conflicts: await this.history.openConflicts(scope, { kind: "bean", id: readBeanId(id) }) };
+  async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<HistoryView> {
+    return this.history.history({ kind: "bean", id: readBeanId(id) }, scope, readHistoryField(query));
   }
 }

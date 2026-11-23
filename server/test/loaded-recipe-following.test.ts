@@ -750,7 +750,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/next-bag-brazil-48141")).shot.recipe?.id).toBe(one);
   });
 
-  it("keeps a batch of another Bean picked on A as the Recipe's over C's pick of its Bean's next bag made just before it and taken in just after, which is kept as a Conflict, A's Workflow keeping its pick (#570)", async () => {
+  it("keeps a batch of another Bean picked on A as the Recipe's over C's pick of its Bean's next bag made just before it and taken in just after, which is kept as a Lost Edit, A's Workflow keeping its pick (#570)", async () => {
     const { here, machines, a, c, one, quiet } = await lab("Crossed picks", 48351);
     const bean = (await recipe(one)).content.beanId as string;
     const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
@@ -769,10 +769,10 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const received = a.received.length;
     await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(brazilBatch);
-    // C's change, made first, reaches the server after A's, made without having seen it: it loses, kept as a Conflict.
+    // C's change, made first, reaches the server after A's, made without having seen it: it loses, kept as a Lost Edit.
     releaseC();
-    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
-    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: next }));
+    const lostEdits = async () => (await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/recipes/${one}/history`)).lostEdits;
+    await expect.poll(lostEdits, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: next }));
     await quiet();
     expect((await recipe(one)).content.beanBatchId).toBe(brazilBatch);
     // A keeps its pick, and C is brought to it.
@@ -782,7 +782,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
-  it("keeps C's pick of the Bean's next bag as the Recipe's over a batch of another Bean picked on A just before it and taken in just after, A's Bean and batch both kept as Conflicts, so the Recipe never names one Bean and another's batch (#570)", async () => {
+  it("keeps C's pick of the Bean's next bag as the Recipe's over a batch of another Bean picked on A just before it and taken in just after, A's Bean and batch both kept as Lost Edits, so the Recipe never names one Bean and another's batch (#570)", async () => {
     const { here, machines, a, c, one, quiet } = await lab("Crossed picks reversed", 48391);
     const bean = (await recipe(one)).content.beanId as string;
     const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
@@ -801,9 +801,14 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // A's pick, made first, reaches the server after C's, made without having seen it: its batch loses, and its Bean, though
     // no edit since set the Bean, loses with it.
     releaseA();
-    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
-    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
-    expect(await conflicts()).toContainEqual(expect.objectContaining({ field: "beanId", value: (await globalOf(a, "/beans", record(a, BRAZIL)!.beanId as string))! }));
+    const lostEdits = async () => (await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/recipes/${one}/history`)).lostEdits;
+    await expect.poll(lostEdits, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
+    // Each lost to C's pick, the Bean to the Bean it left the Recipe naming, though C's edit set the batch alone.
+    const lostTo = { versionId: expect.any(String), value: next };
+    expect(await lostEdits()).toContainEqual(expect.objectContaining({ field: "beanBatchId", lostTo: expect.objectContaining(lostTo) }));
+    expect(await lostEdits()).toContainEqual(
+      expect.objectContaining({ field: "beanId", value: (await globalOf(a, "/beans", record(a, BRAZIL)!.beanId as string))!, lostTo: expect.objectContaining({ value: bean }) }),
+    );
     await quiet();
     expect((await recipe(one)).content).toMatchObject({ beanId: bean, beanBatchId: next });
     // A is brought to C's pick.
@@ -832,8 +837,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (await versions(one)).length, { timeout: 15_000 }).toBeGreaterThan(versionsBefore);
     // A's pick, made first, loses, and A is written the Recipe's batch, as it would be had C's edit changed it.
     releaseA();
-    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
-    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
+    const lostEdits = async () => (await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/recipes/${one}/history`)).lostEdits;
+    await expect.poll(lostEdits, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
     await expect.poll(() => context(a).beanBatchId, { timeout: 15_000 }).toBe(firstOnA);
     expect((await recipe(one)).content.beanBatchId).toBe(first);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
@@ -1078,26 +1083,11 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   /** A new Bean, in no batch anywhere, by its global id. */
   const newBean = async (roaster: string, name: string) => (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster, name } }, 201)).bean.id;
   /**
-   * Sets the Recipe's Bean alone, or none, in the management interface, as only using a Conflict's value about it does
-   * (a Recipe's edit sets a batch, with its Bean): a Conflict about its Bean, as a tablet's edit that lost leaves, copied
-   * in PostgreSQL, whose value is used. A Bean with no batch at the Location leaves the Recipe naming no batch.
+   * Sets the Recipe's Bean alone, or none, in the management interface: an edit naming its Bean and no batch. A Bean
+   * with no batch at the Location leaves the Recipe naming no batch.
    */
   const useBean = async (recipeId: string, beanId: string | null) => {
-    const database = await server.connectDatabase();
-    let id: string;
-    try {
-      const { rows } = await database.query<{ id: string }>(
-        `INSERT INTO conflicts (id, kind, item_id, field, value, edited_at)
-         VALUES (gen_random_uuid(), 'recipe', $1, 'beanId', $2::jsonb, transaction_timestamp()) RETURNING id::text AS id`,
-        [recipeId, JSON.stringify(beanId)],
-      );
-      id = rows[0]!.id;
-    } finally {
-      await database.end();
-    }
-    const { conflicts } = await api.get<{ conflicts: { id: string; current: { versionId: string | null } }[] }>("/conflicts");
-    const seen = conflicts.find((conflict) => conflict.id === id)!.current.versionId;
-    expect((await api.call("POST", `/conflicts/${id}/use`, { seen })).status).toBe(200);
+    await api.send("PATCH", `/recipes/${recipeId}`, { content: { beanId } });
   };
   /** The batch, coffee and roaster the tablet's Workflow holds, none as null. */
   const coffee = (tablet: SimulatedTablet) => [context(tablet).beanBatchId ?? null, context(tablet).coffeeName ?? null, context(tablet).coffeeRoaster ?? null];
@@ -1115,7 +1105,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     }
   };
 
-  it("writes the Bean set in the management interface on a Recipe naming no batch, by a Conflict's value, into A's and C's Workflows, its name and roaster, or none once it is removed, over a coffee typed on A, which stays A's own until then, a Shot pulled on C recording it (#572)", async () => {
+  it("writes the Bean set in the management interface on a Recipe naming no batch into A's and C's Workflows, its name and roaster, or none once it is removed, over a coffee typed on A, which stays A's own until then, a Shot pulled on C recording it (#572)", async () => {
     const { machines, a, c, one, quiet } = await lab("Bean alone", 48801);
     const roaster = "Bean Alone Roasters";
     const [kenya, peru, sumatra] = [await newBean(roaster, "Bean alone Kenya"), await newBean(roaster, "Bean alone Peru"), await newBean(roaster, "Bean alone Sumatra")];

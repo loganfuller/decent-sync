@@ -158,6 +158,32 @@ and so are their names in the REST API and for an assistant
 (`weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`,
 `flowMultiplier`).
 
+### Lost Edits replace Conflicts
+
+An edit to a Library item that loses to another made without seeing it is no
+longer a Conflict waiting for someone to use its value or dismiss it. It is
+a Lost Edit: an entry in the item's History, on its page and for an
+assistant, marked "Lost Edit", with its value, who or which Machine made it
+and when, and the change it lost to
+([ADR-0033](docs/adr/0033-an-edit-that-loses-is-kept-in-the-items-history.md)).
+To bring a value back, edit the item. Which edit wins is unchanged. No Lost
+Edit is kept for a value that the tablet making the change itself held.
+
+The Conflicts page, its link in the Library's navigation and the Open
+Conflicts card on item pages are gone, and so are the assistant's tools
+`list_conflicts` and `resolve_conflict`. `get_library_item` no longer takes
+`conflicts`: its `history` lists Lost Edits among the item's edits, each
+with `lost` and `lostTo`. In the REST API, each item's `GET .../history`
+returns `lostEdits` beside `versions`. The routes that listed, used and
+dismissed Conflicts stay for this release only, for a page of the previous
+one: those that listed them answer an empty list, and using or dismissing
+one answers 410 Gone. They are removed in a later release.
+
+No step is needed. Each open Conflict becomes a Lost Edit in its item's
+History, as does each whose value was used. One that was dismissed is not
+shown. A page of the previous release still open during the upgrade lists
+no Conflicts, and asks for a reload if one is used or dismissed from it.
+
 ## 1.12.1
 
 ### The time to first drip reads earlier

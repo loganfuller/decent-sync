@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { LibraryNav } from "@/components/bean-batches";
-import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
+import { ItemHistoryCard, attributePairs } from "@/components/item-history";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, PageTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
@@ -253,7 +253,7 @@ export function EquipmentList({ kind, title, description }: { kind: EquipmentKin
 /**
  * One Basket or Tool: its content, edited here by an Admin or Staff
  * anywhere; the Locations showing it, each changed by an Admin or Staff
- * working there; its open Conflicts; and its history.
+ * working there; and its history.
  */
 export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string }) {
   const mayChange = useMayChange();
@@ -261,7 +261,7 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
   const [item, setItem] = useState<Equipment>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict's value, or a change here, changes the item, so it is loaded again, with its history.
+  // A change here changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const [editing, setEditing] = useState(false);
   const changed = () => setChanges((count) => count + 1);
@@ -327,7 +327,6 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
         </div>
       )}
 
-      <ItemConflictsCard kind={kind} id={id} onResolved={changed} />
 
       <ShownLocationsCard
         item={item}

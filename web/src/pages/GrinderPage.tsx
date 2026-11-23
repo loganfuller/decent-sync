@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
+import { ItemHistoryCard } from "@/components/item-history";
 import { Field, Fields } from "@/components/fields";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
@@ -47,7 +47,7 @@ function GrinderDetails({ id }: { id: string }) {
   const [grinder, setGrinder] = useState<Grinder>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value, or an edit here, changes the item, so it is loaded again, with its history.
+  // An edit here changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const [editing, setEditing] = useState(false);
   const changed = () => setChanges((count) => count + 1);
@@ -110,7 +110,6 @@ function GrinderDetails({ id }: { id: string }) {
         </div>
       )}
 
-      <ItemConflictsCard kind="grinder" id={id} onResolved={changed} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

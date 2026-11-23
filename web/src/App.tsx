@@ -12,7 +12,6 @@ import { BeanBatchPage } from "@/pages/BeanBatchPage";
 import { BeanBatchesPage } from "@/pages/BeanBatchesPage";
 import { BeanPage } from "@/pages/BeanPage";
 import { BeansPage } from "@/pages/BeansPage";
-import { ConflictsPage } from "@/pages/ConflictsPage";
 import { DraftPage } from "@/pages/DraftPage";
 import { GrinderPage } from "@/pages/GrinderPage";
 import { GrindersPage } from "@/pages/GrindersPage";
@@ -82,7 +81,6 @@ export function App() {
             <Route path="/library/tools" element={<ToolsPage />} />
             <Route path="/library/tools/:id" element={<ToolPage />} />
             <Route path="/library/recipes/:id" element={<RecipePage />} />
-            <Route path="/library/conflicts" element={<ConflictsPage />} />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/locations/:id" element={<LocationPage />} />
             <Route path="/machines" element={<MachinesPage />} />

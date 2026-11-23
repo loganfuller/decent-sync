@@ -13,7 +13,7 @@ The server is the source of truth (ADR-0003), and the tablet's copy is what its 
 ## Considered Options
 
 - **Keeping the edit on the server alone.** The pulling tablet's Skin and DYE2 would go on showing the old rating, and that tablet's next edit of anything on the Shot would arrive whole and undo it. Rejected.
-- **Keeping the losing edit as a Conflict,** as the Library does (ADR-0020). A rating or a remark is not worth someone's attention to settle, and a Shot would wait on them. Rejected: the later edit wins.
+- **Keeping the losing edit as a Conflict,** as the Library then did (ADR-0020; since ADR-0033 it keeps a Lost Edit in the item's history, which nobody settles). A rating or a remark is not worth someone's attention to settle, and a Shot would wait on them. Rejected: the later edit wins.
 - **Refusing an edit while the pulling tablet is off,** as a Settings Edit is refused (ADR-0023). A Machine's settings have to be read live before they are changed; a rating doesn't. Rejected.
 - **Every field of a Shot editable,** such as its dose, yield and TDS. Those are measured at the Machine, and nothing asks for them yet. Left out.
 

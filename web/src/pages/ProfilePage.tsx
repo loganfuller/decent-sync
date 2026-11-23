@@ -11,7 +11,7 @@ import { Copy, Download, Pencil } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { ItemConflictsCard, ItemHistoryCard, SourceText, itemPath } from "@/components/conflicts";
+import { ItemHistoryCard, SourceText, itemPath } from "@/components/item-history";
 import { ItemShotsCard } from "@/components/item-shots";
 import { useStartDraft } from "@/components/drafts";
 import { Field, Fields } from "@/components/fields";
@@ -90,7 +90,7 @@ function ProfileDetails({ id }: { id: string }) {
   // What publishing a Draft, or returning to this version, did, where the page was opened from one.
   const published = (useLocation().state as { published?: Published } | null)?.published;
   const [editing, setEditing] = useState(false);
-  // Using a Conflict's value, or a change here, changes the item, so it is loaded again, with its history.
+  // A change here changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
   const changed = () => setChanges((count) => count + 1);
   const { profile, error } = useProfile(id, changes);
@@ -205,7 +205,6 @@ function ProfileDetails({ id }: { id: string }) {
         </Alert>
       )}
 
-      <ItemConflictsCard kind="profile" id={id} onResolved={changed} />
 
       {sideError && (
         <Alert variant="destructive">

@@ -16,6 +16,7 @@ import {
   readReportedRecipes,
   recipeContent,
   recipeRecord,
+  recipeValuesHeld,
   recipeView,
   recipeWorkflow,
   recordOf,
@@ -548,6 +549,40 @@ describe("DYE2's recipes as Recipes", () => {
     expect(holdsRecipeAsDecided(timed, offWritten, off, { ...offEdits, steamTemperature: decided("10:05:00.000") }, writtenAt)).toBe(true);
     // Nothing for an answer that repeats no time its content was decided.
     expect(holdsRecipeAsDecided(answered, written, slot1Content, edits, null)).toBe(false);
+  });
+
+  it("takes what a tablet's record held of a Recipe as the Recipe's value of each field written as it holds it, but one naming an item the tablet holds no record of, which is written as none (#632)", () => {
+    const unmapped = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const fields = ["grinderId", "basketId", "toolIds", "toolAttributes", "dose", "yield"];
+    // The tablet's record names no Grinder or Basket; another tablet set the Recipe's to ones this tablet holds no record
+    // of yet, and added a Tool it holds none of, so each is written as the record holds it.
+    const known = recipeRecord({ ...slot1Content, grinderId: undefined, basketId: undefined, yield: 40 }, 1, writing(recordedIds), GLOBAL.recipe);
+    const content = { ...slot1Content, grinderId: unmapped, basketId: unmapped, toolIds: [...slot1Content.toolIds, unmapped], toolAttributes: { ...slot1Content.toolAttributes, [unmapped]: [] } };
+    const written = recipeRecord(content, 1, writing(recordedIds), GLOBAL.recipe);
+    // The yield it held otherwise is not held either.
+    expect(recipeValuesHeld(known, written, content, fields, recordedIds)).toEqual({ dose: 18 });
+    // Once it holds records of them, the record holding what they are written as holds them.
+    const withUnmapped = tabletIds([
+      ...(Object.keys(LOCAL) as (keyof typeof LOCAL)[]).map((name) => ({ kind: kindOf(name), itemId: GLOBAL[name], localId: LOCAL[name] })),
+      ...(["grinder", "basket", "tool"] as const).map((kind) => ({ kind, itemId: unmapped, localId: `local-${kind}` })),
+    ]);
+    const mapped = recipeRecord(content, 1, writing(withUnmapped), GLOBAL.recipe);
+    // A Recipe holding "Off" is written a steam time of 0 whatever its own is, so a record holding 0 held none of it.
+    const off = { ...slot1Content, steamTemperature: 0, steamDuration: 40 };
+    const offWritten = recipeRecord(off, 1, writing(recordedIds), GLOBAL.recipe);
+    expect(recipeValuesHeld(offWritten, offWritten, off, ["steamTemperature", "steamDuration"], recordedIds)).toEqual({ steamTemperature: 0 });
+    // One holding no brew temperature is written its Profile's first step's, so a record holding that held none of it.
+    const unheated = { ...slot1Content, brewTemperature: undefined };
+    const unheatedWritten = recipeRecord(unheated, 1, writing(recordedIds), GLOBAL.recipe);
+    expect(recipeValuesHeld(unheatedWritten, unheatedWritten, unheated, ["brewTemperature", "dose"], recordedIds)).toEqual({ dose: 18 });
+    expect(recipeValuesHeld(mapped, mapped, content, fields, withUnmapped)).toEqual({
+      grinderId: unmapped,
+      basketId: unmapped,
+      toolIds: content.toolIds,
+      toolAttributes: content.toolAttributes,
+      dose: 18,
+      yield: 36,
+    });
   });
 
   it("writes a record's Recipe Slot as its stripSlot, null for none, shown on the strip exactly while in one, which is no edit of its content", () => {

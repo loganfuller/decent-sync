@@ -1,6 +1,6 @@
 import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { type CopiedFrom, type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
+import { type CopiedFrom, type EditSource, type ItemRef, recordLostEdit, recordReplaced, recordVersion } from "./history.js";
 import { KINDS, idSql, idsSql } from "./kinds.js";
 import { isObject } from "./listed.js";
 import { BEAN_TAKEN, recipeBean } from "./loaded-recipe-intake.js";
@@ -11,7 +11,7 @@ import { type FieldEdits, changedFields, editsAfter, holdsContentAsDecided, late
 // whether a Grinder is Archived, and a Profile's title, author and notes,
 // which are outside its id (ADR-0006). Each item keeps its fields' latest
 // edits (`field_edits`); each accepted edit is a version, and each that lost,
-// or that a later edit made without seeing it replaced, is a Conflict
+// or that a later edit made without seeing it replaced, is a Lost Edit
 // (history.ts). An item's edits are decided one at a time under its row lock,
 // on any instance (ADR-0016), taken after the reporting tablet's and its
 // Location's locks; a report's items are locked together, in id order, so two
@@ -165,13 +165,26 @@ async function keepBeanTaken(tx: Prisma.TransactionClient, recipeId: string, bef
  * An edit of an item's content: the fields it changed, with their values,
  * when it was made, and the latest edit of the item its record had seen, or
  * `everything` for an edit in the management interface made over the item as
- * it stands, as using a Conflict's value is, which has seen every edit
- * decided before it.
+ * it stands, which has seen every edit decided before it. A tablet's edit
+ * worked out from its last known record of the item gives that record's
+ * content as edits merge it (`held`): a value it held is replaced unkept
+ * (ADR-0033).
  */
 export interface ItemEdit {
   values: Readonly<Record<string, unknown>>;
   at: Date;
   seenAt: Date | null | "everything";
+  held?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * What a tablet's record of an item (`known`, its content as edits merge
+ * it) held of each field an edit worked out from it changes (`values`), for
+ * the edit's `held`: null for a field it held no value for, as Decaid
+ * leaves one out.
+ */
+export function heldIn(known: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(values).map((field) => [field, known[field] ?? null]));
 }
 
 /**
@@ -187,7 +200,8 @@ export interface EditOutcome {
 /**
  * Merges an edit into the item's content (`mergeEdit`): the fields it
  * decides are set and kept as a version, and each value that lost, or that
- * it replaced without its maker having seen it, as a Conflict. Takes the
+ * it replaced without its maker having seen or held it, as a Lost Edit,
+ * with the version it lost to. Takes the
  * item's row lock, if not held already. Says whether anything changed that
  * the item's tablets are to be written: the item's content, or a field where
  * the edit lost, which is written back to its tablet.
@@ -198,11 +212,12 @@ export async function editContent(tx: Prisma.TransactionClient, item: ItemRef, e
   if (!current) return { writesDue: false, lost: false };
   const seenAt = edit.seenAt === "everything" ? latestDecision(current.fieldEdits) : edit.seenAt;
   const merged = mergeEdit(mergedValues(item.kind, current), current.fieldEdits, { ...edit, seenAt, tabletId: source.tabletId }, KINDS[item.kind].together ?? []);
-  for (const [field, value] of Object.entries(merged.lost)) await recordConflict(tx, item, null, field, value, source, edit.at);
-  for (const { field, value, versionId } of merged.overwritten) await recordReplaced(tx, item, null, field, value, versionId);
+  for (const [field, value] of Object.entries(merged.lost)) await recordLostEdit(tx, item, null, field, value, source, edit.at, merged.lostTo[field] ?? null);
   const lost = Object.keys(merged.lost).length > 0;
   if (Object.keys(merged.applied).length === 0) return { writesDue: lost, lost };
   const versionId = await recordVersion(tx, item, null, merged.applied, source, edit.at);
+  // Each value it replaced lost to this edit.
+  for (const replaced of merged.overwritten) await recordReplaced(tx, item, null, replaced.field, replaced.value, replaced.versionId, versionId);
   const decidedAt = await decisionTime(tx, current.fieldEdits);
   await saveItem(tx, item, current, merged.applied, editsAfter(current.fieldEdits, merged.applied, { at: edit.at, tabletId: source.tabletId }, decidedAt, versionId));
   return { writesDue: true, lost };
@@ -231,9 +246,11 @@ export async function recordJoined(
 /**
  * Keeps each field where a tablet's record linked to a Library item, by a
  * Bean's roaster and name or a Profile's id, held another value than the
- * item's content as a Conflict: the record takes the item's content, so
- * nothing is dropped silently (ADR-0018). `values` are the record's, as edits
- * merge them; a field it holds no value for is no Conflict. Says whether any
+ * item's content as a Lost Edit, lost to the edit that set the item's: the
+ * record takes the item's content, so nothing is dropped silently
+ * (ADR-0018). The server held no record of the item for the tablet, so none
+ * of it is left out as held (ADR-0033). `values` are the record's, as edits
+ * merge them; a field it holds no value for loses nothing. Says whether any
  * differed, so the record is to be written.
  */
 export async function recordLinked(tx: Prisma.TransactionClient, item: ItemRef, values: Readonly<Record<string, unknown>>, at: Date, source: EditSource): Promise<boolean> {
@@ -241,7 +258,10 @@ export async function recordLinked(tx: Prisma.TransactionClient, item: ItemRef, 
   if (!current) return false;
   // A field the record holds no value for loses nothing.
   const differing = Object.entries(changedFields(mergedValues(item.kind, current), values)).filter(([, value]) => value !== null);
-  for (const [field, value] of differing) await recordConflict(tx, item, null, field, value, source, at);
+  for (const [field, value] of differing) {
+    const latest = Object.prototype.hasOwnProperty.call(current.fieldEdits, field) ? current.fieldEdits[field] : undefined;
+    await recordLostEdit(tx, item, null, field, value, source, at, latest?.versionId ?? null);
+  }
   return differing.length > 0;
 }
 

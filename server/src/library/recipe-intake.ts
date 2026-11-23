@@ -518,7 +518,7 @@ export function editedPaths(changed: Readonly<Record<string, unknown>>): string[
  * What else an edit setting `values` over a Recipe's content (`current`)
  * sets of its dose, yield and DYE2's ratio, which DYE2's editor keeps only
  * while the yield is the dose times it, to a tenth of a gram: a ratio set
- * without a yield, as a Conflict about it holds, sets the yield to the dose
+ * without a yield sets the yield to the dose
  * times it, as picking a ratio in DYE2's editor does, and is refused
  * (`NoDoseForRatio`) for a Recipe with no dose, which it cannot be applied
  * to; and a ratio the edit leaves otherwise than the yield is cleared.
@@ -782,6 +782,57 @@ function writtenFrom(path: string, content: Readonly<Record<string, unknown>>): 
   return field === undefined ? [] : [field];
 }
 
+/** The fields of a Recipe's content naming items a tablet holds records of, each by the kind it names. */
+const REFERENCED: Readonly<Record<string, MappedKind>> = {
+  beanId: "bean",
+  beanBatchId: "beanBatch",
+  grinderId: "grinder",
+  basketId: "basket",
+  toolIds: "tool",
+  toolAttributes: "tool",
+};
+
+/** Whether a field of a Recipe's content names an item the tablet holds no record of (`ids`), which `recipeRecord` writes as none. */
+function namesUnmapped(field: string, value: unknown, ids: TabletIds): boolean {
+  const kind = REFERENCED[field];
+  if (kind === undefined) return false;
+  const named = typeof value === "string" ? [value] : Array.isArray(value) ? value : isObject(value) && field === "toolAttributes" ? Object.keys(value) : [];
+  return named.some((itemId) => typeof itemId === "string" && ids.local(kind, itemId) === undefined);
+}
+
+/** Whether a field of a Recipe's content is written as another value than its own: a steam time under "Off", and no brew temperature, written as its Profile's. */
+function writtenOtherwise(field: string, content: Readonly<Record<string, unknown>>): boolean {
+  if (field === "steamDuration") return steamHeldOff(content.steamTemperature, null);
+  return field === "brewTemperature" && typeof content.brewTemperature !== "number";
+}
+
+/**
+ * What a tablet's last known record of a Recipe (`known`) held of each of
+ * `fields`, for an edit worked out from that record (`ItemEdit.held`):
+ * the Recipe's value now (`content`) of each field the record holds as that
+ * content is written (`written`, the record the tablet is to hold of it,
+ * `recipeRecord`). A field written to a path the record holds otherwise is
+ * left out, as what it held of it is not the Recipe's value; and so is one
+ * naming an item the tablet holds no record of (`ids`), which the record
+ * cannot have held though it is written as none there; the steam time of a
+ * Recipe holding "Off", which is written as 0 whatever it is; and the brew
+ * temperature of one holding none, which is written as its Profile's.
+ */
+export function recipeValuesHeld(
+  known: Readonly<RecipeView>,
+  written: Readonly<RecipeView>,
+  content: Readonly<Record<string, unknown>>,
+  fields: Iterable<string>,
+  ids: TabletIds,
+): Record<string, unknown> {
+  const differing = new Set(editedPaths(changedFields(written, known)).flatMap((path) => writtenFrom(path, content)));
+  return Object.fromEntries(
+    [...fields]
+      .filter((field) => !differing.has(field) && !namesUnmapped(field, content[field], ids) && !writtenOtherwise(field, content))
+      .map((field) => [field, content[field] ?? null]),
+  );
+}
+
 /**
  * Whether a tablet's record of a Recipe, as Decaid returned it for a write
  * the map held no earlier record of, holds the Recipe's content as it stood
@@ -815,7 +866,7 @@ export type RecipeIntakeStep =
    * global id, or is of another Location's Recipe.
    */
   | { kind: "map"; itemId: string; reported: ReportedRecipe }
-  /** A record the map does not hold under the record id of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field with Conflicts. */
+  /** A record the map does not hold under the record id of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field as any is, with Lost Edits. */
   | { kind: "edit"; itemId: string; reported: ReportedRecipe }
   /** A record the map does not hold, of an id no Recipe of the Location has: a new Recipe there, with that record id. */
   | { kind: "add"; reported: ReportedRecipe }

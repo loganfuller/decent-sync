@@ -9,7 +9,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Seam 1 for ticket #84: an edit of a Library item's content on any tablet
 // reaches every tablet that holds the item, merged per field with the latest
 // edit winning, and an edit that loses to one made without seeing it is kept
-// as a Conflict (ADR-0020). Through the built plugin in simulated tablets and
+// as a Lost Edit (ADR-0020, ADR-0033). Through the built plugin in simulated tablets and
 // two server instances on one database; assertions go through the REST API
 // and what each simulated tablet's Decaid holds. Serials are made up, from
 // 19001.
@@ -24,15 +24,14 @@ interface Source {
   account: { id: string } | null;
 }
 
-interface ConflictView {
+interface LostEditView {
   id: string;
-  item: { kind: string; id: string; name: string | null };
   field: string;
   value: unknown;
   location: LocationView | null;
   source: Source;
   editedAt: string;
-  createdAt: string;
+  lostAt: string;
 }
 
 interface VersionView {
@@ -87,8 +86,8 @@ describe("Edits of the Library", () => {
     await expect.poll(() => heldBean(tablet, id)).toMatchObject(fields);
     return heldBean(tablet, id)!;
   }
-  /** The open Conflicts about an item. */
-  const conflictsOf = async (id: string) => (await api.get<{ conflicts: ConflictView[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === id);
+  /** The Lost Edits in an item's history, the latest lost first: a Bean's, or of the kind whose routes are given. */
+  const lostEditsOf = async (id: string, kind = "beans") => (await api.get<{ lostEdits: LostEditView[] }>(`/${kind}/${encodeURIComponent(id)}/history`)).lostEdits;
 
   /** A Location with a tablet that enters a Bean, written to the Location's other tablet; and a cafe whose tablet enters the same coffee, so holds it too. */
   async function shared(name: string, serials: number, options: { instance?: TestServer } = {}) {
@@ -117,7 +116,7 @@ describe("Edits of the Library", () => {
     await holds(two, bean.id, { notes: "Peach and jasmine" });
     await holds(cafe, bean.id, { notes: "Peach and jasmine" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "Peach and jasmine", country: "Ethiopia" });
-    expect(await conflictsOf(bean.id)).toEqual([]);
+    expect(await lostEditsOf(bean.id)).toEqual([]);
 
     // An edit on a tablet at another Location reaches the lab the same way, and a field cleared is cleared everywhere.
     await cafe.editBean(heldBean(cafe, bean.id)!.id, { notes: null, region: "Guji" });
@@ -128,7 +127,7 @@ describe("Edits of the Library", () => {
     expect(await beanContent(bean.id)).toEqual({ roaster: "Roux", name: "Notes Guji", decaf: false, country: "Ethiopia", region: "Guji" });
   });
 
-  it("keeps both of two edits of different fields, one made on a disconnected tablet, with no Conflict", async () => {
+  it("keeps both of two edits of different fields, one made on a disconnected tablet, with no Lost Edit", async () => {
     const { one, two, cafe, bean, record } = await shared("Fields", 19010);
     two.loseNetwork();
     await one.editBean(record.id, { country: "Kenya" });
@@ -138,10 +137,10 @@ describe("Edits of the Library", () => {
 
     for (const tablet of [one, two, cafe]) await holds(tablet, bean.id, { country: "Kenya", notes: "Blueberry" });
     expect(await beanContent(bean.id)).toMatchObject({ country: "Kenya", notes: "Blueberry" });
-    expect(await conflictsOf(bean.id)).toEqual([]);
+    expect(await lostEditsOf(bean.id)).toEqual([]);
   });
 
-  it("keeps an edit made later but arriving first, and the earlier one, arriving after it, as a Conflict", async () => {
+  it("keeps an edit made later but arriving first, and the earlier one, arriving after it, as a Lost Edit", async () => {
     const { one, two, cafe, bean, record, labMachine } = await shared("Order", 19030);
     one.loseNetwork();
     two.loseNetwork();
@@ -156,10 +155,10 @@ describe("Edits of the Library", () => {
     await holds(one, bean.id, { notes: "Made second" });
     await holds(cafe, bean.id, { notes: "Made second" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "Made second" });
-    expect(await conflictsOf(bean.id)).toMatchObject([{ field: "notes", value: "Made first", source: { machine: { name: labMachine.machine.name } } }]);
+    expect(await lostEditsOf(bean.id)).toMatchObject([{ field: "notes", value: "Made first", source: { machine: { name: labMachine.machine.name } } }]);
   });
 
-  it("decides concurrent edits taken in through both instances to one value everywhere, the other kept as one Conflict", async () => {
+  it("decides concurrent edits taken in through both instances to one value everywhere, the other kept as one Lost Edit", async () => {
     // Both lab tablets connect to the other instance, the cafe's to the first.
     const { one, two, cafe, bean, record } = await shared("Instances", 19040, { instance: other });
     one.loseNetwork();
@@ -178,7 +177,7 @@ describe("Edits of the Library", () => {
     for (const tablet of [one, two, cafe]) await holds(tablet, bean.id, { notes: "Cafe", region: "Guji", producer: "Hambela" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "Cafe", region: "Guji", producer: "Hambela" });
     // Whatever order they were taken in, the cafe's latest notes stand and each lab edit of them is kept once.
-    expect((await conflictsOf(bean.id)).map((conflict) => conflict.value).sort()).toEqual(["Lab one", "Lab two"]);
+    expect((await lostEditsOf(bean.id)).map((lost) => lost.value).sort()).toEqual(["Lab one", "Lab two"]);
   });
 
   it("keeps a barista's edit the tablet had not reported when the server writes that field to it, as the later edit", async () => {
@@ -199,7 +198,7 @@ describe("Edits of the Library", () => {
     await holds(one, bean.id, { notes: "Edited on group 2" });
     expect(heldBean(two, bean.id)).toMatchObject({ notes: "Edited on group 2" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "Edited on group 2" });
-    expect(await conflictsOf(bean.id)).toMatchObject([{ field: "notes", value: "Edited on group 1", source: { machine: { name: "Unreported 1" } } }]);
+    expect(await lostEditsOf(bean.id)).toMatchObject([{ field: "notes", value: "Edited on group 1", source: { machine: { name: "Unreported 1" } } }]);
   });
 
   it("writes the Library's value back, on the same connection, over a barista's unreported edit that lost", async () => {
@@ -218,14 +217,14 @@ describe("Edits of the Library", () => {
     await two.editBean(heldBean(two, bean.id)!.id, { notes: "Edited on group 2" });
     await one.editBean(record.id, { notes: "Edited on group 1" });
     // The plugin keeps group 2's edit as it writes group 1's notes; its answer brings it in, and it loses.
-    await expect.poll(async () => (await conflictsOf(bean.id)).map((conflict) => conflict.value)).toEqual(["Edited on group 2"]);
+    await expect.poll(async () => (await lostEditsOf(bean.id)).map((lost) => lost.value)).toEqual(["Edited on group 2"]);
     expect(await beanContent(bean.id)).toMatchObject({ notes: "Edited on group 1" });
     // The Library's value is then written to group 2, though the write before it named the same fields.
     await holds(two, bean.id, { notes: "Edited on group 1" });
     expect(two.received.filter((frame) => (frame as { type?: unknown }).type === "welcome")).toHaveLength(1);
   });
 
-  it("keeps a second unreported edit that loses as a Conflict too, as its record never held the value written", async () => {
+  it("keeps a second unreported edit that loses as a Lost Edit too, as its record never held the value written", async () => {
     const lab = await api.createLocation("Twice lab", "America/Chicago");
     const first = await api.createMachine("Twice 1", lab.id);
     const second = await api.createMachine("Twice 2", lab.id);
@@ -248,11 +247,11 @@ describe("Edits of the Library", () => {
     await two.editBean(heldBean(two, bean.id)!.id, { notes: "E1 on two" });
     await one.editBean(record.id, { notes: "L on one" });
     // The plugin keeps E1 as it writes L; its answer brings E1 in, which loses, and L is written to it again.
-    await expect.poll(async () => (await conflictsOf(bean.id)).map((conflict) => conflict.value)).toEqual(["E1 on two"]);
+    await expect.poll(async () => (await lostEditsOf(bean.id)).map((lost) => lost.value)).toEqual(["E1 on two"]);
     // While that write reads the record, the barista edits it again, timed before L: its record never held L.
     await two.editBean(heldBean(two, bean.id)!.id, { notes: "E2 on two" });
     slow = false;
-    await expect.poll(async () => (await conflictsOf(bean.id)).map((conflict) => conflict.value).sort(), { timeout: 20_000 }).toEqual(["E1 on two", "E2 on two"]);
+    await expect.poll(async () => (await lostEditsOf(bean.id)).map((lost) => lost.value).sort(), { timeout: 20_000 }).toEqual(["E1 on two", "E2 on two"]);
     expect(await beanContent(bean.id)).toMatchObject({ notes: "L on one" });
     await holds(two, bean.id, { notes: "L on one" });
   });
@@ -282,7 +281,7 @@ describe("Edits of the Library", () => {
     two.restoreNetwork();
     await holds(one, bean.id, { notes: "E2 on two", country: "Kenya" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "E2 on two", country: "Kenya" });
-    expect(await conflictsOf(bean.id)).toEqual([]);
+    expect(await lostEditsOf(bean.id)).toEqual([]);
   });
 
   it("applies an edit made over a value written to the tablet whose answer came late, whatever its time", async () => {
@@ -318,7 +317,7 @@ describe("Edits of the Library", () => {
     await holds(one, bean.id, { notes: "v3 from two" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "v3 from two" });
     expect(heldBean(two, bean.id)).toMatchObject({ notes: "v3 from two" });
-    expect(await conflictsOf(bean.id)).toEqual([]);
+    expect(await lostEditsOf(bean.id)).toEqual([]);
   });
 
   it("keeps a Profile a barista hid but the tablet had not reported when the server writes it a new title", async () => {
@@ -340,7 +339,7 @@ describe("Edits of the Library", () => {
     await expect.poll(() => on(one)?.visibility).toBe("hidden");
     expect(on(two)?.visibility).toBe("hidden");
     expect((await api.get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.shownAt).toEqual([]);
-    expect(await conflictsOf(String(saved.id))).toEqual([]);
+    expect(await lostEditsOf(String(saved.id), "profiles")).toEqual([]);
   });
 
   it("renames a Profile renamed on one tablet on every tablet that holds it", async () => {
@@ -374,7 +373,7 @@ describe("Edits of the Library", () => {
     // Still one Profile, under the same id, on every tablet.
     for (const tablet of [one, two, three]) expect(tablet.profiles().filter((record) => (record.profile as Record_).title === "House Bloom v2").map((record) => record.id)).toEqual([saved.id]);
     expect((await api.get<{ profile: { title: string } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.title).toBe("House Bloom v2");
-    expect(await conflictsOf(String(saved.id))).toEqual([]);
+    expect(await lostEditsOf(String(saved.id), "profiles")).toEqual([]);
   });
 
   it("writes a batch's and a Grinder's edits to the tablets that hold them", async () => {

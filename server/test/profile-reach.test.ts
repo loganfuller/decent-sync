@@ -32,16 +32,6 @@ interface Check {
   message: string;
 }
 
-interface ConflictView {
-  id: string;
-  item: { id: string };
-  field: string;
-  value: unknown;
-  location: { id: string } | null;
-  state: string;
-  current: { value: unknown; versionId: string | null };
-}
-
 interface Refusal {
   change: string;
   kind: string;
@@ -225,43 +215,6 @@ describe("A Profile reaches only the Machines that can run it", { timeout: 120_0
     // The Bengle keeps both.
     expect(bengleTablet.profiles().find((record) => record.id === fast)).toMatchObject({ visibility: "visible" });
     expect((dye2List(bengleTablet, "recipes") as Record_[]).some((record) => record.name === "Bengle Bloom")).toBe(true);
-  });
-
-  it("refuses a Conflict's value showing it where a Machine can't run it, through REST and MCP alike", async () => {
-    // Two Bengles at Pier, each on its own instance, hold it shown, then hidden.
-    const pier = await api.createLocation("Pier", "America/Chicago");
-    const [first, second] = [await api.createMachine("Pier 1", pier.id), await api.createMachine("Pier 2", pier.id)];
-    const one = tablets.syncing(first, server, { api: bengleLibrary(58804) });
-    const two = tablets.syncing(second, other, { api: bengleLibrary(58805) });
-    await api.waitForOnline(first, second);
-    const visibility = (tablet: SimulatedTablet) => tablet.profiles().find((record) => record.id === fast)?.visibility;
-    const atPier = async () => (await api.get<{ profile: { shownAt: { location: LocationView }[] } }>(profilePath(fast))).profile.shownAt.some((here) => here.location.id === pier.id);
-    expect((await api.call("PUT", `${profilePath(fast)}/locations/${pier.id}`, { shown: true })).status).toBe(200);
-    for (const tablet of [one, two]) await expect.poll(() => visibility(tablet)).toBe("visible");
-    expect((await api.call("PUT", `${profilePath(fast)}/locations/${pier.id}`, { shown: false })).status).toBe(200);
-    for (const tablet of [one, two]) await expect.poll(() => visibility(tablet)).toBe("hidden");
-
-    // The first shows it offline; the second shows it and hides it again, later, which the first had not seen.
-    one.loseNetwork();
-    await one.setProfileVisibility(fast, "visible");
-    await delay(20);
-    await two.setProfileVisibility(fast, "visible");
-    await expect.poll(atPier).toBe(true);
-    await two.setProfileVisibility(fast, "hidden");
-    await expect.poll(atPier).toBe(false);
-    one.restoreNetwork();
-    const conflictsOf = async () => (await api.get<{ conflicts: ConflictView[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === fast);
-    await expect.poll(async () => (await conflictsOf()).length).toBe(1);
-    const [conflict] = await conflictsOf();
-    expect(conflict).toMatchObject({ field: "shown", value: true, location: { id: pier.id }, current: { value: false } });
-
-    // A Machine entry made there, its tablet yet to connect, is held to a DE1's ranges.
-    await api.createMachine("Pier 3", pier.id);
-    const message = await restRefusal("POST", `/conflicts/${conflict!.id}/use`, { seen: conflict!.current.versionId }, 409);
-    expect(message).toBe(`"Fast Bloom" can't reach Pier: Pier 3's hardware isn't known yet, so it is held to a DE1's ranges and can't run Step 1, "Bloom": its flow is 17.93, outside 0 to 15.`);
-    expect(await toolError("resolve_conflict", { id: conflict!.id, resolution: "use", seen: conflict!.current.versionId })).toBe(message);
-    expect(await atPier()).toBe(false);
-    expect((await conflictsOf()).map((open) => open.state)).toEqual(["open"]);
   });
 });
 

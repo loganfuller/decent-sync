@@ -5,7 +5,6 @@ import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { readBeanBatchId } from "../library/bean-batches.service.js";
 import { readBeanId } from "../library/beans.service.js";
-import { ConflictsService, readSeen } from "../library/conflicts.service.js";
 import type { EquipmentKind } from "../library/equipment.js";
 import { readEquipmentId } from "../library/equipment.service.js";
 import { readGrinderId } from "../library/grinders.service.js";
@@ -28,14 +27,14 @@ import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { readLocationId } from "../locations/input.js";
 import { BudgetedTool } from "./budget.js";
-import { type ConflictOutput, type ItemOutput, LibraryTools, PROFILE_WHOLE, TIMES, beanBatchItem, beanItem, conflict, itemOutput, kind } from "./library.tools.js";
+import { type ItemOutput, LibraryTools, PROFILE_WHOLE, TIMES, beanBatchItem, beanItem, itemOutput, kind } from "./library.tools.js";
 import { callerOf } from "./token-verifier.js";
 
 // The Library changed through an assistant (#411, #412, ADR-0026): Beans,
 // Bean Batches, Grinders, Baskets and Tools created and edited, a Profile's
 // title, author and notes edited (#576), any item
-// Archived or restored, what a Location offers changed, and a Conflict's
-// value used or dismissed, each by the service its REST route calls, so a
+// Archived or restored, and what a Location offers changed, each by the
+// service its REST route calls, so a
 // change is timed and merged as the management interface's are (ADR-0020),
 // reaches tablets the same way, and is refused, with the same message,
 // wherever the REST API would refuse it, Staff's limits included. Each is
@@ -119,6 +118,8 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
   recipe: {
     name: "Its name.",
     beverage: "The drink it makes, such as Espresso or Cappuccino.",
+    beanId:
+      "The id of the Bean it uses, as find_library_items gives it, not Archived, for a Bean it is to name without choosing a batch: it keeps its batch if that is of this Bean, or else takes the Bean's batch most recently added at its Location, or none, the Bean then offered there. null clears its Bean and its batch. Given with beanBatchId, the batch decides its Bean.",
     beanBatchId: "The id of the Bean Batch it uses, as find_library_items gives it, not Archived; its Bean is the batch's. A batch not at the Recipe's Location is added there. null for none, which clears its Bean too.",
     profileId: "The id of the Profile it uses, as find_library_items gives it, not Archived. One not shown at the Recipe's Location is shown there.",
     dose: "Its dose, in grams.",
@@ -277,20 +278,6 @@ const offeringInput = z.strictObject({
     .describe("A Bean Batch's remaining weight at the Location, in grams, 0 or more, null to clear it: only where it is, or is being added."),
 });
 
-const conflictInput = z.strictObject({
-  id: id.describe("The Conflict's id, as list_conflicts or get_library_item gives it."),
-  resolution: z
-    .enum(["use", "dismiss"])
-    .describe("use to make its value the field's latest edit, written to every tablet that holds the item; dismiss to close it, changing nothing else."),
-  seen: z
-    .string()
-    .nullable()
-    .optional()
-    .describe(
-      "Required to use its value: its current.versionId, as list_conflicts or get_library_item gave it with the value now that the person was shown, null where that is null. Its value is used only over that value, so one decided since is never replaced unseen.",
-    ),
-});
-
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const STAFF_SHARED = "Staff make it as Admins do.";
 
@@ -304,7 +291,6 @@ export class LibraryChangesTools {
   constructor(
     private readonly edits: LibraryEditsService,
     private readonly recipeEdits: RecipeEditsService,
-    private readonly conflicts: ConflictsService,
     private readonly library: LibraryTools,
   ) {}
 
@@ -531,23 +517,6 @@ export class LibraryChangesTools {
       else await this.edits.showEquipment(itemKind, readEquipmentId(itemKind, input.id), locationId, input.offered, editor, scope);
     }
     return this.library.read(itemKind, input.id);
-  }
-
-  @BudgetedTool({
-    name: "resolve_conflict",
-    title: "Use or dismiss a Conflict's value",
-    description: `Uses an open Conflict's value, which becomes the field's latest edit, written to every tablet that holds the item, or dismisses it, changing nothing else; either closes it. Its value is used only over the value now that the person was shown (seen), and is refused if the field has changed since. Staff resolve one about what a Location offers, or about a Grinder or Recipe, only at the Locations they work at: list_conflicts says whether this account may (resolvable). ${TIMES}`,
-    inputSchema: conflictInput,
-    outputSchema: z.object({ conflict }),
-    // Not idempotent: a repeat is refused, as the Conflict is closed already.
-    annotations: CHANGES,
-    scopes: [READ, CHANGE],
-  })
-  async resolveConflict({ id: conflictId, resolution, seen }: z.infer<typeof conflictInput>, context: McpContext): Promise<{ conflict: ConflictOutput }> {
-    const { scope } = callerOf(context);
-    const resolved =
-      resolution === "use" ? await this.conflicts.use(conflictId, readSeen({ seen }), editorOf(context), scope) : await this.conflicts.dismiss(conflictId, scope);
-    return { conflict: await this.library.conflict(resolved) };
   }
 
   /** Creates a Basket or Tool as its REST route does, shown at the Location given. */

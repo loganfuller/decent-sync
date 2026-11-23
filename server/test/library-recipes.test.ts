@@ -32,7 +32,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // its Recipe Slot (`stripSlot`) or none, and is written to the Location's
 // other tablets under the same id with its
 // `stripSlot`, naming its Bean, Grinder and Basket by each tablet's own ids,
-// and to no other Location's; edits merge per field with Conflicts
+// and to no other Location's; edits merge per field with Lost Edits
 // (ADR-0020); a recipe whose `stripSlot` a tablet moves moves its Recipe,
 // the slot's previous holder leaving it, or takes it out of its slot, and a
 // recipe gone from a tablet's list is taken out of its slot there, kept
@@ -286,7 +286,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect(two.storeValue(DYE2_NAMESPACE, "autoFavourites") ?? null).toBeNull();
   });
 
-  it("keeps edits of different fields on two tablets, keeps two edits of one field made without seeing each other as a Conflict, and never shares a barista", async () => {
+  it("keeps edits of different fields on two tablets, keeps two edits of one field made without seeing each other as a Lost Edit, and never shares a barista", async () => {
     const { here, machines, one, two } = await lab("Edited", 42011);
     // DYE2's editor saves a new recipe on tab 1 with a barista and drinker.
     const { saved: created } = await (await openDye2RecipeEditor(one, { slot: 1 }))
@@ -320,11 +320,11 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     await editInDye2(one, id, { dose: 18.4 });
     await expect.poll(async () => (await recipe(saved!.id)).content.dose).toBe(18.4);
     await editInDye2(two, id, { dose: 18.6 });
-    // Back online, its edit, made and read after the other's, wins, and the other's value is kept as a Conflict.
+    // Back online, its edit, made and read after the other's, wins, and the other's value is kept as a Lost Edit.
     two.restoreNetwork();
     for (const tablet of [one, two]) await expect.poll(() => variables(byId(tablet, id)).dose).toBe(18.6);
-    const conflicts = (await api.get<{ conflicts: { field: string; value: unknown; item: Record_ }[] }>(`/recipes/${saved!.id}/conflicts`)).conflicts;
-    expect(conflicts).toEqual([expect.objectContaining({ field: "dose", value: 18.4, item: { kind: "recipe", id: saved!.id, name: "Edited Espresso" } })]);
+    const { lostEdits } = await api.get<{ lostEdits: { field: string; value: unknown }[] }>(`/recipes/${saved!.id}/history`);
+    expect(lostEdits).toEqual([expect.objectContaining({ field: "dose", value: 18.4 })]);
     // Its history holds each accepted edit, the first its joining the Library from the tablet that saved it.
     const history = await versions(saved!.id);
     expect(history.at(-1)).toMatchObject({ fields: { name: "Edited Espresso", dose: 18 }, source: { machine: { name: "Edited lab 1" } } });
@@ -354,7 +354,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     await expect.poll(async () => (await recipe(saved!.id)).content.dose).toBe(18.5);
     for (const tablet of [one, two]) await expect.poll(() => [variables(byId(tablet, SLOT_RECIPE)).dose, variables(byId(tablet, SLOT_RECIPE)).grind]).toEqual([18.5, 2.6]);
     expect((await recipe(saved!.id)).content).toMatchObject({ dose: 18.5, grindSetting: 2.6, hotWaterTemperature: 85 });
-    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${saved!.id}/conflicts`)).conflicts).toEqual([]);
+    expect((await api.get<{ lostEdits: unknown[] }>(`/recipes/${saved!.id}/history`)).lostEdits).toEqual([]);
   });
 
   it("moves a Recipe to the slot DYE2's editor saves it in, the slot's previous holder leaving it, and out of its slot when its own tab is tapped off, changing only stripSlot on the other tablets and keeping it loaded there", async () => {

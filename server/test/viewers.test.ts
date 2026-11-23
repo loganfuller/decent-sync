@@ -10,7 +10,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // changes a Viewer's role in any direction, each change applying to their
 // next request on either instance. Which routes a Viewer may use is
 // server/test/access.test.ts's; the Live View's stream is
-// server/test/live-view.test.ts's, and a Conflict's server/test/library-conflicts.test.ts's.
+// server/test/live-view.test.ts's, and a Lost Edit's server/test/library-lost-edits.test.ts's.
 
 type Record_ = Record<string, unknown>;
 

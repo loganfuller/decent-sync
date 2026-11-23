@@ -122,7 +122,7 @@ Each server has one owner: a household, or a business with all of its sites.
   it, so what was simulated and what happened sit side by side.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
-  seeing it is kept as a Conflict, for you to use or dismiss.
+  seeing it is kept in the item's history as a Lost Edit, for you to read.
 - **Safe deletes.** Deleting on a tablet only takes an item away at that
   Location. Sync never deletes anything from a tablet unless an Admin deletes
   it for good, which is possible only while no Shot names it.
@@ -471,14 +471,14 @@ Recipe, Bean, Bean Batch, Profile, Grinder, Basket, Barista or Location,
 two at once, such as two Machines on the same Recipe side by side, and by
 day or by week, each Location's own, to read a trend, Steam
 Records, and the Library
-with each item's history and Conflicts, and simulate a Profile on a standard
+with each item's history, Lost Edits among it, and simulate a Profile on a standard
 puck, finer or coarser, or on a Shot's, for a DE1 or a Bengle, saying how
 close its simulation of that Shot's own steps comes to the Shot, and read a
 Profile's versions and the Recipes on it. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, edit a
 Profile's title, author and notes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
-Slots, choose their Reference Shots and copy them to other Locations, use or dismiss a Conflict's value, make
+Slots, choose their Reference Shots and copy them to other Locations, make
 Settings Edits, move Machines between Locations, and rate a Shot or edit its
 note, saying whether that edit still awaits the Shot's tablet. An Admin's assistant can
 also turn a Machine's sharing on or off, and create and edit Locations. Nothing
@@ -505,7 +505,7 @@ Milestones 1 to 9 are released. See [all releases](https://github.com/loganfulle
 | Milestone | What it adds | Spec | Released |
 |---|---|---|---|
 | 1. [Foundation](https://github.com/loganfuller/decent-sync/milestone/1) | Adopting Machines, Locations and accounts. Captures Shots, Steam Records, Workflow changes, machine state, the library, settings and paired devices. | [#1](https://github.com/loganfuller/decent-sync/issues/1) | [v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0) |
-| 2. [Shared library](https://github.com/loganfuller/decent-sync/milestone/2) | Beans, Bean Batches, Grinders and Profiles shared across Locations, with history and Conflicts. Shots linked to what they used. | [#77](https://github.com/loganfuller/decent-sync/issues/77) | v1.0.0 |
+| 2. [Shared library](https://github.com/loganfuller/decent-sync/milestone/2) | Beans, Bean Batches, Grinders and Profiles shared across Locations, with history and Lost Edits (Conflicts, until #632). Shots linked to what they used. | [#77](https://github.com/loganfuller/decent-sync/issues/77) | v1.0.0 |
 | 3. [Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3) | DYE2 Recipes, Baskets and Tools, Recipe Slots, and each Machine's Loaded Recipe. | [#134](https://github.com/loganfuller/decent-sync/issues/134) | v1.0.0 |
 | 4. [Machine management](https://github.com/loganfuller/decent-sync/milestone/4) | Settings Edits from the management interface, then each Machine's Live View. No remote commands such as sleep and wake. | [#220](https://github.com/loganfuller/decent-sync/issues/220), [#258](https://github.com/loganfuller/decent-sync/issues/258) | [v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0), [v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0) |
 | 5. [Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5) | Each release runs beside the previous one. | [#277](https://github.com/loganfuller/decent-sync/issues/277) | [v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0) |

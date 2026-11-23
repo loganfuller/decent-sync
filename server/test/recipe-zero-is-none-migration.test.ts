@@ -82,7 +82,7 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
     let conflicts: { zero: string; other: string; used: string };
     const fieldEdits = async (id: string) =>
       (await database.query<{ edits: Record<string, Record_ | undefined> }>(`SELECT field_edits AS edits FROM recipes WHERE id = $1`, [id])).rows[0]!.edits;
-    const open = async (id: string) => (await api.get<{ conflicts: { id: string; current: { value: unknown; versionId: string | null } }[] }>("/conflicts")).conflicts.find((conflict) => conflict.id === id);
+    const lostEdits = async (id: string) => (await api.get<{ lostEdits: { id: string }[] }>(`/recipes/${id}/history`)).lostEdits.map((lost) => lost.id).sort();
     try {
       await database.query(`UPDATE recipes SET content = content || '{"dose": 0, "grindSetting": 0, "rpm": 0}'::jsonb WHERE id = $1`, [zero.id]);
       const conflict = (value: number, state: string) =>
@@ -105,8 +105,6 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
       await expect.poll(() => dial(zero.id), { timeout: 15_000 }).toEqual([null, 36, 0, null]);
       expect(dial(kept.id)).toEqual([18, 0, 2.5, 900]);
       const before = await fieldEdits(zero.id);
-      const shown = (await open(conflicts.other))!.current.versionId;
-      expect(shown).toBe(before.rpm!.versionId);
 
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
 
@@ -129,9 +127,8 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
       expect(after.yield).toEqual(before.yield);
       expect(Object.values(await fieldEdits(kept.id)).some((edit) => edit?.versionId === version!.id)).toBe(false);
 
-      // The open Conflict offering 1100 shows none as the value now, and is refused where it names the value shown before.
-      expect((await open(conflicts.other))!.current).toMatchObject({ value: null, versionId: version!.id });
-      expect((await api.call("POST", `/conflicts/${conflicts.other}/use`, { seen: shown })).status).toBe(409);
+      // The one it dismissed is no Lost Edit in the Recipe's history (ADR-0033); the others are.
+      expect(await lostEdits(zero.id)).toEqual([conflicts.other, conflicts.used].sort());
 
       // Run again, it changes nothing.
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
@@ -142,8 +139,8 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
 
     for (const field of ["dose", "grindSetting", "rpm"]) expect((await recipe(zero.id)).content, field).not.toHaveProperty(field);
     expect((await recipe(kept.id)).content).toMatchObject({ dose: 18, yield: 0, rpm: 900 });
-    // Its value used over the one now: an RPM above 0 is an edit as before, written to the tablet.
-    expect((await api.call("POST", `/conflicts/${conflicts.other}/use`, { seen: (await open(conflicts.other))!.current.versionId })).status).toBe(200);
+    // An RPM above 0 is an edit as before, written to the tablet.
+    expect((await api.call("PATCH", `/recipes/${zero.id}`, { content: { rpm: 1100 } })).status).toBe(200);
     expect((await recipe(zero.id)).content).toMatchObject({ rpm: 1100 });
     await expect.poll(() => dial(zero.id), { timeout: 15_000 }).toEqual([null, 36, null, 1100]);
   });

@@ -24,9 +24,9 @@ import { refuseUnrunnableAt } from "./profile-reach.js";
 // the id Decaid computes from what the machine executes, so it stays the
 // same Profile; a bundled Profile's are Decaid's, which it refuses to change.
 // Each is an edit by the account, timed by PostgreSQL's clock (ADR-0016), made over the
-// item as it stands, as using a Conflict's value is (ADR-0020): it decides
+// item as it stands (ADR-0020): it decides
 // every field it sets whatever the times of the edits before it, and keeps
-// nothing it replaces as a Conflict. A tablet's edit made before it that
+// nothing it replaces as a Lost Edit. A tablet's edit made before it that
 // arrives later loses to it. Each change commits with a `NOTIFY` on
 // `library_changes`, so every tablet that holds the item, or whose Location
 // offers it now, is written it.

@@ -40,6 +40,7 @@ import {
   recipeBean,
   recipeParts,
   recordProfile,
+  heldFromWorkflow,
   samePart,
   valuesFromWorkflow,
   workflowParts,
@@ -379,8 +380,8 @@ async function recordHoldsProfile(tx: Prisma.TransactionClient, tabletId: string
  * Records into the Recipe what Decent Sync takes into it from its
  * Machine's Workflow (`valuesFromWorkflow`), from `held`, as the Workflow
  * last held its parts, as the tablet's edit, timed as the plugin observed the Workflow, merged
- * per field with Conflicts (ADR-0020), judged by what the tablet's record of
- * the Recipe has seen. Returns the parts recorded, and those that lost to an
+ * per field with Lost Edits (ADR-0020, ADR-0033), judged by what the tablet's record of
+ * the Recipe has seen, a value the Workflow held as the Recipe's kept as none. Returns the parts recorded, and those that lost to an
  * edit the tablet had not seen, which the Recipe's value is written back
  * over. The Recipe's tablets are written the edit, and so are the Workflows
  * of the Machines that have it loaded.
@@ -414,7 +415,8 @@ async function recordFromWorkflow(
   if (parts.length === 0) return { recorded: [], lost: [] };
   const [seen] = await tx.$queryRaw<{ contentSeenAt: Date | null }[]>`
     SELECT content_seen_at AS "contentSeenAt" FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND recipe_id = ${recipe.id}::uuid`;
-  const edited = await editContent(tx, { kind: "recipe", id: recipe.id }, { values, at: new Date(observedAt), seenAt: seen?.contentSeenAt ?? null }, tabletSource(tablet));
+  const edit = { values, at: new Date(observedAt), seenAt: seen?.contentSeenAt ?? null, held: heldFromWorkflow(recipe.content, target, held, values) };
+  const edited = await editContent(tx, { kind: "recipe", id: recipe.id }, edit, tabletSource(tablet));
   if (edited.writesDue) await notify(tx, "library_changes", recipe.locationId);
   const [after] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM recipes WHERE id = ${recipe.id}::uuid`;
   if (after && isObject(after.content)) recipe.content = after.content;

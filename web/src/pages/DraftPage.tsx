@@ -3,7 +3,7 @@ import { Redo2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { SourceText } from "@/components/conflicts";
+import { SourceText } from "@/components/item-history";
 import { FollowingCard, TrialShotsCard } from "@/components/draft-trying";
 import { type DraftArrival, DiscardDraftButton, SavedBy, draftBecomes } from "@/components/drafts";
 import { RelativeTime } from "@/components/relative-time";
