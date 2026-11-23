@@ -329,8 +329,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // only within their time.
     notifications.subscribe("software_actions", (machineId) => {
       for (const session of this.connections) if (machineId === null || session.machine?.id === machineId) this.sendSoftwareActions(session);
-      // Its values, if any, are removed by this instance too once its time is up, whichever instance made it and stops.
-      if (machineId !== null) this.softwareActions.forgetHeldLater(machineId);
+      // Its values, if any, are removed by this instance too once its time is up, whichever instance made it and stops;
+      // after listening anew, those of any action made meanwhile, of every Machine.
+      this.softwareActions.forgetHeldLater(machineId ?? undefined);
     });
     // An edit of a Shot is for the tablet that holds the Shot, whichever Machine its connection holds. After listening
     // anew, every connection looks for edits made meanwhile.

@@ -964,7 +964,8 @@ How each is made, carried out and answered:
   which Decaid answers with the check still under way (it goes on to the
   plugins after this one) or, where it ended, with a new one's, each plugin
   `updated` where its build changed since; and a change of its poll interval
-  at once, as Decaid saves the settings before it loads the plugin again.
+  once it was loaded again with the value asked for, as Decaid saves the
+  settings before it loads the plugin again.
   One it can't tell the outcome of by then is left unanswered, and so not
   confirmed.
 - **When Decaid stops waiting.** `host.localApi` rejects a call after a
