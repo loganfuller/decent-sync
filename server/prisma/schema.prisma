@@ -2070,6 +2070,9 @@ enum LostEditState {
 /// and a field of a Location's state names that Location. Its table is the
 /// one Conflicts were kept in, whose name it keeps.
 model LostEdit {
+  /// Written by `recordLostEdit` as `gen_random_uuid()`, a version 4 UUID,
+  /// not Prisma's default, since it writes in SQL (`state`, below); nothing
+  /// orders Lost Edits by it.
   id              String        @id @default(uuid(7)) @db.Uuid
   /// The item's kind and id (`VersionedItem`).
   kind            String
