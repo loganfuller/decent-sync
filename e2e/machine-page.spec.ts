@@ -313,6 +313,118 @@ test("a tab opened while scrolled down to the tabs keeps the page's scroll posit
   expect(await page.evaluate(() => document.documentElement.style.minHeight)).toBe("");
 });
 
+test("Back or Forward to a tab left scrolled down returns the page to where it was there while the tab loads (#649)", async ({ page }) => {
+  const reads = (url: URL) => url.pathname.startsWith(`/api/machines/${spareId}/`);
+  const nav = page.getByRole("navigation", { name: "Machine" });
+  const scrolled = () => page.evaluate(() => ({ y: window.scrollY, bottom: window.scrollY + window.innerHeight }));
+  const heights = () => page.evaluate(() => ({ content: document.body.offsetHeight, page: document.documentElement.scrollHeight }));
+  const minHeight = () => page.evaluate(() => document.documentElement.style.minHeight);
+  const twoFrames = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const frames = () => page.evaluate(() => (window as unknown as { scrollFrames: number[] }).scrollFrames);
+  const loaded = () => expect(page.getByRole("main").getByText("Loading", { exact: true })).toHaveCount(0);
+  /** Scrolls to the top, which gives back all that was held, and down again to somewhere other than the tabs. */
+  const scrollElsewhere = async () => {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(minHeight).toBe("");
+    await page.evaluate(() => window.scrollTo(0, 100));
+    await expect.poll(async () => (await scrolled()).y).toBe(100);
+    // The scroll's own event has gone out by two frames on.
+    await twoFrames();
+  };
+
+  // Settings opened from Setup scrolled down to the tabs, and so left there itself, though alone it is too short to reach.
+  await page.goto(`/machines/${spareId}?tab=setup`);
+  await expect(region(page, "Token")).toBeVisible();
+  await loaded();
+  const top = await nav.evaluate((tabs) => {
+    window.scrollTo(0, Math.round(tabs.getBoundingClientRect().top + window.scrollY - 16));
+    return window.scrollY;
+  });
+  expect(top, "scrolled down Setup").toBeGreaterThan(100);
+  await twoFrames();
+  await openMachineTab(page, "Settings");
+  await loaded();
+  expect((await scrolled()).y).toBe(top);
+
+  // Forward to it from Setup, and then Back to it from Setup opened after it. Each time Setup is first scrolled to
+  // the top, so nothing is held from the click that opened a tab, and down to elsewhere, so the frames show the
+  // browser moving the page to where Settings was left, not the page staying put.
+  for (const direction of ["Forward", "Back"] as const) {
+    if (direction === "Forward") await page.goBack();
+    else await openMachineTab(page, "Setup");
+    await expect(nav.getByRole("link", { name: "Setup", exact: true })).toHaveAttribute("aria-current", "page");
+    await loaded();
+    await scrollElsewhere();
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(reads, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.evaluate(() => {
+      const frames: number[] = [];
+      Object.assign(window, { scrollFrames: frames });
+      const note = () => {
+        frames.push(window.scrollY);
+        requestAnimationFrame(note);
+      };
+      note();
+    });
+    if (direction === "Forward") await page.goForward();
+    else await page.goBack();
+    await expect(nav.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
+    // Two frames on, while it loads short of the window's bottom: each frame was where Setup was or where Settings was
+    // left, and never above either.
+    await twoFrames();
+    expect(new Set(await frames()), `${direction}: each frame's scroll position while Settings loads`).toEqual(new Set([100, top]));
+    expect((await scrolled()).y, `${direction}: scroll position while Settings loads`).toBe(top);
+    expect((await heights()).content, `Settings's content while it loads`).toBeLessThan((await scrolled()).bottom);
+    // And on through its reads arriving.
+    release();
+    await loaded();
+    await twoFrames();
+    expect(new Set(await frames()), `${direction}: each frame's scroll position once its Loading notes have gone`).toEqual(new Set([100, top]));
+    expect((await scrolled()).y, `${direction}: scroll position once Settings loaded`).toBe(top);
+    await page.unroute(reads);
+  }
+
+  // What was held for it goes as the page is scrolled up, as what a click holds does.
+  await page.evaluate(() => window.scrollTo(0, window.scrollY / 2));
+  await expect.poll(async () => (await heights()).page).toBe((await scrolled()).bottom);
+
+  // Back to an entry left at the top holds nothing, and gives back what a click held: Now opened from the top, Setup
+  // opened and scrolled down, Settings opened from there, which is held, and Back twice.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(minHeight).toBe("");
+  await twoFrames();
+  await openMachineTab(page, "Now");
+  await openMachineTab(page, "Setup");
+  await loaded();
+  await nav.evaluate((tabs) => window.scrollTo(0, Math.round(tabs.getBoundingClientRect().top + window.scrollY - 16)));
+  await expect.poll(async () => (await scrolled()).y).toBe(top);
+  await twoFrames();
+  await openMachineTab(page, "Settings");
+  expect(await minHeight()).not.toBe("");
+  await page.goBack();
+  await expect(nav.getByRole("link", { name: "Setup", exact: true })).toHaveAttribute("aria-current", "page");
+  expect((await scrolled()).y).toBe(top);
+  expect(await minHeight(), "held on Setup before Back to Now").not.toBe("");
+  // Read in the traversal's own task, before the browser's scroll back to the top, whose event would give back the
+  // hold too: the render that returns to Now has committed by the time a page's popstate listener runs.
+  const heldOnBack = await page.evaluate(
+    () =>
+      new Promise<string>((resolve) => {
+        window.addEventListener("popstate", () => resolve(document.documentElement.style.minHeight), { once: true });
+        history.back();
+      }),
+  );
+  expect(heldOnBack, "held in the render that returns to Now").toBe("");
+  await expect(nav.getByRole("link", { name: "Now", exact: true })).toHaveAttribute("aria-current", "page");
+  expect(await minHeight()).toBe("");
+  expect((await scrolled()).y).toBe(0);
+});
+
 test("Now's Workflow card names the Loaded Recipe it was loaded from, with its Recipe Slot and since when, in place of a card of its own", async ({ page }) => {
   await page.goto(`/machines/${machines.left.id}`);
   const workflow = region(page, "Workflow");

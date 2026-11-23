@@ -21,6 +21,7 @@ Conventions of the management interface (`web/`) that no single file states.
 ## Tabs
 
 - A link that replaces part of a page, as a Machine page's tabs do, passes its click to what `useKeptScroll` (`web/src/lib/use-kept-scroll.ts`) returns, so the page doesn't shrink under a reader scrolled down while the new part loads.
+- The component that calls `useKeptScroll` is held on Back and Forward too, with nothing passed: the hook notes where each history entry was scrolled while the component is mounted, and holds the page that tall in the render that returns to one.
 
 ## Phone width
 
