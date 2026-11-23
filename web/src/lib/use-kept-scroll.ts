@@ -7,8 +7,9 @@ import { useCallback, useEffect, useRef } from "react";
  * then stays at least tall enough to reach the bottom of the window as it is
  * now, so the browser doesn't pull the scroll position up while what
  * replaced it is shorter, as it is while loading. The space held is given
- * back as the reader scrolls up past it, and all of it once they are at the
- * top, the next change is held from scratch, or the component unmounts. It
+ * back as the reader scrolls up past it or the window is made shorter, and
+ * all of it once they are at the top, the next change is held from scratch,
+ * or the component unmounts. It
  * is held on the document's root, as it is the window that scrolls.
  */
 export function useKeptScroll(): () => void {
@@ -29,8 +30,11 @@ export function useKeptScroll(): () => void {
       }
     };
     window.addEventListener("scroll", scrolled, { passive: true });
+    // A window made shorter moves its bottom up without a scroll.
+    window.addEventListener("resize", scrolled, { passive: true });
     return () => {
       window.removeEventListener("scroll", scrolled);
+      window.removeEventListener("resize", scrolled);
       held.current = undefined;
       root.style.minHeight = "";
     };

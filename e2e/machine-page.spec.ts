@@ -239,6 +239,9 @@ test("a tab opened while scrolled down to the tabs keeps the page's scroll posit
   const scrolled = () => page.evaluate(() => ({ y: window.scrollY, bottom: window.scrollY + window.innerHeight }));
   /** How tall the page's own content is, and the page with what is held for it. */
   const heights = () => page.evaluate(() => ({ content: document.body.offsetHeight, page: document.documentElement.scrollHeight }));
+  const twoFrames = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  /** The scroll position noted at each animation frame, from just before the tab's link was clicked. */
+  const frames = () => page.evaluate(() => (window as unknown as { scrollFrames: number[] }).scrollFrames);
   for (const tab of ["Now", "Activity", "Settings"] as const) {
     await page.goto(`/machines/${spareId}?tab=setup`);
     await expect(region(page, "Token")).toBeVisible();
@@ -269,20 +272,27 @@ test("a tab opened while scrolled down to the tabs keeps the page's scroll posit
     });
     await openMachineTab(page, tab);
     // Two frames on. The tab's own content is short of the window's bottom, so only what is held kept the page there.
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const frames = await page.evaluate(() => (window as unknown as { scrollFrames: number[] }).scrollFrames);
-    expect(new Set(frames), `${tab}: each frame's scroll position`).toEqual(new Set([top]));
+    await twoFrames();
+    expect(new Set(await frames()), `${tab}: each frame's scroll position while it loads`).toEqual(new Set([top]));
     expect((await heights()).content, `${tab}'s content while it loads`).toBeLessThan((await scrolled()).bottom);
+    // And on through its reads arriving, to two frames after it has loaded.
     release();
     await expect(page.getByRole("main").getByText("Loading", { exact: true })).toHaveCount(0);
+    await twoFrames();
+    expect(new Set(await frames()), `${tab}: each frame's scroll position once loaded`).toEqual(new Set([top]));
     await page.unroute(reads);
   }
 
-  // Settings, loaded, still falls short of where the window's bottom was: what is held goes as the page is scrolled up
-  // past it, and all of it at the top.
-  expect((await heights()).content).toBeLessThan((await scrolled()).bottom);
-  await page.evaluate(() => window.scrollTo(0, window.scrollY / 2));
+  // Settings, loaded, still falls short of where the window's bottom was: what is held goes as the window is made
+  // shorter, without a scroll, and as the page is scrolled up past it, and all of it at the top.
+  const short = (await scrolled()).bottom - (await heights()).content;
+  expect(short, "Settings, loaded, short of the window's bottom").toBeGreaterThan(1);
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: viewport.width, height: viewport.height - Math.floor(short / 2) });
   await expect.poll(async () => (await heights()).page).toBe((await scrolled()).bottom);
+  // Scrolled halfway up, the window's bottom may be above where the content ends: nothing is held past either.
+  await page.evaluate(() => window.scrollTo(0, window.scrollY / 2));
+  await expect.poll(async () => (await heights()).page).toBe(Math.max((await heights()).content, (await scrolled()).bottom));
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(async () => (await heights()).page).toBe((await heights()).content);
 
