@@ -555,12 +555,15 @@ async function readSensorCalibration(): Promise<Reading> {
 
 /**
  * The settings of each plugin in the list that declares any, by the
- * plugin's id: Decaid's answer to `GET /plugins/{id}/settings`, as sent,
- * which holds each setting that was set, a secret one only as `{ isSet }`
- * and never its value (`pluginSettings` in Decaid v0.9.3's
- * plugin_loader_service.dart). Read one at a time, and unavailable where
- * the list was not read or any read fails, as a partial set would read as
- * settings cleared.
+ * plugin's id, as `{ declared, values }`: `values` is Decaid's answer to
+ * `GET /plugins/{id}/settings`, as sent, which holds each setting that was
+ * set, a secret one only as `{ isSet }` and never its value
+ * (`pluginSettings` in Decaid v0.9.3's plugin_loader_service.dart), and
+ * `declared` the names of the settings its manifest declares, in the
+ * manifest's order, which a form shows them in: the server keeps the plugin
+ * list as JSON whose keys it does not keep in order. Read one at a time, and
+ * unavailable where the list was not read or any read fails, as a partial
+ * set would read as settings cleared.
  */
 async function readPluginSettings(plugins: unknown): Promise<Reading> {
   if (!Array.isArray(plugins)) return { kind: "unavailable" };
@@ -571,7 +574,7 @@ async function readPluginSettings(plugins: unknown): Promise<Reading> {
     if (typeof entry.id !== "string" || entry.id === "" || declared.length === 0) continue;
     const reading = await readCollection(`/plugins/${encodeURIComponent(entry.id)}/settings`, null);
     if (reading.kind !== "value" || typeof reading.value !== "object" || Array.isArray(reading.value)) return { kind: "unavailable" };
-    value[entry.id] = reading.value;
+    value[entry.id] = { declared, values: reading.value };
   }
   return { kind: "value", value, etag: null };
 }

@@ -134,7 +134,7 @@ describe("Software Actions", () => {
     const uploader = { ...recordedPlugin("shot-upload.reaplugin"), id: "uploader.reaplugin", name: "Uploader", version: "0.4.0" };
     plugins.offer("example/uploader", { manifest: uploader, tag: "v0.4.0" });
     const installed = await done(machine, { kind: "installPlugin", repo: "example/uploader" });
-    expect(installed).toMatchObject({ params: { repo: "example/uploader", branch: null }, outcome: "done", result: { pluginId: "uploader.reaplugin", version: "0.4.0", loaded: false } });
+    expect(installed).toMatchObject({ params: { repo: "example/uploader", branch: null }, outcome: "done", result: { pluginId: "uploader.reaplugin", name: "Uploader", version: "0.4.0", loaded: false } });
     expect(await plugin(machine, "uploader.reaplugin")).toMatchObject({ name: "Uploader", version: "0.4.0", state: "disabled", updates: { how: "followsReleases", repo: "example/uploader" } });
 
     const commit = "3a4083728302b3d30e108718cc690d34a13debb0";
@@ -196,8 +196,12 @@ describe("Software Actions", () => {
     expect(forStaff.map((setting) => setting.name)).toEqual(after.map((setting) => setting.name));
     expect(forStaff.every((setting) => !("value" in setting))).toBe(true);
     const settingsFor = async (as: AdminApi) => (await as.get<{ collection: { value: Record<string, Record<string, unknown>> } }>(`/machines/${machine.machine.id}/collections/pluginSettings`)).collection.value[VISUALIZER];
-    expect(await settingsFor(api)).toEqual({ Username: "sam", LengthThreshold: 7, Password: { isSet: true } });
-    expect(await settingsFor(staff)).toEqual({ Username: { hidden: true }, LengthThreshold: { hidden: true }, Password: { isSet: true } });
+    // As the plugin reported them: what is set, and the names the manifest declares, in its order.
+    const declared = ["Username", "Password", "AutoUpload", "LengthThreshold", "BackSync", "BackSyncIntervalSeconds"];
+    expect(await settingsFor(api)).toEqual({ declared, values: { Username: "sam", LengthThreshold: 7, Password: { isSet: true } } });
+    expect(await settingsFor(staff)).toEqual({ declared, values: { Username: { hidden: true }, LengthThreshold: { hidden: true }, Password: { isSet: true } } });
+    // The form's fields come in the manifest's order, which the stored plugin list does not keep.
+    expect(after.map((setting) => setting.name)).toEqual(declared);
 
     // The change is in the Settings History, tied to the action, its values shown to the Admin alone.
     interface Change { collection: string; softwareAction: { id: string; kind: string; account: { name: string | null } | null } | null; settingsEdit: unknown; fields: { field: string; before: unknown; after: unknown }[] }
@@ -281,7 +285,7 @@ describe("Software Actions", () => {
     const { machine, tablet, plugins } = await connected("Software removed");
     await tablet.callApi("POST", `/plugins/${VISUALIZER}/settings`, { Username: "sam" });
     const removed = await done(machine, { kind: "removePlugin", pluginId: VISUALIZER });
-    expect(removed).toMatchObject({ params: { plugin: { id: VISUALIZER, name: "Visualizer upload" } }, outcome: "done", result: { pluginId: VISUALIZER } });
+    expect(removed).toMatchObject({ params: { plugin: { id: VISUALIZER, name: "Visualizer upload" } }, outcome: "done", result: { pluginId: VISUALIZER, name: "Visualizer upload" } });
     expect(plugins.listed().some((entry) => entry.id === VISUALIZER)).toBe(false);
     expect(await plugin(machine, VISUALIZER)).toBeUndefined();
     expect((await tablet.callApi("GET", `/plugins/${VISUALIZER}/settings`)).body).toEqual({});

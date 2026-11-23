@@ -131,6 +131,7 @@ const softwareActionOutput = z.object({
   result: z
     .object({
       pluginId: z.string().optional(),
+      name: z.string().optional().describe("The plugin's name, as its tablet listed it."),
       version: z.string().optional().describe("The version installed afterwards."),
       loaded: z.boolean().optional(),
       results: z.array(z.object({ item: z.string(), status: z.string(), error: z.string().optional(), version: z.string().optional() })).optional().describe("An update check's result for each plugin: updated, alreadyCurrent, pendingApproval or failed."),

@@ -113,9 +113,10 @@ export const SCHEDULE_KEY_PREFIX = "schedules/";
  * - The plugins, paired devices and sensors are a field per entry, keyed by
  *   its id; each paired device without its connection, and each plugin's
  *   `source` and `pendingUpdate` without what its update checks write.
- * - The plugins' settings are a field per setting, keyed by its plugin's id
- *   and its name (`pluginSettingKey`), a secret one as Decaid reports it,
- *   whether it is set.
+ * - The plugins' settings are a field per setting that is set, keyed by its
+ *   plugin's id and its name (`pluginSettingKey`), a secret one as Decaid
+ *   reports it, whether it is set; the names a plugin declares, and their
+ *   order, are compared with its entry in the plugin list, not here.
  * - Any other value that is no object is one field, keyed "".
  */
 export function settingsHistoryFields(name: SettingsHistoryCollection, value: unknown): Record<string, unknown> {
@@ -140,10 +141,10 @@ export function settingsHistoryFields(name: SettingsHistoryCollection, value: un
         ...(isObject(plugin.pendingUpdate) ? { pendingUpdate: without(plugin.pendingUpdate, PENDING_UPDATE_CHECK_FIELDS) } : {}),
       }));
     case "pluginSettings": {
-      if (!isObject(value) || !Object.values(value).every(isObject)) return { "": value };
+      if (!isObject(value) || !Object.values(value).every((plugin) => isObject(plugin) && isObject(plugin.values))) return { "": value };
       const fields: Record<string, unknown> = {};
-      for (const [pluginId, settings] of Object.entries(value as Record<string, Record<string, unknown>>)) {
-        for (const [setting, held] of Object.entries(settings)) fields[pluginSettingKey(pluginId, setting)] = held;
+      for (const [pluginId, plugin] of Object.entries(value as Record<string, { values: Record<string, unknown> }>)) {
+        for (const [setting, held] of Object.entries(plugin.values)) fields[pluginSettingKey(pluginId, setting)] = held;
       }
       return fields;
     }

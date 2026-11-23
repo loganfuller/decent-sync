@@ -572,6 +572,8 @@ export interface SoftwareAction {
   /** What came of it, once done. */
   result: {
     pluginId?: string;
+    /** The plugin's name, as its Tablet listed it. */
+    name?: string;
     version?: string;
     loaded?: boolean;
     /** An update check's result for each plugin: updated, alreadyCurrent, pendingApproval or failed. */

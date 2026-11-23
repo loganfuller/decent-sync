@@ -398,7 +398,7 @@ function PluginsCard({ plugins, acting }: { plugins: TabletPlugin[] | null; acti
                               label="Remove"
                               ariaLabel={`Remove ${pluginLabel(plugin)}`}
                               title={`Remove ${pluginLabel(plugin)}?`}
-                              description="Its settings on this Tablet are deleted. What it stored stays on the Tablet."
+                              description="Its settings on this Tablet are deleted. What it stored stays on the Tablet. If it comes with Decaid, Decaid puts it back when it next starts."
                               confirmLabel="Remove"
                               variant="destructive"
                               disabled={disabled}

@@ -24,7 +24,10 @@ export function shownSetting(value: unknown, scope: Scope): unknown {
 export function shownPluginSettings(value: unknown, scope: Scope): unknown {
   if (seesPluginSettings(scope) || !isRecord(value)) return value;
   return Object.fromEntries(
-    Object.entries(value).map(([pluginId, settings]) => [pluginId, isRecord(settings) ? Object.fromEntries(Object.entries(settings).map(([name, held]) => [name, shownSetting(held, scope)])) : HIDDEN_VALUE]),
+    Object.entries(value).map(([pluginId, plugin]) => {
+      if (!isRecord(plugin) || !isRecord(plugin.values)) return [pluginId, HIDDEN_VALUE];
+      return [pluginId, { ...plugin, values: Object.fromEntries(Object.entries(plugin.values).map(([name, held]) => [name, shownSetting(held, scope)])) }];
+    }),
   );
 }
 

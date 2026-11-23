@@ -204,6 +204,8 @@ export interface UpdateResult {
 export interface SoftwareActionResult {
   /** The plugin installed, enabled, disabled, configured, updated or removed. */
   pluginId?: string;
+  /** Its name, as the plugin list held it afterwards, or before where it was removed: what an install's log names it by. */
+  name?: string;
   /** Its version as installed afterwards. */
   version?: string;
   /** Whether it was loaded afterwards. */

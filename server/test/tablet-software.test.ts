@@ -93,7 +93,12 @@ describe("a Machine's Tablet Software", () => {
 
   it("gives a plugin's settings as its manifest declares them, with what the Tablet holds to an Admin alone, a secret only as set or not", () => {
     const visualizer = recordedPlugin("visualizer.reaplugin");
-    const held = { Username: "sam", LengthThreshold: 7, Password: { isSet: true } };
+    // Its entry in the `pluginSettings` collection, and its entry in the plugin list as PostgreSQL gives a stored one
+    // back, its settings' keys in another order than the manifest's.
+    const held = { declared: Object.keys(recordedPlugin("visualizer.reaplugin").settings), values: { Username: "sam", LengthThreshold: 7, Password: { isSet: true } } };
+    const settings = recordedPlugin("visualizer.reaplugin").settings;
+    visualizer.settings = Object.fromEntries(Object.keys(settings).sort((a, b) => a.length - b.length || a.localeCompare(b)).map((name) => [name, settings[name]]));
+    expect(Object.keys(visualizer.settings)).not.toEqual(held.declared);
     const forAdmin = pluginView(visualizer, held, true)!;
     expect(forAdmin.settings.map((setting) => [setting.name, setting.kind, setting.secret, setting.value])).toEqual([
       ["Username", "text", false, "sam"],
@@ -108,7 +113,7 @@ describe("a Machine's Tablet Software", () => {
     expect(forStaff.settings.map((setting) => setting.name)).toEqual(forAdmin.settings.map((setting) => setting.name));
     expect(forStaff.settings.some((setting) => "value" in setting)).toBe(false);
     // Of its own plugin's, only the poll interval is changed from here.
-    expect(pluginView(pending, {}, true)!.settings.map((setting) => [setting.name, setting.changeable])).toEqual([["ServerUrl", false], ["Token", false], ["PollSeconds", true]]);
+    expect(pluginView(pending, { declared: [], values: {} }, true)!.settings.map((setting) => [setting.name, setting.changeable])).toEqual([["ServerUrl", false], ["Token", false], ["PollSeconds", true]]);
   });
 
   it("reads Decaid's version and build, its update state and its automatic update checks, each absent until reported", () => {

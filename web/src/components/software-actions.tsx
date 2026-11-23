@@ -54,7 +54,7 @@ export function actionText(action: SoftwareAction, plugins?: Plugins): string {
   const plugin = pluginName(params.plugin?.id ?? action.result?.pluginId, params.plugin?.name, plugins);
   switch (action.kind) {
     case "installPlugin": {
-      const installed = action.result?.pluginId ? pluginName(action.result.pluginId, null, plugins) : "a plugin";
+      const installed = action.result?.pluginId ? pluginName(action.result.pluginId, action.result.name, plugins) : "a plugin";
       const what = installed === "a plugin" ? "Installed a plugin" : `Installed the plugin ${installed}`;
       return params.repo ? `${what} · ${sourceText(params.repo, params.branch)}` : what;
     }

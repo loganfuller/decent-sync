@@ -1,5 +1,6 @@
 import {
   MAX_REFUSAL_LENGTH,
+  MAX_SOFTWARE_NAME_LENGTH,
   OWN_CHANGEABLE_SETTING,
   SETTINGS_EDIT_STATES,
   SOFTWARE_ACTION_START_MARGIN_MS,
@@ -346,10 +347,13 @@ function resultOf(action: SoftwareAction, answer: Answer, before: unknown[], aft
   }
   const pluginId = "pluginId" in action ? action.pluginId : isObject(said) && typeof said.id === "string" ? said.id : undefined;
   if (pluginId === undefined) return {};
-  const plugin = (after ?? before).find((entry) => isObject(entry) && entry.id === pluginId) as Record<string, unknown> | undefined;
-  // Removed, it is in neither: its id alone.
-  if (action.kind === "removePlugin" || !plugin) return { pluginId };
-  return { pluginId, ...(typeof plugin.version === "string" ? { version: plugin.version } : {}), ...(typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {}) };
+  const named = (plugin: Record<string, unknown> | undefined) => (typeof plugin?.name === "string" && plugin.name !== "" ? { name: plugin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {});
+  const listed = (list: unknown[] | undefined) => list?.find((entry) => isObject(entry) && entry.id === pluginId) as Record<string, unknown> | undefined;
+  // Removed, it is named as the list held it before.
+  if (action.kind === "removePlugin") return { pluginId, ...named(listed(before)) };
+  const plugin = listed(after) ?? listed(before);
+  if (!plugin) return { pluginId };
+  return { pluginId, ...named(plugin), ...(typeof plugin.version === "string" ? { version: plugin.version } : {}), ...(typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {}) };
 }
 
 /**
@@ -371,7 +375,12 @@ function afterReload(kept: Pending, plugins: unknown[]): SoftwareActed | undefin
   const own = plugins.find((entry) => isObject(entry) && entry.id === __PLUGIN_ID__) as Record<string, unknown> | undefined;
   if (!own) return undefined;
   const version = typeof own.version === "string" ? own.version : undefined;
-  const result: SoftwareActionResult = { pluginId: __PLUGIN_ID__, ...(version === undefined ? {} : { version }), loaded: true };
+  const result: SoftwareActionResult = {
+    pluginId: __PLUGIN_ID__,
+    ...(typeof own.name === "string" && own.name !== "" ? { name: own.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
+    ...(version === undefined ? {} : { version }),
+    loaded: true,
+  };
   const done = (given: SoftwareActionResult): SoftwareActed => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
   const updated = version !== undefined && kept.versions[__PLUGIN_ID__] !== version;
   switch (kept.kind) {

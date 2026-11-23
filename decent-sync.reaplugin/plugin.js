@@ -4040,7 +4040,7 @@ var __decentSync = (() => {
       if (typeof entry.id !== "string" || entry.id === "" || declared.length === 0) continue;
       const reading = await readCollection(`/plugins/${encodeURIComponent(entry.id)}/settings`, null);
       if (reading.kind !== "value" || typeof reading.value !== "object" || Array.isArray(reading.value)) return { kind: "unavailable" };
-      value[entry.id] = reading.value;
+      value[entry.id] = { declared, values: reading.value };
     }
     return { kind: "value", value, etag: null };
   }
@@ -5695,15 +5695,23 @@ var __decentSync = (() => {
     }
     const pluginId = "pluginId" in action ? action.pluginId : isObject8(said) && typeof said.id === "string" ? said.id : void 0;
     if (pluginId === void 0) return {};
-    const plugin = (after ?? before).find((entry) => isObject8(entry) && entry.id === pluginId);
-    if (action.kind === "removePlugin" || !plugin) return { pluginId };
-    return { pluginId, ...typeof plugin.version === "string" ? { version: plugin.version } : {}, ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {} };
+    const named = (plugin2) => typeof plugin2?.name === "string" && plugin2.name !== "" ? { name: plugin2.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {};
+    const listed = (list) => list?.find((entry) => isObject8(entry) && entry.id === pluginId);
+    if (action.kind === "removePlugin") return { pluginId, ...named(listed(before)) };
+    const plugin = listed(after) ?? listed(before);
+    if (!plugin) return { pluginId };
+    return { pluginId, ...named(plugin), ...typeof plugin.version === "string" ? { version: plugin.version } : {}, ...typeof plugin.loaded === "boolean" ? { loaded: plugin.loaded } : {} };
   }
   function afterReload(kept, plugins) {
     const own = plugins.find((entry) => isObject8(entry) && entry.id === "decent-sync.reaplugin");
     if (!own) return void 0;
     const version = typeof own.version === "string" ? own.version : void 0;
-    const result = { pluginId: "decent-sync.reaplugin", ...version === void 0 ? {} : { version }, loaded: true };
+    const result = {
+      pluginId: "decent-sync.reaplugin",
+      ...typeof own.name === "string" && own.name !== "" ? { name: own.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {},
+      ...version === void 0 ? {} : { version },
+      loaded: true
+    };
     const done = (given) => ({ type: "softwareActed", id: kept.id, outcome: "done", result: given });
     const updated = version !== void 0 && kept.versions["decent-sync.reaplugin"] !== version;
     switch (kept.kind) {

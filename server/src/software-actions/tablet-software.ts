@@ -148,8 +148,8 @@ export function skinUpdates(skin: unknown): UpdatesView {
   return commit === null ? { how: "followsUrl", url: source } : { how: "pinned", repo: null, commit, url: source };
 }
 
-/** A plugin's entry in the list, with its settings as declared and, to Admins, as held. */
-export function pluginView(plugin: Record_, held: unknown, admin: boolean): PluginView | null {
+/** A plugin's entry in the list, with its settings as declared and, to Admins, as held: `reported` is its entry in the `pluginSettings` collection, `{ declared, values }`. */
+export function pluginView(plugin: Record_, reported: unknown, admin: boolean): PluginView | null {
   const id = text(plugin.id);
   if (id === null) return null;
   const source = isRecord(plugin.source) ? plugin.source : null;
@@ -165,14 +165,22 @@ export function pluginView(plugin: Record_, held: unknown, admin: boolean): Plug
     pendingUpdate: pending && { version: text(pending.version), addedPermissions: strings(pending.addedPermissions) },
     permissions: strings(plugin.permissions),
     own,
-    settings: settingViews(plugin.settings, own, admin && isRecord(held) ? held : undefined),
+    settings: settingViews(plugin.settings, own, admin && isRecord(reported) && isRecord(reported.values) ? reported.values : undefined, isRecord(reported) ? strings(reported.declared) : []),
   };
 }
 
-/** The settings a plugin's manifest declares, in its order, each with what the Tablet holds where that is given. */
-export function settingViews(declared: unknown, own: boolean, held?: Record_): PluginSettingView[] {
+/**
+ * The settings a plugin's manifest declares, each with what the Tablet
+ * holds where that is given, in the manifest's order where the plugin
+ * reported it (`order`): the plugin list is kept as JSON, whose keys
+ * PostgreSQL does not keep in order.
+ */
+export function settingViews(declared: unknown, own: boolean, held?: Record_, order: readonly string[] = []): PluginSettingView[] {
   if (!isRecord(declared)) return [];
-  return Object.entries(declared).flatMap(([name, value]): PluginSettingView[] => {
+  const place = (name: string) => (order.includes(name) ? order.indexOf(name) : order.length);
+  const entries = Object.entries(declared);
+  // A stable sort: a setting the order does not name keeps its place after those it does.
+  return entries.sort(([a], [b]) => place(a) - place(b)).flatMap(([name, value]): PluginSettingView[] => {
     if (!isRecord(value)) return [];
     const secret = value.secure === true;
     const choices = strings(value.values);

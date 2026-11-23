@@ -114,8 +114,10 @@ describe("a Software Action on the wire", () => {
 });
 
 describe("the plugins' settings in a Settings History", () => {
-  const before = { "visualizer.reaplugin": { Username: "sam", Password: { isSet: false } }, "decent-sync.reaplugin": { ServerUrl: "https://sync.example", PollSeconds: 30, Token: { isSet: true } } };
-  const after = { "visualizer.reaplugin": { Username: "alex", Password: { isSet: true }, LengthThreshold: 7 }, "decent-sync.reaplugin": { ServerUrl: "https://sync.example", PollSeconds: 30, Token: { isSet: true } } };
+  const own = { declared: ["ServerUrl", "Token", "PollSeconds"], values: { ServerUrl: "https://sync.example", PollSeconds: 30, Token: { isSet: true } } };
+  const declared = ["Username", "Password", "LengthThreshold"];
+  const before = { "visualizer.reaplugin": { declared, values: { Username: "sam", Password: { isSet: false } } }, "decent-sync.reaplugin": own };
+  const after = { "visualizer.reaplugin": { declared, values: { Username: "alex", Password: { isSet: true }, LengthThreshold: 7 } }, "decent-sync.reaplugin": own };
 
   it("are a field for each setting, keyed by its plugin and its name", () => {
     expect(settingsHistoryFields("pluginSettings", before)).toEqual({
@@ -127,6 +129,8 @@ describe("the plugins' settings in a Settings History", () => {
     });
     expect(pluginSettingOf(pluginSettingKey("visualizer.reaplugin", "a/b"))).toEqual({ pluginId: "visualizer.reaplugin", setting: "a/b" });
     expect(pluginSettingOf("no slash")).toBeNull();
+    // The names a plugin declares, and their order, are no setting's change.
+    expect(settingsHistoryFields("pluginSettings", { ...before, "visualizer.reaplugin": { ...before["visualizer.reaplugin"], declared: [...declared].reverse() } })).toEqual(settingsHistoryFields("pluginSettings", before));
     // A value in no such shape is one field, as any other collection's.
     expect(settingsHistoryFields("pluginSettings", ["not", "settings"])).toEqual({ "": ["not", "settings"] });
   });

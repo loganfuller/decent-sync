@@ -333,7 +333,7 @@ const AS_OF =
 
 /** The collections a Settings History keeps, for the descriptions of the tools that read one. */
 const HISTORY_COLLECTIONS =
-  "collection: machineSettings, advancedSettings, machineCalibration (its flow calibration) and sensorCalibration are its Machine Settings; appSettings, and presenceSettings, when it sleeps and wakes, its tablet's Tablet Settings; plugins and skins, Decaid's plugins and Skins; pluginSettings, the plugins' settings, each field a plugin's id, a slash and the setting's name, its value shown to Admins only and a secret's never; pairedDevices, the devices paired with its tablet; scaleInfo, its scale's firmware; sensors, its sensors.";
+  "collection: machineSettings, advancedSettings, machineCalibration (its flow calibration) and sensorCalibration are its Machine Settings; appSettings, and presenceSettings, when it sleeps and wakes, its tablet's Tablet Settings; plugins and skins, Decaid's plugins and Skins; pluginSettings, the plugins' settings, each field a plugin's id, a slash and the name of a setting that is set, its value shown to Admins only and a secret's never; pairedDevices, the devices paired with its tablet; scaleInfo, its scale's firmware; sensors, its sensors.";
 
 /** What a Settings History compares none of, which is never a change. */
 const LEFT_OUT =

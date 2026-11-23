@@ -175,7 +175,7 @@ describe("Library, settings and paired devices", () => {
       // Decaid lists the plugin itself, loaded; this tablet has no DYE2.
       plugins: { available: true, value: [expect.objectContaining({ id: "decent-sync.reaplugin", loaded: true, source: null })] },
       // The settings of each plugin that declares any, here its own: the secret one only as whether it is set.
-      pluginSettings: { available: true, value: { "decent-sync.reaplugin": { ServerUrl: server.url, PollSeconds: expect.any(Number), Token: { isSet: true } } } },
+      pluginSettings: { available: true, value: { "decent-sync.reaplugin": { declared: ["ServerUrl", "Token", "PollSeconds"], values: { ServerUrl: server.url, PollSeconds: expect.any(Number), Token: { isSet: true } } } } },
       // Decaid's own update state, as a new v0.9.3 answers it (tablet-software-v0.9.3/).
       decaidUpdate: { available: true, value: decaidUpdateState() },
       skins: { available: true, value: skinsIn(served) },

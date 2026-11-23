@@ -583,9 +583,10 @@ export interface MachineStateDelivery {
  *   sensor calibration;
  * - `plugins`, Decaid's plugin list, DYE2 among them;
  * - `pluginSettings`, the settings of each plugin that declares any, by the
- *   plugin's id, as Decaid's `GET /plugins/{id}/settings` answers: each
- *   setting that was set, a secret one only as `{ isSet }`, never its value
- *   (ADR-0034);
+ *   plugin's id, as `{ declared, values }`: `values` as Decaid's `GET
+ *   /plugins/{id}/settings` answers, each setting that was set, a secret
+ *   one only as `{ isSet }`, never its value, and `declared` the names its
+ *   manifest declares, in its order (ADR-0034);
  * - `decaidUpdate`, Decaid's own update state, as its `GET /update` answers;
  * - `skins`, Decaid's Skins: their list, the default Skin and what the WebUI
  *   server serves;
@@ -2850,6 +2851,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.optionalObject("result", (result) => {
           const given = isObject(object.result) ? object.result : {};
           if (given.pluginId !== undefined) result.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.name !== undefined) result.string("name", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
           if (given.version !== undefined) result.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
           if (given.loaded !== undefined) result.boolean("loaded");
           if (given.results !== undefined) {

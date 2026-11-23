@@ -207,7 +207,7 @@ test("an Admin installs a plugin from a suggestion, enables it, changes another'
   await form.getByLabel("Minimum shot length", { exact: true }).fill("8");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toHaveCount(0);
-  await expect(status).toHaveText("DoneChanged Visualizer upload's settings · Visualizer password, Visualizer username, Minimum shot length. Done.");
+  await expect(status).toHaveText("DoneChanged Visualizer upload's settings · Visualizer username, Visualizer password, Minimum shot length. Done.");
   await pluginRow(page, "Visualizer upload").getByRole("button", { name: "Visualizer upload settings" }).click();
   await expect(form.getByLabel("Visualizer username", { exact: true })).toHaveValue("front-bar");
   await expect(form.getByLabel("Minimum shot length", { exact: true })).toHaveValue("8");
@@ -247,7 +247,7 @@ test("an Admin installs a plugin from a suggestion, enables it, changes another'
   await expect(changed("Visualizer upload: Visualizer username").getByRole("cell").nth(3)).toHaveText("Set: front-bar");
   await expect(changed("Visualizer upload: Visualizer password").getByRole("cell").nth(3)).toHaveText("Not set to Set");
   await expect(changed("Visualizer upload: Visualizer password").getByRole("cell").nth(4)).toHaveText(
-    "YouChanged Visualizer upload's settings · Visualizer password, Visualizer username, Minimum shot length",
+    "YouChanged Visualizer upload's settings · Visualizer username, Visualizer password, Minimum shot length",
   );
   await expect(changed("Visualizer upload: Visualizer password").getByRole("cell").nth(5)).toHaveText("Done");
 });
@@ -317,7 +317,7 @@ test("an action is refused while the Machine is busy, and the log, which starts 
     "Disabled Visualizer upload",
     "You",
     "Done",
-    "Changed Visualizer upload's settings · Visualizer password, Visualizer username, Minimum shot length",
+    "Changed Visualizer upload's settings · Visualizer username, Visualizer password, Minimum shot length",
     "You",
     "Done",
     "Installed a plugin · example/no-such-plugin",
