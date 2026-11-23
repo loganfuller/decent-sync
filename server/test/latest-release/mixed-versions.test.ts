@@ -445,6 +445,9 @@ describe("the latest release beside the change", () => {
         expect((await apis.change.call("PATCH", `/recipes/${ethiopia}`, { content: { grindSetting: 0 } })).status, name).toBe(200);
         await expect.poll(recorded, { timeout: 15_000 }).toEqual([0, "0"]);
       } else {
+        // Once the server's links of the tablet's other recipes are done: the plugin posts DYE2's list whole, so one read
+        // before the editor's save and posted after it would put the Ethiopia back at 2.5 (ADR-0005), and the Recipe with it.
+        await quiet();
         await (await openDye2RecipeEditor(tablet, { id: ETHIOPIA })).set({ grind: 0 }).save();
         await expect.poll(async () => (await content()).grindSetting ?? null, { timeout: 15_000 }).toBeNull();
       }
