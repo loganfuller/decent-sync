@@ -106,13 +106,13 @@ interface shows the server's side of a refusal.
 | The server refused the token. The plugin stops until another token is entered. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because the server refused the token in this plugin's settings. Someone who manages Decent Sync can enter this machine's current token there. |
 | An Admin dismissed the machine's hardware for this token. The plugin waits until the machine reports other hardware, checked every poll interval. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because an Admin dismissed the espresso machine connected to this tablet for the token in this plugin's settings. Someone who manages Decent Sync can give this machine a token of its own. |
 | Another tablet is connected with this Machine's token. The plugin tries again every 5 minutes, and the notice goes once that tablet has gone and the plugin is connected. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because another tablet is connected with this machine's token, and it starts again once that tablet disconnects. Someone who manages Decent Sync can check which tablet should use the token. |
-| The server has been out of reach for 10 minutes, with no connection in between. A connection resets the 10 minutes. | Shots still save on this tablet and will upload later. Decent Sync has not reached its server for 10 minutes. Whoever looks after this tablet's network can check that it is online and can reach the server. |
+| The server has been out of reach for 10 minutes, with no connection in between. A connection resets the 10 minutes. Once the server is back, the notice goes at the plugin's next attempt, at most a minute later. | Shots still save on this tablet and will upload later. Decent Sync has not reached its server for 10 minutes. Whoever looks after this tablet's network can check that it is online and can reach the server. |
 
 Decaid keeps the notice when the plugin loads again, such as after a settings
 change or a restart, and the new load replaces or withdraws it once its first
 connection attempt ends. Disabling or removing the plugin removes it. If
-Decaid refuses a notice, the plugin logs that and asks again only once what
-the notice should say changes.
+Decaid refuses a notice, the plugin logs that, withdraws the notice it would
+have replaced, and asks again only once what the notice should say changes.
 
 ## Settings
 

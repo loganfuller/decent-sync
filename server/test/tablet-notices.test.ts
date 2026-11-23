@@ -136,7 +136,7 @@ describe("Notices on the tablet", () => {
     }
   });
 
-  it("says an Admin dismissed this hardware, and withdraws it within one poll of the machine reporting other hardware", async () => {
+  it("says an Admin dismissed this hardware, and withdraws it within one poll of the machine reporting other hardware, the server out of reach or not", async () => {
     const cafe = await api.createMachine("Dismissed");
     // 25 times faster: the 5 s poll runs every 200 ms.
     const tablet = load({ settings: { ...settingsFor(cafe), PollSeconds: 5 }, api: derivedDe1Pro({ serial: "18001" }), timeScale: 25 });
@@ -153,11 +153,14 @@ describe("Notices on the tablet", () => {
     await untilTabletTime(tablet, polled);
     expect(asked(tablet)).toHaveLength(1);
 
+    // Out of reach as the other hardware is reported, so no welcome can be what withdraws it.
+    tablet.loseNetwork();
     const served = tablet.readClock();
     tablet.serve(derivedDe1Pro({ serial: "18001" }));
     await showing(tablet, null);
     // Within the poll interval, and a little for the check itself.
     expect(tablet.readClock() - served).toBeLessThan(5_000 + 1_000);
+    tablet.restoreNetwork();
     await api.waitForMachine("Dismissed", (machine) => machine.online && machine.identification === "identified");
     expectOneNotice(tablet);
   });
@@ -245,16 +248,19 @@ describe("Notices on the tablet", () => {
 
       await showing(tablet, NOTICES.unreachable, 20_000);
       expect(tablet.readClock() - lost).toBeGreaterThanOrEqual(TEN_MINUTES);
-      // One backoff interval (at most 60 s) at most past the ten minutes, and a little for the check.
+      // Counted by a timer from the first drop, so only the check's own slack past the ten minutes.
       expect(tablet.readClock() - lost).toBeLessThan(TEN_MINUTES + 60_000 + 30_000);
 
       // Its attempts keep failing, and the notice is asked for once.
       await untilTabletTime(tablet, tablet.readClock() + 3 * 60_000);
       expect(asked(tablet)).toHaveLength(1);
 
+      // Withdrawn at the next attempt, which is the plugin's check for the server, at most the 60 s backoff away.
+      const restored = tablet.readClock();
       tablet.restoreNetwork();
       await tablet.waitForLogs(/^Connected to /, 3, 20_000);
       await showing(tablet, null);
+      expect(tablet.readClock() - restored).toBeLessThan(60_000 + 30_000);
       expectOneNotice(tablet);
     });
 

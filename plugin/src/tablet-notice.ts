@@ -20,7 +20,7 @@ const MANAGER = "Someone who manages Decent Sync";
 /**
  * What each notice says, in plain English and with no link: that nothing is
  * lost, why the plugin stopped, then who can fix it. Each fits Decaid's limit
- * of 600 characters (docs/PLUGIN.md, Notices on the tablet, lists them).
+ * of 600 characters (docs/PLUGIN.md, When the plugin stops syncing, lists them).
  */
 export const NOTICES: Readonly<Record<NoticeReason, string>> = {
   decaidTooOld: `${SAVED} Decent Sync stopped syncing because this tablet's Decaid is older than the Decent Sync server supports. ${MANAGER} can update Decaid on this tablet.`,
@@ -79,11 +79,17 @@ export class TabletNotice {
    * Asks Decaid to withdraw the notice, whatever this load thinks shows:
    * Decaid sends no result for a withdrawal, and one whose save fails leaves
    * the notice up, so each call asks again. Withdrawing a notice Decaid
-   * doesn't hold changes nothing there (`removeSource` in
-   * notification_center.dart), so asking again costs nothing.
+   * doesn't hold changes and saves nothing there (`removeSource` in
+   * notification_center.dart). Only while Decaid holds one it can't save
+   * the removal of does each call cost a failed save and a line in Decaid's
+   * log.
    */
   withdraw(): void {
     this.shown = null;
+    this.dismiss();
+  }
+
+  private dismiss(): void {
     try {
       this.host.dismissNotification(NOTICE_ID);
     } catch (error) {
@@ -96,7 +102,11 @@ export class TabletNotice {
     if (this.shown === undefined) this.withdraw();
   }
 
-  /** Decaid's `notificationResult` event: a notice it did not keep is logged. */
+  /**
+   * Decaid's `notificationResult` event: a notice it did not keep is logged,
+   * and the notice it refused to replace is withdrawn, as that one gives a
+   * reason that no longer holds. The refused notice is not asked for again.
+   */
   result(payload: unknown): void {
     if (typeof payload !== "object" || payload === null) return;
     const { requestId, status, reason } = payload as Record<string, unknown>;
@@ -108,6 +118,7 @@ export class TabletNotice {
     this.log(
       `Decaid did not keep the notice on the tablet that ${NAMES[asked]} (${typeof reason === "string" ? reason : String(status)}). It is not asked for again until what the notice should say changes.`,
     );
+    if (this.shown === asked) this.dismiss();
   }
 }
 

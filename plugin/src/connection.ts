@@ -653,7 +653,8 @@ export class SyncConnection {
         break;
       case "heartbeat":
         // Its arrival is what counts. While welcomed, nothing should show on the tablet: asking Decaid again each
-        // heartbeat takes down a notice whose withdrawal at the welcome Decaid failed to save.
+        // heartbeat takes down a notice whose withdrawal at the welcome Decaid failed to save. Asking for one Decaid
+        // doesn't hold changes nothing there.
         this.notice.withdraw();
         break;
       case "error": {
