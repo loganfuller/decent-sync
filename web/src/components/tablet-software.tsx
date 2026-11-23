@@ -667,7 +667,16 @@ function PluginSettingsDialog({ machine, plugin, disabled, onMade }: { machine: 
           Settings
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-lg"
+        onOpenAutoFocus={(event) => {
+          // The first thing to take the focus may be a setting's info tip, which opens as it does: a field takes it instead.
+          const field = (event.currentTarget as HTMLElement).querySelector<HTMLElement>("input, [role='switch'], [role='combobox']");
+          if (!field) return;
+          event.preventDefault();
+          field.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>The fields are the ones the plugin declares.</DialogDescription>
