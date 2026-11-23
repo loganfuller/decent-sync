@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { FOLLOWED_DRAFTS_WIRE_REVISION, type Profile, STARTING_SHAPES, dye2GlobalIdOf, profileId, stepsKey } from "@decent-sync/protocol";
+import { type Profile, STARTING_SHAPES, dye2GlobalIdOf, profileId, stepsKey } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -480,20 +480,15 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
     await api.send("DELETE", `/drafts/${two.id}`, undefined, 204);
   });
 
-  it("lists a Machine whose plugin is from before following as needing its plugin updated, and sends it nothing", async () => {
-    const behind = await api.createMachine("Trial lab behind", lab.id);
-    const raw = await RawConnection.welcomed(server.url, helloWith(behind.token, { machine: { model: "DE1Pro", serial: "58104" }, tabletId: randomUUID(), wireRevision: FOLLOWED_DRAFTS_WIRE_REVISION - 1 }));
+  it("lists a Machine whose tablet never connected as not yet followable, and none as needing its plugin updated", async () => {
+    // Every plugin the server accepts follows a Draft: the wire moved on from the revision that brought it (ADR-0025).
     const draft = await start(shaped("Behind", 0));
-    expect((await trying(draft)).machines.find((machine) => machine.id === behind.machine.id)).toMatchObject({ needsPluginUpdate: true, canFollow: false });
-    expect(await refusal(api, "PUT", `/drafts/${draft.id}/following`, { machineId: behind.machine.id }, 409)).toBe("Trial lab behind needs its plugin updated before it can follow a Draft");
     // One that never connected can't be judged yet.
     const never = await api.createMachine("Trial lab never", lab.id);
     expect((await trying(draft)).machines.find((machine) => machine.id === never.machine.id)).toMatchObject({ needsPluginUpdate: false, canFollow: false });
     expect(await refusal(api, "PUT", `/drafts/${draft.id}/following`, { machineId: never.machine.id }, 409)).toBe(
       "Trial lab never's tablet has not connected since the server could have it follow a Draft",
     );
-    expect((raw.messages as Fields[]).filter((message) => message.type === "write" && message.kind === "draft")).toEqual([]);
-    await raw.close();
     await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
   });
 

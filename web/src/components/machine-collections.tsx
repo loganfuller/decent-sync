@@ -331,10 +331,13 @@ function SettingsSection({
 /** Why Staff are offered no input for a field an Admin may change. */
 const ONLY_AN_ADMIN = "Only an Admin can change it";
 
-/** Whether a field is one only an Admin may change. */
+/** Where a field edited with the Tablet's software is changed, as it is shown here read-only (ADR-0034). */
+const EDITED_WITH_SOFTWARE = "Edited on the Software tab";
+
+/** Whether a field is one only an Admin may change here: one edited on the Software tab is changed there. */
 function adminsOnly(name: SettingsCollectionName, path: string): boolean {
   const field = settingsField(name, path);
-  return field !== undefined && isEditable(field) && field.editableBy === "admin";
+  return field !== undefined && isEditable(field) && field.editableBy === "admin" && !field.withSoftware;
 }
 
 /** Settings fields as a list of terms and values, with what sets a read-only one and a field's notes in a tooltip, and any `action` of a row after it. */
@@ -484,7 +487,7 @@ function settingRows(name: SettingsCollectionName, value: unknown, utcOffsetMinu
       path: field.path,
       term: field.label,
       text: fieldText(name, field, reported[field.path], utcOffsetMinutes),
-      about: isEditable(field) ? undefined : field.setBy,
+      about: isEditable(field) ? (field.withSoftware ? EDITED_WITH_SOFTWARE : undefined) : field.setBy,
       notes: (field.notes ?? []).map((note) => NOTES[note]),
     }));
   const unknown = Object.keys(reported)

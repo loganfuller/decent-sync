@@ -1,6 +1,6 @@
 import { expect, type Locator, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
-import { SimulatedTablet, de1ProOnDecaid092, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet, de1ProOnDecaid093, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, DETAILS_POLL_MS, POLL_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
@@ -20,7 +20,7 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   const { token } = await createMachine(page, "Bar 1");
   const tablet = SimulatedTablet.load({
     settings: settingsFor({ serverUrl: server.url(), token }),
-    api: withShots(de1ProOnDecaid092(), [derivedShot("bar-shot")]),
+    api: withShots(de1ProOnDecaid093(), [derivedShot("bar-shot")]),
   });
   await tablet.waitForLog(/^Connected to /);
   tablet.reportState("espresso", "pouring");
@@ -116,7 +116,7 @@ test("the Machine page asks for its status every 5 s, and for what its open tab 
 
   const status = `/api${new URL(page.url()).pathname}`;
   // What each tab reads, only while it is open; the Settings History is shown closed, reading nothing until opened.
-  const tabs: ["Now" | "Activity" | "Settings" | "Setup", string[]][] = [
+  const tabs: ["Now" | "Activity" | "Settings" | "Software" | "Setup", string[]][] = [
     ["Now", ["/workflow"].map((path) => `${status}${path}`).concat("/api/shots/summary")],
     ["Activity", ["/use", "/activity"].map((path) => `${status}${path}`)],
     [
@@ -131,7 +131,9 @@ test("the Machine page asks for its status every 5 s, and for what its open tab 
         "/collections/sensorCalibration",
       ].map((path) => `${status}${path}`),
     ],
-    ["Setup", ["/tablet-versions", "/collections", "/set-aside-deliveries"].map((path) => `${status}${path}`)],
+    // The Software Actions log is shown closed too.
+    ["Software", [`${status}/tablet-software`]],
+    ["Setup", ["/collections", "/set-aside-deliveries"].map((path) => `${status}${path}`)],
   ];
   const times = (path: string) => requested.filter((requestedPath) => requestedPath === path).length;
   // No two tabs one after the other read the same path, so what the tab before still had on its way counts for neither.

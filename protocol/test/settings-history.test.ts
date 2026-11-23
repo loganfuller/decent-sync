@@ -16,8 +16,9 @@ import {
 // them (COLLECTIONS.md), with made-up ids.
 
 describe("SETTINGS_HISTORY_COLLECTIONS", () => {
-  it("is every collection but the Library's lists, in COLLECTION_NAMES order", () => {
-    expect(SETTINGS_HISTORY_COLLECTIONS).toEqual(COLLECTION_NAMES.filter((name) => !(LIBRARY_LISTS as readonly string[]).includes(name)));
+  it("is every collection but the Library's lists and Decaid's own update state, in COLLECTION_NAMES order", () => {
+    // Decaid's update state changes with each check, by itself (ADR-0034).
+    expect(SETTINGS_HISTORY_COLLECTIONS).toEqual(COLLECTION_NAMES.filter((name) => !(LIBRARY_LISTS as readonly string[]).includes(name) && name !== "decaidUpdate"));
   });
 });
 
@@ -182,9 +183,9 @@ describe("settingsHistoryChanges", () => {
       outside({ fan: 45, steamFlow: 0.8, newField: true }, 2400),
     ]);
     expect(changes).toEqual([
-      { index: 1, settingsEditId: null, fields: [{ field: "fan", change: "changed", before: 50, after: 45, backAt: null }] },
-      { index: 3, settingsEditId: null, fields: [{ field: "newField", change: "added", before: null, after: true, backAt: null }] },
-      { index: 4, settingsEditId: null, fields: [{ field: "steamPurgeMode", change: "removed", before: 0, after: null, backAt: null }] },
+      { index: 1, settingsEditId: null, softwareActionId: null, fields: [{ field: "fan", change: "changed", before: 50, after: 45, backAt: null }] },
+      { index: 3, settingsEditId: null, softwareActionId: null, fields: [{ field: "newField", change: "added", before: null, after: true, backAt: null }] },
+      { index: 4, settingsEditId: null, softwareActionId: null, fields: [{ field: "steamPurgeMode", change: "removed", before: 0, after: null, backAt: null }] },
     ]);
   });
 
@@ -212,8 +213,8 @@ describe("settingsHistoryChanges", () => {
       { value: { ...advanced, heaterPh1Flow: 3, refillKitSetting: 2 }, receivedAt: at(60), settingsEditId: "edit", editedFields: ["heaterPh1Flow"] },
     ]);
     expect(changes).toEqual([
-      { index: 1, settingsEditId: "edit", fields: [{ field: "heaterPh1Flow", change: "changed", before: 2, after: 3, backAt: null }] },
-      { index: 1, settingsEditId: null, fields: [{ field: "refillKitSetting", change: "changed", before: 0, after: 2, backAt: null }] },
+      { index: 1, settingsEditId: "edit", softwareActionId: null, fields: [{ field: "heaterPh1Flow", change: "changed", before: 2, after: 3, backAt: null }] },
+      { index: 1, settingsEditId: null, softwareActionId: null, fields: [{ field: "refillKitSetting", change: "changed", before: 0, after: 2, backAt: null }] },
     ]);
   });
 
@@ -226,15 +227,15 @@ describe("settingsHistoryChanges", () => {
       outside({ ...advanced, refillKitSetting: 0, heaterIdleTemp: 97 }, 600 + BRIEF_CHANGE_MS / 1000),
     ]);
     expect(changes).toEqual([
-      { index: 1, settingsEditId: null, fields: [{ field: "refillKitSetting", change: "changed", before: 0, after: 2, backAt: at(600) + BRIEF_CHANGE_MS }] },
-      { index: 2, settingsEditId: null, fields: [{ field: "heaterIdleTemp", change: "changed", before: 99, after: 97, backAt: null }] },
+      { index: 1, settingsEditId: null, softwareActionId: null, fields: [{ field: "refillKitSetting", change: "changed", before: 0, after: 2, backAt: at(600) + BRIEF_CHANGE_MS }] },
+      { index: 2, settingsEditId: null, softwareActionId: null, fields: [{ field: "heaterIdleTemp", change: "changed", before: 99, after: 97, backAt: null }] },
     ]);
   });
 
   it("folds a remembered scale left out of the paired devices for a moment as briefly removed, however it is connected when back", () => {
     const scale = { name: "Mock Scale", id: "MockScale", state: "connected", type: "scale", available: true, connectionRole: "primary" };
     const changes = settingsHistoryChanges("pairedDevices", [outside([scale], 0), outside([], 600), outside([{ ...scale, state: "connecting", available: false }], 610)]);
-    expect(changes).toEqual([{ index: 1, settingsEditId: null, fields: [{ field: "MockScale", change: "removed", before: settingsHistoryFields("pairedDevices", [scale]).MockScale, after: null, backAt: at(610) }] }]);
+    expect(changes).toEqual([{ index: 1, settingsEditId: null, softwareActionId: null, fields: [{ field: "MockScale", change: "removed", before: settingsHistoryFields("pairedDevices", [scale]).MockScale, after: null, backAt: at(610) }] }]);
   });
 
   it("folds no change back later than about 2 minutes, to another value, or made or undone through a Settings Edit, and pairs each change back once", () => {

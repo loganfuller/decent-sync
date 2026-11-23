@@ -246,9 +246,6 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     for (const [args, status] of [
       [{ collection: "machineSettings", fields: { fan: 70 }, expected: { fan: 40 } }, 400],
       [{ collection: "machineSettings", fields: { steamFlow: 1.5 }, expected: { steamFlow: 1 } }, 400],
-      // Shown, not edited: Decaid v0.9.2, and v0.9.3 while a setting the plugin cannot read is on, turns them back on only
-      // with a token (#549, #655).
-      [{ collection: "appSettings", fields: { automaticUpdateCheck: false }, expected: { automaticUpdateCheck: true } }, 400],
       [{ collection: "machineSettings", fields: { fan: 45 }, expected: {} }, 400],
       [{ collection: "presenceSettings", schedule: { action: "change" }, fields: { enabled: false }, expected: {} }, 400],
       [{ collection: "presenceSettings", schedule: { action: "add", id: "x" }, fields: { enabled: false }, expected: {} }, 400],
@@ -257,6 +254,11 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     }
     expect(await toolError(assistant, "edit_machine_settings", { machineId: randomUUID(), collection: "machineSettings", fields: { fan: 45 }, expected: { fan: 40 } })).toBe(
       await restRefusal(api, "POST", `/machines/${randomUUID()}/settings-edits`, { collection: "machineSettings", fields: { fan: 45 }, expected: { fan: 40 } }, 404),
+    );
+    // The automatic update checks are an Admin's on the Machine's Software tab, and no assistant's: they decide whether
+    // anything on the Tablet updates (ADR-0034). The same edit made in the management interface is taken.
+    expect(await toolError(assistant, "edit_machine_settings", { machineId, collection: "appSettings", fields: { automaticUpdateCheck: false }, expected: { automaticUpdateCheck: true } })).toContain(
+      "Automatic update checks can't be changed through an assistant: an Admin changes them on the Machine's Software tab",
     );
     // The tool's own schema: a collection that isn't one, and a field it doesn't take.
     expect(await toolError(assistant, "edit_machine_settings", { machineId, collection: "plugins", fields: { fan: 45 }, expected: { fan: 40 } })).toContain("collection");
@@ -400,7 +402,7 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
       ["edit_location", { locationId: uptown.id, name: "Refused 413" }],
     ];
     const { tools } = await reader.client.listTools();
-    // The settings it offers are the editable ones: no automatic update checks, and the flow multiplier with its note.
+    // The settings it offers are those an assistant may edit: no automatic update checks, the Software tab's, and the flow multiplier with its note.
     const offered = tools.find((tool) => tool.name === "edit_machine_settings")!.description!;
     expect(offered).not.toContain("automaticUpdateCheck");
     expect(offered).toContain("flowMultiplier (Flow calibration: a number, 0.13 to 2, a multiple of 0.001; its tablet writes it again as the Machine connects; Admins only)");

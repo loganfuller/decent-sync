@@ -434,10 +434,157 @@ export interface SettingsHistoryEntry {
   change: { id: string; fields: SettingsHistoryField[] } | null;
   /** The Settings Edit that made the change, or that changed nothing, with what came of it; null for a change made outside Decent Sync. */
   settingsEdit: SettingsEdit | null;
+  /**
+   * The Software Action whose read-back made the change (ADR-0034); null for
+   * any other change. Absent from the previous release's answer during a
+   * deploy (ADR-0025).
+   */
+  softwareAction?: SoftwareAction | null;
 }
 
 export interface SettingsHistoryEntryPage {
   entries: SettingsHistoryEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * How a plugin or Skin updates, shown and never switched: from a GitHub
+ * repository's latest release, a branch's head, a commit or a URL naming a
+ * commit's archive (Pinned), any other URL, as one that comes with Decaid,
+ * or not at all.
+ */
+export type SoftwareUpdates =
+  | { how: "followsReleases"; repo: string | null }
+  | { how: "followsBranch"; repo: string | null; branch: string }
+  | { how: "pinned"; repo: string | null; commit: string | null; url: string | null }
+  | { how: "followsUrl"; url: string }
+  | { how: "comesWithDecaid"; repo: string | null }
+  | { how: "notUpdated" };
+
+/** A setting a plugin declares, with what the Tablet holds for it. */
+export interface PluginSetting {
+  name: string;
+  kind: "text" | "number" | "switch" | "choice";
+  label: string;
+  description: string | null;
+  /** Its value is never reported, only whether one is set. */
+  secret: boolean;
+  choices: string[];
+  default: unknown;
+  /** To Admins only: a value, null for one not set, or `{ isSet }` for a secret; absent to anyone else, and until reported. */
+  value?: unknown;
+  /** Whether a Software Action may change it: of Decent Sync's own plugin, only its poll interval. */
+  changeable: boolean;
+}
+
+export interface TabletPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  /** `notLoaded`: to load as Decaid starts, but not loaded now. */
+  state: "enabled" | "disabled" | "notLoaded";
+  updates: SoftwareUpdates;
+  /** What the latest update check said went wrong, in Decaid's words. */
+  lastError: string | null;
+  /** An update that waits for someone to approve the permissions it adds. */
+  pendingUpdate: { version: string | null; addedPermissions: string[] } | null;
+  permissions: string[];
+  /** Decent Sync's own plugin, which is never disabled or removed from here. */
+  own: boolean;
+  settings: PluginSetting[];
+}
+
+export interface TabletSkin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  default: boolean;
+  /** Whether Decaid's Skin server is serving it now. */
+  served: boolean;
+  updates: SoftwareUpdates;
+}
+
+/** A Machine's Tablet Software: Decaid, its plugins and its Skins, as its Tablet last reported them. */
+export interface TabletSoftware {
+  decaid: {
+    version: string | null;
+    build: string | null;
+    /** Decaid's own update state: `phase` as Decaid names it, such as idle, checking, available or error. */
+    update: { phase: string | null; latestVersion: string | null; installable: boolean; error: string | null; reportedAt: string } | null;
+    /** Null until reported. */
+    automaticUpdateCheck: boolean | null;
+  };
+  /** Null until the Tablet reports them. */
+  plugins: TabletPlugin[] | null;
+  skins: TabletSkin[] | null;
+  /** The Tablet's plugin is from before Software Actions, and is sent none until it updates. */
+  pluginMustUpdate: boolean;
+}
+
+/** A source the account's other Machines' plugins were installed from, for the install form. */
+export interface PluginSource {
+  pluginId: string;
+  name: string | null;
+  version: string | null;
+  repo: string;
+  /** The branch or commit an install names; null for the latest release. */
+  branch: string | null;
+  updates: SoftwareUpdates;
+  machines: number;
+}
+
+/** Why a Software Action was refused. */
+export type SoftwareActionRefusal =
+  | { reason: "machineBusy"; state: string | null }
+  | { reason: "changedSince"; message: string | null }
+  | { reason: "expired" }
+  | { reason: "notAllowed"; message: string | null }
+  /** Decaid's status, null where it did not answer or was not asked, and its words. */
+  | { reason: "decaid"; status: number | null; message: string | null };
+
+/** Something done to a Tablet's software through the server (ADR-0034), kept with who asked and what came of it. */
+export interface SoftwareAction {
+  id: string;
+  machineId: string;
+  /** installPlugin, enablePlugin, disablePlugin, changePluginSettings, checkPluginUpdates, approvePluginUpdate, removePlugin or checkDecaidUpdate; another for a later release's. */
+  kind: string;
+  /** What it names: never a setting's value. */
+  params: {
+    plugin?: { id: string; name: string | null };
+    repo?: string;
+    branch?: string | null;
+    version?: string;
+    addedPermissions?: string[];
+    settings?: string[];
+  };
+  /** Named to Admins, and to anyone else by its id only. */
+  account: { id: string; name: string | null } | null;
+  connectedApp: { id: string; name: string; host: string } | null;
+  madeAt: string;
+  sentAt: string | null;
+  answeredAt: string | null;
+  /** Null while it awaits its answer; `notConfirmed` once no longer awaited, until a late answer replaces it. */
+  outcome: "done" | "refused" | "notConfirmed" | null;
+  late: boolean;
+  refusal: SoftwareActionRefusal | null;
+  /** What came of it, once done. */
+  result: {
+    pluginId?: string;
+    /** The plugin's name, as its Tablet listed it. */
+    name?: string;
+    version?: string;
+    loaded?: boolean;
+    /** An update check's result for each plugin: updated, alreadyCurrent, pendingApproval or failed. */
+    results?: { item: string; status: string; error?: string; version?: string }[];
+    /** Decaid's update state after a check for its own update. */
+    decaid?: Record<string, unknown>;
+  } | null;
+}
+
+export interface SoftwareActionPage {
+  softwareActions: SoftwareAction[];
   total: number;
   limit: number;
   offset: number;

@@ -279,8 +279,9 @@ Each server has one owner: a household, or a business with all of its sites.
 
 ### Machines, from anywhere
 
-- **A page in four tabs.** Each Machine's page opens on Now, with Activity,
-  Settings and Setup beside it, and a link opens on the tab it names. Above
+- **A page in five tabs.** Each Machine's page opens on Now, with Activity,
+  Settings, Software and Setup beside it, and a link opens on the tab it
+  names. Above
   the tabs, whichever is open: the Machine's name and whether it is online,
   what it is doing, its last Shot, marked where it was out of spec, its
   Location, links to its Shots and Steam Records, and anything that needs
@@ -307,14 +308,26 @@ Each server has one owner: a household, or a business with all of its sites.
   Machine's settings, wake schedules included, and the tablet's Decaid
   settings, on its Settings tab.
 - **Settings History.** The Settings tab lists every change of the Machine's
-  settings, plugins, Skins, paired devices and sensors, whatever made it,
-  naming who made a Settings Edit's and what came of it. A Settings Edit that
-  changed nothing, as one refused or not confirmed, is listed too, and the
-  list narrows to Settings Edits alone.
+  settings, plugins and their settings, Skins, paired devices and sensors,
+  whatever made it, naming who made a Settings Edit's or a Software Action's
+  and what came of it. A Settings Edit that changed nothing, as one refused
+  or not confirmed, is listed too, and the list narrows to Settings Edits
+  alone.
+- **Its tablet's software.** The Software tab shows Decaid, with the update
+  it offers and whether its automatic update checks are on, and every plugin
+  and Skin on the tablet, each with its version and how it updates: Pinned,
+  following releases or a branch, or not updated. While the tablet is
+  connected and the Machine idle, an Admin installs a plugin from a
+  repository's latest release, a branch or a commit, enables, disables,
+  configures and removes one, checks the plugins for updates and approves
+  one that waits on new permissions, asks Decaid to check for its own update,
+  and turns the automatic update checks on or off. Each action is made once,
+  never kept for later, and logged with who asked and what came of it. Staff
+  and Viewers read the tab. Skins are shown, not yet managed.
 - **Setup.** Its Setup tab holds what is looked at seldom: its hardware,
-  firmware and tablets, the Decaid, plugin, DYE2 and Streamline it runs, its
-  Location and where it has been, whether it shares the Library, and its
-  token.
+  firmware and tablets, with a link to the Software tab for what the tablet
+  runs, its Location and where it has been, whether it shares the Library,
+  and its token.
 - **All the Machines at a glance.** The Machines list gives each Machine's
   Location, whether it is online, what it is doing, its last Shot, marked
   where it was out of spec, and its Loaded Recipe.
@@ -423,7 +436,7 @@ the internet, fly.io, and upgrading.
 
 ## Installing the plugin
 
-The plugin needs Decaid v0.9.2 or newer. For a Machine to follow Recipes, its
+The plugin needs Decaid v0.9.3 or newer. For a Machine to follow Recipes, its
 tablet also needs DYE2 v0.1.42 or newer, and Streamline v0.2.31 or newer if
 Streamline is its skin.
 
@@ -435,7 +448,8 @@ Streamline is its skin.
 
 The Machine then shows as online in the management interface. Decaid keeps
 the plugin up to date. An update that asks for a new permission waits until
-someone at the tablet approves it.
+someone approves it: at the tablet, or, once its plugin takes Software
+Actions, an Admin on the Machine's Software tab.
 
 [docs/PLUGIN.md](docs/PLUGIN.md) covers installing from a computer, updates and
 approvals, the plugin's settings, and what it does on the tablet.
@@ -514,7 +528,7 @@ What each release added. See [all releases](https://github.com/loganfuller/decen
 | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) |
 | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) |
 
-Next, in v1.13.0: each Tablet's plugins, Skins and Decaid seen and managed from the management interface, and a notice on the Tablet when its plugin stops.
+In progress, in v1.13.0 ([#657](https://github.com/loganfuller/decent-sync/issues/657)): each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins managed there, on a Machine's Software tab. Still to come in it: its Skins managed and reloaded, and a notice on the Tablet when its plugin stops.
 
 Planned after that, in no fixed order:
 

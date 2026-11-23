@@ -12,7 +12,7 @@ import {
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
-import { field, machineRow, openMachineTab } from "./support/locators.js";
+import { field, machineRow, openMachineTab, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Machines in the management interface, as an Admin, with Seam 1's simulated
@@ -92,8 +92,11 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(field(hardware(page), "Connection id")).toHaveText("00:00:5E:00:53:01");
   await expect(field(hardware(page), "Aliases")).toHaveText("00:00:5E:00:53:01");
   await expect(field(hardware(page), "Last seen")).not.toHaveText("Never");
-  await expect(field(page, "Decaid")).toHaveText("0.9.2+3191");
-  await expect(field(page, "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
+  // Decaid's version and the plugin's are on the Software tab (#660), which the Setup tab links to.
+  await page.getByRole("region", { name: "Hardware and software" }).getByRole("link", { name: "Software tab" }).click();
+  await expect(field(page.getByRole("region", { name: "Decaid" }), "Version")).toHaveText("0.9.3 · build 3265");
+  await expect(rows(page.getByRole("table", { name: "Plugins" })).filter({ hasText: /^Decent Sync/ }).getByRole("cell").nth(1)).toHaveText(/^\d+\.\d+\.\d+/);
+  await openMachineTab(page, "Setup");
 
   // The tablet its connection came from, known by the id the plugin keeps in Decaid's plugin storage.
   const tablet = page.locator('dl[aria-label="Tablet"]');

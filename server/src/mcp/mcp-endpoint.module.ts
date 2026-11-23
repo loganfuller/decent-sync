@@ -11,6 +11,8 @@ import { LocationsModule } from "../locations/locations.module.js";
 import { MachineEventsModule } from "../machine-events/machine-events.module.js";
 import { MachinesModule } from "../machines/machines.module.js";
 import { SettingsEditsModule } from "../settings-edits/settings-edits.module.js";
+import { SoftwareActionsModule } from "../software-actions/software-actions.module.js";
+import { SoftwareTools } from "./software.tools.js";
 import { ShotsModule } from "../shots/shots.module.js";
 import { SteamRecordsModule } from "../steam-records/steam-records.module.js";
 import { INSTRUCTIONS } from "./instructions.js";
@@ -52,6 +54,7 @@ export class McpEndpointModule implements NestModule {
         MachineEventsModule,
         CollectionsModule,
         SettingsEditsModule,
+        SoftwareActionsModule,
         ShotsModule,
         SteamRecordsModule,
         McpModule.forRoot({
@@ -84,6 +87,7 @@ export class McpEndpointModule implements NestModule {
         RecipeChangesTools,
         MachinesTools,
         MachineChangesTools,
+        SoftwareTools,
         RecordsTools,
         RecordChangesTools,
         SimulationTools,

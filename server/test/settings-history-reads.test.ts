@@ -166,6 +166,7 @@ describe("a Machine's Settings History through the REST API", () => {
         receivedAt,
         collection,
         settingsEdit: null,
+        softwareAction: null,
         fields: fields.map((field) => ({ ...field, backAt: null })),
       });
       const morning = { time: "06:30", daysOfWeek: [1, 2, 3, 4, 5], enabled: true, keepAwakeFor: null };
@@ -274,6 +275,7 @@ describe("a Machine's Settings History through the REST API", () => {
       receivedAt: beside!.receivedAt,
       collection: "advancedSettings",
       settingsEdit: { id: settingsEdit.id, account: { id: adminId, name: "Ada Admin" }, connectedApp: null },
+      softwareAction: null,
       fields: [{ field: "heaterPh1Flow", change: "changed", before: 2, after: 3, backAt: null }],
     });
     expect(beside).toMatchObject({ settingsEdit: null, fields: [{ field: "heaterIdleTemp", before: 99, after: 97 }] });

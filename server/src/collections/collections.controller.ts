@@ -42,13 +42,13 @@ export class CollectionsController {
    * History, or null if none was received by then.
    */
   @Get(":id/collections/:name")
-  async get(@Param("id") id: string, @Param("name") name: string, @Query("at") at?: unknown): Promise<{ collection: CollectionView | null }> {
+  async get(@Param("id") id: string, @Param("name") name: string, @CurrentScope() scope: Scope, @Query("at") at?: unknown): Promise<{ collection: CollectionView | null }> {
     const machineId = readMachineId(id);
     const asOf = readAsOf(at);
     // An unknown name is refused as it is without a time.
-    if (asOf === undefined || !isCollectionName(name)) return { collection: await this.collections.get(machineId, name) };
+    if (asOf === undefined || !isCollectionName(name)) return { collection: await this.collections.get(machineId, name, scope) };
     if (!isSettingsHistoryCollection(name)) throw new BadRequestException("The Library's lists are kept in the Library's own history, not the Settings History, so they can't be read as of a time");
-    return { collection: (await this.history.asOf(machineId, [name], asOf))[name] };
+    return { collection: (await this.history.asOf(machineId, [name], asOf, scope))[name] };
   }
 
   /**

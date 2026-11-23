@@ -10,7 +10,7 @@ import {
   Refusal,
   type SimulatedTablet,
   type SimulatedTabletOptions,
-  de1ProOnDecaid092,
+  de1ProOnDecaid093,
   derivedDe1Pro,
   helloWith,
   manyProfiles,
@@ -21,6 +21,7 @@ import {
   simulatedLibrary,
   skinsAt,
 } from "./support/simulated-tablet.js";
+import { decaidUpdateState } from "./support/decaid-plugins.js";
 import { SimulatedDye2, dye2Migrated } from "./support/simulated-dye2.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
@@ -173,6 +174,10 @@ describe("Library, settings and paired devices", () => {
       sensorCalibration: { available: true, value: sensorCalibrationIn(served) },
       // Decaid lists the plugin itself, loaded; this tablet has no DYE2.
       plugins: { available: true, value: [expect.objectContaining({ id: "decent-sync.reaplugin", loaded: true, source: null })] },
+      // The settings of each plugin that declares any, here its own: the secret one only as whether it is set.
+      pluginSettings: { available: true, value: { "decent-sync.reaplugin": { declared: ["ServerUrl", "Token", "PollSeconds"], values: { ServerUrl: server.url, PollSeconds: expect.any(Number), Token: { isSet: true } } } } },
+      // Decaid's own update state, as a new v0.9.3 answers it (tablet-software-v0.9.3/).
+      decaidUpdate: { available: true, value: decaidUpdateState() },
       skins: { available: true, value: skinsIn(served) },
       pairedDevices: { available: true, value: paired(served["/devices"]) },
       scaleInfo: value("/scale/info"),
@@ -196,7 +201,7 @@ describe("Library, settings and paired devices", () => {
 
   it("sends a changed collection at the next poll and an unchanged one never again, until a reconnect sends every one in full", async () => {
     const machine = await api.createMachine("Polled");
-    let served = de1ProOnDecaid092();
+    let served = de1ProOnDecaid093();
     const tablet = load(machine, { api: served });
     await expect.poll(() => allReported(machine)).toBe(true);
     await allAcknowledged(tablet);
@@ -435,7 +440,7 @@ describe("Library, settings and paired devices", () => {
     const machine = await api.createMachine("Binds later");
     const visitor = await api.createMachine("Visitor");
     const hardware = { model: "DE1Pro", serial: "30301" };
-    const tablet = de1ProOnDecaid092();
+    const tablet = de1ProOnDecaid093();
     const simulated = { ...simulatedLibrary(), ...simulatedDevices() };
     // Derived: the tablet's machine settings as the visitor's tablet later read them, recalibrated.
     const recalibrated = { ...(tablet["/machine/settings"] as object), steamFlow: 1.5 };
@@ -481,7 +486,7 @@ describe("Library, settings and paired devices", () => {
     const hardware = { model: "DE1Pro", serial: "30401" };
     const first = await connect(machine, server.url, hardware);
     // Derived: the tablet's machine settings with two fan thresholds.
-    const settings = de1ProOnDecaid092()["/machine/settings"] as object;
+    const settings = de1ProOnDecaid093()["/machine/settings"] as object;
     const older = report("machineSettings", { ...settings, fan: 40 });
     const newer = report("machineSettings", { ...settings, fan: 45 });
     const database = await server.connectDatabase();
@@ -518,7 +523,7 @@ describe("Library, settings and paired devices", () => {
   it("records when a value delivered again was reported and received, and stores a changed one", async () => {
     const machine = await api.createMachine("Reconnecting");
     const hardware = { model: "DE1Pro", serial: "31001" };
-    const profiles = de1ProOnDecaid092()["/profiles"] as Record<string, unknown>[];
+    const profiles = de1ProOnDecaid093()["/profiles"] as Record<string, unknown>[];
     const first = await connect(machine, server.url, hardware);
     await first.deliver(report("profiles", profiles));
     const before = (await collection(machine, "profiles"))!;
@@ -548,7 +553,7 @@ describe("Library, settings and paired devices", () => {
 
       const machine = await api.createMachine("Reconnecting to TOAST");
       const hardware = { model: "DE1Pro", serial: "31002" };
-      const profiles = de1ProOnDecaid092()["/profiles"] as Record<string, unknown>[];
+      const profiles = de1ProOnDecaid093()["/profiles"] as Record<string, unknown>[];
       const toastId = async () =>
         (
           await database.query<{ id: string | null }>(
@@ -584,7 +589,7 @@ describe("Library, settings and paired devices", () => {
     const visitor = await api.createMachine("Visitor of 30901");
     await (await connect(visitor, server.url, { model: "DE1Pro", serial: "30902" })).close();
     // Derived: the tablet's machine settings with two fan thresholds.
-    const settings = de1ProOnDecaid092()["/machine/settings"] as object;
+    const settings = de1ProOnDecaid093()["/machine/settings"] as object;
     // The visitor's tablet moves onto the owner's machine, then onto one no Machine has.
     for (const serial of ["30901", "30903"]) {
       const hardware = { model: "DE1Pro", serial };
@@ -960,7 +965,7 @@ describe("Library, settings and paired devices", () => {
   it("acknowledges and ignores a collection it does not know", async () => {
     const machine = await api.createMachine("Newer plugin");
     const raw = await connect(machine);
-    await raw.deliver(report("recipes", de1ProOnDecaid092()["/store/dye2.reaplugin/recipes"]));
+    await raw.deliver(report("recipes", de1ProOnDecaid093()["/store/dye2.reaplugin/recipes"]));
     expect(await summaries(machine)).toEqual([]);
   });
 });

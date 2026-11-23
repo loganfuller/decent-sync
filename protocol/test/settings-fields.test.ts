@@ -44,14 +44,19 @@ describe("validateSettingsEdit", () => {
     ]);
   });
 
-  it("refuses the automatic update checks turned off or on, saying where they are managed", () => {
-    // Decaid v0.9.2, and v0.9.3 while a setting the plugin cannot read is on, turn them on only with a token, which the
-    // plugin has none of, so an edit could only turn them off for good.
+  it("takes the automatic update checks turned off or on from an Admin alone, as a field of the Software tab", () => {
+    // The plugin writes it through `host.localApi`, which turns the checks on whatever the Tablet's setting for
+    // managing plugins asks of a plain request (ADR-0034).
     for (const automaticUpdateCheck of [false, true]) {
-      const refusals = validateSettingsEdit({ collection: "appSettings", fields: { automaticUpdateCheck } }, "admin");
-      expect(refusals).toEqual([{ reason: "readOnly", field: "automaticUpdateCheck" }]);
-      expect(settingsRefusalText("appSettings", refusals[0]!)).toBe("Automatic update checks can't be changed here: managed in Decaid on the Tablet");
+      expect(validateSettingsEdit({ collection: "appSettings", fields: { automaticUpdateCheck } }, "admin")).toEqual([]);
+      const refusals = validateSettingsEdit({ collection: "appSettings", fields: { automaticUpdateCheck } }, "staff");
+      expect(refusals).toEqual([{ reason: "notAllowed", field: "automaticUpdateCheck" }]);
     }
+    expect(validateSettingsEdit({ collection: "appSettings", fields: { automaticUpdateCheck: "on" } }, "admin")).toEqual([{ reason: "invalid", field: "automaticUpdateCheck" }]);
+    const field = SETTINGS_FIELDS.appSettings.find((candidate) => candidate.path === "automaticUpdateCheck")!;
+    expect(isEditable(field) && field.withSoftware).toBe(true);
+    // No other field is the Software tab's.
+    expect(Object.values(SETTINGS_FIELDS).flat().filter((candidate) => isEditable(candidate) && candidate.withSoftware)).toEqual([field]);
   });
 
   it("refuses a value out of range", () => {

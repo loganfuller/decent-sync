@@ -12,8 +12,9 @@ import type { WakeScheduleAction } from "./settings-fields.js";
  * The collections whose values a Settings History keeps: every collection
  * but the Library's lists, which the Library keeps with its own history
  * (`LIBRARY_LISTS`): the Machine Settings, the Tablet Settings with the
- * presence settings, the plugins and Skins, the paired devices, the scale's
- * information and the sensors.
+ * presence settings, the plugins, their settings and the Skins, the paired
+ * devices, the scale's information and the sensors. Decaid's own update
+ * state (`decaidUpdate`) is left out: it changes by itself, with each check.
  */
 export const SETTINGS_HISTORY_COLLECTIONS = [
   "appSettings",
@@ -23,6 +24,7 @@ export const SETTINGS_HISTORY_COLLECTIONS = [
   "machineCalibration",
   "sensorCalibration",
   "plugins",
+  "pluginSettings",
   "skins",
   "pairedDevices",
   "scaleInfo",
@@ -78,6 +80,21 @@ const PLUGIN_CHECK_FIELDS = ["lastChecked", "lastError"];
  */
 const PENDING_UPDATE_CHECK_FIELDS = ["detectedAt"];
 
+/**
+ * How a plugin's setting is keyed among the `pluginSettings` projection's
+ * fields: `<plugin id>/<setting>`, a plugin's id holding no slash but one a
+ * setting's name might.
+ */
+export function pluginSettingKey(pluginId: string, setting: string): string {
+  return `${pluginId}/${setting}`;
+}
+
+/** The plugin's id and the setting's name a `pluginSettings` field is keyed by, or null for a key of another shape. */
+export function pluginSettingOf(field: string): { pluginId: string; setting: string } | null {
+  const slash = field.indexOf("/");
+  return slash <= 0 ? null : { pluginId: field.slice(0, slash), setting: field.slice(slash + 1) };
+}
+
 /** How a wake schedule's field is keyed among a projection's fields: `schedules/<id>`, by the id Decaid gave it. */
 export const SCHEDULE_KEY_PREFIX = "schedules/";
 
@@ -96,6 +113,10 @@ export const SCHEDULE_KEY_PREFIX = "schedules/";
  * - The plugins, paired devices and sensors are a field per entry, keyed by
  *   its id; each paired device without its connection, and each plugin's
  *   `source` and `pendingUpdate` without what its update checks write.
+ * - The plugins' settings are a field per setting that is set, keyed by its
+ *   plugin's id and its name (`pluginSettingKey`), a secret one as Decaid
+ *   reports it, whether it is set; the names a plugin declares, and their
+ *   order, are compared with its entry in the plugin list, not here.
  * - Any other value that is no object is one field, keyed "".
  */
 export function settingsHistoryFields(name: SettingsHistoryCollection, value: unknown): Record<string, unknown> {
@@ -119,6 +140,14 @@ export function settingsHistoryFields(name: SettingsHistoryCollection, value: un
         ...(isObject(plugin.source) ? { source: without(plugin.source, PLUGIN_CHECK_FIELDS) } : {}),
         ...(isObject(plugin.pendingUpdate) ? { pendingUpdate: without(plugin.pendingUpdate, PENDING_UPDATE_CHECK_FIELDS) } : {}),
       }));
+    case "pluginSettings": {
+      if (!isObject(value) || !Object.values(value).every((plugin) => isObject(plugin) && isObject(plugin.values))) return { "": value };
+      const fields: Record<string, unknown> = {};
+      for (const [pluginId, plugin] of Object.entries(value as Record<string, { values: Record<string, unknown> }>)) {
+        for (const [setting, held] of Object.entries(plugin.values)) fields[pluginSettingKey(pluginId, setting)] = held;
+      }
+      return fields;
+    }
     case "pairedDevices":
       return byId(value, (device) => without(device, DEVICE_CONNECTION_FIELDS));
     case "sensors":
@@ -209,6 +238,8 @@ export interface HistoryValue {
   receivedAt: number;
   /** The Settings Edit that set the fields `editedFields` names, if one. */
   settingsEditId: string | null;
+  /** The Software Action that changed the fields `editedFields` names, if one: never beside a Settings Edit. Absent counts as none. */
+  softwareActionId?: string | null;
   editedFields: readonly string[];
 }
 
@@ -229,13 +260,14 @@ export interface HistoryFieldChange {
 }
 
 /**
- * The changes of one value from the one before it: those a Settings Edit
- * made, or those made outside Decent Sync, `settingsEditId` null.
+ * The changes of one value from the one before it: those a Settings Edit or
+ * a Software Action made, or those made outside Decent Sync, both ids null.
  */
 export interface HistoryChange {
   /** The index of the value, in the values given. */
   index: number;
   settingsEditId: string | null;
+  softwareActionId: string | null;
   fields: HistoryFieldChange[];
 }
 
@@ -243,15 +275,15 @@ export interface HistoryChange {
  * A collection's changes, oldest first, from its Settings History's values
  * in the order they were written: each value's changes from the one before
  * it, compared field by field (`settingsHistoryFields`), as one change for
- * the fields the value's Settings Edit set and one for those changed outside
- * Decent Sync. The first value is the history's baseline, no change. A value
+ * the fields the value's Settings Edit set, or its Software Action changed,
+ * and one for those changed outside Decent Sync. The first value is the history's baseline, no change. A value
  * with no field changed from the one before, as compared, has none.
  *
  * A field changed from outside Decent Sync, then changed back to its value
  * before by its next change, also from outside, within `BRIEF_CHANGE_MS`, is
  * a brief change: the first change gives when it changed back (`backAt`),
  * and the change back is left out. A change made or undone through a
- * Settings Edit is never brief, as someone chose it.
+ * Settings Edit or a Software Action is never brief, as someone chose it.
  */
 export function settingsHistoryChanges(name: SettingsHistoryCollection, values: readonly HistoryValue[]): HistoryChange[] {
   const projected = values.map((entry) => settingsHistoryFields(name, entry.value));
@@ -267,7 +299,7 @@ export function settingsHistoryChanges(name: SettingsHistoryCollection, values: 
         before: before[field] ?? null,
         after: after[field] ?? null,
         backAt: null,
-        edited: entry.settingsEditId !== null && entry.editedFields.includes(field),
+        edited: (entry.settingsEditId !== null || (entry.softwareActionId ?? null) !== null) && entry.editedFields.includes(field),
         folded: false,
       }));
   });
@@ -289,9 +321,10 @@ export function settingsHistoryChanges(name: SettingsHistoryCollection, values: 
   return fields.flatMap((changes, index) => {
     const kept = changes.filter((change) => !change.folded);
     const settingsEditId = values[index]!.settingsEditId;
+    const softwareActionId = values[index]!.softwareActionId ?? null;
     return [
-      { index, settingsEditId, fields: kept.filter((change) => change.edited) },
-      { index, settingsEditId: null, fields: kept.filter((change) => !change.edited) },
+      { index, settingsEditId, softwareActionId, fields: kept.filter((change) => change.edited) },
+      { index, settingsEditId: null, softwareActionId: null, fields: kept.filter((change) => !change.edited) },
     ]
       .filter((change) => change.fields.length > 0)
       .map((change) => ({ ...change, fields: change.fields.map(({ edited: _edited, folded: _folded, ...field }) => field) }));

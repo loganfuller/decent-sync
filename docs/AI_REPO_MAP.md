@@ -35,6 +35,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/machine-activity.ts`: whether the Machine runs nothing.
 - `src/collections.ts`, `src/change-detection.ts`: the collections polled and sent, and whether one changed.
 - `src/settings-edits.ts`, `src/sensor-calibration.ts`: Settings Edits carried out.
+- `src/software-actions.ts`: Software Actions carried out, and answered after a load Decaid makes by itself.
 - `src/library-writes.ts`: the Library writes the server asks for, DYE2's lists included.
 - `src/loaded-recipes.ts`, `src/loaded-recipe-rules.ts`: the Loaded Recipe followed both ways.
 - `src/dye2.ts`: DYE2's `record` route and socket.
@@ -51,6 +52,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/chunking.ts`: splitting and reassembling a message too large for one frame.
 - `src/settings-fields.ts`: each settings field the management interface shows or edits, with its validation.
 - `src/settings-history.ts`: how a Settings History compares values and folds changes.
+- `src/software-actions.ts`: Software Actions' kinds, times and wire messages.
 - `src/machine-states.ts`: naming a Machine State.
 - `src/profile.ts`: a profile as Decaid reads and writes one, its ranges by Machine model and checks, and Decaid's id for it; `src/sha256.ts` the hash that id is of.
 - `src/simulation.ts`: the simulation of a profile on a puck, the standard one or a Shot's, and how close it comes to a Shot.
@@ -81,8 +83,9 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/library/`: the Library: taking in tablets' reports, edits, each item's history with its Lost Edits (`history.ts`, `history.service.ts`), Recipes, joining, writes due, which Machines a Profile reaches by their model (`profile-reach.ts`), Drafts (`drafts.*`), publishing them and returning to earlier versions (`publishing.service.ts`), and a Machine following one, with its Trial Shots (`draft-following.ts`, what its tablet is due and how following ends; `draft-following.service.ts`, the REST side).
 - `src/shots/`, `src/steam-records/`: capture, extraction, Shot Summaries, spec judgements, edits and reads.
 - `src/machine-events/`: Workflow and machine state events, Loaded Recipes, dial-in trail and Machine use.
-- `src/collections/`: collections, paired devices and Settings History.
+- `src/collections/`: collections, paired devices, the values of plugins' settings as each reader may see them, and Settings History.
 - `src/settings-edits/`: Settings Edits.
+- `src/software-actions/`: Software Actions, and a Machine's Tablet Software with how each item updates.
 - `src/set-aside-deliveries/`: deliveries set aside.
 - `src/skin-requests/`: answers to what a plugin asks for a Skin.
 - `src/live-view/`: the Live View's stream, leases and relay.
@@ -91,10 +94,12 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `test/`: Seam 1 tests, one file per area.
 - `test/recipe-steam-switch.test.ts`: a load switching steam, and a Recipe holding "Off" (#616).
 - `test/support/`: the test server, simulated tablet, simulated DYE2 and Streamline, Decaid stand-ins, proxies and fixtures.
+- `test/support/decaid-plugins.ts`: the simulated tablet's plugin management, `host.localApi` and update state, as Decaid v0.9.3's.
 - `test/latest-release/`: the tests against the latest release, the mixed-versions suite among them.
 - `test/fixtures/decaid/`: records Decaid, DYE2 and Streamline produced, by version.
 - `test/fixtures/decaid/dye2-v0.1.42/`: DYE2 v0.1.42 and Streamline v0.2.31 on Decaid v0.9.2 with a grind setting of 0: applied, saved by `record` and the editor, and an old recipe repaired; its README says what each file holds.
 - `test/fixtures/decaid/profile-ids-v0.9.2/`, `profile-ids-v0.9.3/`: the ids Decaid v0.9.2 and v0.9.3 give every profile they bundle and hand-made cases, which `profileId` is checked against; the first folder's `record.mjs` recorded both.
+- `test/fixtures/decaid/tablet-software-v0.9.3/`: Decaid v0.9.3's plugin management, `host.localApi` and update state, recorded headless by its `record.mjs` with a probe plugin; its README says what each file holds.
 - `test/fixtures/decaid/streamline-v0.2.31/`: Streamline v0.2.31 and DYE2 v0.1.42 on Decaid v0.9.2 applying a recipe with steam on and off; its README says what each file holds.
 
 ### `web/`
@@ -141,7 +146,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | Recipes, Recipe Slots, Baskets, Tools, DYE2's lists | ADR-0005 (interim), ADR-0006, ADR-0008, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022 (interim); `LIBRARY.md`; milestone 3's spec; `server/test/support/simulated-dye2.ts`, `simulated-streamline.ts` |
 | A Recipe's Reference Shot | ADR-0029, ADR-0030; `LIBRARY.md`; `AI_PROTOCOL_NOTES.md`, Reference Shot copies |
 | Collections, Machine Settings, Tablet Settings, Settings Edits, Settings History | ADR-0023; `COLLECTIONS.md`; milestone 4's spec; `server/test/support/decaid-settings.ts` |
-| Tablet Software, Software Actions, reloading the Skin, notices on the tablet | ADR-0034, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657) |
+| Tablet Software, Software Actions, reloading the Skin, notices on the tablet | ADR-0034, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins and Software Actions; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657); `server/test/support/decaid-plugins.ts` |
 | The Live View | ADR-0009, ADR-0016, ADR-0024; `AI_PROTOCOL_NOTES.md`, Live frames; `AI_RUNTIME_NOTES.md`; its spec (#258) |
 | Rolling upgrades, keeping a change working beside the latest release | ADR-0025; `AI_STORAGE_NOTES.md`, Writing a migration; `AI_PROTOCOL_NOTES.md`, Wire revision and Between releases; `DEVELOPMENT.md`, Releasing; `server/test/latest-release/` |
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `SELF-HOSTING.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |

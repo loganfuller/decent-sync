@@ -12,6 +12,16 @@
 import { type Chunk, utf8Length } from "./chunking.js";
 import type { Profile } from "./profile.js";
 import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.js";
+import {
+  MAX_PLUGIN_SETTINGS,
+  MAX_SOFTWARE_NAME_LENGTH,
+  MAX_UPDATE_RESULTS,
+  SOFTWARE_ACTED_REFUSALS,
+  SOFTWARE_ACTION_KINDS,
+  type SoftwareActed,
+  type SoftwareAction,
+  isPluginRepo,
+} from "./software-actions.js";
 
 export * from "./chunking.js";
 export * from "./machine-models.js";
@@ -21,6 +31,7 @@ export * from "./record-samples.js";
 export * from "./settings-fields.js";
 export * from "./settings-history.js";
 export * from "./simulation.js";
+export * from "./software-actions.js";
 export * from "./starting-shapes.js";
 export * from "./steam-phases.js";
 
@@ -52,7 +63,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
  * raises. A test reads a release's from the source at its tag, so it stays
  * declared as it is here.
  */
-export const WIRE_REVISION = 4;
+export const WIRE_REVISION = 5;
 
 /**
  * The wire revision of a peer that sends none: the wire of every release
@@ -99,12 +110,13 @@ export function peerHasWireRevision(peer: number, revision: number, own = WIRE_R
 /**
  * The oldest Decaid release the server accepts, always a release rather than
  * a pre-release. A release that relies on a newer Decaid raises it
- * (ADR-0017): 0.9.2 keeps the flow multiplier a Settings Edit writes, as it
- * keeps the fan threshold and refill kit, and writes each again as it
- * reconnects to the Machine; and it takes its automatic update checks being
- * turned on only with a token, which the plugin has none of (ADR-0023).
+ * (ADR-0017): 0.9.3 answers a check of its plugins for updates with a result
+ * for each (`results`), and takes a request managing its plugins without a
+ * token unless its "Require authorization for extension management" setting
+ * is on, where 0.9.2 always asked one; the plugin manages a Tablet's
+ * plugins through `host.localApi`, which works either way (ADR-0034).
  */
-export const OLDEST_SUPPORTED_DECAID = "0.9.2";
+export const OLDEST_SUPPORTED_DECAID = "0.9.3";
 
 /** The path of the server's sync endpoint, under its public URL's host. */
 export const SYNC_PATH = "/sync";
@@ -533,27 +545,10 @@ export type WorkflowCause = (typeof WORKFLOW_CAUSES)[number];
  * - `steamOn`: the Loaded Recipe's steam temperature and time, as steam is
  *   turned back on;
  * - `draft`: the profile of the Draft the Machine follows, which the server
- *   writes (DRAFT_KIND, ADR-0032), from FOLLOWED_DRAFTS_WIRE_REVISION: a
- *   server before it refuses a value it doesn't know, so it is sent one as
- *   another's change (`workflowDeliveryFor`).
+ *   writes (DRAFT_KIND, ADR-0032).
  */
 export const PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn", "draft"] as const;
 export type PluginWorkflowWrite = (typeof PLUGIN_WORKFLOW_WRITES)[number];
-
-/**
- * A Workflow delivery as a server at wire revision `peer` takes it: as it
- * is, but for the plugin's write of a followed Draft (`draft`) to a server
- * from before FOLLOWED_DRAFTS_WIRE_REVISION, which reads it as a change that
- * is not the plugin's, as the previous release's server never asked for one
- * and refuses a `pluginWrite` it doesn't know. Such a delivery reaches that
- * server only where the connection that asked for the write dropped before
- * it was sent, and the next is to an instance of the previous release.
- */
-export function workflowDeliveryFor(delivery: WorkflowDelivery, peer: number): WorkflowDelivery {
-  if (delivery.pluginWrite !== "draft" || peerHasWireRevision(peer, FOLLOWED_DRAFTS_WIRE_REVISION)) return delivery;
-  const { pluginWrite: _, ...rest } = delivery;
-  return { ...rest, cause: "other" };
-}
 
 /** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
 export interface MachineStateDelivery {
@@ -587,6 +582,12 @@ export interface MachineStateDelivery {
  * - `sensorCalibration`, the firmware's current flow, pressure and temperature
  *   sensor calibration;
  * - `plugins`, Decaid's plugin list, DYE2 among them;
+ * - `pluginSettings`, the settings of each plugin that declares any, by the
+ *   plugin's id, as `{ declared, values }`: `values` as Decaid's `GET
+ *   /plugins/{id}/settings` answers, each setting that was set, a secret
+ *   one only as `{ isSet }`, never its value, and `declared` the names its
+ *   manifest declares, in its order (ADR-0034);
+ * - `decaidUpdate`, Decaid's own update state, as its `GET /update` answers;
  * - `skins`, Decaid's Skins: their list, the default Skin and what the WebUI
  *   server serves;
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
@@ -608,6 +609,8 @@ export const COLLECTION_NAMES = [
   "machineCalibration",
   "sensorCalibration",
   "plugins",
+  "pluginSettings",
+  "decaidUpdate",
   "skins",
   "pairedDevices",
   "scaleInfo",
@@ -858,6 +861,16 @@ export interface CollectionDelivery {
    * the previous release's does, labelling the change as made outside.
    */
   settingsEditId?: string;
+  /**
+   * The Software Action whose read-back this is (ADR-0034): the read of the
+   * plugin list, the plugins' settings or Decaid's update state that the
+   * plugin makes after carrying one out, or after Decaid refused it, and
+   * queues before the action's answer (`softwareActed`). The server labels
+   * every change that report holds with the action in the Machine's
+   * Settings History. Absent on every other report, and never beside
+   * `settingsEditId`. A field a server may ignore for good.
+   */
+  softwareActionId?: string;
 }
 
 /**
@@ -1098,15 +1111,6 @@ export const LOADED_RECIPE_KIND = "loadedRecipe";
  * tablet's profile list.
  */
 export const DRAFT_KIND = "draft";
-
-/**
- * The wire revision a Machine following a Draft arrived in (#581,
- * ADR-0032): the server sends a `write` of DRAFT_KIND only to a plugin at
- * it, and a Machine whose plugin is behind it is listed as needing its
- * plugin updated; the plugin names its write of one (`pluginWrite`, `draft`)
- * only to a server at it.
- */
-export const FOLLOWED_DRAFTS_WIRE_REVISION = 4;
 
 /**
  * The title a followed Draft's profile is written into a Workflow under: the
@@ -1485,8 +1489,7 @@ export function noneAtZero<T>(value: T): T | null {
  * causes is sent after the answer, as that write's is.
  *
  * A write of DRAFT_KIND sets the profile of the Draft the Machine follows
- * as its Workflow's profile (ADR-0032), sent only to a plugin at
- * FOLLOWED_DRAFTS_WIRE_REVISION: `globalId` is the Draft's id, `localId`
+ * as its Workflow's profile (ADR-0032): `globalId` is the Draft's id, `localId`
  * null, and `fields` holds `profile` alone, the Draft's under the title a
  * tablet shows it by (`followedDraftTitle`), with no `expected`: the Draft
  * replaces whatever profile the Workflow holds, as the person turning
@@ -2551,6 +2554,7 @@ export type PluginMessage =
   | ListUnrecognised
   | WriteRefused
   | SettingsEdited
+  | SoftwareActed
   | LiveFrame
   | SkinRequest
   | ReferencesHeld
@@ -2572,6 +2576,7 @@ export type ServerMessage =
   | LibraryRemove
   | LeaveOut
   | SettingsEdit
+  | SoftwareAction
   | LiveStart
   | LiveStop
   | LiveReceived
@@ -2766,6 +2771,10 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           else fields.integer("utcOffsetMinutes", { within: MAX_UTC_OFFSET_MINUTES });
         }
         if (object.settingsEditId !== undefined) fields.uuid("settingsEditId");
+        if (object.softwareActionId !== undefined) {
+          fields.uuid("softwareActionId");
+          fields.absent("settingsEditId");
+        }
       });
     case "written":
       return check<ItemWritten>(object, "written", (fields) => {
@@ -2827,6 +2836,40 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         }
         if (object.values !== undefined) fields.objectField("values");
         if (object.scheduleId !== undefined) fields.string("scheduleId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+      });
+    case "softwareActed":
+      return check<SoftwareActed>(object, "softwareActed", (fields) => {
+        fields.uuid("id");
+        fields.oneOf("outcome", ["done", "refused"]);
+        if (object.outcome === "refused") fields.oneOf("reason", SOFTWARE_ACTED_REFUSALS);
+        else fields.absent("reason");
+        if (object.reason === "machineBusy") fields.string("state", { nonEmpty: true, maxLength: MAX_HARDWARE_LENGTH });
+        if (object.reason === "decaid") {
+          if (object.status !== null) fields.integer("status", { nonNegative: true });
+          fields.string("message", { maxLength: MAX_REFUSAL_LENGTH });
+        } else if (object.message !== undefined) fields.string("message", { maxLength: MAX_REFUSAL_LENGTH });
+        fields.optionalObject("result", (result) => {
+          const given = isObject(object.result) ? object.result : {};
+          if (given.pluginId !== undefined) result.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.name !== undefined) result.string("name", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.version !== undefined) result.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.loaded !== undefined) result.boolean("loaded");
+          if (given.results !== undefined) {
+            result.array(
+              "results",
+              (value) =>
+                isObject(value) &&
+                typeof value.item === "string" &&
+                value.item.length <= MAX_SOFTWARE_NAME_LENGTH &&
+                typeof value.status === "string" &&
+                value.status.length <= MAX_SOFTWARE_NAME_LENGTH &&
+                (value.error === undefined || (typeof value.error === "string" && value.error.length <= MAX_REFUSAL_LENGTH)) &&
+                (value.version === undefined || (typeof value.version === "string" && value.version.length <= MAX_SOFTWARE_NAME_LENGTH)),
+              MAX_UPDATE_RESULTS,
+            );
+          }
+          if (given.decaid !== undefined) result.objectField("decaid");
+        });
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
@@ -2986,6 +3029,35 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           if (isObject(object.schedule) && object.schedule.action === "add") schedule.absent("id");
           else schedule.string("id", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         });
+      });
+    case "softwareAction":
+      return check<SoftwareAction>(object, "softwareAction", (fields) => {
+        fields.uuid("id");
+        fields.oneOf("kind", SOFTWARE_ACTION_KINDS);
+        fields.integer("timeLeftMs", { nonNegative: true });
+        switch (object.kind) {
+          case "installPlugin":
+            fields.pluginRepo("repo");
+            if (object.branch !== undefined) fields.string("branch", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            break;
+          case "enablePlugin":
+          case "disablePlugin":
+          case "removePlugin":
+            fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            break;
+          case "approvePluginUpdate":
+            fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            fields.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            fields.array("addedPermissions", (value) => typeof value === "string" && value.length <= MAX_SOFTWARE_NAME_LENGTH, MAX_PLUGIN_SETTINGS);
+            break;
+          case "changePluginSettings":
+            fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            fields.objectField("values");
+            fields.objectField("expected");
+            break;
+          default:
+            break;
+        }
       });
     case "liveStart":
       return check<LiveStart>(object, "liveStart", () => {});
@@ -3194,6 +3266,11 @@ class FieldChecker {
 
   objectField(key: string): void {
     if (!isObject(this.object[key])) this.problem(key, "must be an object");
+  }
+
+  /** A GitHub repository a plugin is installed from (`isPluginRepo`). */
+  pluginRepo(key: string): void {
+    if (!isPluginRepo(this.object[key])) this.problem(key, "must be a GitHub repository, as owner/name");
   }
 
   /** Any JSON value but null. */

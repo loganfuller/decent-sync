@@ -92,7 +92,7 @@ const tryingShape = z.object({
     .array(
       machineRef.extend({
         location: locationRef,
-        needsPluginUpdate: z.boolean().describe("Its plugin is from before a Machine could follow a Draft: it needs updating first."),
+        needsPluginUpdate: z.boolean().describe("Always false now: every plugin the server accepts can follow a Draft."),
         canFollow: z.boolean().describe("Whether follow_draft can name it now: false too for one whose tablet has not connected since the server was upgraded."),
         follows: z.object({ id, title: z.string() }).nullable().describe("Another Draft it follows now, which stop_following_draft is to stop first."),
       }),

@@ -53,6 +53,9 @@ const SOURCES: readonly Source[] = [
   { name: "machineCalibration", path: "/machine/calibration" },
   { name: "sensorCalibration", read: readSensorCalibration },
   { name: "plugins", path: "/plugins" },
+  // After the plugin list, which names the plugins that declare settings.
+  { name: "pluginSettings", read: () => Promise.resolve({ kind: "unavailable" }) },
+  { name: "decaidUpdate", path: "/update" },
   { name: "skins", read: readSkins },
   { name: "pairedDevices", path: "/devices", select: pairedDevices },
   { name: "scaleInfo", path: "/scale/info" },
@@ -78,6 +81,16 @@ const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
  * before it, or is queued before that edit's read-back and answer.
  */
 const SETTINGS: ReadonlySet<CollectionName> = new Set(SETTINGS_COLLECTION_NAMES);
+
+/**
+ * What Software Actions change (ADR-0034): the plugin list, the plugins'
+ * settings and Decaid's own update state, read only between Software
+ * Actions (their own `SettingsAccess`), so a report of one either holds each
+ * action that began before it, or is queued before that action's read-back
+ * and answer. A poll reads none of them while an action runs, which may wait
+ * minutes on Decaid: the action's read-back reports them, and the next poll.
+ */
+const SOFTWARE: ReadonlySet<CollectionName> = new Set(["plugins", "pluginSettings", "decaidUpdate"]);
 
 /**
  * The machine's own settings, which Decaid v0.9.2 answers on each request by
@@ -153,6 +166,8 @@ export class CollectionCapture {
   private readonly last = new Map<CollectionName, Fingerprint>();
   /** The ids of the tablet's Profiles as last read, or undefined before the first read. */
   private profileIds: ReadonlySet<string> | undefined;
+  /** The plugin list as last read, or undefined before the first read and after one that failed. */
+  private pluginList: unknown;
   /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
   private readonly firstReads = new Map<CollectionName, FirstReads>();
   /** For each collection, the latest delivery queued, and the latest queued with a value. */
@@ -160,6 +175,8 @@ export class CollectionCapture {
   /** The sensor calibration as last read, by target, or undefined where that read was unavailable, or none was made yet. */
   private sensorCalibration: Record<string, unknown> | undefined;
   private wanted: "changes" | "full" | undefined;
+  /** What Software Actions change, left unread by a full read while one ran: read in full by the next poll. */
+  private readonly softwareOwedFull = new Set<CollectionName>();
   /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
   private recipesWanted = false;
   /**
@@ -187,7 +204,9 @@ export class CollectionCapture {
     /** Whether the machine runs nothing, which the reads from it wait for. */
     private readonly machine: Pick<MachineActivity, "runningNothing" | "onRunningNothing">,
     /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
-    private readonly sawRecipes: (value: unknown) => void = () => {},
+    private readonly sawRecipes: (value: unknown) => void,
+    /** Software Actions' turns, which the reads of what they change take too (`SOFTWARE`). */
+    private readonly software: SettingsAccess,
   ) {
     // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
     library.onWrite((list) => this.last.delete(list));
@@ -320,6 +339,16 @@ export class CollectionCapture {
           }
           if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
+          if (SOFTWARE.has(source.name)) {
+            // Left to the next poll while a Software Action runs, as one in a full read is owed in full.
+            if (!this.software.idle) {
+              if (full) this.softwareOwedFull.add(source.name);
+              continue;
+            }
+            const owed = this.softwareOwedFull.delete(source.name);
+            if (await this.software.run(() => this.capture(source, full || owed))) sentLists.add(source.name);
+            continue;
+          }
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
             : SETTINGS.has(source.name)
@@ -382,9 +411,37 @@ export class CollectionCapture {
    */
   reportSettings(name: CollectionName, reading: Reading, always: boolean, readBackOf?: string): void {
     if (this.stopped) return;
-    this.queueReading(name, reading, always, readBackOf);
+    this.queueReading(name, reading, always, readBackOf === undefined ? undefined : { settingsEditId: readBackOf });
     this.queued.delete(name);
     if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
+  }
+
+  /**
+   * Reads the plugin list and the plugins' settings, or Decaid's own update
+   * state (`decaid`), within Software Actions' `SettingsAccess.run`, as a
+   * Software Action does before and after it acts, and queues a report of each: if it
+   * changed since the last one queued, or, for an action's read-back,
+   * whatever it holds, naming the action (`readBackOf`), whose answer
+   * follows it, so it is kept where it is, as a Settings Edit's is.
+   * Resolves with the plugin list, or undefined where Decaid did not answer
+   * with one.
+   */
+  async readSoftware(what: "plugins" | "decaid", readBackOf?: string): Promise<unknown[] | undefined> {
+    const tag = readBackOf === undefined ? undefined : { softwareActionId: readBackOf };
+    const report = async (name: CollectionName, reading: Reading) => {
+      if (this.stopped) return;
+      this.queueReading(name, reading, tag !== undefined, tag);
+      this.queued.delete(name);
+    };
+    if (what === "decaid") {
+      await report("decaidUpdate", await readCollection("/update", null));
+      return undefined;
+    }
+    const plugins = await readCollection("/plugins", null);
+    this.pluginList = plugins.kind === "value" ? plugins.value : undefined;
+    await report("plugins", plugins);
+    await report("pluginSettings", await readPluginSettings(this.pluginList));
+    return Array.isArray(this.pluginList) ? this.pluginList : undefined;
   }
 
   /**
@@ -406,9 +463,14 @@ export class CollectionCapture {
     // A key of Decaid's store DYE2 never wrote is an empty list, as DYE2 reads it (ADR-0005).
     const reading = selected(
       source,
-      await ("read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name))),
+      await (source.name === "pluginSettings"
+        ? readPluginSettings(this.pluginList)
+        : "read" in source
+          ? source.read()
+          : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name))),
     );
     if (this.stopped) return false;
+    if (source.name === "plugins" && reading.kind !== "notModified") this.pluginList = reading.kind === "value" ? reading.value : undefined;
     if (source.name === PROFILES.name && reading.kind === "value") this.profileIds = profileIdsOf(reading.value);
     if (source.name === RECIPES.name && reading.kind === "value") {
       this.sawRecipes(reading.value);
@@ -428,10 +490,10 @@ export class CollectionCapture {
    * last one queued, or whatever it holds when `full`. A value of one of the
    * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
    * compared with it, so a daylight saving change is sent too. A value an
-   * edit read back names the edit (`settingsEditId`). Says whether a value
-   * was queued.
+   * edit or a Software Action read back names it (`readBackOf`). Says
+   * whether a value was queued.
    */
-  private queueReading(name: CollectionName, reading: Reading, full: boolean, readBackOf?: string): boolean {
+  private queueReading(name: CollectionName, reading: Reading, full: boolean, readBackOf?: { settingsEditId: string } | { softwareActionId: string }): boolean {
     // Its reads are each an object by target (`readSensorCalibration`).
     if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? (reading.value as Record<string, unknown>) : undefined;
     const utcOffsetMinutes = reading.kind === "value" && hasUtcOffset(name) ? utcOffset() : undefined;
@@ -453,7 +515,7 @@ export class CollectionCapture {
             value: reading.value,
             ...this.placedInTime(name, reading.value),
             ...(utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes }),
-            ...(readBackOf === undefined ? {} : { settingsEditId: readBackOf }),
+            ...(readBackOf ?? {}),
           }
         : { type: "collection", id, name, available: false };
     // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
@@ -502,6 +564,32 @@ async function readSensorCalibration(): Promise<Reading> {
     const reading = await readCollection(`/machine/calibration/${target}`, null);
     if (reading.kind !== "value") return { kind: "unavailable" };
     value[target] = reading.value;
+  }
+  return { kind: "value", value, etag: null };
+}
+
+/**
+ * The settings of each plugin in the list that declares any, by the
+ * plugin's id, as `{ declared, values }`: `values` is Decaid's answer to
+ * `GET /plugins/{id}/settings`, as sent, which holds each setting that was
+ * set, a secret one only as `{ isSet }` and never its value
+ * (`pluginSettings` in Decaid v0.9.3's plugin_loader_service.dart), and
+ * `declared` the names of the settings its manifest declares, in the
+ * manifest's order, which a form shows them in: the server keeps the plugin
+ * list as JSON whose keys it does not keep in order. Read one at a time, and
+ * unavailable where the list was not read or any read fails, as a partial
+ * set would read as settings cleared.
+ */
+async function readPluginSettings(plugins: unknown): Promise<Reading> {
+  if (!Array.isArray(plugins)) return { kind: "unavailable" };
+  const value: Record<string, unknown> = {};
+  for (const plugin of plugins as unknown[]) {
+    const entry = typeof plugin === "object" && plugin !== null ? (plugin as { id?: unknown; settings?: unknown }) : {};
+    const declared = typeof entry.settings === "object" && entry.settings !== null ? Object.keys(entry.settings) : [];
+    if (typeof entry.id !== "string" || entry.id === "" || declared.length === 0) continue;
+    const reading = await readCollection(`/plugins/${encodeURIComponent(entry.id)}/settings`, null);
+    if (reading.kind !== "value" || typeof reading.value !== "object" || Array.isArray(reading.value)) return { kind: "unavailable" };
+    value[entry.id] = { declared, values: reading.value };
   }
   return { kind: "value", value, etag: null };
 }

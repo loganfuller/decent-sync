@@ -1,5 +1,5 @@
 import { type Browser, type Page, expect, test } from "@playwright/test";
-import { de1ProOnDecaid092, derivedProfile } from "../server/test/support/simulated-tablet.js";
+import { de1ProOnDecaid093, derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, rows } from "./support/locators.js";
 import { tabletAt } from "./support/tablets.js";
@@ -93,7 +93,7 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
 test("a Profile's title, author and notes are edited on its page, its history listing the edit, but neither a bundled Profile's nor by a Viewer", async ({ page, browser }) => {
   // What reaches the tablets, and the refusals, are server/test/library-profile-text.test.ts's.
   const lab = await createLocation(page, "Text lab");
-  const bundled = (de1ProOnDecaid092()["/profiles"] as Record<string, unknown>[]).find((record) => record.isDefault === true)!;
+  const bundled = (de1ProOnDecaid093()["/profiles"] as Record<string, unknown>[]).find((record) => record.isDefault === true)!;
   const labTablet = await tabletAt(page, server, "Text lab group", lab, "17021", { ...tabletApi, "/profiles": [bundled] });
   const record = await labTablet.addProfile({ ...derivedProfile("Edit Bloom", 6.75), author: "Lab", notes: "First notes" });
   const id = String(record.id);

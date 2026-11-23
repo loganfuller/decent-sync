@@ -1,0 +1,13 @@
+{
+  "id": "localapi-probe.reaplugin",
+  "author": "Decent Sync's fixtures",
+  "name": "localApi probe",
+  "description": "Makes the host.localApi calls it is asked to and answers with what came of each. For recording fixtures on a throwaway Decaid.",
+  "version": "0.0.1",
+  "apiVersion": 1,
+  "permissions": ["log", "api", "manage.extensions"],
+  "settings": {
+    "Note": { "type": "string", "label": "Note", "description": "Any text" }
+  },
+  "api": [{ "id": "call", "type": "http", "data": {} }]
+}

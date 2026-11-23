@@ -33,11 +33,11 @@ export async function openCard(page: Page, name: string): Promise<Locator> {
 }
 
 /**
- * Opens one of a Machine's page's tabs (#545), Now, Activity, Settings or
- * Setup, by its link, and waits until it is the one open. A card is on one
+ * Opens one of a Machine's page's tabs (#545), Now, Activity, Settings,
+ * Software or Setup, by its link, and waits until it is the one open. A card is on one
  * tab only, and is mounted only while its tab is open.
  */
-export async function openMachineTab(page: Page, name: "Now" | "Activity" | "Settings" | "Setup"): Promise<void> {
+export async function openMachineTab(page: Page, name: "Now" | "Activity" | "Settings" | "Software" | "Setup"): Promise<void> {
   const tab = page.getByRole("navigation", { name: "Machine" }).getByRole("link", { name, exact: true });
   await tab.click();
   await expect(tab).toHaveAttribute("aria-current", "page");

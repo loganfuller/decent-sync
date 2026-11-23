@@ -80,7 +80,7 @@ describe("Machine identity", () => {
         reported: { model: "DE1Pro", serial: "10001", firmware: "1333" },
         connectionId: "00:00:5E:00:53:10",
         pluginVersion: "0.1.0",
-        decaidVersion: "0.9.2+3191",
+        decaidVersion: "0.9.3+3265",
         aliases: ["00:00:5E:00:53:10"],
         mismatch: null,
         lastRefusal: null,
@@ -438,11 +438,11 @@ describe("Machine identity", () => {
       expect((await api.machineNamed("New plugin"))!.lastRefusal?.reason).toMatch(/update the server/);
     });
 
-    it("refuses a tablet on a Decaid older than 0.9.2, whose plugin stops, and shows why on its Machine", async () => {
+    it("refuses a tablet on a Decaid older than 0.9.3, whose plugin stops, and shows why on its Machine", async () => {
       const created = await api.createMachine("Old Decaid");
-      // The fixture's responses, as Decaid 0.9.1, the minimum before 0.9.2, reported its version (simulated-devices-v0.9.1/info.json).
-      const tablet = loadTablet(settingsFor(created), { api: derivedDe1Pro({ decaidVersion: "0.9.1+3027" }) });
-      const reason = "This tablet runs Decaid 0.9.1, but this server needs 0.9.2 or newer: update Decaid";
+      // The fixture's responses, as Decaid 0.9.2, the minimum before 0.9.3, reported its version (simulated-devices-v0.9.2/info.json).
+      const tablet = loadTablet(settingsFor(created), { api: derivedDe1Pro({ decaidVersion: "0.9.2+3191" }) });
+      const reason = "This tablet runs Decaid 0.9.2, but this server needs 0.9.3 or newer: update Decaid";
       await tablet.waitForLog(/^The server needs a newer version of Decaid\. Update Decaid on this tablet\.$/);
       expect(tablet.logs).toContain(`The server reported decaid too old: ${reason}`);
       expect(await api.machineNamed("Old Decaid")).toMatchObject({

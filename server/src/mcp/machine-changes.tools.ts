@@ -107,7 +107,8 @@ function fieldGuide(field: EditableSettingsField): string {
  */
 const SETTINGS_GUIDE = [
   ...EDITABLE_SETTINGS_COLLECTIONS.map((name) => {
-    const fields = SETTINGS_FIELDS[name].filter(isEditable).filter((field) => field.kind !== "wakeSchedules");
+    // A field of the Software tab is no assistant's to change (ADR-0034), so none is offered it.
+    const fields = SETTINGS_FIELDS[name].filter(isEditable).filter((field) => field.kind !== "wakeSchedules" && !field.withSoftware);
     return `${name}: ${fields.map(fieldGuide).join(", ")}.`;
   }),
   `A wake schedule of presenceSettings: ${WAKE_SCHEDULE_FIELDS.map(fieldGuide).join(", ")}; an added one sets all four.`,

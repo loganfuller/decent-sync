@@ -246,6 +246,28 @@ describe("the latest release beside the change", () => {
     });
   });
 
+  // Software Actions came with the wire revision after the latest release's (ADR-0034, #660): its plugin is sent none,
+  // which it would log as a message it ignores, and the Machine's page says its plugin must update. Once Decaid has
+  // installed the change's plugin, an action goes ahead.
+  it("sends the latest release's plugin no Software Action, saying its plugin must update, and one once the tablet runs the change's plugin", async () => {
+    const { machine, tablet } = await connected("mixed-software-actions", "latest release", "change");
+    const software = async () => (await apis.change.get<{ tabletSoftware: { pluginMustUpdate: boolean; plugins: unknown[] | null } }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware;
+    const actions = `/machines/${machine.machine.id}/software-actions`;
+    expect((await software()).pluginMustUpdate).toBe(true);
+    const refused = await apis.change.call("POST", actions, { kind: "checkPluginUpdates" });
+    expect(refused.status).toBe(409);
+    expect(await refused.text()).toMatch(/The Tablet's plugin must update before it takes a Software Action/);
+    expect(tablet.received.some((frame) => (frame as { type?: string }).type === "softwareAction")).toBe(false);
+
+    const updated = await tablet.reload({ latestRelease: false });
+    loaded.push(updated);
+    await apis.change.waitForOnline(machine);
+    await expect.poll(async () => (await software()).pluginMustUpdate).toBe(false);
+    await expect.poll(async () => (await software()).plugins?.length ?? 0).toBeGreaterThan(0);
+    const made = (await apis.change.send<{ softwareAction: { id: string } }>("POST", actions, { kind: "checkPluginUpdates" }, 201)).softwareAction;
+    await expect.poll(async () => (await apis.change.get<{ softwareAction: { outcome: string | null } }>(`${actions}/${made.id}`)).softwareAction.outcome, { timeout: 20_000 }).toBe("done");
+  });
+
   // Turning steam back on takes the Loaded Recipe's steam temperature in the
   // plugin alone (ADR-0022, #374), so a tablet with the change's plugin keeps
   // the rule on the latest release's server. One with 1.6.0's plugin saves
