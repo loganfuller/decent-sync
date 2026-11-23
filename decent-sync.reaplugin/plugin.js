@@ -340,9 +340,11 @@ var __decentSync = (() => {
       // Reported only while Decaid reads the Tablet's battery.
       { path: "chargingState", label: "Charging state", setBy: "A reading of the Tablet's battery" },
       { path: "simulatedDevices", label: "Simulated devices", setBy: "For development" },
-      // Decaid v0.9.2 turns it on only for a request carrying a token that may manage its plugins and Skins, which the
-      // plugin has none of, and while it is off Decaid installs no update of a plugin or Skin by itself, this plugin's included
-      // (`UpdateCheckService`). So an edit could turn it off and never back on, and there is none (ADR-0023; #542).
+      // Decaid v0.9.2, and v0.9.3 and later while their "Require authorization for extension management" setting is on, turn
+      // it on only for a request carrying a token that may manage plugins and Skins, which the plugin has none of. That
+      // setting is changed only on the Tablet, and the plugin cannot read it. While the checks are off Decaid installs no
+      // update of a plugin or Skin by itself, this plugin's included (`UpdateCheckService`). So an edit could turn them off
+      // and never back on, and there is none (ADR-0023; #542).
       { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", setBy: "Managed in Decaid on the Tablet" },
       { path: "webUiPath", label: "Web UI path", setBy: "Follows the default skin" },
       { path: "defaultSkinId", label: "Default skin", setBy: "Managed with the Tablet's skins" },

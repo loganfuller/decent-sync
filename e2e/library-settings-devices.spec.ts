@@ -117,7 +117,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Night mode sleep time", "22:00 (UTC\u22124)"],
     ["Volume look-ahead", "0.3 s"],
     ["Simulated devices", "machine, bengle, scale, sensor", "For development"],
-    // Shown, with where it is managed: Decaid turns it on only with a token, which the plugin has none of (#549).
+    // Shown, with where it is managed: Decaid v0.9.2, and v0.9.3 while a setting the plugin cannot read is on, turns it on
+    // only with a token, which the plugin has none of (#549, #655).
     ["Automatic update checks", "On", "Managed in Decaid on the Tablet"],
     ["Default skin", "streamline.js", "Managed with the Tablet's skins"],
     ["Preferred machine", "MockDe1", "Managed with the preferred devices"],

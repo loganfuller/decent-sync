@@ -1,6 +1,7 @@
-// Records the ids Decaid v0.9.2 gives profiles (README.md beside this script): every profile it bundles, as a new
-// install lists them, and its answers to profiles posted to it that differ in what its hash covers, or only in
-// what it leaves out of the hash or normalises away.
+// Records the ids a Decaid release gives profiles (README.md beside this script, for v0.9.2, and
+// ../profile-ids-v0.9.3/README.md): every profile it bundles, as a new install lists them, and its answers to
+// profiles posted to it that differ in what its hash covers, or only in what it leaves out of the hash or
+// normalises away.
 //
 //   node server/test/fixtures/decaid/profile-ids-v0.9.2/record.mjs <output>
 //

@@ -12,8 +12,10 @@ takes each release in turn (docs/SELF-HOSTING.md, Upgrading).
 Where a note has a tablet's plugin updated or approved through Decaid's API
 from its network (`POST /api/v1/plugins/update`,
 `POST /api/v1/plugins/decent-sync.reaplugin/update/approve`), Decaid v0.9.2
-and later take the request only with a token: send it as
-`Authorization: Bearer <token>`. Make one on the tablet in Decaid, on its
+takes the request only with a token, as v0.9.3 and later do while
+"Require authorization for extension management" is on in Decaid's Security
+settings on the tablet: send it as `Authorization: Bearer <token>`, which does
+no harm where none is asked. Make one on the tablet in Decaid, on its
 Decent Account page under API access tokens, with "Manage plugins and skins"
 turned on. It is shown once, and needs no Decent Account sign-in
 (docs/PLUGIN.md, A token for managing plugins).
@@ -34,6 +36,27 @@ Edits are read in each item's `GET .../history`, as in 1.12.2.
 No step is needed. The upgrade deletes the Conflicts that were dismissed
 before 1.12.2, which no release has shown since; every other Lost Edit stays
 in its item's History.
+
+### Tablets updated to Decaid v0.9.3
+
+This server needs nothing for Decaid v0.9.3. On a tablet that updates to it:
+
+- Decaid turns its protection of plugin and Skin management off as it
+  updates, so anything on the tablet's network can install a plugin there
+  until **Require authorization for extension management** is turned on in
+  Decaid's Security settings on the tablet. Turned on, the tablet asks a token as
+  v0.9.2 did (docs/PLUGIN.md, A token for managing plugins). Either way,
+  v0.9.3 refuses a browser page whose address is not the tablet's own
+  numeric one or `localhost`, which v0.9.2 did not.
+- v0.9.3 bundles 21 more Profiles: Decaid's calibration and leak tests, a
+  forward flush, and espresso Profiles such as the E61 ones. The first tablet
+  at a Location to update reports them, and they join the Library shown at
+  that Location, those for cleaning and calibration included. Hide the
+  unwanted ones at the Location, and its tablets are written the same. A
+  tablet still on v0.9.2 lacks them: bundled Profiles are never written.
+- v0.9.3 bundles DYE2 v0.1.42 and Streamline v0.2.31, the minimums
+  [ADR-0017](docs/adr/0017-supported-versions.md) names, so it puts neither
+  over a supported one.
 
 ## 1.12.2
 

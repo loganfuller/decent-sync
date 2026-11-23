@@ -233,8 +233,9 @@ export function stepTarget(step: ProfileStep): number {
  * them with every object's keys sorted. A double is written as Dart writes
  * one, a whole one with `.0`, so 9 is `9.0`, and the preinfusion count, an
  * integer, without. Title, author and notes are outside it. Checked against
- * the ids Decaid gave every profile it bundles and hand-made cases
- * (`server/test/fixtures/decaid/profile-ids-v0.9.2/`).
+ * the ids Decaid v0.9.2 and v0.9.3 gave every profile they bundle and
+ * hand-made cases (`server/test/fixtures/decaid/profile-ids-v0.9.2/`,
+ * `profile-ids-v0.9.3/`).
  */
 export function profileId(profile: Profile): string {
   const data: Record<string, Hashed> = {

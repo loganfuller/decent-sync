@@ -94,6 +94,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `test/latest-release/`: the tests against the latest release, the mixed-versions suite among them.
 - `test/fixtures/decaid/`: records Decaid, DYE2 and Streamline produced, by version.
 - `test/fixtures/decaid/dye2-v0.1.42/`: DYE2 v0.1.42 and Streamline v0.2.31 on Decaid v0.9.2 with a grind setting of 0: applied, saved by `record` and the editor, and an old recipe repaired; its README says what each file holds.
+- `test/fixtures/decaid/profile-ids-v0.9.2/`, `profile-ids-v0.9.3/`: the ids Decaid v0.9.2 and v0.9.3 give every profile they bundle and hand-made cases, which `profileId` is checked against; the first folder's `record.mjs` recorded both.
 - `test/fixtures/decaid/streamline-v0.2.31/`: Streamline v0.2.31 and DYE2 v0.1.42 on Decaid v0.9.2 applying a recipe with steam on and off; its README says what each file holds.
 
 ### `web/`

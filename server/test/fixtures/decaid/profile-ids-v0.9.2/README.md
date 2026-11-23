@@ -6,12 +6,8 @@ hash covers, or only in what it leaves out of the hash or normalises away.
 `protocol/test/profile.test.ts` checks the server's copy of Decaid's hash
 (`profileId` in `protocol/src/profile.ts`) against every one of them.
 
-v0.9.2 is both the oldest Decaid supported (ADR-0017) and its newest
-release. Its pre-release v0.9.3-beta.1 changes neither its bundled profiles
-(`assets/defaultProfiles`) nor how it reads and hashes one
-(`lib/src/models/data/profile.dart`, `profile_hash.dart`, `utils.dart`), so
-it gives the same ids: `git diff v0.9.2 v0.9.3-beta.1` of those paths is
-empty.
+v0.9.2 is the oldest Decaid supported (ADR-0017). `../profile-ids-v0.9.3/`
+holds v0.9.3's answers to the same requests, recorded by the same script.
 
 | Key of `profile-ids.json` | What it holds |
 |---|---|
