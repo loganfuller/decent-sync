@@ -171,6 +171,8 @@ export class HistoryService {
     const [lost, exists] = await Promise.all([
       this.prisma.lostEdit.findMany({
         where: { ...itemKey(item), ...(field === undefined ? {} : { field }) },
+        // Not `state`, so this release still reads them once the next drops it (#653).
+        omit: { state: true },
         include: withSource,
         orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
       }),

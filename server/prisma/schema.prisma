@@ -2048,8 +2048,8 @@ model ItemVersion {
 }
 
 /// What a release before Lost Edits (ADR-0033) made of a Conflict, as a
-/// Lost Edit was until then. No release reads it any more, and none writes
-/// anything but the default, `OPEN`; `DISMISSED` rows were deleted
+/// Lost Edit was until then. This release names it in no query, and none
+/// writes anything but the column's default, `OPEN`; `DISMISSED` rows were deleted
 /// (`20261123000001_dismissed_lost_edits_deleted`). It goes in the next
 /// release, with `LostEdit.state` and its index (#653).
 enum LostEditState {
@@ -2095,9 +2095,12 @@ model LostEdit {
   createdAt       DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// The order it lost in, which `createdAt` cannot tell apart within one transaction.
   seq             BigInt        @default(autoincrement())
-  /// Unread: kept only so 1.12.2, which still selects and filters on it,
-  /// runs beside this release (ADR-0025). Every row holds `OPEN` or `USED`.
-  /// It goes in the next release, with its enum and index (#653).
+  /// Kept only so 1.12.2, which still selects and filters on it, runs
+  /// beside this release (ADR-0025). Every row holds `OPEN` or `USED`. This
+  /// release names it in no query, so that it runs beside the next, which
+  /// drops it with its enum and index (#653): a Lost Edit is written in SQL
+  /// leaving it to the column's default (`recordLostEdit`), as Prisma's
+  /// `create` would send it, and read omitting it.
   state           LostEditState @default(OPEN)
   /// The version of the item (`ItemVersion`) it lost to: the edit that kept
   /// or took the field. Null where that is not known, as for one a release

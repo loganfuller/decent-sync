@@ -428,12 +428,17 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   a history entry goes only with its item, which takes these rows with it):
   null where that is not known, as for a row a release before Lost Edits
   kept as a Conflict. Its `state` (`LostEditState`, PostgreSQL's
-  `conflict_state`) is what such a release made of a Conflict. Nothing
-  reads it, and every row holds `OPEN` or `USED`: the migration
+  `conflict_state`) is what such a release made of a Conflict. Every row
+  holds `OPEN` or `USED`: the migration
   `20261123000001_dismissed_lost_edits_deleted` deleted each row
   `DISMISSED`. It stays only so 1.12.2, which selects and filters on it,
   runs beside this release, and goes in the next, with its enum and its
-  index on `state` and `created_at` (#653).
+  index on `state` and `created_at` (#653). This release names it in no
+  query, so that it runs beside that one: it writes a Lost Edit in SQL that
+  leaves `state` to the column's default (`recordLostEdit` in
+  `server/src/library/history.ts`), since Prisma's `create` would send the
+  default itself, and reads Lost Edits omitting it
+  (`lost-edits-without-state.test.ts` drops the column and checks both).
 
 ## Edits
 
