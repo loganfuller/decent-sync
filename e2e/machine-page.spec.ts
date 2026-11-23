@@ -253,10 +253,12 @@ test("a tab opened while scrolled down to the tabs keeps the page's scroll posit
     });
     expect(top, "scrolled down Setup").toBeGreaterThan(0);
     if (tab === "Now") {
-      // A ctrl- or cmd-click opens the tab in a new browser tab, and this one stays as it is: nothing is held for it.
-      const opened = page.context().waitForEvent("page");
+      // A ctrl- or cmd-click leaves this browser tab as it is, opening the link in another: nothing is held for it. The
+      // browser's own opening is stopped at the window, after the page's handlers, as whether it opens one varies by
+      // platform and build.
+      await page.evaluate(() => window.addEventListener("click", (event) => event.preventDefault(), { once: true }));
       await page.getByRole("navigation", { name: "Machine" }).getByRole("link", { name: tab, exact: true }).click({ modifiers: ["ControlOrMeta"] });
-      await (await opened).close();
+      await expect(page.getByRole("navigation", { name: "Machine" }).getByRole("link", { name: "Setup", exact: true })).toHaveAttribute("aria-current", "page");
       expect(await page.evaluate(() => document.documentElement.style.minHeight), "held for a ctrl- or cmd-click").toBe("");
     }
 
