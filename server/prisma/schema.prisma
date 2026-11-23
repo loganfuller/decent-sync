@@ -191,7 +191,7 @@ model ConnectedApp {
   authorizationCodes AuthorizationCode[]
   accessTokens       AccessToken[]
   refreshTokens      RefreshToken[]
-  /// The Library's versions and Conflicts, the Settings Edits and the edits
+  /// The Library's versions and Lost Edits, the Settings Edits and the edits
   /// of Shots it made, which keep it once it lapses (cleanup.ts).
   itemVersions       ItemVersion[]
   lostEdits          LostEdit[]
@@ -1316,7 +1316,7 @@ model BatchLocation {
   /// When that weight was entered; null if none ever was there.
   remainingWeightAt        DateTime? @map("remaining_weight_at") @db.Timestamptz(3)
   /// The version that last added or finished it there (`ItemVersion`), if
-  /// one is known: who did, for a Conflict it may become. No foreign key:
+  /// one is known: who did, for a Lost Edit it may lose to. No foreign key:
   /// versions go only with their item, which takes this row with it.
   presenceVersionId        String?   @map("presence_version_id") @db.Uuid
   /// The version that entered the remaining weight there, as `presenceVersionId`.
@@ -1462,7 +1462,7 @@ enum DraftPublishing {
 /// A Draft (ADR-0032, ticket #579): a profile being written or changed in
 /// the management interface, held by the server alone, saved as it changes
 /// and offered on no tablet. Not Library content: it is shown at no
-/// Location, makes no Conflict and has no history but who saved it last. See
+/// Location, makes no Lost Edit and has no history but who saved it last. See
 /// server/src/library/drafts.service.ts.
 model Draft {
   id                    String          @id @default(uuid(7)) @db.Uuid
@@ -1969,11 +1969,11 @@ model TabletUnrecognisedList {
   @@map("tablet_unrecognised_lists")
 }
 
-/// Each item that keeps versions and Conflicts (ADR-0020): every Library
-/// item, by its kind and id, as `ItemVersion` and `Conflict` name it, so a new kind needs no
+/// Each item that keeps versions and Lost Edits (ADR-0020, ADR-0033): every
+/// Library item, by its kind and id, as `ItemVersion` and `LostEdit` name it, so a new kind needs no
 /// column of its own. A trigger on each kind's table adds its row as the
 /// item is inserted, follows a change of its id, and deletes it as the item
-/// is, taking the item's versions and Conflicts with it, as a foreign key to
+/// is, taking the item's versions and Lost Edits with it, as a foreign key to
 /// the item would, and empties the kind's rows as its table is truncated;
 /// the migration creates them (`versioned_item_added`,
 /// `versioned_item_renamed`, `versioned_item_removed` and
@@ -2047,10 +2047,11 @@ model ItemVersion {
   @@map("item_versions")
 }
 
-/// What the release before Lost Edits made of a Conflict, as a Lost Edit
-/// was until ADR-0033: that release still writes it beside this one
-/// (ADR-0025). A Lost Edit is kept `OPEN`, and one that release dismissed
-/// is not shown.
+/// What a release before Lost Edits (ADR-0033) made of a Conflict, as a
+/// Lost Edit was until then. No release reads it any more, and none writes
+/// anything but the default, `OPEN`; `DISMISSED` rows were deleted
+/// (`20261123000001_dismissed_lost_edits_deleted`). It goes in the next
+/// release, with `LostEdit.state` and its index (#653).
 enum LostEditState {
   OPEN
   /// Someone used its value, which made it a new edit.
@@ -2067,8 +2068,7 @@ enum LostEditState {
 /// field, the losing value, where it came from, when it was made, and the
 /// edit it lost to. Like `ItemVersion`, it names its item by kind and id,
 /// and a field of a Location's state names that Location. Its table is the
-/// one Conflicts were kept in, which the release before still writes them
-/// to.
+/// one Conflicts were kept in, whose name it keeps.
 model LostEdit {
   id              String        @id @default(uuid(7)) @db.Uuid
   /// The item's kind and id (`VersionedItem`).
@@ -2095,11 +2095,14 @@ model LostEdit {
   createdAt       DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// The order it lost in, which `createdAt` cannot tell apart within one transaction.
   seq             BigInt        @default(autoincrement())
+  /// Unread: kept only so 1.12.2, which still selects and filters on it,
+  /// runs beside this release (ADR-0025). Every row holds `OPEN` or `USED`.
+  /// It goes in the next release, with its enum and index (#653).
   state           LostEditState @default(OPEN)
   /// The version of the item (`ItemVersion`) it lost to: the edit that kept
-  /// or took the field. Null where that is not known, as for one the
-  /// release before wrote. No foreign key: the version goes only with the
-  /// item, which takes this with it.
+  /// or took the field. Null where that is not known, as for one a release
+  /// before Lost Edits kept as a Conflict. No foreign key: the version goes
+  /// only with the item, which takes this with it.
   lostToVersionId String?       @map("lost_to_version_id") @db.Uuid
 
   @@index([state, createdAt])

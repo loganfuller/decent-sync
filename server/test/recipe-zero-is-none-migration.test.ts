@@ -35,6 +35,7 @@ interface RecipeView {
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 const MIGRATION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261115000003_recipe_zero_is_none/migration.sql");
+const DISMISSED_DELETED = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261123000001_dismissed_lost_edits_deleted/migration.sql");
 
 describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { timeout: 90_000 }, () => {
   let server: TestServer;
@@ -127,7 +128,9 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
       expect(after.yield).toEqual(before.yield);
       expect(Object.values(await fieldEdits(kept.id)).some((edit) => edit?.versionId === version!.id)).toBe(false);
 
-      // The one it dismissed is no Lost Edit in the Recipe's history (ADR-0033); the others are.
+      // The one it dismissed is deleted by a later migration (#642), so it is no Lost Edit in the Recipe's history (ADR-0033);
+      // the others are.
+      await database.query(fs.readFileSync(DISMISSED_DELETED, "utf8"));
       expect(await lostEdits(zero.id)).toEqual([conflicts.other, conflicts.used].sort());
 
       // Run again, it changes nothing.

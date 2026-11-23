@@ -165,13 +165,12 @@ export class HistoryService {
   /**
    * The item's Lost Edits, the latest lost first, or, given a field, those
    * of it, each with the edit it lost to, of the item's content or of its
-   * state at a Location; 404 if the Library does not have it. One the
-   * release before this one dismissed as a Conflict is left out.
+   * state at a Location; 404 if the Library does not have it.
    */
   async lostEdits(item: ItemRef, scope: Scope, field?: string): Promise<LostEditView[]> {
     const [lost, exists] = await Promise.all([
       this.prisma.lostEdit.findMany({
-        where: { ...itemKey(item), state: { not: "DISMISSED" }, ...(field === undefined ? {} : { field }) },
+        where: { ...itemKey(item), ...(field === undefined ? {} : { field }) },
         include: withSource,
         orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
       }),
