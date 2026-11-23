@@ -90,6 +90,30 @@ The plugin connects to `ws://<server host>/sync`, or `wss://` for an
 A lost token can't be shown again. Issue a new one from the Machine's page.
 This disconnects any tablet still using the old one.
 
+## When the plugin stops syncing
+
+While the plugin has stopped syncing, the tablet says why in one notice in
+Decaid's notification center, which Decaid shows as a bell over any Skin.
+The notice goes by itself once syncing resumes, or once the plugin is
+connected again. A plugin with no server URL or token shows none, and a drop
+shorter than 10 minutes shows nothing. The Machine's page in the management
+interface shows the server's side of a refusal.
+
+| When | What the tablet shows |
+|---|---|
+| Decaid is older than the server supports. The plugin stops until Decaid is updated, which restarts it. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because this tablet's Decaid is older than the Decent Sync server supports. Someone who manages Decent Sync can update Decaid on this tablet. |
+| The plugin is older than the server supports. The plugin stops until it is updated. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because this tablet's Decent Sync plugin is older than the server supports. Someone who manages Decent Sync can update the plugin. |
+| The server refused the token. The plugin stops until another token is entered. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because the server refused the token in this plugin's settings. Someone who manages Decent Sync can enter this machine's current token there. |
+| An Admin dismissed the machine's hardware for this token. The plugin waits until the machine reports other hardware, checked every poll interval. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because an Admin dismissed the espresso machine connected to this tablet for the token in this plugin's settings. Someone who manages Decent Sync can give this machine a token of its own. |
+| Another tablet is connected with this Machine's token. The plugin tries again every 5 minutes, and the notice goes once that tablet has gone and the plugin is connected. | Shots still save on this tablet and will upload later. Decent Sync stopped syncing because another tablet is connected with this machine's token, and it starts again once that tablet disconnects. Someone who manages Decent Sync can check which tablet should use the token. |
+| The server has been out of reach for 10 minutes, with no connection in between. A connection resets the 10 minutes. | Shots still save on this tablet and will upload later. Decent Sync has not reached its server for 10 minutes. Whoever looks after this tablet's network can check that it is online and can reach the server. |
+
+Decaid keeps the notice when the plugin loads again, such as after a settings
+change or a restart, and the new load replaces or withdraws it once its first
+connection attempt ends. Disabling or removing the plugin removes it. If
+Decaid refuses a notice, the plugin logs that and asks again only once what
+the notice should say changes.
+
 ## Settings
 
 | Setting | What it is |
@@ -122,7 +146,7 @@ The plugin's manifest asks Decaid for these permissions:
 | `network.websocket` | Connects to the server, and to Decaid's own sockets. |
 | `pluginStorage` | Keeps the tablet's id, what the server hasn't yet acknowledged, and a Software Action under way while Decaid loads the plugin again. |
 | `manage.extensions` | Installs, enables, disables, configures, updates and removes the tablet's plugins, and turns its automatic update checks on or off, when an Admin asks through the management interface ([Managing the tablet's software](#managing-the-tablets-software)). |
-| `notifications` | Nothing yet. A later release shows a notice on the tablet when the plugin stops syncing ([#540](https://github.com/loganfuller/decent-sync/issues/540)). |
+| `notifications` | Shows one notice on the tablet while the plugin has stopped syncing, saying why ([When the plugin stops syncing](#when-the-plugin-stops-syncing)). |
 
 `manage.extensions` is full trust. With it, an Admin's account, or the
 server itself, can put code on every connected tablet: install any plugin,

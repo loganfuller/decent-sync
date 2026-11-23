@@ -1,0 +1,878 @@
+{
+  "installed": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/plugins/notice-probe.reaplugin/source",
+          "body": {
+            "manifest": {
+              "id": "notice-probe.reaplugin",
+              "author": "Decent Sync's fixtures",
+              "name": "Notice probe",
+              "description": "Puts up and withdraws the notices it is asked to, and answers with what host.notify returned and the notificationResult events that followed. For recording fixtures on a throwaway Decaid.",
+              "version": "0.0.1",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "notifications"
+              ],
+              "settings": {
+                "Note": {
+                  "type": "string",
+                  "label": "Note",
+                  "description": "Any text"
+                }
+              },
+              "api": [
+                {
+                  "id": "call",
+                  "type": "http",
+                  "data": {}
+                }
+              ]
+            },
+            "plugin": "// A plugin that makes the `host.notify` and `host.dismissNotification` calls it is asked to, one after another, then\n// waits a moment and answers with what each call returned or threw and every event delivered to it since the request\n// began (README.md beside record.mjs). Installed on a throwaway Decaid only.\nfunction createPlugin(host) {\n  let events = [];\n  let loads = 0;\n  return {\n    id: \"notice-probe.reaplugin\",\n    version: \"0.0.1\",\n    onLoad(settings) {\n      loads += 1;\n      host.log(\"notice probe loaded with \" + JSON.stringify(settings || {}));\n    },\n    onUnload() {},\n    onEvent(event) {\n      events.push(event);\n    },\n    __httpRequestHandler: async (request) => {\n      const calls = (request.body && request.body.calls) || [];\n      const waitMs = (request.body && request.body.waitMs) || 1500;\n      events = [];\n      const answers = [];\n      for (const call of calls) {\n        try {\n          if (call.op === \"notify\") answers.push({ returned: host.notify(call.notice) });\n          else if (call.op === \"dismiss\") answers.push({ returned: call.id === undefined ? host.dismissNotification() : host.dismissNotification(call.id) });\n          else answers.push({ unknownOp: call.op });\n        } catch (error) {\n          answers.push({ threw: { name: error && error.name, message: String((error && error.message) || error) } });\n        }\n      }\n      await new Promise((resolve) => setTimeout(resolve, waitMs));\n      // `undefined` would be dropped from the JSON, so a call that returned nothing says so.\n      const returned = answers.map((answer) => (\"returned\" in answer && answer.returned === undefined ? { returnedNothing: true } : answer));\n      return {\n        status: 200,\n        headers: { \"content-type\": \"application/json\" },\n        body: JSON.stringify({ calls: returned, events: events.filter((event) => event && event.name !== \"stateUpdate\" && event.name !== \"workflowUpdated\"), loads }),\n      };\n    },\n  };\n}\n"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin source updated",
+            "id": "notice-probe.reaplugin",
+            "version": "0.0.1",
+            "loaded": false
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/notice-probe.reaplugin/enable"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin enabled",
+            "id": "notice-probe.reaplugin"
+          }
+        }
+      }
+    ],
+    "center": {
+      "key": null
+    }
+  },
+  "published": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "First message."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_1"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_1",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "First message.",
+            "actions": [],
+            "revision": 1,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "publishedAgain": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "First message."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_2"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_2",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "First message.",
+            "actions": [],
+            "revision": 1,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "changed": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "Second message."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_3"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_3",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Second message.",
+            "actions": [],
+            "revision": 2,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "lengths": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "long",
+          "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "tooLong",
+          "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "newlines",
+          "message": "One line.\nAnother line.\tTabbed."
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "bell",
+          "message": "A bell\u0007 in it."
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "blank",
+          "message": "   "
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "message": "An id too long."
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "message": "No id."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_4"
+          },
+          {
+            "returned": "notice_5"
+          },
+          {
+            "returned": "notice_6"
+          },
+          {
+            "returned": "notice_7"
+          },
+          {
+            "returned": "notice_8"
+          },
+          {
+            "returned": "notice_9"
+          },
+          {
+            "returned": "notice_10"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_4",
+              "id": "long",
+              "status": "accepted"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_5",
+              "id": "tooLong",
+              "status": "rejected",
+              "reason": "validation"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_6",
+              "id": "newlines",
+              "status": "accepted"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_7",
+              "id": "bell",
+              "status": "rejected",
+              "reason": "validation"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_8",
+              "id": "blank",
+              "status": "rejected",
+              "reason": "validation"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_9",
+              "status": "rejected",
+              "reason": "validation"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_10",
+              "status": "rejected",
+              "reason": "validation"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Second message.",
+            "actions": [],
+            "revision": 2,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "long",
+            "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "actions": [],
+            "revision": 3,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "newlines",
+            "message": "One line.\nAnother line.\tTabbed.",
+            "actions": [],
+            "revision": 4,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "capacity": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "n4",
+          "message": "Fourth."
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "n5",
+          "message": "Fifth."
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "n6",
+          "message": "Sixth."
+        }
+      },
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "Third message."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_11"
+          },
+          {
+            "returned": "notice_12"
+          },
+          {
+            "returned": "notice_13"
+          },
+          {
+            "returned": "notice_14"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_11",
+              "id": "n4",
+              "status": "accepted"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_12",
+              "id": "n5",
+              "status": "accepted"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_13",
+              "id": "n6",
+              "status": "rejected",
+              "reason": "capacity"
+            }
+          },
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_14",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Third message.",
+            "actions": [],
+            "revision": 7,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "long",
+            "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "actions": [],
+            "revision": 3,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "newlines",
+            "message": "One line.\nAnother line.\tTabbed.",
+            "actions": [],
+            "revision": 4,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "n4",
+            "message": "Fourth.",
+            "actions": [],
+            "revision": 5,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "n5",
+            "message": "Fifth.",
+            "actions": [],
+            "revision": 6,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "dismissedOne": {
+    "calls": [
+      {
+        "op": "dismiss",
+        "id": "long"
+      },
+      {
+        "op": "dismiss",
+        "id": "never-published"
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returnedNothing": true
+          },
+          {
+            "returnedNothing": true
+          }
+        ],
+        "events": [],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Third message.",
+            "actions": [],
+            "revision": 7,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "newlines",
+            "message": "One line.\nAnother line.\tTabbed.",
+            "actions": [],
+            "revision": 4,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "n4",
+            "message": "Fourth.",
+            "actions": [],
+            "revision": 5,
+            "read": false
+          },
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "n5",
+            "message": "Fifth.",
+            "actions": [],
+            "revision": 6,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "dismissedAll": {
+    "calls": [
+      {
+        "op": "dismiss"
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returnedNothing": true
+          }
+        ],
+        "events": [],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": []
+      }
+    }
+  },
+  "publishedForReload": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "Held across a reload."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_15"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_15",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Held across a reload.",
+            "actions": [],
+            "revision": 8,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "reloaded": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/notice-probe.reaplugin/settings",
+          "body": {
+            "Note": "reload"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "Note": "reload"
+          }
+        }
+      }
+    ],
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Held across a reload.",
+            "actions": [],
+            "revision": 8,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "publishedAfterReload": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "Held across a reload."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_16"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_16",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Held across a reload.",
+            "actions": [],
+            "revision": 8,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "disabled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/notice-probe.reaplugin/disable"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin disabled",
+            "id": "notice-probe.reaplugin"
+          }
+        }
+      }
+    ],
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": []
+      }
+    }
+  },
+  "enabled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/notice-probe.reaplugin/enable"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin enabled",
+            "id": "notice-probe.reaplugin"
+          }
+        }
+      }
+    ],
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": []
+      }
+    }
+  },
+  "publishedForRestart": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "Held across a restart."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_17"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_17",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Held across a restart.",
+            "actions": [],
+            "revision": 9,
+            "read": false
+          }
+        ]
+      }
+    }
+  }
+}
