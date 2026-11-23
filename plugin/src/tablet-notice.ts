@@ -58,6 +58,8 @@ export class TabletNotice {
   private shown: NoticeReason | null | undefined;
   /** The notices asked for whose result Decaid has not sent yet, by request id. */
   private readonly pending = new Map<string, NoticeReason>();
+  /** The last notice asked for, and the reason this load had put up before it, if any. */
+  private latest: { requestId: string; replaced: NoticeReason | null | undefined } | undefined;
 
   constructor(
     private readonly host: PluginHost,
@@ -66,10 +68,15 @@ export class TabletNotice {
 
   show(reason: NoticeReason): void {
     if (this.shown === reason) return;
+    const replaced = this.shown;
     this.shown = reason;
+    this.latest = undefined;
     try {
       const requestId = this.host.notify({ id: NOTICE_ID, message: NOTICES[reason] });
-      if (typeof requestId === "string") this.pending.set(requestId, reason);
+      if (typeof requestId === "string") {
+        this.pending.set(requestId, reason);
+        this.latest = { requestId, replaced };
+      }
     } catch (error) {
       this.log(`Decaid refused the notice on the tablet that ${NAMES[reason]}: ${describe(error)}`);
     }
@@ -103,9 +110,11 @@ export class TabletNotice {
   }
 
   /**
-   * Decaid's `notificationResult` event: a notice it did not keep is logged,
-   * and the notice it refused to replace is withdrawn, as that one gives a
-   * reason that no longer holds. The refused notice is not asked for again.
+   * Decaid's `notificationResult` event: a notice it did not keep is logged.
+   * Where it was the last asked for and replaced one this load put up, that
+   * one is withdrawn, as its reason no longer holds. What an earlier load
+   * left up stays, as it may say just what this load asked for. The refused
+   * notice is not asked for again.
    */
   result(payload: unknown): void {
     if (typeof payload !== "object" || payload === null) return;
@@ -118,7 +127,9 @@ export class TabletNotice {
     this.log(
       `Decaid did not keep the notice on the tablet that ${NAMES[asked]} (${typeof reason === "string" ? reason : String(status)}). It is not asked for again until what the notice should say changes.`,
     );
-    if (this.shown === asked) this.dismiss();
+    const latest = this.latest;
+    this.latest = undefined;
+    if (latest?.requestId === requestId && this.shown === asked && latest.replaced) this.dismiss();
   }
 }
 

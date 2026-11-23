@@ -248,7 +248,8 @@ describe("Notices on the tablet", () => {
 
       await showing(tablet, NOTICES.unreachable, 20_000);
       expect(tablet.readClock() - lost).toBeGreaterThanOrEqual(TEN_MINUTES);
-      // Counted by a timer from the first drop, so only the check's own slack past the ten minutes.
+      // Counted by a timer from the first drop, not by an attempt; the rest is room for the test's own scheduling, of
+      // which a few hundred milliseconds is a minute of the tablet's at this pace.
       expect(tablet.readClock() - lost).toBeLessThan(TEN_MINUTES + 60_000 + 30_000);
 
       // Its attempts keep failing, and the notice is asked for once.

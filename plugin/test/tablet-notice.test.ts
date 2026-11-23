@@ -40,6 +40,36 @@ describe("The notice on the tablet", () => {
     expect(logs).toEqual([expect.stringMatching(/^Decaid did not keep the notice on the tablet that the server is out of reach \(storage\)\./)]);
   });
 
+  it("leaves up what an earlier load put up when this load's first notice is refused", () => {
+    const { host, calls } = recordingHost();
+    const notice = new TabletNotice(host, () => {});
+
+    // The earlier load's notice may say just this: Decaid saves it again, and that save failed.
+    notice.show("tokenRefused");
+    notice.result({ requestId: "notice_1", id: "sync", status: "rejected", reason: "storage" });
+
+    expect(calls).toEqual([["notify", NOTICES.tokenRefused]]);
+  });
+
+  it("leaves the notice alone when one asked for before the last is refused", () => {
+    const { host, calls } = recordingHost();
+    const notice = new TabletNotice(host, () => {});
+
+    notice.show("anotherTablet");
+    notice.result({ requestId: "notice_1", id: "sync", status: "accepted" });
+    // Unreachable, then another tablet again, before Decaid answers the first.
+    notice.show("unreachable");
+    notice.show("anotherTablet");
+    notice.result({ requestId: "notice_2", id: "sync", status: "rejected", reason: "storage" });
+    notice.result({ requestId: "notice_3", id: "sync", status: "accepted" });
+
+    expect(calls).toEqual([
+      ["notify", NOTICES.anotherTablet],
+      ["notify", NOTICES.unreachable],
+      ["notify", NOTICES.anotherTablet],
+    ]);
+  });
+
   it("leaves a later notice alone when an earlier one is refused", () => {
     const { host, calls } = recordingHost();
     const notice = new TabletNotice(host, () => {});

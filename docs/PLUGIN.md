@@ -111,8 +111,9 @@ interface shows the server's side of a refusal.
 Decaid keeps the notice when the plugin loads again, such as after a settings
 change or a restart, and the new load replaces or withdraws it once its first
 connection attempt ends. Disabling or removing the plugin removes it. If
-Decaid refuses a notice, the plugin logs that, withdraws the notice it would
-have replaced, and asks again only once what the notice should say changes.
+Decaid refuses a notice, the plugin logs that, withdraws an earlier notice of
+its own that it would have replaced, and asks again only once what the notice
+should say changes.
 
 ## Settings
 
