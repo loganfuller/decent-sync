@@ -138,10 +138,25 @@ describe("A Machine following a Draft", { timeout: 120_000 }, () => {
   };
   const loadedRecipe = async ({ machine }: CreatedMachine) =>
     (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.id}`)).machine.loadedRecipe?.recipe.id ?? null;
-  /** Has the lab's Machine follow the Draft, and waits until it has its steps. */
+  /**
+   * Has the lab's Machine follow the Draft, and waits until it has its steps
+   * and the server holds the Workflow carrying them. The plugin answers the
+   * Draft's write, which makes the following current, ahead of the Workflow
+   * delivery that write caused, which alone tells the server what the Machine
+   * has (#645); the wait reads the poll it makes anyway.
+   */
   const followed = async (draft: Draft, machine = labMachine) => {
     await follow(draft, machine);
-    await expect.poll(() => state(draft), { timeout: 15_000 }).toBe("current");
+    await expect
+      .poll(
+        async () => {
+          const following = (await trying(draft)).following;
+          // When the titles differ, hasItsSteps holds both, as toMatchObject's diff drops keys the matcher doesn't name.
+          return following && { state: following.state, hasItsSteps: following.has === following.titleOnTablet || { has: following.has, titleOnTablet: following.titleOnTablet } };
+        },
+        { timeout: 15_000 },
+      )
+      .toMatchObject({ state: "current", hasItsSteps: true });
   };
 
   it("offers only the Machines of a Location an Admin marked for trying Drafts", async () => {
