@@ -217,14 +217,14 @@ test("the Software tab shows the DYE2 and Streamline on the tablet, follows thei
   await hardwareAndSoftware.getByRole("link", { name: "Software tab" }).click();
   await expect(page).toHaveURL(`/machines/${id}?tab=software`);
 
-  const dye2Row = rows(page.getByRole("region", { name: "Plugins" })).filter({ hasText: /^DYE2/ });
+  const dye2Row = rows(page.getByRole("region", { name: "Plugins" })).filter({ hasText: /^Streamline\/DYE2/ });
   const skins = page.getByRole("region", { name: "Skins" });
-  const skinRow = (name: string) => rows(skins).filter({ has: page.getByRole("cell", { name: new RegExp(`^${name}(Default|Showing now)*$`) }) });
+  const showing = rows(skins).filter({ hasText: "Showing now" });
   // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
   await expect(dye2Row.getByRole("cell").nth(1)).toHaveText("0.1.33");
   await expect(dye2Row.getByRole("cell").nth(3)).toHaveText("Enabled");
-  await expect(skinRow("Streamline").first().getByRole("cell").first()).toContainText("Showing now");
-  await expect(rows(skins).filter({ hasText: "Default" })).toHaveCount(1);
+  await expect(showing.getByRole("cell")).toHaveText(["Streamline.jsShowing now", "0.2.18", "Comes with Decaid"]);
+  await expect(rows(skins).filter({ hasText: "Default" }).getByRole("cell")).toHaveText(["Streamline.jsDefault", "0.2.18", "Follows a branch · decentespresso/streamline-js, dist"]);
 
   // DYE2 is disabled, and Decaid serves another Skin, as Quick Settings can.
   dye2.disable();
@@ -233,7 +233,7 @@ test("the Software tab shows the DYE2 and Streamline on the tablet, follows thei
   await expect.poll(async () => (await dye2State())?.state).toBe("disabled");
   await afterDetailsPolls(page, async () => {
     await expect(dye2Row.getByRole("cell").nth(3)).toHaveText("Disabled", { timeout: CHECK_MS });
-    await expect(rows(skins).filter({ hasText: "Showing now" })).toContainText("Passione", { timeout: CHECK_MS });
+    await expect(showing.getByRole("cell").first()).toHaveText("PassioneShowing now", { timeout: CHECK_MS });
   });
 
   // Derived: Decaid serves Streamline Cafe's release, installed beside Streamline (#556).
@@ -247,7 +247,7 @@ test("the Software tab shows the DYE2 and Streamline on the tablet, follows thei
   });
   await expect.poll(servedSkin).toBe("streamline-cafe.js");
   await afterDetailsPolls(page, async () => {
-    await expect(rows(skins).filter({ hasText: "Showing now" })).toHaveText(/^Streamline CafeShowing now0\.2\.27-cafe\.1Not updated$/, { timeout: CHECK_MS });
+    await expect(showing.getByRole("cell")).toHaveText(["Streamline CafeShowing now", "0.2.27-cafe.1", "Not updated"], { timeout: CHECK_MS });
   });
 
   // DYE2 is installed from its dist branch, and the Machine then goes offline: the lists stay as last reported.

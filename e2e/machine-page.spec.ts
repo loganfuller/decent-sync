@@ -573,8 +573,9 @@ test("Setup holds its hardware and software in one card, its Location with its L
   await expect(field(part("Hardware"), "Serial")).toHaveText("10071");
   await expect(field(part("Hardware"), "Identification")).toHaveText("Identified by its model and serial");
   await expect(field(part("Hardware"), "Last seen")).toHaveText(/^\w{3} \d+, \d{4}, /);
-  await expect(part("Software").locator("dt")).toHaveText(["Firmware", "Decaid", "Plugin", "DYE2", "Streamline"]);
-  await expect(field(part("Software"), "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
+  // Its firmware, and a link to the Software tab for Decaid, its plugins and its Skins (#660).
+  await expect(part("Software").locator("dt")).toHaveText(["Firmware"]);
+  await expect(hardware.getByRole("link", { name: "Software tab" })).toHaveAttribute("href", `/machines/${machines.left.id}?tab=software`);
   await expect(part("Tablet").locator("dt")).toHaveText(["Tablet id", "First seen", "Last seen"]);
   await expect(field(part("Tablet"), "Tablet id")).toHaveText(/^[0-9a-f-]{36}$/);
   for (const gone of ["Identity", "Versions", "Tablets", "Status"]) await expect(region(page, gone)).toHaveCount(0);
@@ -609,10 +610,10 @@ test.describe("on a phone", () => {
   /** Each element's left edge and top, to the pixel. */
   const corners = async (elements: Locator) => (await boxes(...(await elements.all()))).map((box) => ({ x: Math.round(box!.x), y: Math.round(box!.y) }));
 
-  test("the four tabs fit one row, each tab fits the screen, the Live View's tiles are two to a row and the Shots card is a block for each Recipe", async ({ page }) => {
+  test("the five tabs fit one row, each tab fits the screen, the Live View's tiles are two to a row and the Shots card is a block for each Recipe", async ({ page }) => {
     await page.goto(`/machines/${benchId}`);
     await expect(page.getByRole("heading", { name: "Lab Bench", level: 1 })).toBeVisible();
-    await expect(tabs(page)).toHaveText(["Now", "Activity", "Settings", "Setup"]);
+    await expect(tabs(page)).toHaveText(["Now", "Activity", "Settings", "Software", "Setup"]);
     expect(new Set((await corners(tabs(page))).map((corner) => corner.y)).size).toBe(1);
     // The tiles: the Machine State's across both columns, then two to a row.
     const tiles = region(page, "Live View").getByRole("group");
@@ -625,6 +626,7 @@ test.describe("on a phone", () => {
     for (const [tab, card] of [
       ["Activity", "On one day"],
       ["Settings", "Paired devices"],
+      ["Software", "Plugins"],
       ["Setup", "Library"],
     ] as const) {
       await openMachineTab(page, tab);
