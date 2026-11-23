@@ -130,6 +130,10 @@ const STAFF = [
   "POST /api/machines/:id/settings-edits",
   "GET /api/machines/:id/settings-edits",
   "GET /api/machines/:id/settings-edits/:editId",
+  // A Machine's Tablet Software and its Software Actions are read by Staff; making one, and the install form's sources, are an Admin's (ADR-0034).
+  "GET /api/machines/:id/tablet-software",
+  "GET /api/machines/:id/software-actions",
+  "GET /api/machines/:id/software-actions/:actionId",
   "GET /api/pending-machines",
   "GET /api/pending-machines/:id",
   "GET /api/shots",
