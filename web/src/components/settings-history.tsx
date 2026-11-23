@@ -5,6 +5,7 @@ import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Segmented, SegmentedItem } from "@/components/segmented";
 import { MadeBy, labelOf, outcomeText, shownValue } from "@/components/settings-edits";
+import { SoftwareActionOutcome, actionText } from "@/components/software-actions";
 import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,15 +13,16 @@ import { CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { type SettingsEdit, type SettingsHistoryEntry, type SettingsHistoryEntryPage, type SettingsHistoryField, api } from "@/lib/api";
+import { type SettingsEdit, type SettingsHistoryEntry, type SettingsHistoryEntryPage, type SettingsHistoryField, type TabletPlugin, type TabletSoftware, api } from "@/lib/api";
 import { isObject, valueText } from "@/lib/settings-text";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
-import { SCHEDULE_KEY_PREFIX, type SettingsHistoryCollection, WAKE_SCHEDULE_FIELDS, isEditableSettingsCollection, sameValue } from "@decent-sync/protocol";
+import { SCHEDULE_KEY_PREFIX, type SettingsHistoryCollection, WAKE_SCHEDULE_FIELDS, isEditableSettingsCollection, isSecretState, pluginSettingOf, sameValue } from "@decent-sync/protocol";
 
 // A Machine's Settings History (#433, #545): each change of what its Tablet
-// reported for its settings, plugins, Skins, paired devices, scale and
-// sensors, newest first, one row for each field changed, with what made it,
-// and each Settings Edit that changed nothing, with what came of it.
+// reported for its settings, plugins, their settings, Skins, paired devices,
+// scale and sensors, newest first, one row for each field changed, with what
+// made it, a Settings Edit or a Software Action, and each Settings Edit that
+// changed nothing, with what came of it.
 
 const PAGE_SIZE = 20;
 
@@ -33,6 +35,7 @@ export const HISTORY_SECTIONS: Record<SettingsHistoryCollection, string> = {
   appSettings: "Tablet Settings",
   presenceSettings: "Tablet Settings: Presence",
   plugins: "Plugins",
+  pluginSettings: "Plugin settings",
   skins: "Skins",
   pairedDevices: "Paired devices",
   scaleInfo: "Scale",
@@ -108,6 +111,9 @@ function SettingsHistoryLog({ machineId, answered }: { machineId: string; answer
   // outside Decent Sync don't stand under "Settings Edits" while that list is on its way, or if it can't be read.
   const data = polled.data?.which === which && polled.data.includeBrief === includeBrief ? polled.data : undefined;
   useReloadOn(answered, reload);
+  // The Tablet's plugins as last reported, which name the plugins whose settings changed and what a Software Action named.
+  const loadPlugins = useCallback(async () => (await api<{ tabletSoftware: TabletSoftware }>("GET", `/machines/${encodeURIComponent(machineId)}/tablet-software`)).tabletSoftware.plugins, [machineId]);
+  const plugins = usePolled(loadPlugins, DETAILS_POLL_MS).data ?? null;
 
   const first = data ? data.offset + 1 : 0;
   const last = data ? data.offset + data.page.entries.length : 0;
@@ -161,8 +167,8 @@ function SettingsHistoryLog({ machineId, answered }: { machineId: string; answer
           </TableHeader>
           <TableBody>
             {data.page.entries.flatMap((entry) =>
-              entryRows(entry).map((row) => (
-                <TableRow key={`${entry.change?.id ?? "edit"}-${entry.settingsEdit?.id ?? "outside"}-${row.key}`}>
+              entryRows(entry, plugins).map((row) => (
+                <TableRow key={`${entry.change?.id ?? "edit"}-${entry.settingsEdit?.id ?? entry.softwareAction?.id ?? "outside"}-${row.key}`}>
                   <TableCell className="align-top">{formatTime(entry.at)}</TableCell>
                   <TableCell className="align-top whitespace-normal">{HISTORY_SECTIONS[entry.collection as SettingsHistoryCollection] ?? entry.collection}</TableCell>
                   <TableCell className="align-top whitespace-normal">{row.field}</TableCell>
@@ -180,11 +186,32 @@ function SettingsHistoryLog({ machineId, answered }: { machineId: string; answer
                           </InfoTip>
                         )}
                       </span>
+                    ) : entry.softwareAction ? (
+                      // Who made the Software Action that made it, and what it did, as the Software tab's log says it.
+                      <span className="grid gap-0.5">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span>
+                            <MadeBy account={entry.softwareAction.account} connectedApp={entry.softwareAction.connectedApp} />
+                          </span>
+                          <InfoTip label="About this Software Action">
+                            <p>Made {formatTime(entry.softwareAction.madeAt)}.</p>
+                          </InfoTip>
+                        </span>
+                        <span className="text-xs text-muted-foreground">{actionText(entry.softwareAction, plugins)}</span>
+                      </span>
                     ) : (
                       <span className="text-muted-foreground">Outside Decent Sync</span>
                     )}
                   </TableCell>
-                  <TableCell className="min-w-40 align-top whitespace-normal">{entry.settingsEdit ? <Outcome edit={entry.settingsEdit} /> : <OrNone>{undefined}</OrNone>}</TableCell>
+                  <TableCell className="min-w-40 align-top whitespace-normal">
+                    {entry.settingsEdit ? (
+                      <Outcome edit={entry.settingsEdit} />
+                    ) : entry.softwareAction ? (
+                      <SoftwareActionOutcome action={entry.softwareAction} plugins={plugins} />
+                    ) : (
+                      <OrNone>{undefined}</OrNone>
+                    )}
+                  </TableCell>
                 </TableRow>
               )),
             )}
@@ -226,9 +253,9 @@ function nothingText(which: Which, includeBrief: boolean): string {
  * for each field it set, or one for the wake schedule it would have added,
  * changed or deleted.
  */
-function entryRows({ collection, change, settingsEdit }: SettingsHistoryEntry): { key: string; field: string; change: string }[] {
+function entryRows({ collection, change, settingsEdit }: SettingsHistoryEntry, plugins: readonly TabletPlugin[] | null = null): { key: string; field: string; change: string }[] {
   const changed = change?.fields ?? [];
-  if (!settingsEdit) return changed.map((field) => ({ key: field.field, field: fieldLabel(collection, field), change: changeText(collection, field) }));
+  if (!settingsEdit) return changed.map((field) => ({ key: field.field, field: fieldLabel(collection, field, plugins), change: changeText(collection, field) }));
   const { fields, expected, schedule } = settingsEdit;
   if (schedule) {
     // A wake schedule's fields in their order, as the server stores an edit's fields as jsonb, which does not keep it:
@@ -273,9 +300,18 @@ function Outcome({ edit }: { edit: SettingsEdit }) {
 
 /**
  * A field's name: a setting's label; a wake schedule by its time; a plugin,
- * Skin, paired device or sensor by the name it reports, or else its id.
+ * Skin, paired device or sensor by the name it reports, or else its id; a
+ * plugin's setting by its plugin's name and its label, where the Tablet
+ * still lists the plugin, as "Visualizer upload: Username".
  */
-function fieldLabel(collection: string, { field, before, after }: SettingsHistoryField): string {
+function fieldLabel(collection: string, { field, before, after }: SettingsHistoryField, plugins: readonly TabletPlugin[] | null = null): string {
+  if (collection === "pluginSettings") {
+    const keyed = pluginSettingOf(field);
+    if (!keyed) return field === "" ? "Value" : field;
+    const plugin = plugins?.find((entry) => entry.id === keyed.pluginId);
+    const label = plugin?.settings.find((setting) => setting.name === keyed.setting)?.label ?? keyed.setting;
+    return `${plugin?.name ?? keyed.pluginId}: ${label}`;
+  }
   if (field.startsWith(SCHEDULE_KEY_PREFIX) && collection === "presenceSettings") {
     const time = [after, before].map((value) => (isObject(value) ? value.time : undefined)).find((value) => typeof value === "string");
     return time ? `Wake schedule at ${time}` : "Wake schedule";
@@ -304,6 +340,16 @@ const ENTRY_LISTS = new Set(["plugins", "pairedDevices", "sensors"]);
  */
 function changeText(collection: string, field: SettingsHistoryField): string {
   const back = field.backAt === null ? "" : `, back at ${formatTime(field.backAt)}`;
+  if (collection === "pluginSettings") {
+    // A setting's value whole, a secret's as whether it is set, and to anyone but an Admin as hidden.
+    const shown =
+      field.change === "added"
+        ? `Set: ${pluginSettingText(field.after)}`
+        : field.change === "removed"
+          ? `Cleared: was ${pluginSettingText(field.before)}`
+          : `${pluginSettingText(field.before)} to ${pluginSettingText(field.after)}`;
+    return field.backAt === null ? shown : `Briefly ${shown}${back}`;
+  }
   const scheduled = collection === "presenceSettings" && field.field.startsWith(SCHEDULE_KEY_PREFIX);
   // An entry added or removed is named by its field; a wake schedule's or setting's value is shown.
   const whole = (value: unknown) => (ENTRY_LISTS.has(collection) ? versionOf(value) : valueOf(collection, field.field, value, scheduled));
@@ -317,6 +363,13 @@ function changeText(collection: string, field: SettingsHistoryField): string {
     ? parts.map(({ path, before, after }) => `${scheduled ? labelOf(collection, path, true) : path}: ${valueOf(collection, path, before, scheduled)} to ${valueOf(collection, path, after, scheduled)}`).join("; ")
     : `${valueOf(collection, field.field, field.before)} to ${valueOf(collection, field.field, field.after)}`;
   return field.backAt === null ? shown : `Briefly ${shown}${back}`;
+}
+
+/** A plugin's setting's value: a secret's as whether it is set, and "Hidden" where the reader is no Admin. */
+function pluginSettingText(value: unknown): string {
+  if (isSecretState(value)) return value.isSet ? "Set" : "Not set";
+  if (isObject(value) && value.hidden === true) return "Hidden";
+  return valueText(value);
 }
 
 /** A plugin's version, as an entry added or removed shows it; empty for any other entry. */

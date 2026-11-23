@@ -30,6 +30,7 @@ import { MachineShotsCard } from "@/components/machine-shots";
 import { MachineUseCard } from "@/components/machine-use";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
 import { SettingsHistoryCard } from "@/components/settings-history";
+import { SoftwareTab } from "@/components/tablet-software";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -48,9 +49,6 @@ import {
   type PairedDevices,
   type PendingMachine,
   type Tablet,
-  type TabletDye2,
-  type TabletStreamline,
-  type TabletVersions,
   type Takeover,
   type TakeoverConnection,
   type WorkflowEvent,
@@ -65,6 +63,7 @@ const TABS = [
   { tab: "now", label: "Now" },
   { tab: "activity", label: "Activity" },
   { tab: "settings", label: "Settings" },
+  { tab: "software", label: "Software" },
   { tab: "setup", label: "Setup" },
 ] as const;
 type Tab = (typeof TABS)[number]["tab"];
@@ -88,14 +87,16 @@ function tabSearch(params: URLSearchParams, tab: Tab): string {
  * whether it is online; a line with what it is doing, its last Shot and
  * where it is; links to its Shots and Steam Records; and what needs
  * attention: a refused connection, a takeover, a mismatch, hardware to enter
- * or confirm, and a new token. Then four tabs, the one open kept in the
+ * or confirm, and a new token. Then five tabs, the one open kept in the
  * address as `tab`, so a link opens on it:
  * - Now: its Live View, its Workflow with the Loaded Recipe it was loaded
  *   from, and how its Shots are landing by Recipe;
  * - Activity: how much it was used, and what happened on it over a day;
  * - Settings: its settings, with their edits, its paired devices and its
  *   Settings History;
- * - Setup: its hardware and software, its Location, its sharing, the
+ * - Software: its Tablet Software, Decaid, the plugins and the Skins, with
+ *   the Software Actions an Admin makes on them and their log;
+ * - Setup: its hardware and firmware, its Location, its sharing, the
  *   library its tablet reported, its token and deliveries set aside.
  * Staff see all of it, and can move it between the Locations they work at;
  * every other change is for Admins.
@@ -231,6 +232,7 @@ function MachineDetails({ id }: { id: string }) {
           {tab === "now" && <NowTab machine={machine} askedAt={status.data!.askedAt} changed={changed} />}
           {tab === "activity" && <ActivityTab machine={machine} />}
           {tab === "settings" && <SettingsTab machine={machine} changed={changed} />}
+          {tab === "software" && <SoftwareTab machine={machine} changed={changed} />}
           {tab === "setup" && (
             <SetupTab
               machine={machine}
@@ -404,16 +406,8 @@ function SettingsTab({ machine, changed }: { machine: Machine; changed: number }
   );
 }
 
-/** What the Setup tab reads of what the Machine's tablet reported. */
-interface SetupReports {
-  /** The DYE2 and Streamline on its tablet. */
-  tabletVersions: TabletVersions;
-  /** The collections its tablet has reported, without their values. */
-  collections: CollectionSummary[];
-}
-
 /**
- * Setup: the Machine's hardware and software, its Location with its Location
+ * Setup: the Machine's hardware and firmware, its Location with its Location
  * History, its sharing, the library its tablet reported, its token, for an
  * Admin, and the deliveries set aside. What its tablet reported is loaded
  * every 30 s, and again after a change made on the page.
@@ -432,22 +426,17 @@ function SetupTab({
   onIssued(token: IssuedToken): Promise<void>;
 }) {
   const path = `/machines/${encodeURIComponent(machine.id)}`;
-  const load = useCallback(async (): Promise<SetupReports> => {
-    const [{ tabletVersions }, { collections }] = await Promise.all([
-      api<{ tabletVersions: TabletVersions }>("GET", `${path}/tablet-versions`),
-      api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
-    ]);
-    return { tabletVersions, collections };
-  }, [path]);
+  // The collections its tablet has reported, without their values.
+  const load = useCallback(async () => (await api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`)).collections, [path]);
   const { data, error, reload } = usePolled(load, DETAILS_POLL_MS);
   useReloadOn(changed, reload);
   return (
     <>
       {error && <Reading error={error} />}
-      <HardwareAndSoftware machine={machine} versions={data?.tabletVersions} />
+      <HardwareAndSoftware machine={machine} />
       <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={onChanged} />
       <MachineSharingCard machine={machine} isAdmin={isAdmin} onChanged={onChanged} />
-      {data && <LibraryCard collections={data.collections} />}
+      {data && <LibraryCard collections={data} />}
       {isAdmin && <MachineToken machine={machine} onIssued={onIssued} />}
       <SetAsideDeliveriesCard machineId={machine.id} />
     </>
@@ -455,20 +444,21 @@ function SetupTab({
 }
 
 /**
- * The Machine's hardware, the software on it and its tablet, and the
- * tablets its connections came from: what its Identity, Versions and Tablets
- * cards held, with when it was last seen. A tablet is known by the id its
- * plugin keeps in Decaid's data, so a reset or replaced tablet shows up as a
- * new one. DYE2 and Streamline are loaded with what its tablet reported,
- * less often than the Machine's status.
+ * The Machine's hardware, its firmware and its tablet, and the tablets its
+ * connections came from: what its Identity, Versions and Tablets cards held,
+ * with when it was last seen. A tablet is known by the id its plugin keeps
+ * in Decaid's data, so a reset or replaced tablet shows up as a new one.
+ * Decaid, its plugins and its Skins are on the Software tab, which it links
+ * to.
  */
-function HardwareAndSoftware({ machine, versions }: { machine: Machine; versions: TabletVersions | undefined }) {
+function HardwareAndSoftware({ machine }: { machine: Machine }) {
+  const [params] = useSearchParams();
   const seen = (tablet: Tablet) => `First seen ${formatTime(tablet.firstSeenAt)}, last seen ${formatTime(tablet.lastSeenAt)}`;
   return (
     <Card role="region" aria-label="Hardware and software">
       <CardHeader>
         <CardTitleWithInfo title="Hardware and software">
-          <p>Its versions are as last reported by its Tablet.</p>
+          <p>Its firmware is as last reported by its Tablet.</p>
           <p>
             Its tablets are those its connections came from. Resetting a tablet's Decaid data, or replacing the tablet, makes a new one;
             restoring a Decaid backup can bring back the tablet it came from.
@@ -492,11 +482,14 @@ function HardwareAndSoftware({ machine, versions }: { machine: Machine; versions
             <h3 className="font-medium">Software</h3>
             <Fields label="Software">
               <Field term="Firmware">{firmwareText(machine)}</Field>
-              <Field term="Decaid">{machine.decaidVersion ?? "Not reported"}</Field>
-              <Field term="Plugin">{machine.pluginVersion ?? "Not reported"}</Field>
-              <Field term="DYE2">{versions ? dye2Text(versions.dye2) : "Loading"}</Field>
-              <Field term="Streamline">{versions ? streamlineText(versions.streamline) : "Loading"}</Field>
             </Fields>
+            <p className="text-sm text-muted-foreground">
+              Decaid, its plugins and its Skins are on the{" "}
+              <Link to={{ search: tabSearch(params, "software") }} className="text-foreground underline underline-offset-4">
+                Software tab
+              </Link>
+              .
+            </p>
           </section>
         </div>
         <section className="grid gap-2">
@@ -621,41 +614,6 @@ function firmwareText(machine: Machine): string {
   const binding = bindingOf(machine);
   const own = binding ? sameHardware(reported, binding) : !isRealSerial(reported.serial);
   return own ? firmware : `${firmware}, from ${describeHardware(reported)}, which its token last reported`;
-}
-
-/** DYE2's version, and whether Decaid has it loaded and it is a branch install, as "0.1.24 (branch main, not loaded)". */
-function dye2Text(dye2: TabletDye2): string {
-  if (dye2.status === "notReported") return "Not reported";
-  if (dye2.status === "notInstalled") return "Not installed";
-  // A branch build carries the version committed on the branch, which lags DYE2's tags.
-  const notes = [...(dye2.branch !== null ? [`branch ${dye2.branch}`] : []), ...(dye2.loaded ? [] : ["not loaded"])];
-  const version = dye2.version ?? "Unknown version";
-  return notes.length > 0 ? `${version} (${notes.join(", ")})` : version;
-}
-
-/**
- * Streamline's version and build if it is the Skin Decaid serves, as "0.2.18 (main build)", or Streamline Cafe's with
- * the Streamline it is built on, as "Streamline Cafe 0.2.27-cafe.1 (release), built on Streamline 0.2.27", or else
- * the Skin that is.
- */
-function streamlineText(streamline: TabletStreamline): string {
-  switch (streamline.status) {
-    case "notReported":
-      return "Not reported";
-    case "notInstalled":
-      return "Not installed";
-    case "notActive": {
-      const active = streamline.activeSkin;
-      const named = active ? [active.name, active.version].filter((part) => part !== null).join(" ") : "";
-      return named === "" ? "Not the active skin" : `Not the active skin (${named})`;
-    }
-    case "active": {
-      const build = streamline.build === "main" ? "main build" : "release";
-      if (streamline.skin !== "streamlineCafe") return `${streamline.version ?? "Unknown version"} (${build})`;
-      const cafe = `Streamline Cafe ${streamline.version ?? "unknown version"} (${build})`;
-      return streamline.streamlineVersion ? `${cafe}, built on Streamline ${streamline.streamlineVersion}` : cafe;
-    }
-  }
 }
 
 /**

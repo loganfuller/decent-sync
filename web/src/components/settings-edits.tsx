@@ -64,14 +64,15 @@ export function MadeBy({ account, connectedApp }: { account: SettingsEdit["accou
  * The fields of a section the signed-in account may change, each reported
  * in its latest report: for an Admin every editable field, for Staff at the
  * Machine's Location those marked for Staff, and none where Settings Edits
- * do not change the section yet.
+ * do not change the section yet. A field edited on the Software tab, with
+ * the Tablet's software, is offered there and not here.
  */
 export function useOfferedFields(name: SettingsCollectionName, collection: Collection | null, machine: Machine): EditableSettingsField[] {
   const isAdmin = useIsAdmin();
   const mayChangeAt = useMayChangeAt();
   const value = collection?.available ? collection.value : undefined;
   if (!isEditableSettingsCollection(name) || !isObject(value) || !mayChangeAt(machine.location?.id ?? null)) return [];
-  return SETTINGS_FIELDS[name].filter(isEditable).filter((field) => field.path in value && (isAdmin || field.editableBy === "staff"));
+  return SETTINGS_FIELDS[name].filter(isEditable).filter((field) => !field.withSoftware && field.path in value && (isAdmin || field.editableBy === "staff"));
 }
 
 /**

@@ -37,11 +37,13 @@ const PAGES: { link: string; heading: string; loaded: (page: Page) => Locator }[
 ];
 
 /** Each tab of a Machine's page (#545), and what shows once its content has loaded. */
-const MACHINE_TABS: ["Now" | "Activity" | "Settings" | "Setup", (page: Page) => Locator][] = [
+const MACHINE_TABS: ["Now" | "Activity" | "Settings" | "Software" | "Setup", (page: Page) => Locator][] = [
   // Shown once its tablet's Workflow has been read.
   ["Now", (page) => page.getByRole("region", { name: "Workflow" })],
   ["Activity", (page) => page.getByRole("region", { name: "On one day" }).getByRole("table")],
   ["Settings", (page) => page.getByRole("table", { name: "Paired devices" })],
+  // Shown once its Tablet Software has been read: its plugins' table, with an Admin's actions on each row.
+  ["Software", (page) => page.getByRole("table", { name: "Plugins" })],
   // Shown once the library its tablet reported has been read.
   ["Setup", (page) => page.getByRole("region", { name: "Library" })],
 ];
