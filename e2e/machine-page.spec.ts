@@ -409,7 +409,17 @@ test("Back or Forward to a tab left scrolled down returns the page to where it w
   await page.goBack();
   await expect(nav.getByRole("link", { name: "Setup", exact: true })).toHaveAttribute("aria-current", "page");
   expect((await scrolled()).y).toBe(top);
-  await page.goBack();
+  expect(await minHeight(), "held on Setup before Back to Now").not.toBe("");
+  // Read in the traversal's own task, before the browser's scroll back to the top, whose event would give back the
+  // hold too: the render that returns to Now has committed by the time a page's popstate listener runs.
+  const heldOnBack = await page.evaluate(
+    () =>
+      new Promise<string>((resolve) => {
+        window.addEventListener("popstate", () => resolve(document.documentElement.style.minHeight), { once: true });
+        history.back();
+      }),
+  );
+  expect(heldOnBack, "held in the render that returns to Now").toBe("");
   await expect(nav.getByRole("link", { name: "Now", exact: true })).toHaveAttribute("aria-current", "page");
   expect(await minHeight()).toBe("");
   expect((await scrolled()).y).toBe(0);
