@@ -86,7 +86,7 @@ const softwareOutput = z.object({
         default: z.boolean().describe("The Skin Decaid shows as it starts, and once its Skin view restarts."),
         served: z.boolean().describe("Whether Decaid's Skin server serves it now."),
         updates,
-        removable: z.boolean().describe("Whether an Admin may remove it: it is neither the default nor one that comes with Decaid."),
+        removable: z.boolean().describe("Whether an Admin may remove it: it is neither the default, nor the one served, nor one that comes with Decaid."),
         pageReported: z.boolean().describe("Whether it is served and has reported the page it shows, so reload_skin can ask it to reload."),
       }),
     )

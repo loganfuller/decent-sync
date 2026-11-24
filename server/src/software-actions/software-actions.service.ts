@@ -306,8 +306,10 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
     const skin = skins.find((candidate) => candidate.id === action.skinId);
     if (!skin) throw new ConflictException("The Tablet reports no such Skin: it may have been removed since the page was loaded");
     if (action.kind === "removeSkin") {
-      // The plugin refuses the first itself, and Decaid the second, whatever they are sent: said here first, with nothing kept.
+      // The plugin refuses the first two itself, and Decaid the third, whatever they are sent: said here first, with nothing kept.
       if (skin.default) throw new BadRequestException(`${skin.name ?? skin.id} is the default Skin, which can't be removed: choose another default first`);
+      // Decaid would go on serving its deleted folder, which answers 404 once the page loads again (`defaultRemoved`).
+      if (skin.served) throw new BadRequestException(`${skin.name ?? skin.id} is on screen now, so it can't be removed: restart the Skin view onto the default first`);
       if (skin.updates.how === "comesWithDecaid") throw new BadRequestException(`${skin.name ?? skin.id} comes with Decaid, which keeps it: it can't be removed`);
     }
     return { skin: { id: skin.id, name: skin.name } };

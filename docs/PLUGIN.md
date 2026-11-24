@@ -243,7 +243,7 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
   Decaid installs no Skin from a commit given as a branch;
 - choose the default Skin, which shows the next time the Skin view
   restarts, and check the Skins for updates;
-- remove a Skin that is neither the default nor one that comes with Decaid;
+- remove a Skin that is neither the default, nor the one on screen, nor one that comes with Decaid;
 - reload the Skin on screen, or restart the Skin view (below);
 - ask Decaid to check for its own update, and start it: Decaid downloads it
   and opens Android's installer, where someone at the tablet must tap

@@ -566,11 +566,7 @@ function SkinsCard({ skins, showing, acting }: { skins: TabletSkin[] | null; sho
                                 label="Remove"
                                 ariaLabel={`Remove ${skinLabel(skin)}`}
                                 title={`Remove ${skinLabel(skin)}?`}
-                                description={
-                                  skin.served
-                                    ? "Decaid deletes it from the Tablet. The Tablet shows it until the Skin view restarts onto the default Skin."
-                                    : "Decaid deletes it from the Tablet. It can be installed again from here."
-                                }
+                                description="Decaid deletes it from the Tablet. It can be installed again from here."
                                 confirmLabel="Remove"
                                 variant="destructive"
                                 size="sm"

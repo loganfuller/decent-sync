@@ -279,7 +279,7 @@ export function skinViews(skins: unknown, page?: unknown): SkinView[] | null {
     const updates = skinUpdates(skin);
     const isDefault = id === defaultId;
     const served = servedPath !== null && skin.path === servedPath;
-    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, removable: !isDefault && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
+    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, removable: !isDefault && !served && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
   });
 }
 

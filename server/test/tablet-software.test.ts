@@ -79,7 +79,7 @@ describe("how a Skin updates", () => {
     expect(skinUpdates(recordedSkin("streamline.js-dist", "branchInstalled"))).toEqual({ how: "followsBranch", repo: "decentespresso/streamline-js", branch: "dist" });
   });
 
-  it("is removable unless it is the default or comes with Decaid, and says whether the Skin served reported its page", () => {
+  it("is removable unless it is the default, the one served or comes with Decaid, and says whether the Skin served reported its page", () => {
     const served = skinsOn093();
     const skins = [...(served["/webui/skins"] as Record<string, unknown>[]), recordedSkin("streamline-cafe.js")];
     const page = { skinId: "streamline.js", version: "0.2.31", loadedAt: "2026-11-24T14:00:00.000Z", reportedAt: "2026-11-24T14:00:01.000Z" };

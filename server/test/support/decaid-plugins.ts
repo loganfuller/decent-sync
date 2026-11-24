@@ -183,9 +183,10 @@ export class SimulatedPlugins {
    * Decaid on Android does, with Android's permission for it to install apps
    * granted (`androidPermitted`) or not (`androidNotPermitted`, as #659's
    * trial saw), or granted but with the installer failing to open
-   * (`androidInstallFails`, as where the downloaded file is gone: a `StateError`, in `remoteErrorMessage`'s words).
+   * (`androidInstallFails`, as where the downloaded file is gone: a `StateError`, in `remoteErrorMessage`'s words),
+   * or granted but with Android's installer not opening (`androidInstallerNotOpened`, `cancelled`: `_emitNeutral`).
    */
-  installOn: "linux" | "androidPermitted" | "androidNotPermitted" | "androidInstallFails" = "linux";
+  installOn: "linux" | "androidPermitted" | "androidNotPermitted" | "androidInstallFails" | "androidInstallerNotOpened" = "linux";
 
   constructor(options: { plugins?: ListedPlugin[]; requireAuthorization?: boolean } = {}) {
     this.plugins = structuredClone(options.plugins ?? []);
@@ -272,6 +273,10 @@ export class SimulatedPlugins {
     const started = [{ ...offered, phase: "downloading", progress: 0 }, { ...offered, phase: "available" }, { ...offered, phase: "installing" }];
     if (this.installOn === "androidInstallFails") {
       this.update = { ...offered, phase: "error", error: "Couldn't install the app update. Try again." };
+      return [...started, structuredClone(this.update)];
+    }
+    if (this.installOn === "androidInstallerNotOpened") {
+      this.update = { ...offered, phase: "available" };
       return [...started, structuredClone(this.update)];
     }
     this.update = { ...offered, phase: "installing" };

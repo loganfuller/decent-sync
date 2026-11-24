@@ -5652,7 +5652,7 @@ var __decentSync = (() => {
         return refusedByDecaid2(action.id, state.status, decaidMessage2(state));
       }
       if (isSkinAction(action)) return this.carryOutOnSkins(action, tooLate, endTime);
-      if (action.kind === "startDecaidUpdate") return this.startDecaidUpdate(action, tooLate);
+      if (action.kind === "startDecaidUpdate") return this.startDecaidUpdate(action, tooLate, endTime);
       const before = await this.reports.readSoftware("plugins");
       if (before === void 0) return refusedByDecaid2(action.id, null, "Decaid did not answer with its plugins");
       const changed = await changedSince2(action, before);
@@ -5833,13 +5833,13 @@ var __decentSync = (() => {
      * (`installNotPermitted`), where Decaid found no update, or where it
      * failed, in its words.
      */
-    async startDecaidUpdate(action, tooLate) {
+    async startDecaidUpdate(action, tooLate, endTime) {
       await this.reports.readSoftware("decaid");
       if (this.stopped) return void 0;
       if (tooLate()) return expired2(action.id);
       let outcome;
       try {
-        outcome = await this.installOverSocket();
+        outcome = await this.installOverSocket(Math.max(0, Math.min(UPDATE_START_MS, endTime - Date.now())));
       } catch (error) {
         outcome = { refused: "decaid", message: `Decaid did not answer: ${describe2(error)}` };
       }
@@ -5862,9 +5862,10 @@ var __decentSync = (() => {
      * refusal, as where Android's permission to install apps is not granted
      * (`local_approval_required`); a check that found nothing, an installer
      * that did not open, or a download or install that failed. Not confirmed
-     * where none of these shows by UPDATE_START_MS.
+     * where none of these shows within `limitMs`: UPDATE_START_MS, or less
+     * where the action's time is up sooner.
      */
-    async installOverSocket() {
+    async installOverSocket(limitMs) {
       const handle = await this.transports.open(UPDATE_SOCKET);
       try {
         return await new Promise((resolve, reject) => {
@@ -5872,7 +5873,7 @@ var __decentSync = (() => {
           let underWay = false;
           let installing = false;
           let over = false;
-          const timer = setTimeout(() => settle({ notConfirmed: `Decaid's update did not reach Android's installer within ${UPDATE_START_MS / 1e3} s` }), UPDATE_START_MS);
+          const timer = setTimeout(() => settle({ notConfirmed: `Decaid's update did not reach Android's installer within ${Math.round(limitMs / 1e3)} s` }), limitMs);
           const settle = (outcome) => {
             over = true;
             clearTimeout(timer);
@@ -6039,7 +6040,9 @@ var __decentSync = (() => {
     return skinsIn(report).find((skin) => skin.path === server.path);
   }
   function forbiddenOnSkins(action, before) {
-    if (action.kind === "removeSkin" && action.skinId === defaultSkinId(before)) return "The plugin does not remove the default Skin: choose another default first";
+    if (action.kind !== "removeSkin") return null;
+    if (action.skinId === defaultSkinId(before)) return "The plugin does not remove the default Skin: choose another default first";
+    if (action.skinId === servedSkin(before)?.id) return "The plugin does not remove the Skin on screen: restart the Skin view onto the default first";
     return null;
   }
   function skinsChangedSince(action, before, page) {
@@ -6049,7 +6052,7 @@ var __decentSync = (() => {
     if (action.kind === "reloadSkin") {
       const served = servedSkin(before);
       if (served === void 0) return "Decaid serves no Skin now: restart the Skin view";
-      if (page === null || page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id)}, has not reported its page, so it can't be asked to reload`;
+      if (page === null || page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id).slice(0, MAX_SOFTWARE_NAME_LENGTH)}, has not reported its page, so it can't be asked to reload`;
     }
     return null;
   }

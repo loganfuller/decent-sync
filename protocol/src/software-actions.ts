@@ -43,8 +43,8 @@ export const OWN_CHANGEABLE_SETTING = "PollSeconds";
  *   after its Skin view restarts, which is the next time it shows;
  * - `checkSkinUpdates`: has Decaid check every Skin it updates for a newer
  *   build now, installing each it finds;
- * - `removeSkin`: removes a Skin that is neither the default nor one that
- *   comes with Decaid;
+ * - `removeSkin`: removes a Skin that is neither the default, nor the one
+ *   served, nor one that comes with Decaid;
  * - `reloadSkin`: asks the Skin on screen to load its page again, which a
  *   Skin that reports its page does (`SkinPage`);
  * - `restartSkinView`: stops and starts Decaid's Skin server, which has

@@ -800,8 +800,8 @@ in `server/test/tablet-software.test.ts` on the recorded lists):
   secret.
 - **Each Skin**: its id, name and version, whether it is the default, and
   whether Decaid's Skin server is serving its folder now, and how it
-  updates; whether an Admin may remove it (`removable`: neither the default
-  nor one that comes with Decaid); and, for the one served, whether it has
+  updates; whether an Admin may remove it (`removable`: neither the default,
+  nor the one served, nor one that comes with Decaid); and, for the one served, whether it has
   reported its page (`pageReported`), which Reload needs.
 - **What the Tablet shows** (`showing`, #661), null until the Skins are
   reported: the Skin served now with the version installed; the page it
@@ -880,10 +880,11 @@ the kinds that act on Skins, on the Skin view and on Decaid's own update:
   Decaid stops waiting on the call after its minute, the check goes on, and
   the plugin asks again, which joins it and answers with its results
   (`checkForSkinUpdates`); not confirmed where that times out too;
-- `removeSkin`: removes a Skin that is neither the default nor one Decaid
-  comes with. Decaid refuses the second (403) but removes the default as
-  any other, and its server then serves a folder that is gone, so the
-  plugin refuses that itself;
+- `removeSkin`: removes a Skin that is neither the default, nor the one
+  served, nor one Decaid comes with. Decaid refuses the last (403) but
+  removes the default or the one served as any other, and its server then
+  serves a folder that is gone, so the server and the plugin refuse those
+  themselves;
 - `reloadSkin`: pushes `{"what":"reload"}` on the plugin's `changes`
   socket, and is done once a page of the same Skin with a later `loadedAt` reports in within
   `SKIN_RELOAD_MS` (15 s), with that page; otherwise the plugin answers it

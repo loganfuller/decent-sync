@@ -504,7 +504,7 @@ export interface TabletSkin {
   /** Whether Decaid's Skin server is serving it now. */
   served: boolean;
   updates: SoftwareUpdates;
-  /** Whether it may be removed: it is neither the default nor one that comes with Decaid. */
+  /** Whether it may be removed: it is neither the default, nor the one served, nor one that comes with Decaid. */
   removable: boolean;
   /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
   pageReported: boolean;

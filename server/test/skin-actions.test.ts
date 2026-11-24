@@ -243,6 +243,15 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     expect(skins.managed).toEqual([`DELETE /webui/skins/${CAFE_DEV}`]);
     expect(skins.listed().some((entry) => entry.id === CAFE)).toBe(true);
     expect(tablet.logs.some((line) => line.includes("The plugin does not remove the default Skin"))).toBe(true);
+
+    // Nor the Skin on screen once another is the default: Decaid would serve its deleted folder until the Skin view restarts.
+    expect(await done(machine, { kind: "chooseDefaultSkin", skinId: "streamline.js" })).toMatchObject({ outcome: "done" });
+    await expect.poll(async () => await skin(machine, CAFE)).toMatchObject({ default: false, served: true, removable: false });
+    expect(await refused(machine, { kind: "removeSkin", skinId: CAFE }, 400)).toContain("Streamline Cafe is on screen now, so it can't be removed: restart the Skin view onto the default first");
+    const onScreen = await stored(machine, "removeSkin", { skin: { id: CAFE, name: "Streamline Cafe" } });
+    expect(await answered(machine, onScreen)).toMatchObject({ outcome: "refused", refusal: { reason: "notAllowed", message: "The plugin does not remove the Skin on screen: restart the Skin view onto the default first" } });
+    expect(skins.managed).toEqual([`DELETE /webui/skins/${CAFE_DEV}`, "PUT /webui/skins/default"]);
+    expect(skins.listed().some((entry) => entry.id === CAFE)).toBe(true);
   });
 
   it("offers Reload only once the Skin served reported its page, done when its fresh page reports in, and not confirmed otherwise", async () => {
@@ -358,6 +367,17 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     // Its first `installing` comes before it launches the installer, which can still fail.
     plugins.installOn = "androidInstallFails";
     expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "Couldn't install the app update. Try again." } });
+    // Or ends without the installer opening, as where it was cancelled.
+    plugins.installOn = "androidInstallerNotOpened";
+    expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "Decaid did not open Android's installer" } });
+
+    // A release withdrawn since: Decaid checks again before it downloads, and finds none.
+    plugins.installOn = "androidPermitted";
+    plugins.offerDecaid(null);
+    expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "Decaid found no update to install" } });
+    plugins.offerDecaid("0.9.4");
+    expect(await done(machine, { kind: "checkDecaidUpdate" })).toMatchObject({ outcome: "done" });
+    await expect.poll(async () => (await software(machine)).decaid.update).toMatchObject({ phase: "available", installable: true });
 
     plugins.installOn = "androidPermitted";
     expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "done", result: { decaid: { phase: "installing", latestVersion: "0.9.4" } } });
