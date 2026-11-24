@@ -131,7 +131,7 @@ describe("Tablet Software through an assistant", () => {
     expect(await outcome(restart.id)).toMatchObject({ outcome: "done", result: { skinId: "streamline.js" } });
 
     // A Skin that reports its page, and reloads when asked.
-    const report = () => tablet.callEndpoint("page", { method: "PUT", body: { skinId: "streamline.js", version: "0.2.32", loadedAt: new Date(tablet.readClock()).toISOString() } });
+    const report = () => tablet.callEndpoint("page", { method: "PUT", body: { skinId: "streamline.js", version: "0.2.32", loadedAt: new Date().toISOString() } });
     await report();
     tablet.onEmit = (event, payload) => {
       if (event === "changes" && (payload as Record_).what === "reload") setTimeout(() => void report(), 5);

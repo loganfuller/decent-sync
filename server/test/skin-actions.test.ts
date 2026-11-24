@@ -101,8 +101,8 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
   const software = async (machine: CreatedMachine, as = api) => (await as.get<{ tabletSoftware: SoftwareView }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware;
   const skin = async (machine: CreatedMachine, id: string) => (await software(machine)).skins?.find((entry) => entry.id === id);
 
-  /** Reports a page to the plugin as a Skin that supports Reload does as its page loads: its id, its version and when it loaded, by the tablet's clock. */
-  async function reportPage(tablet: SimulatedTablet, skinId: string, version: string, loadedAt = new Date(tablet.readClock()).toISOString()): Promise<number> {
+  /** Reports a page to the plugin as a Skin that supports Reload does as its page loads: its id, its version and when it loaded, now by default: the plugin's Date reads the real time, where the tablet's timer clock (`readClock`) does not. */
+  async function reportPage(tablet: SimulatedTablet, skinId: string, version: string, loadedAt = new Date().toISOString()): Promise<number> {
     return (await tablet.callEndpoint("page", { method: "PUT", body: { skinId, version, loadedAt } })).status;
   }
   /** Has the test play a Skin that loads its page again when the plugin pushes a reload on `changes`, reporting the fresh page. */
@@ -240,7 +240,7 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     expect(invalid.status).toBe(400);
     expect(invalid.body).toContain("Give skinId");
 
-    const firstLoad = new Date(tablet.readClock() - 60_000).toISOString();
+    const firstLoad = new Date(Date.now() - 60_000).toISOString();
     expect(await reportPage(tablet, "streamline.js", "0.2.31", firstLoad)).toBe(204);
     await expect.poll(async () => (await software(machine)).showing?.page).toMatchObject({ version: "0.2.31", loadedAt: firstLoad });
     const shown = await software(machine);

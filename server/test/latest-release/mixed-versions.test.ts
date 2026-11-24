@@ -274,7 +274,7 @@ describe("the latest release beside the change", () => {
   // and keeps its connection.
   it("reports the page a Skin shows to the latest release's server, which acknowledges it and keeps the tablet connected", async () => {
     const { machine, tablet } = await connected("mixed-skin-page", "change", "latest release");
-    const answer = await tablet.callEndpoint("page", { method: "PUT", body: { skinId: "streamline.js", version: "0.2.31", loadedAt: new Date(tablet.readClock()).toISOString() } });
+    const answer = await tablet.callEndpoint("page", { method: "PUT", body: { skinId: "streamline.js", version: "0.2.31", loadedAt: new Date().toISOString() } });
     expect(answer.status).toBe(204);
     type Frame = { type?: string; id?: string; name?: string };
     await expect.poll(() => (tablet.sent as Frame[]).find((frame) => frame.type === "collection" && frame.name === "skinPage")?.id).toBeDefined();
