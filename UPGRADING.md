@@ -24,7 +24,7 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.13.0
 
 ### The Conflict routes are gone
 
@@ -44,8 +44,8 @@ This release follows Decaid v0.9.3
 tablet's plugins through it
 ([ADR-0034](docs/adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
 Before deploying, update each tablet's Decaid to v0.9.3 or later, at the
-tablet: Android asks someone there to confirm the install. Then deploy the
-server. It refuses a tablet on Decaid v0.9.2 or older, and its Machine's
+tablet: Android asks someone there to confirm the install. Then, once every
+tablet runs the 1.12.0 plugin or later (below), deploy the server. It refuses a tablet on Decaid v0.9.2 or older, and its Machine's
 page says why, though 1.12.2 still accepts one while it serves beside this
 release. On a tablet that updates to it:
 
@@ -117,20 +117,27 @@ settings and approve any update's permissions. Decaid shows no warning on the
 tablet for a plugin installed through its API. Give the Admin role only to
 people trusted with every tablet.
 
-### A Machine's Software tab manages its tablet's plugins
+### A Machine's Software tab manages its tablet's software
 
 Each Machine's page gains a Software tab, between Settings and Setup, which
-shows its tablet's Decaid, with the update it offers, and every plugin and
-Skin, each with its version and how it updates (docs/COLLECTIONS.md,
-Software Actions). An Admin installs, enables, disables, configures, checks
-for updates, approves and removes plugins there, and asks Decaid to check for
-its own update, each a Software Action made once while the tablet is
-connected and the Machine idle, and logged on the tab. Staff and Viewers read
-the tab; the values of plugins' settings show to Admins only, and a secret
-only as set or not set. Assistants read a Machine's software with
-`get_machine_software` and `list_software_actions`, and make no Software
-Action. Each plugin's settings now join the Machine's Settings History. Nothing
-is needed.
+shows its tablet's Decaid, with the update it offers, every plugin and
+Skin, each with its version and how it updates, and what the tablet shows
+(docs/COLLECTIONS.md, Software Actions). An Admin installs, enables,
+disables, configures, checks for updates, approves and removes plugins
+there; installs, updates and removes Skins and chooses the default one; and
+asks Decaid to check for its own update and starts it, which Android then
+asks someone at the tablet to confirm. Each is a Software Action made once
+while the tablet is connected, and logged on the tab; all but the check for
+Decaid's update need the Machine idle.
+The Skin on screen is reloaded from the tab, where the Skin reports the page
+it shows (docs/PLUGIN.md, Reloading the Skin), and the Skin view restarted
+from it, which brings back the default Skin: an Admin may ask for either,
+and so may Staff at the Machine's Location. Staff and Viewers read the tab; the values of
+plugins' settings show to Admins only, and a secret only as set or not set.
+Assistants read a Machine's software with `get_machine_software` and
+`list_software_actions`, and make no Software Action but reloading the Skin
+or restarting the Skin view, with `reload_skin`. Each plugin's settings now join the Machine's
+Settings History. Nothing is needed.
 
 ### Automatic update checks are changed on the Software tab, by Admins
 

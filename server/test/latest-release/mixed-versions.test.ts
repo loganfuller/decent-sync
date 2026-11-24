@@ -246,32 +246,9 @@ describe("the latest release beside the change", () => {
     });
   });
 
-  // Software Actions came with the wire revision after the latest release's (ADR-0034, #660): its plugin is sent none,
-  // which it would log as a message it ignores, and the Machine's page says its plugin must update. Once Decaid has
-  // installed the change's plugin, an action goes ahead.
-  it("sends the latest release's plugin no Software Action, saying its plugin must update, and one once the tablet runs the change's plugin", async () => {
-    const { machine, tablet } = await connected("mixed-software-actions", "latest release", "change");
-    const software = async () => (await apis.change.get<{ tabletSoftware: { pluginMustUpdate: boolean; plugins: unknown[] | null } }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware;
-    const actions = `/machines/${machine.machine.id}/software-actions`;
-    expect((await software()).pluginMustUpdate).toBe(true);
-    const refused = await apis.change.call("POST", actions, { kind: "checkPluginUpdates" });
-    expect(refused.status).toBe(409);
-    expect(await refused.text()).toMatch(/The Tablet's plugin must update before it takes a Software Action/);
-    expect(tablet.received.some((frame) => (frame as { type?: string }).type === "softwareAction")).toBe(false);
-
-    const updated = await tablet.reload({ latestRelease: false });
-    loaded.push(updated);
-    await apis.change.waitForOnline(machine);
-    await expect.poll(async () => (await software()).pluginMustUpdate).toBe(false);
-    await expect.poll(async () => (await software()).plugins?.length ?? 0).toBeGreaterThan(0);
-    const made = (await apis.change.send<{ softwareAction: { id: string } }>("POST", actions, { kind: "checkPluginUpdates" }, 201)).softwareAction;
-    await expect.poll(async () => (await apis.change.get<{ softwareAction: { outcome: string | null } }>(`${actions}/${made.id}`)).softwareAction.outcome, { timeout: 20_000 }).toBe("done");
-  });
-
-  // The page a Skin reports came in the same unreleased revision (#661), as a
-  // collection the latest release's server does not know, which it
-  // acknowledges and ignores: the change's plugin sends it to that server,
-  // and keeps its connection.
+  // The change's plugin reports the page a Skin shows (#661) as the
+  // `skinPage` collection, which the latest release's server acknowledges:
+  // the plugin keeps its connection.
   it("reports the page a Skin shows to the latest release's server, which acknowledges it and keeps the tablet connected", async () => {
     const { machine, tablet } = await connected("mixed-skin-page", "change", "latest release");
     const answer = await tablet.callEndpoint("page", { method: "PUT", body: { skinId: "streamline.js", version: "0.2.31", loadedAt: new Date().toISOString() } });
