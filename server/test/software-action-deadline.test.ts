@@ -100,8 +100,8 @@ describe("Software Actions, their time and the plugin's own protections", () => 
         "SELECT count(*)::int AS connections, count(*) FILTER (WHERE state <> 'idle')::int AS busy FROM pg_stat_activity WHERE datname = current_database() AND application_name = $1",
         [name],
       );
-      expect(rows[0].connections, `connections named ${name}`).toBeGreaterThan(0);
-      return rows[0].busy === 0;
+      expect(rows[0]!.connections, `connections named ${name}`).toBeGreaterThan(0);
+      return rows[0]!.busy === 0;
     } finally {
       await database.end();
     }
