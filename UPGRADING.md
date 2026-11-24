@@ -127,7 +127,8 @@ disables, configures, checks for updates, approves and removes plugins
 there; installs, updates and removes Skins and chooses the default one; and
 asks Decaid to check for its own update and starts it, which Android then
 asks someone at the tablet to confirm. Each is a Software Action made once
-while the tablet is connected and the Machine idle, and logged on the tab.
+while the tablet is connected, and logged on the tab; all but the check for
+Decaid's update need the Machine idle.
 The Skin on screen is reloaded from the tab, where the Skin reports the page
 it shows (docs/PLUGIN.md, Reloading the Skin), and the Skin view restarted
 from it, which brings back the default Skin: an Admin may ask for either,
