@@ -446,8 +446,10 @@ Streamline is its skin.
 3. In the plugin's settings, enter the **Server URL** (your `PUBLIC_URL`) and
    the Machine's **Token**.
 
-The Machine then shows as online in the management interface. Decaid keeps
-the plugin up to date. An update that asks for a new permission waits until
+The Machine then shows as online in the management interface. While the
+plugin has stopped syncing, such as when the server refuses its token or has
+been out of reach for 10 minutes, the tablet says why in a notice under
+Decaid's bell. Decaid keeps the plugin up to date. An update that asks for a new permission waits until
 someone approves it: at the tablet, or, once its plugin takes Software
 Actions, an Admin on the Machine's Software tab.
 
@@ -528,7 +530,7 @@ What each release added. See [all releases](https://github.com/loganfuller/decen
 | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) |
 | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) |
 
-In progress, in v1.13.0 ([#657](https://github.com/loganfuller/decent-sync/issues/657)): each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins managed there, on a Machine's Software tab. Still to come in it: its Skins managed and reloaded, and a notice on the Tablet when its plugin stops.
+In progress, in v1.13.0 ([#657](https://github.com/loganfuller/decent-sync/issues/657)): each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins managed there, on a Machine's Software tab, and a notice on the Tablet saying why its plugin stopped syncing. Still to come in it: its Skins managed and reloaded.
 
 Planned after that, in no fixed order:
 

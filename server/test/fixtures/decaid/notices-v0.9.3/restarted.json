@@ -1,0 +1,100 @@
+{
+  "started": {
+    "exchanges": [],
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Held across a restart.",
+            "actions": [],
+            "revision": 9,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "publishedAfterRestart": {
+    "calls": [
+      {
+        "op": "notify",
+        "notice": {
+          "id": "sync",
+          "message": "Held across a restart."
+        }
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returned": "notice_1"
+          }
+        ],
+        "events": [
+          {
+            "name": "notificationResult",
+            "payload": {
+              "requestId": "notice_1",
+              "id": "sync",
+              "status": "accepted"
+            }
+          }
+        ],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": [
+          {
+            "namespace": "plugin",
+            "sourceId": "notice-probe.reaplugin",
+            "sourceName": "Notice probe",
+            "id": "sync",
+            "message": "Held across a restart.",
+            "actions": [],
+            "revision": 9,
+            "read": false
+          }
+        ]
+      }
+    }
+  },
+  "dismissedAfterRestart": {
+    "calls": [
+      {
+        "op": "dismiss",
+        "id": "sync"
+      }
+    ],
+    "answer": {
+      "status": 200,
+      "body": {
+        "calls": [
+          {
+            "returnedNothing": true
+          }
+        ],
+        "events": [],
+        "loads": 1
+      }
+    },
+    "center": {
+      "key": "flutter.private.notificationCenter.v1",
+      "value": {
+        "version": 1,
+        "notices": []
+      }
+    }
+  }
+}

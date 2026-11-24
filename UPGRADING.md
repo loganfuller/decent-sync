@@ -87,8 +87,8 @@ every plugin this server accepts can follow a Draft, and the REST API's
 
 This release's plugin adds two permissions: `manage.extensions`, with which
 it manages the tablet's plugins when an Admin asks (docs/PLUGIN.md,
-Permissions), and `notifications`, for the notices on the tablet a later
-release brings ([#540](https://github.com/loganfuller/decent-sync/issues/540)).
+Permissions), and `notifications`, with which it says on the tablet why it
+stopped syncing (docs/PLUGIN.md, When the plugin stops syncing).
 Decaid installs an update that adds a permission only once someone approves
 it, so each tablet keeps the plugin it runs until then, which works with this
 server and the previous one. Approve it once on each tablet, before or after

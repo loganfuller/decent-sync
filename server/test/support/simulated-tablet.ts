@@ -11,6 +11,7 @@ import { type DecaidAnswer, createBean, decaidNow, listedBeans, updateBean, with
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { updateShot } from "./decaid-shots.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
+import { NotificationCenter } from "./decaid-notices.js";
 import { type ListedPlugin, type OwnPlugin, SimulatedPlugins, decaidInfo093 } from "./decaid-plugins.js";
 import { type FieldWriteFailure, type KeptMachineSettings, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, resetMachineSettings, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
@@ -142,6 +143,13 @@ import { opened } from "./test-scope.js";
 //   the answers. Its values belong to a `PluginStorage`, which outlives the
 //   load: give the next load of the same tablet the same one. Decaid's store API (`/store/{plugin id}`) reads the
 //   same values.
+// - `host.notify` and `host.dismissNotification`, which throw for a plugin
+//   whose manifest lacks `notifications`, put up and withdraw the plugin's
+//   notices in Decaid's notification center, a `NotificationCenter`
+//   (decaid-notices.ts) kept across loads as the plugins are: `notify`
+//   returns a request id and answers with a `notificationResult` event in a
+//   later turn, while the load is loaded, as Decaid v0.9.3 does
+//   (fixtures/decaid/notices-v0.9.3).
 // - `host.emit`, given only to a plugin whose manifest declares `emit`,
 //   sends its payload, through JSON, to the sockets open on the plugin's
 //   WebSocket endpoint of that name, keeping nothing for one opened later:
@@ -687,6 +695,12 @@ export interface SimulatedTabletOptions {
    * "Require authorization for extension management" setting is off.
    */
   plugins?: SimulatedPlugins;
+  /**
+   * Decaid's notification center, kept across loads as the plugins are: the
+   * notices the plugin puts up with `host.notify` (decaid-notices.ts).
+   * Defaults to an empty one.
+   */
+  notices?: NotificationCenter;
   /** Decaid's API responses; defaults to de1ProOnDecaid093(). */
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info, /machine/state and the machine's settings fail. Defaults to true. */
@@ -840,6 +854,10 @@ export class SimulatedTablet {
   readonly storage: PluginStorage;
   /** The tablet's Decaid's plugins and their management (`SimulatedTabletOptions.plugins`). */
   readonly plugins: SimulatedPlugins;
+  /** Decaid's notification center (`SimulatedTabletOptions.notices`). */
+  readonly notices: NotificationCenter;
+  /** The request ids `host.notify` has returned this load. */
+  private noticeRequests = 0;
   /** The load Decaid made of the plugin by itself after this one, as it saved the plugin's settings or installed another build of it; undefined until it does. */
   successor: Promise<SimulatedTablet> | undefined;
   private loadingAgain = false;
@@ -993,6 +1011,7 @@ export class SimulatedTablet {
     this.storage = options.storage ?? new PluginStorage();
     this.storage.decaidStarted();
     this.plugins = options.plugins ?? new SimulatedPlugins();
+    this.notices = options.notices ?? new NotificationCenter();
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { dir, source, manifest } = readBuiltPlugin({ latestRelease: options.latestRelease });
@@ -1025,6 +1044,16 @@ export class SimulatedTablet {
             },
         // Offered to every plugin, and rejected for one without the permission, as Decaid's host does (plugin_manager.dart).
         localApi: (path: unknown, options?: unknown) => this.localApi(path, options),
+        notify: permissions.includes("notifications")
+          ? (notice: unknown) => this.notify(notice)
+          : () => {
+              throw new Error(`Plugin ${String(manifest.id)} requires manifest permission notifications`);
+            },
+        dismissNotification: permissions.includes("notifications")
+          ? (id?: unknown) => this.notices.dismiss(this.pluginId, id)
+          : () => {
+              throw new Error(`Plugin ${String(manifest.id)} requires manifest permission notifications`);
+            },
       },
       fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
@@ -1510,7 +1539,11 @@ export class SimulatedTablet {
     this.networkLost = false;
   }
 
-  /** Unloads the plugin, as disabling it, changing its settings or quitting Decaid does. */
+  /**
+   * Unloads the plugin, as disabling it, changing its settings or quitting
+   * Decaid does. Its notices stay, as on a reload or a quit; a test standing
+   * for a disable removes them (`notices.removeSource`).
+   */
   async unload(): Promise<void> {
     if (this.unloaded) return;
     try {
@@ -1540,10 +1573,23 @@ export class SimulatedTablet {
       api: this.api,
       storage: this.storage,
       plugins: this.plugins,
+      notices: this.notices,
       machineConnected: this.machineConnected,
       sockets: this.socketState,
       ...options,
     });
+  }
+
+  /**
+   * A notice the plugin asks for, as `host.notify` takes it: returns the
+   * request's id at once and tells the plugin what came of it in a later
+   * turn, in a `notificationResult` event, while this load is still loaded.
+   */
+  private notify(notice: unknown): string {
+    const requestId = `notice_${++this.noticeRequests}`;
+    const result = this.notices.publish(this.pluginId, String(this.manifest.name), notice);
+    setImmediate(() => this.fire("notificationResult", { requestId, ...result }));
+    return requestId;
   }
 
   /** Sends an emitted payload as Decaid does: through JSON, to the sockets open on the endpoint, none once unloaded. */

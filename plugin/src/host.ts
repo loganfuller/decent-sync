@@ -39,6 +39,21 @@ export interface PluginHost {
    * update or save its settings (`localApiTimeout` in plugin_manager.dart).
    */
   localApi(path: string, options?: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown; contentType?: string }): Promise<LocalApiAnswer>;
+  /**
+   * With `notifications`, puts up a notice in Decaid's notification center,
+   * which Decaid shows as a bell over any Skin, or replaces the plugin's
+   * notice with that id. Returns a request id at once; Decaid answers with a
+   * `notificationResult` event carrying `{ requestId, id?, status, reason? }`,
+   * `status` `accepted` or `rejected` with a `reason` of `validation`,
+   * `capacity` or `storage`. An id is at most 128 characters and a message
+   * at most 600, without control characters but tab and line feed; a plugin
+   * holds at most five notices. Without the permission it throws
+   * (`notify` in plugin_manager.dart, `parsePluginNotification` in
+   * plugin_notifications.dart, decaid:doc/Plugins.md).
+   */
+  notify(notice: { id: string; message: string }): string;
+  /** With `notifications`, withdraws the plugin's notice with that id, or all of its notices for none. Returns nothing. */
+  dismissNotification(id?: string): void;
 }
 
 /** What `host.localApi` resolves with. */

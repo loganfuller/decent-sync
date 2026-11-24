@@ -41,6 +41,7 @@ import type { SyncSettings } from "./settings.js";
 import { SteamCapture } from "./steams.js";
 import { PluginStorage } from "./storage.js";
 import { TabletId } from "./tablet-id.js";
+import { type NoticeReason, type TabletNotice, UNREACHABLE_NOTICE_MS } from "./tablet-notice.js";
 
 const MIN_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 60_000;
@@ -78,11 +79,11 @@ const YIELD_MS = 5 * 60_000;
  */
 const SEND_FAILURE_GRACE_MS = 2_000;
 
-/** Close codes after which retrying cannot help until someone changes something. */
-const FINAL_CLOSES = new Map<number, string>([
-  [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
-  [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
-  [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."],
+/** Close codes after which retrying cannot help until someone changes something, each with its log line and its notice on the tablet. */
+const FINAL_CLOSES = new Map<number, { log: string; notice: NoticeReason }>([
+  [CLOSE_CODES.bad_token, { log: "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one.", notice: "tokenRefused" }],
+  [CLOSE_CODES.plugin_too_old, { log: "The server needs a newer version of this plugin. Update the plugin.", notice: "pluginTooOld" }],
+  [CLOSE_CODES.decaid_too_old, { log: "The server needs a newer version of Decaid. Update Decaid on this tablet.", notice: "decaidTooOld" }],
 ]);
 
 /** Close codes after which, or after their error message, the plugin waits, then connects with a `yielding` hello. */
@@ -94,7 +95,17 @@ const YIELDING_CLOSES = new Map<number, string>([
   [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1000} s.`],
 ]);
 
-type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown" | "sendFailed" | "softwareAction";
+type TimerName =
+  | "restore"
+  | "reconnect"
+  | "heartbeat"
+  | "silence"
+  | "connect"
+  | "hardwarePoll"
+  | "hardwareCooldown"
+  | "sendFailed"
+  | "softwareAction"
+  | "unreachable";
 
 /**
  * The plugin's one connection to the sync server: `hello` on every connect,
@@ -126,6 +137,14 @@ type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" |
  * through the outbox (library-writes.ts). It carries out the Settings Edits
  * the server asks for the same way, in a queue of their own beside the reads
  * of the settings collections (settings-edits.ts).
+ *
+ * While it has stopped syncing, the tablet shows why in one notice (#540,
+ * tablet-notice.ts): from a refusal that stops it, from hardware dismissed,
+ * from another tablet holding the Machine, and from the server out of reach
+ * for UNREACHABLE_NOTICE_MS, counted from a failed attempt or a lost
+ * connection until a connection is welcomed. A welcome withdraws it, and so
+ * does the machine reporting other hardware than was dismissed; each
+ * heartbeat the server answers asks for the withdrawal again.
  *
  * A Skin on the tablet asks the plugin what the server holds (ADR-0030): the
  * plugin sends each request on the connection welcomed then, behind what the
@@ -204,6 +223,7 @@ export class SyncConnection {
     private readonly host: PluginHost,
     private readonly settings: SyncSettings,
     private readonly log: (message: string) => void,
+    private readonly notice: TabletNotice,
   ) {
     this.storage = new PluginStorage(host);
     useLocalApi(host);
@@ -441,6 +461,8 @@ export class SyncConnection {
         if (event.code === CLOSE_CODES.hardware_dismissed && this.sentHardware) {
           this.dismissedHardware = this.sentHardware;
           this.abandon();
+          this.clearTimer("unreachable");
+          this.notice.show("hardwareDismissed");
           this.log(
             "The server refused this machine's hardware for this Machine's token. Not connecting until the machine reports other hardware, or another token is entered.",
           );
@@ -449,7 +471,8 @@ export class SyncConnection {
         const final = event.code === undefined ? undefined : FINAL_CLOSES.get(event.code);
         const yielding = event.code === undefined ? undefined : YIELDING_CLOSES.get(event.code);
         if (final) {
-          this.log(final);
+          this.log(final.log);
+          this.notice.show(final.notice);
           this.stop();
         } else if (yielding) {
           this.yieldToAnotherTablet(yielding);
@@ -492,6 +515,8 @@ export class SyncConnection {
         this.yielding = false;
         this.reconnectDelayMs = MIN_RECONNECT_MS;
         this.clearTimer("connect");
+        this.clearTimer("unreachable");
+        this.notice.withdraw();
         this.log(`Connected to ${this.settings.syncUrl}`);
         // A server outside the window (ADR-0025) may not know what this plugin sends unchecked. Logged once per
         // connection, as each is welcomed once, and the plugin carries on.
@@ -627,7 +652,10 @@ export class SyncConnection {
         this.references.apply(message);
         break;
       case "heartbeat":
-        // Its arrival is what counts.
+        // Its arrival is what counts. While welcomed, nothing should show on the tablet: asking Decaid again each
+        // heartbeat takes down a notice whose withdrawal at the welcome Decaid failed to save. Asking for one Decaid
+        // doesn't hold changes nothing there.
+        this.notice.withdraw();
         break;
       case "error": {
         this.log(`The server reported ${describeError(message.code)}: ${message.message}`);
@@ -697,6 +725,7 @@ export class SyncConnection {
       if (this.dismissedHardware) {
         if (sameHardware(hardware, this.dismissedHardware)) return;
         this.dismissedHardware = null;
+        this.notice.withdraw();
         this.log("The machine reports other hardware than the server refused. Connecting.");
         this.reconnectNow();
         return;
@@ -735,6 +764,8 @@ export class SyncConnection {
   private yieldToAnotherTablet(notice: string): void {
     this.yielding = true;
     this.abandon();
+    this.clearTimer("unreachable");
+    this.notice.show("anotherTablet");
     this.log(notice);
     this.setTimer("reconnect", YIELD_MS, () => void this.connect());
   }
@@ -754,10 +785,16 @@ export class SyncConnection {
     this.closeHandle();
   }
 
-  /** Abandons the current connection or attempt, if any, and tries again after the backoff delay. */
+  /**
+   * Abandons the current connection or attempt, if any, and tries again after
+   * the backoff delay. The server counts as out of reach from the first drop
+   * since a connection was last welcomed.
+   */
   private drop(reason: string): void {
     this.abandon();
     if (this.stopped) return;
+    this.notice.settle();
+    if (!this.timers.has("unreachable")) this.setTimer("unreachable", UNREACHABLE_NOTICE_MS, () => this.notice.show("unreachable"));
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(delay * 2, MAX_RECONNECT_MS);
     this.log(`Disconnected: ${reason}. Reconnecting in ${Math.round(delay / 1000)} s.`);

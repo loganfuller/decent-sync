@@ -6728,6 +6728,104 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     for (const waiter of command.waiting) waiter.reject(error);
   }
 
+  // src/tablet-notice.ts
+  var NOTICE_ID = "sync";
+  var UNREACHABLE_NOTICE_MS = 10 * 6e4;
+  var SAVED = "Shots still save on this tablet and will upload later.";
+  var MANAGER = "Someone who manages Decent Sync";
+  var NOTICES = {
+    decaidTooOld: `${SAVED} Decent Sync stopped syncing because this tablet's Decaid is older than the Decent Sync server supports. ${MANAGER} can update Decaid on this tablet.`,
+    pluginTooOld: `${SAVED} Decent Sync stopped syncing because this tablet's Decent Sync plugin is older than the server supports. ${MANAGER} can update the plugin.`,
+    tokenRefused: `${SAVED} Decent Sync stopped syncing because the server refused the token in this plugin's settings. ${MANAGER} can enter this machine's current token there.`,
+    hardwareDismissed: `${SAVED} Decent Sync stopped syncing because an Admin dismissed the espresso machine connected to this tablet for the token in this plugin's settings. ${MANAGER} can give this machine a token of its own.`,
+    anotherTablet: `${SAVED} Decent Sync stopped syncing because another tablet is connected with this machine's token, and it starts again once that tablet disconnects. ${MANAGER} can check which tablet should use the token.`,
+    unreachable: `${SAVED} Decent Sync has not reached its server for 10 minutes. Whoever looks after this tablet's network can check that it is online and can reach the server.`
+  };
+  var NAMES = {
+    decaidTooOld: "Decaid is too old",
+    pluginTooOld: "the plugin is too old",
+    tokenRefused: "the token was refused",
+    hardwareDismissed: "this hardware was dismissed",
+    anotherTablet: "another tablet holds the Machine",
+    unreachable: "the server is out of reach"
+  };
+  var TabletNotice = class {
+    constructor(host, log) {
+      __publicField(this, "host", host);
+      __publicField(this, "log", log);
+      /** The reason up now, null for none, undefined until this load has put one up or withdrawn it. */
+      __publicField(this, "shown");
+      /** The notices asked for whose result Decaid has not sent yet, by request id. */
+      __publicField(this, "pending", /* @__PURE__ */ new Map());
+      /** The last notice asked for, and the reason this load had put up before it, if any. */
+      __publicField(this, "latest");
+    }
+    show(reason) {
+      if (this.shown === reason) return;
+      const replaced = this.shown;
+      this.shown = reason;
+      this.latest = void 0;
+      try {
+        const requestId = this.host.notify({ id: NOTICE_ID, message: NOTICES[reason] });
+        if (typeof requestId === "string") {
+          this.pending.set(requestId, reason);
+          this.latest = { requestId, replaced };
+        }
+      } catch (error) {
+        this.log(`Decaid refused the notice on the tablet that ${NAMES[reason]}: ${describe4(error)}`);
+      }
+    }
+    /**
+     * Asks Decaid to withdraw the notice, whatever this load thinks shows:
+     * Decaid sends no result for a withdrawal, and one whose save fails leaves
+     * the notice up, so each call asks again. Withdrawing a notice Decaid
+     * doesn't hold changes and saves nothing there (`removeSource` in
+     * notification_center.dart). Only while Decaid holds one it can't save
+     * the removal of does each call cost a failed save and a line in Decaid's
+     * log.
+     */
+    withdraw() {
+      this.shown = null;
+      this.dismiss();
+    }
+    dismiss() {
+      try {
+        this.host.dismissNotification(NOTICE_ID);
+      } catch (error) {
+        this.log(`Decaid refused to withdraw the notice on the tablet: ${describe4(error)}`);
+      }
+    }
+    /** Withdraws what an earlier load may have left up, unless this load has already decided what shows. */
+    settle() {
+      if (this.shown === void 0) this.withdraw();
+    }
+    /**
+     * Decaid's `notificationResult` event: a notice it did not keep is logged.
+     * Where it was the last asked for and replaced one this load put up, that
+     * one is withdrawn, as its reason no longer holds. What an earlier load
+     * left up stays, as it may say just what this load asked for. The refused
+     * notice is not asked for again.
+     */
+    result(payload) {
+      if (typeof payload !== "object" || payload === null) return;
+      const { requestId, status, reason } = payload;
+      if (typeof requestId !== "string") return;
+      const asked = this.pending.get(requestId);
+      if (asked === void 0) return;
+      this.pending.delete(requestId);
+      if (status === "accepted") return;
+      this.log(
+        `Decaid did not keep the notice on the tablet that ${NAMES[asked]} (${typeof reason === "string" ? reason : String(status)}). It is not asked for again until what the notice should say changes.`
+      );
+      const latest = this.latest;
+      this.latest = void 0;
+      if (latest?.requestId === requestId && this.shown === asked && latest.replaced) this.dismiss();
+    }
+  };
+  function describe4(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   // src/connection.ts
   var MIN_RECONNECT_MS = 1e3;
   var MAX_RECONNECT_MS = 6e4;
@@ -6737,9 +6835,9 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   var YIELD_MS = 5 * 6e4;
   var SEND_FAILURE_GRACE_MS = 2e3;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
-    [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
-    [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
-    [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."]
+    [CLOSE_CODES.bad_token, { log: "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one.", notice: "tokenRefused" }],
+    [CLOSE_CODES.plugin_too_old, { log: "The server needs a newer version of this plugin. Update the plugin.", notice: "pluginTooOld" }],
+    [CLOSE_CODES.decaid_too_old, { log: "The server needs a newer version of Decaid. Update Decaid on this tablet.", notice: "decaidTooOld" }]
   ]);
   var YIELDING_CLOSES = /* @__PURE__ */ new Map([
     [
@@ -6749,10 +6847,11 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1e3} s.`]
   ]);
   var SyncConnection = class {
-    constructor(host, settings, log) {
+    constructor(host, settings, log, notice) {
       __publicField(this, "host", host);
       __publicField(this, "settings", settings);
       __publicField(this, "log", log);
+      __publicField(this, "notice", notice);
       /** The open handle, or undefined while disconnected. */
       __publicField(this, "handle");
       /** Sends every message on the open handle. */
@@ -6972,7 +7071,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         try {
           tabletId = await this.tabletId.read();
         } catch (error) {
-          if (attempt === this.attempt) this.drop(describe4(error));
+          if (attempt === this.attempt) this.drop(describe5(error));
           return;
         }
         if (this.stopped || attempt !== this.attempt) return;
@@ -7018,7 +7117,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           ...this.yielding ? { yielding: true } : {}
         });
       } catch (error) {
-        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe4(error)}`);
+        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe5(error)}`);
       } finally {
         if (attempt === this.attempt) this.connecting = false;
       }
@@ -7037,6 +7136,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           if (event.code === CLOSE_CODES.hardware_dismissed && this.sentHardware) {
             this.dismissedHardware = this.sentHardware;
             this.abandon();
+            this.clearTimer("unreachable");
+            this.notice.show("hardwareDismissed");
             this.log(
               "The server refused this machine's hardware for this Machine's token. Not connecting until the machine reports other hardware, or another token is entered."
             );
@@ -7045,7 +7146,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           const final = event.code === void 0 ? void 0 : FINAL_CLOSES.get(event.code);
           const yielding = event.code === void 0 ? void 0 : YIELDING_CLOSES.get(event.code);
           if (final) {
-            this.log(final);
+            this.log(final.log);
+            this.notice.show(final.notice);
             this.stop();
           } else if (yielding) {
             this.yieldToAnotherTablet(yielding);
@@ -7067,7 +7169,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
       const { id, index } = decoded.message;
       this.send(handle, { type: "chunkReceived", id, index }).catch((error) => {
-        this.sendFailed(handle, `could not confirm a chunk: ${describe4(error)}`);
+        this.sendFailed(handle, `could not confirm a chunk: ${describe5(error)}`);
       });
       if (added.status === "incomplete") return;
       const whole = decodeServerMessage(added.text);
@@ -7082,6 +7184,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           this.yielding = false;
           this.reconnectDelayMs = MIN_RECONNECT_MS;
           this.clearTimer("connect");
+          this.clearTimer("unreachable");
+          this.notice.withdraw();
           this.log(`Connected to ${this.settings.syncUrl}`);
           if (!acceptsWireRevision(wireRevisionOf(message))) {
             this.log(
@@ -7170,7 +7274,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         case "shotEdit":
           void this.shotEdits.apply(message, (answer) => {
             this.send(handle, answer).catch((error) => {
-              this.sendFailed(handle, `could not answer an edit of a Shot: ${describe4(error)}`);
+              this.sendFailed(handle, `could not answer an edit of a Shot: ${describe5(error)}`);
             });
           });
           break;
@@ -7192,6 +7296,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           this.references.apply(message);
           break;
         case "heartbeat":
+          this.notice.withdraw();
           break;
         case "error": {
           this.log(`The server reported ${describeError(message.code)}: ${message.message}`);
@@ -7207,7 +7312,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         this.send(handle, { type: "heartbeat" }).then(
           () => this.scheduleHeartbeat(handle, intervalMs),
           (error) => {
-            this.sendFailed(handle, `could not send a heartbeat: ${describe4(error)}`);
+            this.sendFailed(handle, `could not send a heartbeat: ${describe5(error)}`);
           }
         );
       });
@@ -7253,6 +7358,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         if (this.dismissedHardware) {
           if (sameHardware(hardware, this.dismissedHardware)) return;
           this.dismissedHardware = null;
+          this.notice.withdraw();
           this.log("The machine reports other hardware than the server refused. Connecting.");
           this.reconnectNow();
           return;
@@ -7287,6 +7393,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     yieldToAnotherTablet(notice) {
       this.yielding = true;
       this.abandon();
+      this.clearTimer("unreachable");
+      this.notice.show("anotherTablet");
       this.log(notice);
       this.setTimer("reconnect", YIELD_MS, () => void this.connect());
     }
@@ -7303,10 +7411,16 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       this.clearTimer("reconnect");
       this.closeHandle();
     }
-    /** Abandons the current connection or attempt, if any, and tries again after the backoff delay. */
+    /**
+     * Abandons the current connection or attempt, if any, and tries again after
+     * the backoff delay. The server counts as out of reach from the first drop
+     * since a connection was last welcomed.
+     */
     drop(reason) {
       this.abandon();
       if (this.stopped) return;
+      this.notice.settle();
+      if (!this.timers.has("unreachable")) this.setTimer("unreachable", UNREACHABLE_NOTICE_MS, () => this.notice.show("unreachable"));
       const delay = this.reconnectDelayMs;
       this.reconnectDelayMs = Math.min(delay * 2, MAX_RECONNECT_MS);
       this.log(`Disconnected: ${reason}. Reconnecting in ${Math.round(delay / 1e3)} s.`);
@@ -7364,7 +7478,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   function describeError(code) {
     return code.replace(/_/g, " ");
   }
-  function describe4(error) {
+  function describe5(error) {
     return error instanceof Error ? error.message : String(error);
   }
 
@@ -7394,6 +7508,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   // src/index.ts
   function createPlugin(host) {
     let connection;
+    const log = (message) => host.log(message);
+    const notice = new TabletNotice(host, log);
     return {
       id: "decent-sync.reaplugin",
       version: "1.12.2",
@@ -7402,9 +7518,10 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         const read = readSettings(settings ?? {});
         if (!read.ok) {
           host.log(`Not connecting: ${read.problems.join("; ")}. Enter them in this plugin's settings.`);
+          notice.withdraw();
           return;
         }
-        connection = new SyncConnection(host, read.settings, (message) => host.log(message));
+        connection = new SyncConnection(host, read.settings, log, notice);
         connection.start();
       },
       onUnload() {
@@ -7417,6 +7534,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         if (event?.name === "workflowUpdated") connection?.workflowUpdated(event.payload);
         if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
         if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
+        if (event?.name === "notificationResult") notice.result(event.payload);
       },
       // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking what the server
       // holds is told the server can't be reached.

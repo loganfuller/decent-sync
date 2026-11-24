@@ -26,6 +26,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/kept-deliveries.ts`: Workflow and machine state deliveries kept across unloads.
 - `src/storage.ts`: Decaid's plugin storage commands.
 - `src/tablet-id.ts`: this tablet's id.
+- `src/tablet-notice.ts`: the one notice on the tablet saying why the plugin stopped syncing, and its wording.
 - `src/settings.ts`: the plugin's settings.
 - `src/local-time.ts`: Decaid's local times placed in UTC.
 - `src/shots.ts`: Shot events and paged reconciliation.
@@ -95,10 +96,12 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `test/recipe-steam-switch.test.ts`: a load switching steam, and a Recipe holding "Off" (#616).
 - `test/support/`: the test server, simulated tablet, simulated DYE2 and Streamline, Decaid stand-ins, proxies and fixtures.
 - `test/support/decaid-plugins.ts`: the simulated tablet's plugin management, `host.localApi` and update state, as Decaid v0.9.3's.
+- `test/support/decaid-notices.ts`: the simulated tablet's notification center, `host.notify` and `host.dismissNotification`, as Decaid v0.9.3's.
 - `test/latest-release/`: the tests against the latest release, the mixed-versions suite among them.
 - `test/fixtures/decaid/`: records Decaid, DYE2 and Streamline produced, by version.
 - `test/fixtures/decaid/dye2-v0.1.42/`: DYE2 v0.1.42 and Streamline v0.2.31 on Decaid v0.9.2 with a grind setting of 0: applied, saved by `record` and the editor, and an old recipe repaired; its README says what each file holds.
 - `test/fixtures/decaid/profile-ids-v0.9.2/`, `profile-ids-v0.9.3/`: the ids Decaid v0.9.2 and v0.9.3 give every profile they bundle and hand-made cases, which `profileId` is checked against; the first folder's `record.mjs` recorded both.
+- `test/fixtures/decaid/notices-v0.9.3/`: what Decaid v0.9.3 does with a plugin's notices, recorded headless by its `record.mjs` with a probe plugin; its README says what each file holds.
 - `test/fixtures/decaid/tablet-software-v0.9.3/`: Decaid v0.9.3's plugin management, `host.localApi` and update state, recorded headless by its `record.mjs` with a probe plugin; its README says what each file holds.
 - `test/fixtures/decaid/streamline-v0.2.31/`: Streamline v0.2.31 and DYE2 v0.1.42 on Decaid v0.9.2 applying a recipe with steam on and off; its README says what each file holds.
 
@@ -146,7 +149,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | Recipes, Recipe Slots, Baskets, Tools, DYE2's lists | ADR-0005 (interim), ADR-0006, ADR-0008, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022 (interim); `LIBRARY.md`; milestone 3's spec; `server/test/support/simulated-dye2.ts`, `simulated-streamline.ts` |
 | A Recipe's Reference Shot | ADR-0029, ADR-0030; `LIBRARY.md`; `AI_PROTOCOL_NOTES.md`, Reference Shot copies |
 | Collections, Machine Settings, Tablet Settings, Settings Edits, Settings History | ADR-0023; `COLLECTIONS.md`; milestone 4's spec; `server/test/support/decaid-settings.ts` |
-| Tablet Software, Software Actions, reloading the Skin, notices on the tablet | ADR-0034, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins and Software Actions; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657); `server/test/support/decaid-plugins.ts` |
+| Tablet Software, Software Actions, reloading the Skin, notices on the tablet | ADR-0034, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins and Software Actions; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657); `server/test/support/decaid-plugins.ts`, `decaid-notices.ts` |
 | The Live View | ADR-0009, ADR-0016, ADR-0024; `AI_PROTOCOL_NOTES.md`, Live frames; `AI_RUNTIME_NOTES.md`; its spec (#258) |
 | Rolling upgrades, keeping a change working beside the latest release | ADR-0025; `AI_STORAGE_NOTES.md`, Writing a migration; `AI_PROTOCOL_NOTES.md`, Wire revision and Between releases; `DEVELOPMENT.md`, Releasing; `server/test/latest-release/` |
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `SELF-HOSTING.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |
