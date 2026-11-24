@@ -5739,22 +5739,25 @@ var __decentSync = (() => {
      * Asks the Skin on screen, `skinId`, to load its page again, by a push on
      * `changes`, and waits up to SKIN_RELOAD_MS for its fresh page to report
      * in: done with that page, or not confirmed. Fresh is a page of that Skin
-     * that loaded after the one last reported, or, where none has reported in
-     * this load of the plugin, after the push: Decaid keeps a Skin's socket
-     * open across the plugin's loads, so the Skin reports again only once its
-     * page loads.
+     * that loaded after the one last reported, both timed by the Skin view's
+     * clock (`performance.timeOrigin`); or, where none has reported in this
+     * load of the plugin, the first of that Skin to report after the push, as
+     * Decaid keeps a Skin's socket open across the plugin's loads, so the Skin
+     * reports again only once its page loads. Its `loadedAt` is not compared
+     * with the plugin's own clock then: the Skin view's runs behind it once the
+     * Tablet has slept.
      */
     async reloadSkin(action, skinId) {
       if (!this.pages) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "This load of the plugin takes no page reports" };
       const pages = this.pages;
       const shown = pages.latest();
-      const after = shown === null ? Date.now() : Date.parse(shown.loadedAt);
+      const after = shown === null ? null : Date.parse(shown.loadedAt);
       let stopWaiting = () => {
       };
       const fresh = new Promise((resolve) => {
         const timer = setTimeout(() => settle(void 0), SKIN_RELOAD_MS);
         const unsubscribe = pages.onReport((page2) => {
-          if (page2.skinId === skinId && Date.parse(page2.loadedAt) > after) settle(page2);
+          if (page2.skinId === skinId && (after === null || Date.parse(page2.loadedAt) > after)) settle(page2);
         });
         const settle = (page2) => {
           clearTimeout(timer);

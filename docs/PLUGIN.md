@@ -998,7 +998,7 @@ socket.addEventListener("open", report);
 - Report again each time your socket on `changes` opens. Decaid keeps it
   open while it loads the plugin again, as after a settings change or an
   update; the plugin then holds no page, and still asks your page to reload
-  when asked to, counting the page that loads after its push.
+  when asked to, counting the first report of your Skin after its push.
 
 To be reloaded, listen on `changes` for:
 
@@ -1007,7 +1007,8 @@ To be reloaded, listen on `changes` for:
 ```
 
 and load the page again (`location.reload()`). The reload is done once your
-fresh page reports a later `loadedAt` within 15 seconds; a page that
+fresh page reports a later `loadedAt` than the page before (or, where the
+plugin holds none, reports at all) within 15 seconds; a page that
 reports nothing in that time, or a page of another Skin, leaves it not
 confirmed.
 

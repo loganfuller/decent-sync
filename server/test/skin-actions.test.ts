@@ -332,11 +332,14 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     expect((await software(machine)).showing?.page).toMatchObject({ version: "0.2.31" });
 
     // Decaid keeps the Skin's socket open as it loads the plugin again, so the Skin reports nothing until its page loads:
-    // the server keeps the page it had, Reload still goes, and the page that loads after the push confirms it.
+    // the server keeps the page it had, Reload still goes, and the page that loads after the push confirms it, though
+    // its load time, by the Skin view's clock, which runs behind once the Tablet has slept, is before the push.
     const again = await tablet.reload();
     await api.waitForOnline(machine);
     await expect.poll(async () => (await software(machine)).skins!.find((entry) => entry.served)?.pageReported).toBe(true);
-    reloadsWhenAsked(again, "streamline.js", () => "0.2.32");
+    again.onEmit = (event, payload) => {
+      if (event === "changes" && (payload as { what?: unknown }).what === "reload") setTimeout(() => void reportPage(again, "streamline.js", "0.2.32", new Date(Date.now() - 30_000).toISOString()), 5);
+    };
     expect(await done(machine, { kind: "reloadSkin" })).toMatchObject({ outcome: "done", result: { skinId: "streamline.js", version: "0.2.32" } });
     await expect.poll(async () => (await software(machine)).showing?.page).toMatchObject({ version: "0.2.32" });
   });
