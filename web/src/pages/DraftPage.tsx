@@ -281,12 +281,14 @@ function DraftEditor({ id }: { id: string }) {
   }, []);
 
   const limits = useMemo(() => widestLimits(draft?.models ?? []), [draft?.models]);
+  // Only while it publishes as a new version: a save, as an assistant's, may make it a separate Profile meanwhile.
+  const replaces = asVersion ? versionOf : undefined;
   const checks = useMemo(
-    () => (profile && draft ? checkProfile(profile, { models: draft.models, libraryProfiles: library, run, ...(versionOf ? { versionOf } : {}) }) : undefined),
-    [profile, draft, library, run, versionOf],
+    () => (profile && draft ? checkProfile(profile, { models: draft.models, libraryProfiles: library, run, ...(replaces ? { versionOf: replaces } : {}) }) : undefined),
+    [profile, draft, library, run, replaces],
   );
   // What publishing it edits of the Profile it started from, where its steps are that Profile's (#667).
-  const editsText = useMemo(() => (profile && versionOf ? textEditOf(profile, versionOf) : null), [profile, versionOf]);
+  const editsText = useMemo(() => (profile && replaces ? textEditOf(profile, replaces) : null), [profile, replaces]);
   const steps = profile?.steps.length ?? 0;
   const chosen = Math.min(selected, Math.max(0, steps - 1));
   const select = useCallback((index: number) => {

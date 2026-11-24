@@ -428,11 +428,6 @@ export function readDraftSave(body: unknown): DraftSave {
 }
 
 /**
- * The Profile Versions saved, down the chain, from the Profile, that the
- * Library gained after `since`, as from a tablet or another Draft: the
- * latest first. A bundled Profile is never one.
- */
-/**
  * For a Draft publishing as a new version of `sourceId`, what its checks
  * need of that Profile (#667): it, with its title, author and notes, so a
  * Draft with its steps is checked as an edit of those; and, where such a
@@ -458,6 +453,11 @@ export async function versionContext(
   return { versionOf, libraryProfiles };
 }
 
+/**
+ * The Profile Versions saved, down the chain, from the Profile, that the
+ * Library gained after `since`, as from a tablet or another Draft: the
+ * latest first. A bundled Profile is never one.
+ */
 export async function newerVersions(db: Prisma.TransactionClient, profileId: string, since: Date): Promise<NewerVersion[]> {
   const rows = await db.$queryRaw<{ id: string; title: string | null; savedAt: Date }[]>`
     WITH RECURSIVE down AS (

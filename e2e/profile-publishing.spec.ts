@@ -15,7 +15,8 @@ import { tabletAt } from "./support/tablets.js";
 // Profile, says what it changes from the one it started from and moves no
 // Recipes. A Draft that changes only the soak's notes is an edit of the
 // soak instead (#667): the Draft page says so, and the dialog says which
-// fields change and asks for no Locations. Serials are made up, from 58051.
+// fields change and asks for no Locations, but for one made a separate
+// Profile meanwhile. Serials are made up, from 58051.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Fields = Record<string, unknown>;
@@ -168,4 +169,31 @@ test("publishes a Draft that changes only the notes as an edit of the Profile it
   await expect(page.getByRole("status").filter({ hasText: "Its notes changed." })).toBeVisible();
   await expect(page.getByRole("region", { name: "Recipes on this version" })).toContainText("Text Espresso");
   await expect.poll(() => (tablet.profiles().find((record) => record.id === soakId)?.profile as Fields | undefined)?.notes, { timeout: 15_000 }).toBe("Reworded in a Draft");
+});
+
+test("checks a Draft made a separate Profile while its page is open as one, not as an edit of the Profile it started from", async ({ page }) => {
+  const lab = await createLocation(page, "Switch lab");
+  const tablet = await tabletAt(page, server, "Switch lab group", lab, "58054", { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [classicRecord], ...NO_DYE2_LISTS });
+  const soakId = String((await tablet.addProfile({ ...soak("Switch Soak"), target_weight: 46, notes: "First notes" })).id);
+  await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(soakId)}`)).status()).toBe(200);
+
+  await page.goto(`/library/profiles/${encodeURIComponent(soakId)}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page).toHaveURL(/\/library\/drafts\//);
+  const draftPath = `/api/drafts/${page.url().split("/").pop()}`;
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Notes", { exact: true }).fill("Reworded in a Draft");
+  await expect(page.getByText("saving…")).toHaveCount(0);
+  await expect(page.getByText("Will publish as an edit of Switch Soak's notes")).toBeVisible();
+
+  // Made a separate Profile elsewhere, as by an assistant; the page learns of it from its next save's answer.
+  const { draft } = (await (await page.request.get(draftPath)).json()) as { draft: { saves: number } };
+  const switched = await page.request.put(draftPath, { data: { publishesAs: "separate", saves: draft.saves } });
+  expect(switched.status(), await switched.text()).toBe(200);
+  await inspector(page).getByLabel("Notes", { exact: true }).fill("Reworded again");
+  await expect(page.getByText("saving…")).toHaveCount(0);
+  await expect(page.getByText("Will publish as a new Profile, a copy of Switch Soak")).toBeVisible();
+  // A separate Profile needs steps of its own.
+  await expect(page.getByRole("button", { name: /^Checks: 1 thing stops publishing/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
 });
