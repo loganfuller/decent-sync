@@ -339,7 +339,8 @@ export class SoftwareActions {
     const fresh = new Promise<SkinPage | undefined>((resolve) => {
       const timer = setTimeout(() => settle(undefined), SKIN_RELOAD_MS);
       const unsubscribe = pages.onReport((page) => {
-        if (Date.parse(page.loadedAt) > Date.parse(shown.loadedAt)) settle(page);
+        // Only the Skin asked counts: a page of another, as one still open in a browser, says nothing of it.
+        if (page.skinId === shown.skinId && Date.parse(page.loadedAt) > Date.parse(shown.loadedAt)) settle(page);
       });
       const settle = (page: SkinPage | undefined) => {
         clearTimeout(timer);

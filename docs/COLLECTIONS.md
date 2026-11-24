@@ -885,7 +885,7 @@ the kinds that act on Skins, on the Skin view and on Decaid's own update:
   any other, and its server then serves a folder that is gone, so the
   plugin refuses that itself;
 - `reloadSkin`: pushes `{"what":"reload"}` on the plugin's `changes`
-  socket, and is done once a page with a later `loadedAt` reports in within
+  socket, and is done once a page of the same Skin with a later `loadedAt` reports in within
   `SKIN_RELOAD_MS` (15 s), with that page; otherwise the plugin answers it
   as not confirmed, saying so (`note`);
 - `restartSkinView`: `POST /webui/server/stop` then `/webui/server/start`,

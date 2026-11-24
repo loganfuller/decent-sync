@@ -278,6 +278,11 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     tablet.onEmit = undefined;
     const ignored = await done(machine, { kind: "reloadSkin" });
     expect(ignored).toMatchObject({ outcome: "notConfirmed", note: "The Skin was asked to reload, but no fresh page reported in within 15 s", refusal: null, result: null });
+
+    // Another Skin's page reporting in, as one still open in a browser, does not confirm it either.
+    reloadsWhenAsked(tablet, "passione", () => "1.0.0");
+    const elsewhere = await done(machine, { kind: "reloadSkin" });
+    expect(elsewhere).toMatchObject({ outcome: "notConfirmed", note: "The Skin was asked to reload, but no fresh page reported in within 15 s", result: null });
   });
 
   it("runs neither Reload nor the restart while the Machine is busy, refusing each with its state", async () => {

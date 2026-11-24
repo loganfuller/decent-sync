@@ -5749,7 +5749,7 @@ var __decentSync = (() => {
       const fresh = new Promise((resolve) => {
         const timer = setTimeout(() => settle(void 0), SKIN_RELOAD_MS);
         const unsubscribe = pages.onReport((page2) => {
-          if (Date.parse(page2.loadedAt) > Date.parse(shown.loadedAt)) settle(page2);
+          if (page2.skinId === shown.skinId && Date.parse(page2.loadedAt) > Date.parse(shown.loadedAt)) settle(page2);
         });
         const settle = (page2) => {
           clearTimeout(timer);
