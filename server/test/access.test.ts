@@ -130,8 +130,10 @@ const STAFF = [
   "POST /api/machines/:id/settings-edits",
   "GET /api/machines/:id/settings-edits",
   "GET /api/machines/:id/settings-edits/:editId",
-  // A Machine's Tablet Software and its Software Actions are read by Staff; making one, and the install form's sources, are an Admin's (ADR-0034).
+  // A Machine's Tablet Software and its Software Actions are read by Staff; the install forms' sources are an Admin's, and making
+  // one is too but that Staff at the Machine's Location reload the Skin or restart the Skin view, which the service judges by kind (ADR-0034, #661).
   "GET /api/machines/:id/tablet-software",
+  "POST /api/machines/:id/software-actions",
   "GET /api/machines/:id/software-actions",
   "GET /api/machines/:id/software-actions/:actionId",
   "GET /api/pending-machines",
