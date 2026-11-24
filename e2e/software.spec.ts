@@ -372,6 +372,16 @@ test("an action is refused while the Machine is busy, its message staying until 
     "You",
     "Done · 0.9.4 is available",
   ]);
+
+  // A check done with a plugin that failed stays until dismissed, as what went wrong does.
+  managed.failUpdatesOf("shot-upload.reaplugin", "Couldn't update the plugin. Try again.");
+  await plugins.getByRole("button", { name: "Check for updates" }).click();
+  const failed = plugins.getByRole("status");
+  await expect(failed).toContainText("Checked plugins for updates. Done · ");
+  await expect(failed).toContainText("Decent shot upload failed: Couldn't update the plugin. Try again.");
+  await page.clock.fastForward(20_000);
+  await expect(failed).toContainText("Decent shot upload failed: Couldn't update the plugin. Try again.");
+  managed.failUpdatesOf("shot-upload.reaplugin", null);
 });
 
 test("an action no Tablet answers in time is not confirmed, and a Tablet whose plugin is from before Software Actions is offered none", async ({ page }) => {

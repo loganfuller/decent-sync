@@ -268,6 +268,19 @@ function afterword(action: SoftwareAction): string | null {
   return null;
 }
 
+/**
+ * Whether a done action says something in it failed, or may have: an update
+ * check with a plugin or Skin that failed, or answered with what this release
+ * doesn't know, or Decaid's own update state saying it failed, as
+ * `decaidUpdateText` words it.
+ */
+function failedWithin(action: SoftwareAction): boolean {
+  const result = action.result;
+  if (result?.results?.some((entry) => !["updated", "alreadyCurrent", "pendingApproval"].includes(entry.status))) return true;
+  const decaid = result?.decaid;
+  return decaid !== undefined && ((typeof decaid.error === "string" && decaid.error !== "") || decaid.phase === "error");
+}
+
 /** An outcome with what explains it in a tooltip, as the log shows it. */
 export function SoftwareActionOutcome({ action, plugins, skins }: { action: SoftwareAction; plugins?: Plugins; skins?: Skins }) {
   const about = outcomeAbout(action);
@@ -357,8 +370,9 @@ export function SoftwareActionStatus({
             outcome === "done" ? "Done" : action.refusal?.reason === "noSkinServed" ? "No Skin shown" : "Refused",
             `${what}. ${sentence(outcomeText(action, plugins ?? named, skins ?? namedSkins))}${after ? ` ${after}` : ""}`,
           ];
-  // Only a plain Done goes by itself: one answered late, or leaving something to do, stays to be read, as what went wrong does.
-  const lasting: Lasting = outcome === null ? "pending" : outcome === "done" && !action.late && after === null ? "passing" : "staying";
+  // Only a plain Done goes by itself: one answered late, leaving something to do or saying something in it failed stays to
+  // be read, as what went wrong does.
+  const lasting: Lasting = outcome === null ? "pending" : outcome === "done" && !action.late && after === null && !failedWithin(action) ? "passing" : "staying";
   return (
     <StatusAlert
       lasting={lasting}
