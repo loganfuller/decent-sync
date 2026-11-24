@@ -5876,6 +5876,7 @@ var __decentSync = (() => {
             if (!opened) {
               opened = true;
               if (phase === "downloading" || phase === "installing") return settle({ refused: "decaid", message: `Decaid is ${String(phase)} its update already` });
+              return;
             }
             if (phase === "installing") return settle({ started: true });
             if (phase === "error") return settle({ refused: "decaid", message: typeof frame.error === "string" && frame.error !== "" ? frame.error : "Decaid could not update itself" });

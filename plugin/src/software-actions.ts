@@ -469,8 +469,9 @@ export class SoftwareActions {
           const phase = frame.phase;
           if (!opened) {
             opened = true;
-            // The state it opens with: one under way already takes no second command.
+            // The state it opens with, from before the command, as an error an earlier check left: one under way already takes no second command.
             if (phase === "downloading" || phase === "installing") return settle({ refused: "decaid", message: `Decaid is ${String(phase)} its update already` });
+            return;
           }
           if (phase === "installing") return settle({ started: true });
           if (phase === "error") return settle({ refused: "decaid", message: typeof frame.error === "string" && frame.error !== "" ? frame.error : "Decaid could not update itself" });
