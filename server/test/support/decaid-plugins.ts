@@ -182,9 +182,10 @@ export class SimulatedPlugins {
    * release does (`linux`, recorded), which installs nothing itself; or as
    * Decaid on Android does, with Android's permission for it to install apps
    * granted (`androidPermitted`) or not (`androidNotPermitted`, as #659's
-   * trial saw).
+   * trial saw), or granted but with the installer failing to open
+   * (`androidInstallFails`, as where the downloaded file is gone: a `StateError`, in `remoteErrorMessage`'s words).
    */
-  installOn: "linux" | "androidPermitted" | "androidNotPermitted" = "linux";
+  installOn: "linux" | "androidPermitted" | "androidNotPermitted" | "androidInstallFails" = "linux";
 
   constructor(options: { plugins?: ListedPlugin[]; requireAuthorization?: boolean } = {}) {
     this.plugins = structuredClone(options.plugins ?? []);
@@ -253,20 +254,28 @@ export class SimulatedPlugins {
    * without Android's permission, its refusal, as #659's trial saw it; with
    * it, where it found no update, its check that finds none; and where it
    * found one, `downloading`, `available` once downloaded, then `installing`
-   * as Android's installer opens. Those last are derived from the recorded
-   * state and the service's source: no update was on offer to record.
+   * as `_installAttempt` starts and `installing` again once Android's
+   * installer opens, or `error` where it fails to. Those last are derived
+   * from the recorded state and the service's source: no update was on
+   * offer to record. While it checks, downloads or installs, it ignores the
+   * command and says nothing.
    */
   private installDecaid(): Json[] {
     if (this.installOn === "androidNotPermitted") return structuredClone(ANDROID_INSTALL.notPermitted!.frames!);
-    if (this.update.phase === "downloading" || this.update.phase === "installing") return [];
+    if (this.update.phase === "checking" || this.update.phase === "downloading" || this.update.phase === "installing") return [];
     if (this.found === undefined) {
       const [checking] = MANAGEMENT.updateChecked!.frames!;
       this.update = decaidUpdateState();
       return [{ ...structuredClone(this.update), phase: checking!.phase }, structuredClone(this.update)];
     }
     const offered = structuredClone(this.found);
+    const started = [{ ...offered, phase: "downloading", progress: 0 }, { ...offered, phase: "available" }, { ...offered, phase: "installing" }];
+    if (this.installOn === "androidInstallFails") {
+      this.update = { ...offered, phase: "error", error: "Couldn't install the app update. Try again." };
+      return [...started, structuredClone(this.update)];
+    }
     this.update = { ...offered, phase: "installing" };
-    return [{ ...offered, phase: "downloading", progress: 0 }, { ...offered, phase: "available" }, structuredClone(this.update)];
+    return [...started, structuredClone(this.update)];
   }
 
   /**

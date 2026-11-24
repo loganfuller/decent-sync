@@ -891,12 +891,16 @@ the kinds that act on Skins, on the Skin view and on Decaid's own update:
   until it serves; where it does not, it starts it once more, and refuses
   the action as `noSkinServed` where the Tablet is left serving no Skin;
 - `startDecaidUpdate`: sends `{"command":"install"}` on Decaid's update
-  socket, and is done once Decaid's state reaches `installing`, as Android's
-  installer opens, where someone at the Tablet must tap Open; Decaid does
-  not reopen by itself (#659). Refused as `installNotPermitted` where Decaid
-  answers `local_approval_required`, as Android's permission for it to
-  install apps was not granted at the Tablet, and as `decaid` where it found
-  no update, failed, or does not install itself, as on Linux.
+  socket once it has sent the state it opens with, and is done at Decaid's
+  second `installing`, which it sends once Android's installer opens (the
+  first comes before it checks the download and launches the installer),
+  where someone at the Tablet must tap Open; Decaid does not reopen by
+  itself (#659). Refused as `installNotPermitted` where Decaid answers
+  `local_approval_required`, as Android's permission for it to install apps
+  was not granted at the Tablet, and as `decaid` where it is checking,
+  downloading or installing already (it ignores the command then, saying
+  nothing), found no update, did not open the installer, failed, or does
+  not install itself, as on Linux.
 
 How each is made, carried out and answered:
 

@@ -323,6 +323,20 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     plugins.installOn = "linux";
     expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "In-app install is not supported on this platform" } });
 
+    // Decaid ignores the command while it checks, so the plugin does not send it then.
+    plugins.installOn = "androidPermitted";
+    const offered = plugins.update;
+    plugins.update = { ...offered, phase: "checking" };
+    expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({
+      outcome: "refused",
+      refusal: { reason: "decaid", message: "Decaid is checking for its update now: start the update once the check ends" },
+    });
+    plugins.update = offered;
+
+    // Its first `installing` comes before it launches the installer, which can still fail.
+    plugins.installOn = "androidInstallFails";
+    expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "Couldn't install the app update. Try again." } });
+
     plugins.installOn = "androidPermitted";
     expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "done", result: { decaid: { phase: "installing", latestVersion: "0.9.4" } } });
     await expect.poll(async () => (await software(machine)).decaid.update).toMatchObject({ phase: "installing" });

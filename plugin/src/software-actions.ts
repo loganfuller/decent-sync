@@ -438,12 +438,15 @@ export class SoftwareActions {
   }
 
   /**
-   * Sends Decaid's update socket the command to install, and resolves with
-   * what came of it, judged from the states it sends: `installing` once
-   * Android's installer opens; Decaid's refusal, as where Android's
-   * permission to install apps is not granted (`local_approval_required`);
-   * a check that found nothing, or a download or install that failed. Not
-   * confirmed where none of these shows by UPDATE_START_MS.
+   * Sends Decaid's update socket the command to install, once it has sent
+   * the state it opens with, and resolves with what came of it, judged from
+   * the states it sends: started at its second `installing`, which Decaid
+   * sends once Android's installer opens (`_installAttempt` sends a first
+   * before it checks the download and launches the installer); Decaid's
+   * refusal, as where Android's permission to install apps is not granted
+   * (`local_approval_required`); a check that found nothing, an installer
+   * that did not open, or a download or install that failed. Not confirmed
+   * where none of these shows by UPDATE_START_MS.
    */
   private async installOverSocket(): Promise<Started> {
     const handle = await this.transports.open(UPDATE_SOCKET);
@@ -451,16 +454,22 @@ export class SoftwareActions {
       return await new Promise<Started>((resolve, reject) => {
         let opened = false;
         let underWay = false;
-        const timer = setTimeout(() => resolve({ notConfirmed: `Decaid's update did not reach Android's installer within ${UPDATE_START_MS / 1000} s` }), UPDATE_START_MS);
+        let installing = false;
+        let over = false;
+        const timer = setTimeout(() => settle({ notConfirmed: `Decaid's update did not reach Android's installer within ${UPDATE_START_MS / 1000} s` }), UPDATE_START_MS);
         const settle = (outcome: Started) => {
+          over = true;
           clearTimeout(timer);
           resolve(outcome);
         };
+        const fail = (error: unknown) => {
+          over = true;
+          clearTimeout(timer);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
         this.transports.onEvent(handle, (event) => {
-          if (event.type !== "data") {
-            clearTimeout(timer);
-            return reject(new Error("its update socket closed"));
-          }
+          if (over) return;
+          if (event.type !== "data") return fail(new Error("its update socket closed"));
           const frame = parsed(event.data);
           if (!isObject(frame)) return;
           if (typeof frame.error === "string" && frame.phase === undefined) {
@@ -469,21 +478,24 @@ export class SoftwareActions {
           const phase = frame.phase;
           if (!opened) {
             opened = true;
-            // The state it opens with, from before the command, as an error an earlier check left: one under way already takes no second command.
+            // The state it opens with, from before the command, as an error an earlier check left. Decaid ignores the command,
+            // saying nothing, while it checks, downloads or installs (`downloadAndInstall`), so it is sent only once this is known.
+            if (phase === "checking") return settle({ refused: "decaid", message: "Decaid is checking for its update now: start the update once the check ends" });
             if (phase === "downloading" || phase === "installing") return settle({ refused: "decaid", message: `Decaid is ${String(phase)} its update already` });
+            this.transports.send(handle, JSON.stringify({ command: "install" })).catch(fail);
             return;
           }
-          if (phase === "installing") return settle({ started: true });
+          if (phase === "installing") {
+            if (installing) return settle({ started: true });
+            installing = true;
+            return;
+          }
           if (phase === "error") return settle({ refused: "decaid", message: typeof frame.error === "string" && frame.error !== "" ? frame.error : "Decaid could not update itself" });
+          // After its first `installing`, `available` or `idle` is an installer that did not open (`permissionRequired`, `cancelled`).
+          if (installing && (phase === "available" || phase === "idle")) return settle({ refused: "decaid", message: "Decaid did not open Android's installer" });
           if (phase === "checking" || phase === "downloading") underWay = true;
           else if (phase === "idle" && underWay) settle({ refused: "decaid", message: "Decaid found no update to install" });
         });
-        this.transports
-          .send(handle, JSON.stringify({ command: "install" }))
-          .catch((error: unknown) => {
-            clearTimeout(timer);
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
       });
     } finally {
       this.transports.close(handle);

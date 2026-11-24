@@ -208,9 +208,9 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<SettingsEdit>();
   const version = decaid.version ? (decaid.build ? `${decaid.version} · build ${decaid.build}` : decaid.version) : "Not reported";
-  // The version Decaid offers to install, while it is not already downloading or installing one.
+  // The version Decaid offers to install, while it is not checking, downloading or installing: it ignores the command then.
   const update =
-    decaid.update?.installable && decaid.update.latestVersion && !decaid.update.error && decaid.update.phase !== "downloading" && decaid.update.phase !== "installing"
+    decaid.update?.installable && decaid.update.latestVersion && !decaid.update.error && !["checking", "downloading", "installing"].includes(decaid.update.phase ?? "")
       ? decaid.update.latestVersion
       : null;
   return (
