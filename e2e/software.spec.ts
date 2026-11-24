@@ -291,14 +291,42 @@ test("an Admin turns the automatic update checks off, with both notes, and the t
   await expect(banner).toHaveCount(0);
 });
 
-test("an action is refused while the Machine is busy, and the log, which starts closed, shows when, what, who and what came of each", async ({ page }) => {
+test("an action is refused while the Machine is busy, its message staying until dismissed, one done goes by itself unless held, and the log, which starts closed, shows when, what, who and what came of each", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${frontId}?tab=software`);
   front.reportState("espresso", "pouring");
   const plugins = region(page, "Plugins");
   await pluginRow(page, "Time To Ready").getByRole("button", { name: "Disable Time To Ready" }).click();
-  await expect(plugins.getByRole("status")).toHaveText("RefusedDisabled Time To Ready. Refused: the Machine was pulling a shot.");
+  const refused = plugins.getByRole("status");
+  await expect(refused).toHaveText("RefusedDisabled Time To Ready. Refused: the Machine was pulling a shot.");
   await expect(cell(pluginRow(page, "Time To Ready"), 3)).toHaveText("Enabled");
   front.reportState("idle", "idle");
+  // A refusal stays until dismissed.
+  await page.clock.fastForward(20_000);
+  await expect(refused).toHaveText("RefusedDisabled Time To Ready. Refused: the Machine was pulling a shot.");
+  await refused.getByRole("button", { name: "Dismiss" }).click();
+  await expect(refused).toHaveCount(0);
+
+  // One done goes by itself after a while, but not while the pointer is over it or focus is inside it.
+  const decaid = region(page, "Decaid");
+  await decaid.getByRole("button", { name: "Check now" }).click();
+  const done = decaid.getByRole("status");
+  await expect(done).toHaveText("DoneChecked for Decaid's update. Done · 0.9.4 is available.");
+  await done.hover();
+  await page.clock.fastForward(20_000);
+  await expect(done).toHaveText("DoneChecked for Decaid's update. Done · 0.9.4 is available.");
+  const dismiss = done.getByRole("button", { name: "Dismiss" });
+  await dismiss.focus();
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(20_000);
+  await expect(done).toBeVisible();
+  await dismiss.blur();
+  // Its time starts again once they leave.
+  await page.clock.fastForward(7_000);
+  await expect(done).toBeVisible();
+  await page.clock.fastForward(1_500);
+  await expect(done).toHaveCount(0);
 
   const log = region(page, "Software Actions");
   await expect(log.getByRole("button", { name: "Show Software Actions" })).toBeVisible();
@@ -307,9 +335,12 @@ test("an action is refused while the Machine is busy, and the log, which starts 
   const table = log.getByRole("table", { name: "Software Actions" });
   await expect(table.getByRole("columnheader")).toHaveText(["When", "Action", "Made by", "Outcome"]);
   const when = /^\w{3} \d+, \d{4}, \d+:\d\d:\d\d [AP]M$/;
-  await expect(rows(table).first().getByRole("cell")).toHaveText([when, "Disabled Time To Ready", "You", "Refused: the Machine was pulling a shot"]);
-  // Newest first, each as it was made, Decaid's words on its refusal.
+  await expect(rows(table).first().getByRole("cell")).toHaveText([when, "Checked for Decaid's update", "You", "Done · 0.9.4 is available"]);
+  // Newest first, each as it was made, Decaid's words on its refusal, those whose messages went among them.
   await expect(rows(table).getByRole("cell").filter({ hasText: /^(?!\w{3} \d+, \d{4})/ })).toHaveText([
+    "Checked for Decaid's update",
+    "You",
+    "Done · 0.9.4 is available",
     "Disabled Time To Ready",
     "You",
     "Refused: the Machine was pulling a shot",
@@ -348,12 +379,16 @@ test("an action no Tablet answers in time is not confirmed, and a Tablet whose p
   const raw = await createMachine(page, "Raw bar", mainStreet.id);
   await RawConnection.welcomed(server.url(), helloWith(raw.token), 300);
   await expect.poll(async () => ((await (await page.request.get(`/api/machines/${raw.machine.id}`)).json()) as { machine: { online: boolean } }).machine.online).toBe(true);
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${raw.machine.id}?tab=software`);
   await expect(region(page, "Plugins")).toContainText("Its Tablet has not reported its plugins yet.");
   const decaid = region(page, "Decaid");
   await decaid.getByRole("button", { name: "Check now" }).click();
   const status = decaid.getByRole("status");
   await expect(status).toHaveText("Waiting for the Tablet…Checked for Decaid's update. Sent to the Tablet, waiting for its answer.");
+  // Waiting, it neither goes nor can be dismissed.
+  await expect(status.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
   // Its time passes.
   const db = await server.connectDatabase();
   try {
@@ -362,6 +397,10 @@ test("an action no Tablet answers in time is not confirmed, and a Tablet whose p
     await db.end();
   }
   await expect(status).toHaveText("Not confirmedChecked for Decaid's update. Check the lists before trying again.");
+  // Not confirmed, it stays until dismissed.
+  await page.clock.fastForward(20_000);
+  await expect(status).toHaveText("Not confirmedChecked for Decaid's update. Check the lists before trying again.");
+  await expect(status.getByRole("button", { name: "Dismiss" })).toBeVisible();
   await expectTip(status, "this outcome", "The Tablet didn't answer in time, or its connection closed first. Check the lists before trying again: it may have been done all the same.");
   const log = await openCard(page, "Software Actions");
   await expect(rows(log.getByRole("table")).first().getByRole("cell").nth(3)).toHaveText("Not confirmed");

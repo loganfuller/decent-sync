@@ -5,6 +5,7 @@ import { failure } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { MadeBy } from "@/components/settings-edits";
+import { type Lasting, StatusAlert } from "@/components/status-alert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
@@ -356,8 +357,14 @@ export function SoftwareActionStatus({
             outcome === "done" ? "Done" : action.refusal?.reason === "noSkinServed" ? "No Skin shown" : "Refused",
             `${what}. ${sentence(outcomeText(action, plugins ?? named, skins ?? namedSkins))}${after ? ` ${after}` : ""}`,
           ];
+  // Only a plain Done goes by itself: one answered late, or leaving something to do, stays to be read, as what went wrong does.
+  const lasting: Lasting = outcome === null ? "pending" : outcome === "done" && !action.late && after === null ? "passing" : "staying";
   return (
-    <Alert role="status" variant={outcome === "refused" || outcome === "notConfirmed" ? "destructive" : "default"}>
+    <StatusAlert
+      lasting={lasting}
+      shows={`${title}: ${description}`}
+      variant={outcome === "refused" || outcome === "notConfirmed" ? "destructive" : "default"}
+    >
       <AlertTitle className="flex items-center gap-1.5">
         {title}
         {about && <InfoTip label="About this outcome">{about}</InfoTip>}
@@ -366,7 +373,7 @@ export function SoftwareActionStatus({
         {description}
         {error && ` ${error}.`}
       </AlertDescription>
-    </Alert>
+    </StatusAlert>
   );
 }
 

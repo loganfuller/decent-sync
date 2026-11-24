@@ -25,12 +25,14 @@ const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test("an Admin changes a Machine's fan threshold, shown pending and then applied, and is told why an edit during a Shot was refused", async ({ page }) => {
+test("an Admin changes a Machine's fan threshold, shown pending and then applied, the message going by itself, and is told why an edit during a Shot was refused until it is dismissed", async ({ page }) => {
   const belmont = await createLocation(page, "Belmont");
   const { machine, token } = await createMachine(page, "Belmont left", belmont.id);
   // At real time, so Decaid's write is held for less than its 30 s fetch timeout.
   const tablet = await tabletOf(token, "22401", { timeScale: 1 });
   await reported(page, machine.id);
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${machine.id}?tab=settings`);
 
   const general = page.getByRole("region", { name: "General", exact: true });
@@ -54,24 +56,40 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   const status = general.getByRole("status");
   await expect(status).toContainText("Pending");
   await expect(status).toContainText("Fan threshold: 40 °C. Sent to the Machine, waiting for its answer.");
+  // Pending, it neither goes nor can be dismissed.
+  await page.clock.fastForward(10_000);
+  await expect(status).toContainText("Pending");
+  await expect(status.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
   write.release();
   await expect(status).toContainText("Applied");
   await expect(status).toContainText("Fan threshold: 40 °C.");
   // Its values come from the latest report, read back after the write.
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
   expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
+  // Applied, it goes by itself after a while, the pointer away from it.
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(7_000);
+  await expect(status).toContainText("Applied");
+  await page.clock.fastForward(1_500);
+  await expect(status).toHaveCount(0);
 
-  // A Shot is being pulled: the edit is refused with the Machine's state, and nothing is written. The last edit's
-  // status stays while the form is open, until another is saved.
+  // A Shot is being pulled: the edit is refused with the Machine's state, and nothing is written. Its message stays
+  // until it is dismissed.
   tablet.reportState("espresso", "pouring");
   await general.getByRole("button", { name: "Edit General" }).click();
-  await expect(status).toContainText("Applied");
   await form.getByRole("combobox", { name: "Steam purge mode" }).click();
   await page.getByRole("option", { name: "Two Tap Stop" }).click();
   await form.getByRole("button", { name: "Save" }).click();
   await expect(status).toContainText("Not changed");
   await expect(status).toContainText("The Machine was busy (espresso). Edit it again once it is idle.");
   expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
+  await page.clock.fastForward(20_000);
+  await expect(status).toContainText("Not changed");
+  await status.getByRole("button", { name: "Dismiss" }).click();
+  await expect(status).toHaveCount(0);
+
+  // Gone from the section, both edits stay in the Settings History.
+  await expect(rows(await settingsEdits(page)).locator("td:nth-child(6)")).toHaveText([/^Not changed/, "Applied"]);
 });
 
 test("Staff at the Machine's Location change its steam purge mode, Staff elsewhere have no Edit, and Edit is disabled while the Machine is offline", async ({ page, browser }) => {
@@ -171,6 +189,8 @@ test("an edit whose Tablet's connection drops during its write is shown not conf
   // At real time, so Decaid's write is held for less than its 30 s fetch timeout.
   const tablet = await tabletOf(token, "22501", { timeScale: 1 });
   await reported(page, machine.id);
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${machine.id}?tab=settings`);
 
   const general = page.getByRole("region", { name: "General", exact: true });
@@ -189,12 +209,20 @@ test("an edit whose Tablet's connection drops during its write is shown not conf
   await expect(status).toContainText("Fan threshold: 40 °C. The section shows the values last reported.");
   await status.getByRole("button", { name: "About Not confirmed" }).hover();
   await expect(page.getByRole("tooltip")).toContainText("The Machine didn't answer within a minute, or its connection closed first.");
+  // Dismissed, it is still read for an answer arriving late.
+  await page.keyboard.press("Escape");
+  await status.getByRole("button", { name: "Dismiss" }).click();
+  await expect(status).toHaveCount(0);
 
-  // The write finishes, and its answer reaches the server on the Tablet's next connection.
+  // The write finishes, and its answer reaches the server on the Tablet's next connection: shown again, it stays
+  // until dismissed.
   write.release();
   await expect(status).toContainText("Applied, answered late");
   await expect(status).toContainText("Fan threshold: 40 °C.");
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(20_000);
+  await expect(status).toContainText("Applied, answered late");
 });
 
 test("the Settings History lists each Settings Edit newest first, what it changed or asked for, naming accounts to an Admin, and to Staff their own as theirs and others' as the Library's history does", async ({ page, browser }) => {

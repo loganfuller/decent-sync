@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } fr
 import { useAuth, useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
+import { StatusAlert } from "@/components/status-alert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -468,18 +469,18 @@ export function SettingsEditStatus({
 
   if (outcome === null) {
     return (
-      <Alert role="status">
+      <StatusAlert lasting="pending" shows="pending">
         <AlertTitle>Pending</AlertTitle>
         <AlertDescription>
           {askedText(edit, utcOffsetMinutes)}. Sent to the Machine, waiting for its answer.
           {error && ` ${error}.`}
         </AlertDescription>
-      </Alert>
+      </StatusAlert>
     );
   }
   if (outcome === "notConfirmed") {
     return (
-      <Alert role="status" variant="destructive">
+      <StatusAlert lasting="staying" shows={`Not confirmed: ${askedText(edit, utcOffsetMinutes)}`} variant="destructive">
         <AlertTitle className="flex items-center gap-1.5">
           Not confirmed
           <InfoTip label="About Not confirmed">
@@ -491,18 +492,24 @@ export function SettingsEditStatus({
           {askedText(edit, utcOffsetMinutes)}. The section shows the values last reported.
           {error && ` ${error}.`}
         </AlertDescription>
-      </Alert>
+      </StatusAlert>
     );
   }
   const { title, description } = outcomeText(edit, utcOffsetMinutes);
+  // Only an edit applied as asked goes by itself: one stored otherwise or not read back may leave the Machine other
+  // than asked, and stays to be read, as one refused or answered late does.
   return (
-    <Alert role="status" variant={outcome === "refused" ? "destructive" : "default"}>
+    <StatusAlert
+      lasting={outcome === "applied" && !edit.late ? "passing" : "staying"}
+      shows={`${edit.late ? `${title}, answered late` : title}: ${description}`}
+      variant={outcome === "refused" ? "destructive" : "default"}
+    >
       <AlertTitle className="flex items-center gap-1.5">
         {edit.late ? `${title}, answered late` : title}
         {edit.late && <InfoTip label="About answered late">The Machine answered after the edit was marked not confirmed.</InfoTip>}
       </AlertTitle>
       <AlertDescription>{description}</AlertDescription>
-    </Alert>
+    </StatusAlert>
   );
 }
 

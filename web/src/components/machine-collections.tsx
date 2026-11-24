@@ -244,8 +244,8 @@ function SettingsSection({
   const [editing, setEditing] = useState<EditableSettingsField[]>();
   const [edit, setEdit] = useState<SettingsEdit>();
   const blocked = editBlocked(machine);
-  // The latest edit's status stays until another is saved, so one still pending is followed to its outcome. A target's
-  // button, beside its value, shows only an icon.
+  // The latest edit's status is kept until another is saved, so one still pending is followed to its outcome, though its
+  // message may have gone by itself or been dismissed (StatusAlert). A target's button, beside its value, shows only an icon.
   const editButton = (fields: EditableSettingsField[], label: string) => (
     <Button type="button" variant="outline" size={byTarget ? "icon-xs" : "sm"} aria-label={label} disabled={blocked !== null} onClick={() => setEditing(fields)}>
       {byTarget ? <PencilIcon aria-hidden /> : "Edit"}
