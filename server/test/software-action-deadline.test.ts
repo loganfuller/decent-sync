@@ -89,19 +89,20 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     }
     return id;
   }
-  /** Whether no other transaction holds the Machine's row now, as making an action would find it: tried without waiting, and let go. */
-  const rowFree = async (machine: CreatedMachine) => {
+  /**
+   * Whether every connection of the instance whose `application_name` is `name` is idle, with no statement running, none waiting
+   * on a lock and no transaction open: then it holds no lock, and takes none until it runs again. It must have connections.
+   */
+  const idle = async (name: string) => {
     const database = await server.connectDatabase();
     try {
-      await database.query("BEGIN");
-      await database.query("SELECT 1 FROM machines WHERE id = $1::uuid FOR UPDATE NOWAIT", [machine.machine.id]);
-      return true;
-    } catch (error) {
-      // lock_not_available
-      if ((error as { code?: string }).code === "55P03") return false;
-      throw error;
+      const { rows } = await database.query<{ connections: number; busy: number }>(
+        "SELECT count(*)::int AS connections, count(*) FILTER (WHERE state <> 'idle')::int AS busy FROM pg_stat_activity WHERE datname = current_database() AND application_name = $1",
+        [name],
+      );
+      expect(rows[0].connections, `connections named ${name}`).toBeGreaterThan(0);
+      return rows[0].busy === 0;
     } finally {
-      await database.query("ROLLBACK").catch(() => {});
       await database.end();
     }
   };
@@ -353,19 +354,22 @@ describe("Software Actions, their time and the plugin's own protections", () => 
 
   it("marks an action no instance could send not confirmed once its time is up, its values gone by then without a read, and never sends it", async () => {
     // Its connection's instance stops answering, as when its host hangs: the action is made through the other one.
-    const frozen = await startTestServer({ env, sharing: server });
+    // Named, so that its connections can be told from the other instance's.
+    const frozenName = `decent-sync-frozen-${randomUUID()}`;
+    const frozen = await startTestServer({ env: { ...env, PGAPPNAME: frozenName }, sharing: server });
     try {
       const { machine, tablet, plugins } = await connected("Deadline frozen instance", frozen);
       const password = "a third made-up password 2342 for the test";
       rememberSecret(password);
-      // Stopped inside one of its transactions on the Machine's row, as a heartbeat's, it would hold that row until PostgreSQL ends
-      // the transaction (idle_in_transaction_session_timeout), and the action couldn't be made meanwhile: it is let go and stopped
-      // again until the row is free. A moment after the stop, so that a statement it sent just before has taken its lock by then.
+      // Stopped inside one of its transactions on the Machine's row, as a heartbeat's, or with a statement on it still running, it
+      // would hold that row until PostgreSQL ends the transaction (idle_in_transaction_session_timeout), and the action couldn't be
+      // made meanwhile: it is let go and stopped again until all its connections are idle. A moment after the stop, so that a
+      // statement it sent just before has reached PostgreSQL by then.
       for (let attempt = 1; ; attempt++) {
         frozen.signal("SIGSTOP");
         await new Promise((resolve) => setTimeout(resolve, 100));
-        if (await rowFree(machine)) break;
-        expect(attempt, "the stopped instance held the Machine's row at every stop").toBeLessThan(20);
+        if (await idle(frozenName)) break;
+        expect(attempt, "the stopped instance was in a transaction or running a statement at every stop").toBeLessThan(20);
         frozen.signal("SIGCONT");
         await new Promise((resolve) => setTimeout(resolve, 500));
         await api.waitForOnline(machine);
