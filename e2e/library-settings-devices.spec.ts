@@ -247,8 +247,9 @@ test("the Software tab shows the DYE2 and Streamline on the tablet, follows thei
     "/webui/server/status": { ...(other["/webui/server/status"] as object), path: cafe.path },
   });
   await expect.poll(servedSkin).toBe("streamline-cafe.js");
+  // The Skin on screen is not offered for removal: Decaid would go on serving its deleted folder.
   await afterDetailsPolls(page, async () => {
-    await expect(showing.getByRole("cell")).toHaveText(["Streamline CafeShowing now", "0.2.27-cafe.1", "Not updated", "Make defaultRemove"], { timeout: CHECK_MS });
+    await expect(showing.getByRole("cell")).toHaveText(["Streamline CafeShowing now", "0.2.27-cafe.1", "Not updated", "Make default"], { timeout: CHECK_MS });
   });
 
   // DYE2 is installed from its dist branch, and the Machine then goes offline: the lists stay as last reported.
