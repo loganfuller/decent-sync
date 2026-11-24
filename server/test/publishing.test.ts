@@ -311,7 +311,7 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect(same.checks?.map((check) => check.code)).toEqual(["sameSteps"]);
     // One unchanged, which is the Profile it started from, steps, title, author and notes (#667).
     const unchanged = await start({ profileId: third, as: "version" });
-    expect((await refusal(api, "POST", `/drafts/${unchanged.id}/publish`, { saves: unchanged.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["unchanged"]);
+    expect((await refusal(api, "POST", `/drafts/${unchanged.id}/publish`, { saves: unchanged.saves, locations: [cafe.id] }, 409)).message).toMatch(/^Nothing has changed since the Draft began/);
 
     // A separate Profile titled as one shown at the cafe, refused there.
     const titled = await save(await start({ profileId: third, as: "separate" }), soak("publish SOAK ", 6));
@@ -366,10 +366,12 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     const onIt = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: cafe.id, content: { name: "Publish Text Espresso", profileId: id } }, 201)).recipe.id;
     const before = { count: await profileCount(), shown: await shownAt(id), content: (await profile(id)).content };
 
-    // Unchanged, it is the Profile itself, which leaves nothing to publish.
+    // Unchanged, it is the Profile itself, which leaves nothing to publish: no check says so, but publishing refuses it.
     const draft = await start({ profileId: id, as: "version" });
-    expect(draft).toMatchObject({ profileId: id, editsText: [] });
-    expect((await refusal(api, "POST", `/drafts/${draft.id}/publish`, { saves: draft.saves }, 409)).checks?.map((check) => check.code)).toEqual(["unchanged"]);
+    expect(draft).toMatchObject({ profileId: id, editsText: [], checks: { blocking: [] } });
+    const nothing = await refusal(api, "POST", `/drafts/${draft.id}/publish`, { saves: draft.saves }, 409);
+    expect(nothing.message).toBe('Nothing has changed since the Draft began: its steps, title, author and notes are those of "Publish text", so there is nothing to publish');
+    expect(nothing.checks).toBeUndefined();
 
     // Its notes reworded: an edit of them, which its checks no longer stop, naming no Location or Recipe.
     const reworded = await save(draft, { ...draft.profile, notes: "Reworded notes" });
@@ -412,10 +414,11 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     const { lostEdits } = await api.get<{ lostEdits: { field: string; value: unknown }[] }>(path(id, "/history"));
     expect(lostEdits.map(({ field, value }) => ({ field, value }))).toEqual([{ field: "notes", value: "Page notes" }]);
 
-    // A Draft that changes nothing since it began is refused as unchanged, though the Profile changed since.
+    // A Draft that changes nothing since it began has nothing to publish, though the Profile changed since.
     const later = await start({ profileId: id, as: "version" });
     await api.send("PATCH", path(id), { content: { author: "Roaster" } }, 200);
-    expect((await api.get<{ draft: Draft }>(`/drafts/${later.id}`)).draft).toMatchObject({ editsText: [], checks: { blocking: [{ code: "unchanged" }] } });
+    expect((await api.get<{ draft: Draft }>(`/drafts/${later.id}`)).draft).toMatchObject({ editsText: [], checks: { blocking: [] } });
+    expect((await refusal(api, "POST", `/drafts/${later.id}/publish`, { saves: later.saves }, 409)).message).toMatch(/^Nothing has changed since the Draft began/);
   });
 
   it("refuses, as an edit of the Profile, a title another Profile has, Archived ones too; and as ever steps another Profile has, and a separate Profile with its source's (#667)", async () => {

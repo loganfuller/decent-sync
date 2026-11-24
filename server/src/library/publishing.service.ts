@@ -227,8 +227,8 @@ export class PublishingService {
    * for one of Decaid's bundled Profiles. The Draft is discarded, and
    * nothing else changes: the Profile stays shown where it is and keeps its
    * Recipes, so it is given no Locations or Recipes (400). Refused, 409, as
-   * its checks stop it (`checkProfile`), one that changes none of these
-   * among them. Undefined where the Library no longer has the Profile, which
+   * its checks stop it (`checkProfile`), and where it changes none of these
+   * since it began, as it has nothing to publish. Undefined where the Library no longer has the Profile, which
    * publishing then adds again. Under the Draft's row lock.
    */
   private async publishTextEdit(
@@ -248,11 +248,13 @@ export class PublishingService {
     const { versionOf, now: was, libraryProfiles } = (await versionContext(tx, profile, sourceId, draft.createdAt))!;
     const checks = checkProfile(profile, { models: await accountModels(tx), libraryProfiles, versionOf });
     if (checks.blocking.length > 0) throw refusal(checks.blocking);
+    const edited = textEditOf(profile, versionOf) ?? [];
+    if (edited.length === 0)
+      throw new ConflictException(`Nothing has changed since the Draft began: its steps, title, author and notes are those of "${was.title.trim() || sourceId}", so there is nothing to publish`);
     if (ask.locations.length > 0 || ask.recipes.length > 0)
       throw new BadRequestException(
         "This Draft changes only the title, author or notes of the Profile it started from, so publishing it edits that Profile, which stays shown where it is with its Recipes: give no locations or recipes",
       );
-    const edited = textEditOf(profile, versionOf) ?? [];
     const now = profileTextOf(profile);
     // Those the Draft changed since it began, made over the Profile as it was then: an edit of another since stays.
     await this.edits.editProfile(sourceId, readContentEdit("profile", { content: Object.fromEntries(edited.map((field) => [field, now[field]])) }), editor, { tx, seenAt: draft.createdAt });

@@ -368,11 +368,9 @@ describe("the checks", () => {
       { id, title: "Plain" },
       { id: "profile:00000000000000000000", title: "Taken " },
     ];
-    // Nothing changed: refused, as nothing would be published.
+    // Nothing changed: nothing to publish, which no check calls a fault, nor its steps the Library's.
     expect(textEditOf(profile, versionOf)).toEqual([]);
-    expect(checkProfile(profile, { libraryProfiles: library, versionOf }).blocking).toEqual([
-      { code: "unchanged", step: null, message: 'Nothing has changed: its steps, title, author and notes are those of "Plain", which it started from.' },
-    ]);
+    expect(checkProfile(profile, { libraryProfiles: library, versionOf }).blocking).toEqual([]);
     // Its notes, and its title but for spaces around it, which an edit of it trims: an edit of the notes, which nothing stops.
     const reworded = { ...profile, title: " Plain ", notes: "Reworded" };
     expect(textEditOf(reworded, versionOf)).toEqual(["notes"]);

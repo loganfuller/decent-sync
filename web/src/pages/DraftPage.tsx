@@ -284,6 +284,8 @@ function DraftEditor({ id }: { id: string }) {
   );
   // What publishing it edits of the Profile it started from, where its steps are that Profile's (#667).
   const editsText = useMemo(() => (profile && replaces ? textEditOf(profile, replaces) : null), [profile, replaces]);
+  // Its steps, title, author and notes those of the Profile it started from as it began: nothing to publish, which is no fault, so no check.
+  const unchanged = editsText?.length === 0;
   const steps = profile?.steps.length ?? 0;
   const chosen = Math.min(selected, Math.max(0, steps - 1));
   const select = useCallback((index: number) => {
@@ -375,7 +377,9 @@ function DraftEditor({ id }: { id: string }) {
               {profile.title.trim() || "Untitled"} <Badge>Draft</Badge>
             </h1>
             <p className="text-sm text-muted-foreground">
-              {`Will publish as ${draftBecomes(draft, editsText).replace(/^An? /, (article) => article.toLowerCase())} · `}
+              {unchanged
+                ? `No changes from ${draft.startedFrom?.title ?? "the Profile it started from"} yet · `
+                : `Will publish as ${draftBecomes(draft, editsText).replace(/^An? /, (article) => article.toLowerCase())} · `}
               {saving === "saving" ? "saving…" : saving === "failed" ? "not saved" : <SavedBy draft={draft} />}
             </p>
           </div>
@@ -390,7 +394,7 @@ function DraftEditor({ id }: { id: string }) {
             <PublishDialog
               target={{ kind: "draft", draft, profile, editsText, saves: () => saves.current }}
               label="Publish"
-              disabled={saving !== "saved" || checks.blocking.length > 0}
+              disabled={saving !== "saved" || checks.blocking.length > 0 || unchanged}
               onPublished={(published) => {
                 pending.current = null;
                 clearTimeout(timer.current);

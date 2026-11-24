@@ -57,7 +57,7 @@ const draftItem = draftSummary.extend({
   checks: z
     .object({ blocking: z.array(checkShape), advice: z.array(checkShape) })
     .describe(
-      "Its checks, but those of a simulated run, which simulate_draft adds: blocking, what would stop it being published, as no title, no steps, a step with no name, a value out of range, more steps than a machine takes or steps a Library Profile has (sameSteps), but for a new version with the steps of startedFrom, which edits its title, author and notes (editsText) and is stopped where it changes none of them (unchanged) or takes a title another Profile has (titleInUse); and advice, what the machine accepts but may not be meant, each naming its step by index, or null for the whole profile.",
+      "Its checks, but those of a simulated run, which simulate_draft adds: blocking, what would stop it being published, as no title, no steps, a step with no name, a value out of range, more steps than a machine takes or steps a Library Profile has (sameSteps), but for a new version with the steps of startedFrom, which edits its title, author and notes (editsText) and is stopped where it takes a title another Profile has (titleInUse); and advice, what the machine accepts but may not be meant, each naming its step by index, or null for the whole profile.",
     ),
   editsText: z
     .array(z.enum(PROFILE_TEXT_FIELDS))

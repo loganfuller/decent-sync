@@ -143,10 +143,10 @@ test("publishes a Draft that changes only the notes as an edit of the Profile it
   await page.goto(`/library/profiles/${encodeURIComponent(soakId)}`);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page).toHaveURL(/\/library\/drafts\//);
-  // Unchanged, nothing would be published.
-  await expect(page.getByRole("button", { name: /^Checks: 1 thing stops publishing/ })).toBeVisible();
+  // Unchanged, there is nothing to publish, which no check calls a fault.
+  await expect(page.getByText("No changes from Text Soak yet")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Checks: Nothing stops publishing/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
-  await expect(page.getByText("Will publish as a new version of Text Soak")).toBeVisible();
 
   // Its notes reworded: its steps are still the soak's, so it publishes as an edit of the soak's notes.
   await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();

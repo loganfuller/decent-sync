@@ -142,9 +142,9 @@ describe("Drafts", () => {
       models: ["DE1"],
       machineModel: "DE1",
     });
-    // Unchanged, it is the Profile itself, steps, title, author and notes, which publishing would refuse (#667).
+    // Unchanged, it is the Profile itself, steps, title, author and notes: nothing to publish, which no check calls a fault (#667).
     expect(draft.editsText).toEqual([]);
-    expect(draft.checks.blocking).toEqual([{ code: "unchanged", step: null, message: 'Nothing has changed: its steps, title, author and notes are those of "Lab soak", which it started from.' }]);
+    expect(draft.checks.blocking).toEqual([]);
     expect(await read(draft.id, otherApi)).toEqual(draft);
   });
 

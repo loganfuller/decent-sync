@@ -2950,8 +2950,10 @@ Viewer can't read that Staff can). Publishing one makes it a Profile
   Library Profile has is refused publishing (`sameSteps`), but for a new
   version with the steps of the Profile it started from: that is an edit
   of its title, author and notes (Publishing, below), refused only where
-  it changes none of them (`unchanged`), as a Draft of Edit unchanged, or
-  takes a title another Profile has, Archived ones too (`titleInUse`). Its
+  it takes a title another Profile has, Archived ones too (`titleInUse`).
+  One that changes none of them since it began, as a Draft of Edit
+  unchanged, has nothing to publish: no check says so, as it is no fault,
+  but its page offers no Publish and publishing refuses it (409). Its
   read says which of them it changes since it began (`editsText`), and the
   Profile's as they were then (`versionOf`), each null for any other
   Draft. A simulation adds the run's checks.

@@ -82,15 +82,10 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page).toHaveURL(/\/library\/drafts\//);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Lab Soak Draft");
-  await expect(page.getByText("Will publish as a new version of Lab Soak")).toBeVisible();
-  // Unchanged, it is the Profile itself, which stops it publishing (#667).
-  await expect(checksStatus(page)).toHaveAccessibleName(/^Checks: 1 thing stops publishing/);
-  await checksStatus(page).click();
-  await expect(
-    checks(page).getByRole("region", { name: "Stops it publishing" }).getByText('Nothing has changed: its steps, title, author and notes are those of "Lab Soak", which it started from.'),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(checks(page)).toHaveCount(0);
+  // Unchanged, it is the Profile itself: nothing to publish, which no check calls a fault (#667).
+  await expect(page.getByText("No changes from Lab Soak yet")).toBeVisible();
+  await expect(checksStatus(page)).toHaveAccessibleName(/^Checks: Nothing stops publishing/);
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
   const graph = page.getByRole("region", { name: "How it runs" });
   await expect(graph.getByText("Lab Soak, simulated")).toBeVisible();
   await expect(graph.locator("[data-baseline]")).toHaveCount(1);

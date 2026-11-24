@@ -604,7 +604,6 @@ export type ProfileCheckCode =
   | "stepNoName"
   | "outOfRange"
   | "sameSteps"
-  | "unchanged"
   | "titleInUse"
   | "weightNeedsScale"
   | "exitOnNoLength"
@@ -637,9 +636,10 @@ export interface ProfileCheckContext {
    * author and notes as they were when the Draft began, so an edit of them
    * made since is not taken for the Draft's. A profile with its steps is an
    * edit of those it changes (#667,
-   * `textEditOf`), not a Profile of its own, so is checked as one: blocked
-   * where it changes none of them (`unchanged`), and, where it changes the
-   * title, for a title another of `libraryProfiles` has (`titleInUse`).
+   * `textEditOf`), not a Profile of its own, so is checked as one: not for
+   * its steps, and, where it changes the title, for a title another of
+   * `libraryProfiles` has (`titleInUse`). One that changes none of them has
+   * nothing to publish, which is no fault of it, so no check says so.
    */
   versionOf?: { id: string; text: ProfileText };
   /** The titles of the Profiles shown where this one would be, for a separate Profile, which may share none of them. */
@@ -714,10 +714,7 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
   }
   const textEdit = context.versionOf && profile.steps.length > 0 ? textEditOf(profile, context.versionOf) : null;
   if (textEdit !== null) {
-    const from = context.versionOf!.text.title.trim() || context.versionOf!.id;
-    if (textEdit.length === 0)
-      blocking.push({ code: "unchanged", step: null, message: `Nothing has changed: its steps, title, author and notes are those of "${from}", which it started from.` });
-    else if (textEdit.includes("title")) {
+    if (textEdit.includes("title")) {
       const title = profile.title.trim().toLowerCase();
       const other = context.libraryProfiles?.find((item) => item.id !== context.versionOf!.id && item.title.trim().toLowerCase() === title);
       if (title !== "" && other) blocking.push({ code: "titleInUse", step: null, path: "title", message: `A Profile in the Library is titled "${other.title.trim()}" already.` });
