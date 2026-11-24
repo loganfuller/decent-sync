@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-/** How long a message that something was done stays, while neither the pointer nor focus is on it. */
+/** How long a message that something was done stays, while neither the pointer nor focus is on it and its tab is shown. */
 export const PASSING_MS = 8_000;
 
 /**
