@@ -5709,6 +5709,16 @@ var __decentSync = (() => {
       }
       if (this.stopped) return void 0;
       if (answer === void 0 && action.kind === "installSkin" && /timed out/i.test(failure)) return this.watchSkinInstall(action, before, endTime);
+      if (answer === void 0 && action.kind === "checkSkinUpdates" && /timed out/i.test(failure)) {
+        if (Date.now() >= endTime) return void 0;
+        try {
+          answer = await askOnSkins(action);
+        } catch (error) {
+          failure = describe2(error);
+          if (this.stopped || /timed out/i.test(failure)) return void 0;
+        }
+        if (this.stopped) return void 0;
+      }
       const after = await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
       if (answer === void 0) return refusedByDecaid2(action.id, null, `Decaid did not answer: ${failure}`);
       if (!answer.ok) return refusedByDecaid2(action.id, answer.status, decaidMessage2(answer));

@@ -296,6 +296,18 @@ export class SoftwareActions {
     if (this.stopped) return undefined;
     // Decaid stops waiting on a call after a minute and goes on with it: an install is watched for until the action's time is up.
     if (answer === undefined && action.kind === "installSkin" && /timed out/i.test(failure)) return this.watchSkinInstall(action, before, endTime);
+    // An update check is asked for again, which joins the one still running and answers with its results (`checkForSkinUpdates`),
+    // holding the actions after it meanwhile; not confirmed where that times out too, or the action's time is up.
+    if (answer === undefined && action.kind === "checkSkinUpdates" && /timed out/i.test(failure)) {
+      if (Date.now() >= endTime) return undefined;
+      try {
+        answer = await askOnSkins(action);
+      } catch (error) {
+        failure = describe(error);
+        if (this.stopped || /timed out/i.test(failure)) return undefined;
+      }
+      if (this.stopped) return undefined;
+    }
     const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
     if (answer === undefined) return refusedByDecaid(action.id, null, `Decaid did not answer: ${failure}`);
     if (!answer.ok) return refusedByDecaid(action.id, answer.status, decaidMessage(answer));

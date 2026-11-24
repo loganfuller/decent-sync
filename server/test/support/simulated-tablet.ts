@@ -2138,7 +2138,7 @@ export class SimulatedTablet {
     if (kept) return response(kept.status, JSON.stringify(kept.body));
     if (method === "GET" && route === "/plugins") return response(200, JSON.stringify(this.listedPlugins()));
     if (method === "GET" && route === "/update") return response(200, JSON.stringify(this.plugins.update));
-    const skin = this.skins?.answer(method, route, requestBody);
+    const skin = await this.skins?.answer(method, route, requestBody);
     if (skin) return response(skin.status, JSON.stringify(skin.body));
     if (!this.dye2?.answers(route)) {
       const dye2 = this.dye2?.listing();

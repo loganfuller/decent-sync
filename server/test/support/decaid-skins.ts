@@ -73,6 +73,11 @@ export class SimulatedSkins {
   private readonly newer = new Map<string, Json>();
   /** How many starts of the Skin server fail from now on. */
   failStarts = 0;
+  /** How long an update check takes; a request for one while one runs joins it and answers with its results (`checkForSkinUpdates`). */
+  checkMs = 0;
+  /** How many update checks have run. */
+  checksRun = 0;
+  private checkRunning: Promise<{ status: number; body: unknown }> | undefined;
   /** Every managing request taken, as `METHOD route`. */
   readonly managed: string[] = [];
   /** Called each time the Skin server starts serving a Skin, as the Skin view then loads it: with that Skin's entry. */
@@ -120,7 +125,7 @@ export class SimulatedSkins {
   }
 
   /** Decaid's answer to a request to its Skin routes, or undefined for any other route. */
-  answer(method: string, route: string, body: unknown): { status: number; body: unknown } | undefined {
+  answer(method: string, route: string, body: unknown): { status: number; body: unknown } | Promise<{ status: number; body: unknown }> | undefined {
     if (!route.startsWith("/webui/")) return undefined;
     if (method === "GET") return this.read(route);
     this.managed.push(`${method} ${route}`);
@@ -134,7 +139,10 @@ export class SimulatedSkins {
       case "/webui/skins/install/url":
         return this.installFrom(route, given);
       case "/webui/skins/update":
-        return this.checkUpdates();
+        if (this.checkRunning) return this.checkRunning;
+        if (this.checkMs <= 0) return this.checkUpdates();
+        this.checkRunning = new Promise<void>((resolve) => setTimeout(resolve, this.checkMs)).then(() => this.checkUpdates()).finally(() => (this.checkRunning = undefined));
+        return this.checkRunning;
       case "/webui/server/stop":
         if (this.serving === null) return recorded("stoppedAgain");
         this.serving = null;
@@ -191,6 +199,7 @@ export class SimulatedSkins {
 
   /** A result for each Skin Decaid updates, as recorded: by its repository for one it comes with, by its id for one installed; `updated` for one with a newer build offered. */
   private checkUpdates(): { status: number; body: unknown } {
+    this.checksRun++;
     const answer = recorded("checked");
     const now = new Date().toISOString().replace("Z", "");
     const results = this.skins.flatMap((skin): Json[] => {

@@ -876,7 +876,10 @@ the kinds that act on Skins, on the Skin view and on Decaid's own update:
   which changes nothing on screen until the Skin view restarts;
 - `checkSkinUpdates`: has Decaid check every Skin it updates for a newer
   build now, with a result for each (`POST /webui/skins/update`), a Skin
-  Decaid comes with named by its repository, any other by its id;
+  Decaid comes with named by its repository, any other by its id. Where
+  Decaid stops waiting on the call after its minute, the check goes on, and
+  the plugin asks again, which joins it and answers with its results
+  (`checkForSkinUpdates`); not confirmed where that times out too;
 - `removeSkin`: removes a Skin that is neither the default nor one Decaid
   comes with. Decaid refuses the second (403) but removes the default as
   any other, and its server then serves a folder that is gone, so the

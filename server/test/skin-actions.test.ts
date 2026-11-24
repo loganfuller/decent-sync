@@ -207,6 +207,23 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     expect(await skin(machine, CAFE)).toMatchObject({ version: "0.2.32-cafe.1" });
   });
 
+  it("answers an update check Decaid stopped waiting on, but went on with, from the check it joins", async () => {
+    const skins = new SimulatedSkins();
+    skins.install(recordedSkin(CAFE));
+    skins.offerNewer(CAFE, "0.2.32-cafe.1");
+    // host.localApi gives up after its time, as Decaid's does after a minute, while the check goes on.
+    skins.checkMs = 1_500;
+    const plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
+    plugins.localApiTimeoutMs = 1_000;
+    const { machine } = await connected("Skins check timed out", { skins, plugins });
+    const checked = await done(machine, { kind: "checkSkinUpdates" });
+    expect(checked).toMatchObject({ outcome: "done", refusal: null });
+    expect(checked.result!.results).toContainEqual({ item: CAFE, status: "updated", version: "0.2.32-cafe.1" });
+    // Asked twice, it ran once.
+    expect(skins.managed.filter((taken) => taken === "POST /webui/skins/update")).toHaveLength(2);
+    expect(skins.checksRun).toBe(1);
+  });
+
   it("removes a Skin, refuses the default and one Decaid comes with, and has the plugin refuse the default whatever it is sent", async () => {
     const skins = new SimulatedSkins();
     skins.install(recordedSkin(CAFE));
