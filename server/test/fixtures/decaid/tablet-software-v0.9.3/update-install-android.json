@@ -1,0 +1,10 @@
+{
+  "notPermitted": {
+    "frames": [
+      {
+        "error": "Installation requires approval on the Android device",
+        "reason": "local_approval_required"
+      }
+    ]
+  }
+}

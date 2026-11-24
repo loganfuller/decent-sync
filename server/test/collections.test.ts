@@ -179,6 +179,8 @@ describe("Library, settings and paired devices", () => {
       // Decaid's own update state, as a new v0.9.3 answers it (tablet-software-v0.9.3/).
       decaidUpdate: { available: true, value: decaidUpdateState() },
       skins: { available: true, value: skinsIn(served) },
+      // Held by the plugin, as a Skin reports its page, and unavailable until one does (#661).
+      skinPage: { available: false, value: null },
       pairedDevices: { available: true, value: paired(served["/devices"]) },
       scaleInfo: value("/scale/info"),
       sensors: value("/sensors"),

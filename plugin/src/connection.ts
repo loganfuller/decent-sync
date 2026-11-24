@@ -38,6 +38,7 @@ import { tellConnection, tellReference } from "./skin-api.js";
 import { SkinRequests } from "./skin-requests.js";
 import { tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
+import type { SkinPages } from "./skin-page.js";
 import { SteamCapture } from "./steams.js";
 import { PluginStorage } from "./storage.js";
 import { TabletId } from "./tablet-id.js";
@@ -202,6 +203,8 @@ export class SyncConnection {
   private readonly settingsEdits: SettingsEdits;
   /** Carries out the Software Actions the server asks for, one at a time, in the Settings Edits' queue (ADR-0034). */
   private readonly softwareActions: SoftwareActions;
+  /** Stops reporting each page a Skin reports, as the connection stops. */
+  private readonly stopPageReports: () => void;
   /** Writes the edits of Shots made through the server into the Shots the tablet holds, one at a time (ADR-0031). */
   private readonly shotEdits = new ShotEdits();
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
@@ -224,6 +227,8 @@ export class SyncConnection {
     private readonly settings: SyncSettings,
     private readonly log: (message: string) => void,
     private readonly notice: TabletNotice,
+    /** The page a Skin reports it shows, kept for the plugin's load (ADR-0034). */
+    pages: SkinPages,
   ) {
     this.storage = new PluginStorage(host);
     useLocalApi(host);
@@ -293,9 +298,11 @@ export class SyncConnection {
       this.activity,
       (value) => this.loadedRecipes.sawRecipes(value),
       softwareAccess,
+      () => pages.latest(),
     );
+    this.stopPageReports = pages.onReport(() => this.collections.reportSkinPage());
     this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
-    this.softwareActions = new SoftwareActions(softwareAccess, this.outbox, this.collections, this.storage, localTransports, log);
+    this.softwareActions = new SoftwareActions(softwareAccess, this.outbox, this.collections, this.storage, localTransports, log, pages);
     this.writes = new LibraryWrites(
       library,
       this.outbox,
@@ -361,6 +368,7 @@ export class SyncConnection {
     this.loadedRecipes.stop();
     this.settingsEdits.stop();
     this.softwareActions.stop();
+    this.stopPageReports();
     this.shot.stop();
     this.liveView.stop();
     this.tabletId.stop();

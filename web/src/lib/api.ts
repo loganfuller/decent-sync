@@ -504,6 +504,26 @@ export interface TabletSkin {
   /** Whether Decaid's Skin server is serving it now. */
   served: boolean;
   updates: SoftwareUpdates;
+  /** Whether it may be removed: it is neither the default, nor the one served, nor one that comes with Decaid. */
+  removable: boolean;
+  /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
+  pageReported: boolean;
+}
+
+/**
+ * What the Tablet shows (#661): the Skin served now, the page it reported
+ * showing where it reports one, and the default Skin where a restart of the
+ * Skin view would show another.
+ */
+export interface TabletShowing {
+  /** The Skin Decaid's Skin server serves now, with the version installed; null while it serves none. */
+  skin: { id: string; name: string | null; version: string | null } | null;
+  /** The page that Skin last reported, by the Tablet's clock; null where it reported none. */
+  page: { version: string | null; loadedAt: string; reportedAt: string } | null;
+  /** Whether the version installed is another than the one its page reported, so that a reload is due. */
+  newerInstalled: boolean;
+  /** The default Skin where it is not the one served: it shows once the Skin view restarts. */
+  nextDefault: { id: string; name: string | null } | null;
 }
 
 /** A Machine's Tablet Software: Decaid, its plugins and its Skins, as its Tablet last reported them. */
@@ -519,6 +539,8 @@ export interface TabletSoftware {
   /** Null until the Tablet reports them. */
   plugins: TabletPlugin[] | null;
   skins: TabletSkin[] | null;
+  /** Null until the Tablet reports its Skins; absent from the previous release's answer during a deploy (ADR-0025). */
+  showing?: TabletShowing | null;
   /** The Tablet's plugin is from before Software Actions, and is sent none until it updates. */
   pluginMustUpdate: boolean;
 }
@@ -535,12 +557,34 @@ export interface PluginSource {
   machines: number;
 }
 
+/**
+ * A source the account's other Machines' Skins were installed from, for the
+ * Skin install form: a repository, with its branch for one that follows one,
+ * or a URL.
+ */
+export interface SkinSource {
+  skinId: string;
+  name: string | null;
+  version: string | null;
+  /** The repository an install names, null for one from a URL. */
+  repo: string | null;
+  /** The branch it follows; null for the latest release or a URL. */
+  branch: string | null;
+  url: string | null;
+  updates: SoftwareUpdates;
+  machines: number;
+}
+
 /** Why a Software Action was refused. */
 export type SoftwareActionRefusal =
   | { reason: "machineBusy"; state: string | null }
   | { reason: "changedSince"; message: string | null }
   | { reason: "expired" }
   | { reason: "notAllowed"; message: string | null }
+  /** Android's permission for Decaid to install apps is not granted at the Tablet, with Decaid's words. */
+  | { reason: "installNotPermitted"; message: string | null }
+  /** The Skin view was stopped and did not start again, so the Tablet shows no Skin, with why. */
+  | { reason: "noSkinServed"; message: string | null }
   /** Decaid's status, null where it did not answer or was not asked, and its words. */
   | { reason: "decaid"; status: number | null; message: string | null };
 
@@ -548,13 +592,23 @@ export type SoftwareActionRefusal =
 export interface SoftwareAction {
   id: string;
   machineId: string;
-  /** installPlugin, enablePlugin, disablePlugin, changePluginSettings, checkPluginUpdates, approvePluginUpdate, removePlugin or checkDecaidUpdate; another for a later release's. */
+  /**
+   * installPlugin, enablePlugin, disablePlugin, changePluginSettings,
+   * checkPluginUpdates, approvePluginUpdate, removePlugin, installSkin,
+   * chooseDefaultSkin, checkSkinUpdates, removeSkin, reloadSkin,
+   * restartSkinView, checkDecaidUpdate or startDecaidUpdate; another for a
+   * later release's.
+   */
   kind: string;
   /** What it names: never a setting's value. */
   params: {
     plugin?: { id: string; name: string | null };
+    /** The Skin it acts on, with its name as the Tablet reported it then. */
+    skin?: { id: string; name: string | null };
     repo?: string;
     branch?: string | null;
+    /** The URL a Skin is installed from. */
+    url?: string;
     version?: string;
     addedPermissions?: string[];
     settings?: string[];
@@ -567,18 +621,28 @@ export interface SoftwareAction {
   answeredAt: string | null;
   /** Null while it awaits its answer; `notConfirmed` once no longer awaited, until a late answer replaces it. */
   outcome: "done" | "refused" | "notConfirmed" | null;
+  /** For one the plugin answered as not confirmed: what did not show, in its words. Absent from the previous release's answer during a deploy. */
+  note?: string | null;
   late: boolean;
   refusal: SoftwareActionRefusal | null;
   /** What came of it, once done. */
   result: {
     pluginId?: string;
-    /** The plugin's name, as its Tablet listed it. */
+    /** The Skin installed, made the default or removed, or the one served once the Skin view restarted. */
+    skinId?: string;
+    /** The plugin's or Skin's name, as its Tablet listed it. */
     name?: string;
     version?: string;
     loaded?: boolean;
-    /** An update check's result for each plugin: updated, alreadyCurrent, pendingApproval or failed. */
+    /**
+     * An update check's result for each plugin or Skin: updated,
+     * alreadyCurrent, pendingApproval or failed. A Skin that comes with
+     * Decaid is named by its repository (owner/name), any other by its id.
+     */
     results?: { item: string; status: string; error?: string; version?: string }[];
-    /** Decaid's update state after a check for its own update. */
+    /** The fresh page a Skin reported once asked to reload. */
+    page?: { skinId: string; version?: string; loadedAt: string };
+    /** Decaid's update state after a check for its own update, or once its update started. */
     decaid?: Record<string, unknown>;
   } | null;
 }

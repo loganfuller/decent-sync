@@ -5,6 +5,7 @@ import {
   LIBRARY_KINDS,
   LIBRARY_LISTS,
   SETTINGS_COLLECTION_NAMES,
+  type SkinPage,
   dye2Key,
   dye2Records,
   hasUtcOffset,
@@ -57,6 +58,8 @@ const SOURCES: readonly Source[] = [
   { name: "pluginSettings", read: () => Promise.resolve({ kind: "unavailable" }) },
   { name: "decaidUpdate", path: "/update" },
   { name: "skins", read: readSkins },
+  // Held by the plugin, as a Skin reports it (`SkinPages`), rather than read from Decaid.
+  { name: "skinPage", read: () => Promise.resolve({ kind: "unavailable" }) },
   { name: "pairedDevices", path: "/devices", select: pairedDevices },
   { name: "scaleInfo", path: "/scale/info" },
   { name: "sensors", path: "/sensors" },
@@ -84,13 +87,13 @@ const SETTINGS: ReadonlySet<CollectionName> = new Set(SETTINGS_COLLECTION_NAMES)
 
 /**
  * What Software Actions change (ADR-0034): the plugin list, the plugins'
- * settings and Decaid's own update state, read only between Software
+ * settings, the Skins and Decaid's own update state, read only between Software
  * Actions (their own `SettingsAccess`), so a report of one either holds each
  * action that began before it, or is queued before that action's read-back
  * and answer. A poll reads none of them while an action runs, which may wait
  * minutes on Decaid: the action's read-back reports them, and the next poll.
  */
-const SOFTWARE: ReadonlySet<CollectionName> = new Set(["plugins", "pluginSettings", "decaidUpdate"]);
+const SOFTWARE: ReadonlySet<CollectionName> = new Set(["plugins", "pluginSettings", "decaidUpdate", "skins"]);
 
 /**
  * The machine's own settings, which Decaid v0.9.2 answers on each request by
@@ -207,6 +210,8 @@ export class CollectionCapture {
     private readonly sawRecipes: (value: unknown) => void,
     /** Software Actions' turns, which the reads of what they change take too (`SOFTWARE`). */
     private readonly software: SettingsAccess,
+    /** The page a Skin last reported it shows (`SkinPages`), reported as `skinPage`. */
+    private readonly skinPage: () => SkinPage | null = () => null,
   ) {
     // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
     library.onWrite((list) => this.last.delete(list));
@@ -445,6 +450,37 @@ export class CollectionCapture {
   }
 
   /**
+   * Decaid's Skins read now, within Software Actions' `SettingsAccess.run`,
+   * as a Software Action on them does before and after it acts, and queued
+   * as `readSoftware` queues the plugin list. Resolves with them as
+   * reported, `{ skins, default, server }`, or undefined where Decaid did
+   * not answer with them.
+   */
+  async readSoftwareSkins(readBackOf?: string): Promise<Record<string, unknown> | undefined> {
+    const reading = await readSkins();
+    if (this.stopped) return undefined;
+    this.queueReading("skins", reading, readBackOf !== undefined, readBackOf === undefined ? undefined : { softwareActionId: readBackOf });
+    this.queued.delete("skins");
+    return reading.kind === "value" && typeof reading.value === "object" && reading.value !== null ? (reading.value as Record<string, unknown>) : undefined;
+  }
+
+  /** Queues a report of the page a Skin just reported, if it is another than the last queued. */
+  reportSkinPage(): void {
+    if (this.stopped) return;
+    this.queueReading("skinPage", this.skinPageReading(), false);
+  }
+
+  /**
+   * The page a Skin last reported as a reading: unavailable until one
+   * reports in this load, so the server keeps the page an earlier load
+   * heard of, as the Skin's page did not change with the plugin's load.
+   */
+  private skinPageReading(): Reading {
+    const page = this.skinPage();
+    return page === null ? { kind: "unavailable" } : { kind: "value", value: page, etag: null };
+  }
+
+  /**
    * The sensor calibration with one target read again, within
    * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
    * place of the target's last, beside the other targets as last read.
@@ -465,7 +501,9 @@ export class CollectionCapture {
       source,
       await (source.name === "pluginSettings"
         ? readPluginSettings(this.pluginList)
-        : "read" in source
+        : source.name === "skinPage"
+          ? Promise.resolve(this.skinPageReading())
+          : "read" in source
           ? source.read()
           : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name))),
     );

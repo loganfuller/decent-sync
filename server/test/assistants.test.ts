@@ -185,6 +185,7 @@ describe("connecting an assistant", () => {
         "follow_draft",
         "move_machine",
         "publish_draft",
+        "reload_skin",
         "return_to_profile_version",
         "set_archived",
         "set_location_offering",

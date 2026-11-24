@@ -1,0 +1,2594 @@
+{
+  "started": {
+    "exchanges": [],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:10:38.836602"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:10:22.739418"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:10:24.576319"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:10:23.667200"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:10:21.745810"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:10:25.655199"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:10:20.732175"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "version": "0.2.32",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+            "lastModified": "2026-11-24T09:16:36Z",
+            "etag": null,
+            "commitHash": "v0.2.32",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-24T14:10:20.732175",
+            "lastChecked": "2026-11-24T14:10:20.732175"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": true,
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "port": 26077,
+          "ip": "localhost"
+        }
+      }
+    }
+  },
+  "releaseInstalled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/install/github-release",
+          "body": {
+            "repo": "loganfuller/streamline-cafe-js"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin installed successfully from GitHub release",
+            "repo": "loganfuller/streamline-cafe-js"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:10:38.836602"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:10:22.739418"
+            }
+          },
+          {
+            "id": "streamline-cafe.js",
+            "name": "Streamline Cafe",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+            "version": "0.2.31-cafe.1",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js",
+              "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+              "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+              "etag": "\"0x8DF4822E30A23B6\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:42.781046",
+              "lastChecked": "2026-11-24T14:10:42.781047"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:10:24.576319"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:10:23.667200"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:10:21.745810"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:10:25.655199"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:10:20.732175"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "branchInstalled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/install/github-branch",
+          "body": {
+            "repo": "decentespresso/streamline-js",
+            "branch": "dist"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin installed successfully from GitHub branch",
+            "repo": "decentespresso/streamline-js",
+            "branch": "dist"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:10:38.836602"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:10:22.739418"
+            }
+          },
+          {
+            "id": "streamline.js-dist",
+            "name": "Streamline.js Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+            "version": "0.2.32-dev.41fd509.781",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline.js-dist",
+              "sourceUrl": "github_branch:decentespresso/streamline-js@dist",
+              "lastModified": null,
+              "etag": "W/\"9cc4cc2b4878df56f3cd938d794a9264fbd4936f5802770d2f8ea8feba41e4b9\"",
+              "commitHash": "branch:dist",
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:10:50.502574",
+              "lastChecked": "2026-11-24T14:10:50.502574"
+            }
+          },
+          {
+            "id": "streamline-cafe.js",
+            "name": "Streamline Cafe",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+            "version": "0.2.31-cafe.1",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js",
+              "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+              "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+              "etag": "\"0x8DF4822E30A23B6\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:42.781046",
+              "lastChecked": "2026-11-24T14:10:42.781047"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:10:24.576319"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:10:23.667200"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:10:21.745810"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:10:25.655199"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:10:20.732175"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "commitAsBranch": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/install/github-branch",
+          "body": {
+            "repo": "loganfuller/streamline-cafe-js",
+            "branch": "d7729dc9532ae31d606447ee0648e20284268b2c"
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "Couldn't install the skin. The repository, release, or download was not found. Check the address and try again."
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "urlInstalled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/install/url",
+          "body": {
+            "url": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin installed successfully from URL",
+            "url": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:10:38.836602"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:10:22.739418"
+            }
+          },
+          {
+            "id": "streamline.js-dist",
+            "name": "Streamline.js Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+            "version": "0.2.32-dev.41fd509.781",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline.js-dist",
+              "sourceUrl": "github_branch:decentespresso/streamline-js@dist",
+              "lastModified": null,
+              "etag": "W/\"9cc4cc2b4878df56f3cd938d794a9264fbd4936f5802770d2f8ea8feba41e4b9\"",
+              "commitHash": "branch:dist",
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:10:50.502574",
+              "lastChecked": "2026-11-24T14:10:50.502574"
+            }
+          },
+          {
+            "id": "streamline-cafe.js",
+            "name": "Streamline Cafe",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+            "version": "0.2.31-cafe.1",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js",
+              "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+              "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+              "etag": "\"0x8DF4822E30A23B6\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:42.781046",
+              "lastChecked": "2026-11-24T14:10:42.781047"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:10:24.576319"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:10:23.667200"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:10:21.745810"
+            }
+          },
+          {
+            "id": "streamline-cafe.js-dist",
+            "name": "Streamline Cafe Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js-dist",
+            "version": "0.2.31-cafe.1.dev.51.81a2a30",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js-dist",
+              "sourceUrl": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip",
+              "lastModified": null,
+              "etag": "W/\"e64e7ec51650639ba70c0fc8090404e6baa4e5aaad91e9d2062da7b5364baad4\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:11:01.184658",
+              "lastChecked": "2026-11-24T14:11:01.184658"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:10:25.655199"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:10:20.732175"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "installedIds": {
+    "releaseInstalled": "streamline-cafe.js",
+    "branchInstalled": "streamline.js-dist",
+    "commitAsBranch": null,
+    "urlInstalled": "streamline-cafe.js-dist"
+  },
+  "checked": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/update"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Skin update check completed",
+            "results": [
+              {
+                "item": "decentespresso/streamline-js",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "tadelv/passione",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "rotium/OverDose",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "giladger/Beanie",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "NilsBruch/NSX",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "Sabotage1/WorkFlow-Skin",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "decentespresso/insight-js",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "streamline-cafe.js",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "streamline.js-dist",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "streamline-cafe.js-dist",
+                "status": "alreadyCurrent"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:11:04.810797"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:11:04.059950"
+            }
+          },
+          {
+            "id": "streamline.js-dist",
+            "name": "Streamline.js Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+            "version": "0.2.32-dev.41fd509.781",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline.js-dist",
+              "sourceUrl": "github_branch:decentespresso/streamline-js@dist",
+              "lastModified": null,
+              "etag": "W/\"9cc4cc2b4878df56f3cd938d794a9264fbd4936f5802770d2f8ea8feba41e4b9\"",
+              "commitHash": "branch:dist",
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:10:50.502574",
+              "lastChecked": "2026-11-24T14:11:05.236374"
+            }
+          },
+          {
+            "id": "streamline-cafe.js",
+            "name": "Streamline Cafe",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+            "version": "0.2.31-cafe.1",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js",
+              "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+              "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+              "etag": "\"0x8DF4822E30A23B6\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:42.781046",
+              "lastChecked": "2026-11-24T14:11:04.952214"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:11:04.521157"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:11:04.290624"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:11:03.801471"
+            }
+          },
+          {
+            "id": "streamline-cafe.js-dist",
+            "name": "Streamline Cafe Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js-dist",
+            "version": "0.2.31-cafe.1.dev.51.81a2a30",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js-dist",
+              "sourceUrl": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip",
+              "lastModified": null,
+              "etag": "W/\"e64e7ec51650639ba70c0fc8090404e6baa4e5aaad91e9d2062da7b5364baad4\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:11:01.184658",
+              "lastChecked": "2026-11-24T14:11:05.533156"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:11:04.671723"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:11:03.535494"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "version": "0.2.32",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+            "lastModified": "2026-11-24T09:16:36Z",
+            "etag": null,
+            "commitHash": "v0.2.32",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-24T14:10:20.732175",
+            "lastChecked": "2026-11-24T14:11:03.535494"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "defaultSwitched": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/webui/skins/default",
+          "body": {
+            "skinId": "streamline-cafe.js"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Default skin updated successfully",
+            "skinId": "streamline-cafe.js"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline-cafe.js",
+          "name": "Streamline Cafe",
+          "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+          "version": "0.2.31-cafe.1",
+          "isBundled": false,
+          "reaMetadata": {
+            "skinId": "streamline-cafe.js",
+            "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+            "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+            "etag": "\"0x8DF4822E30A23B6\"",
+            "commitHash": null,
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-24T14:10:42.781046",
+            "lastChecked": "2026-11-24T14:11:04.952214"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "unknownDefault": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/webui/skins/default",
+          "body": {
+            "skinId": "no-such-skin"
+          }
+        },
+        "response": {
+          "status": 404,
+          "body": {
+            "error": "Exception: Skin not found: no-such-skin"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "serverStopped": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/stop"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "WebUI server stopped"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": false,
+          "path": null,
+          "port": null,
+          "ip": null
+        }
+      }
+    }
+  },
+  "stoppedAgain": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/stop"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Not serving"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "serverStarted": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/start"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "WebUI server started",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": true,
+          "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+          "port": 25311,
+          "ip": "localhost"
+        }
+      }
+    }
+  },
+  "startedAgain": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/start"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Already serving"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "bundledRemoveRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/webui/skins/insight"
+        },
+        "response": {
+          "status": 403,
+          "body": {
+            "error": "Exception: Cannot remove bundled skin: insight"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "unknownRemoved": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/webui/skins/no-such-skin"
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "Exception: Skin not found: no-such-skin"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "removed": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/webui/skins/streamline.js-dist"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin removed successfully",
+            "id": "streamline.js-dist"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:11:04.810797"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:11:04.059950"
+            }
+          },
+          {
+            "id": "streamline-cafe.js",
+            "name": "Streamline Cafe",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+            "version": "0.2.31-cafe.1",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js",
+              "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+              "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+              "etag": "\"0x8DF4822E30A23B6\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:42.781046",
+              "lastChecked": "2026-11-24T14:11:04.952214"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:11:04.521157"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:11:04.290624"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:11:03.801471"
+            }
+          },
+          {
+            "id": "streamline-cafe.js-dist",
+            "name": "Streamline Cafe Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js-dist",
+            "version": "0.2.31-cafe.1.dev.51.81a2a30",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js-dist",
+              "sourceUrl": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip",
+              "lastModified": null,
+              "etag": "W/\"e64e7ec51650639ba70c0fc8090404e6baa4e5aaad91e9d2062da7b5364baad4\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:11:01.184658",
+              "lastChecked": "2026-11-24T14:11:05.533156"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:11:04.671723"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:11:03.535494"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "probeInstalled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/plugins/localapi-probe.reaplugin/source",
+          "body": {
+            "manifest": {
+              "id": "localapi-probe.reaplugin",
+              "author": "Decent Sync's fixtures",
+              "name": "localApi probe",
+              "description": "Makes the host.localApi calls it is asked to and answers with what came of each. For recording fixtures on a throwaway Decaid.",
+              "version": "0.0.1",
+              "apiVersion": 1,
+              "permissions": [
+                "log",
+                "api",
+                "manage.extensions"
+              ],
+              "settings": {
+                "Note": {
+                  "type": "string",
+                  "label": "Note",
+                  "description": "Any text"
+                }
+              },
+              "api": [
+                {
+                  "id": "call",
+                  "type": "http",
+                  "data": {}
+                }
+              ]
+            },
+            "plugin": "// A plugin that makes the `host.localApi` calls it is asked to, one after another, and answers with what each\n// resolved to or was rejected with (README.md beside record.mjs). Installed on a throwaway Decaid only.\nfunction createPlugin(host) {\n  return {\n    id: \"localapi-probe.reaplugin\",\n    version: \"0.0.1\",\n    onLoad(settings) {\n      host.log(\"localApi probe loaded with \" + JSON.stringify(settings || {}));\n    },\n    onUnload() {},\n    onEvent() {},\n    __httpRequestHandler: async (request) => {\n      const calls = (request.body && request.body.calls) || [];\n      const answers = [];\n      for (const call of calls) {\n        try {\n          answers.push({ resolved: await host.localApi(call.path, call.options) });\n        } catch (error) {\n          answers.push({ rejected: { name: error && error.name, message: String((error && error.message) || error) } });\n        }\n      }\n      return { status: 200, headers: { \"content-type\": \"application/json\" }, body: JSON.stringify(answers) };\n    },\n  };\n}\n"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin source updated",
+            "id": "localapi-probe.reaplugin",
+            "version": "0.0.1",
+            "loaded": false
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/localapi-probe.reaplugin/enable"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin enabled",
+            "id": "localapi-probe.reaplugin"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "version": "0.1.42",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.shots",
+              "events.workflow"
+            ],
+            "drivers": [],
+            "settings": {},
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "version": "1.0.5",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "api",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "version": "0.1.9",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "version": "0.2.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "notifications",
+              "pluginStorage",
+              "proxy.decent_api",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "localapi-probe.reaplugin",
+            "name": "localApi probe",
+            "author": "Decent Sync's fixtures",
+            "version": "0.0.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "manage.extensions"
+            ],
+            "drivers": [],
+            "settings": {
+              "Note": {
+                "type": "string",
+                "label": "Note",
+                "description": "Any text"
+              }
+            },
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          }
+        ]
+      }
+    }
+  },
+  "localApi": {
+    "localApi": [
+      {
+        "call": {
+          "path": "/api/v1/webui/skins/default",
+          "options": {
+            "method": "PUT",
+            "body": {
+              "skinId": "passione"
+            }
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "82"
+          },
+          "body": {
+            "success": true,
+            "message": "Default skin updated successfully",
+            "skinId": "passione"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/server/stop",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "34"
+          },
+          "body": {
+            "message": "WebUI server stopped"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/server/start",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "85"
+          },
+          "body": {
+            "message": "WebUI server started",
+            "path": "/root/.local/share/decaid/web-ui/passione"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/server/status"
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "97"
+          },
+          "body": {
+            "serving": true,
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "port": 25498,
+            "ip": "localhost"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/skins/update",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "570"
+          },
+          "body": {
+            "message": "Skin update check completed",
+            "results": [
+              {
+                "item": "decentespresso/streamline-js",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "tadelv/passione",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "rotium/OverDose",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "giladger/Beanie",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "NilsBruch/NSX",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "Sabotage1/WorkFlow-Skin",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "decentespresso/insight-js",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "streamline-cafe.js",
+                "status": "alreadyCurrent"
+              },
+              {
+                "item": "streamline-cafe.js-dist",
+                "status": "alreadyCurrent"
+              }
+            ]
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/skins/no-such-skin",
+          "options": {
+            "method": "DELETE"
+          }
+        },
+        "resolved": {
+          "status": 500,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "51"
+          },
+          "body": {
+            "error": "Exception: Skin not found: no-such-skin"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/skins/install/url",
+          "options": {
+            "method": "POST",
+            "body": {
+              "url": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip"
+            }
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "176"
+          },
+          "body": {
+            "success": true,
+            "message": "Skin installed successfully from URL",
+            "url": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/skins/default",
+          "options": {
+            "method": "PUT",
+            "body": {
+              "skinId": "streamline-cafe.js"
+            }
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "92"
+          },
+          "body": {
+            "success": true,
+            "message": "Default skin updated successfully",
+            "skinId": "streamline-cafe.js"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/server/stop",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "34"
+          },
+          "body": {
+            "message": "WebUI server stopped"
+          },
+          "bodyWasText": true
+        }
+      },
+      {
+        "call": {
+          "path": "/api/v1/webui/server/start",
+          "options": {
+            "method": "POST"
+          }
+        },
+        "resolved": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json",
+            "content-length": "95"
+          },
+          "body": {
+            "message": "WebUI server started",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js"
+          },
+          "bodyWasText": true
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:11:29.040935"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:11:28.452096"
+            }
+          },
+          {
+            "id": "streamline-cafe.js",
+            "name": "Streamline Cafe",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+            "version": "0.2.31-cafe.1",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js",
+              "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+              "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+              "etag": "\"0x8DF4822E30A23B6\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:42.781046",
+              "lastChecked": "2026-11-24T14:11:29.204976"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:11:28.738932"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:11:28.594893"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:11:28.312837"
+            }
+          },
+          {
+            "id": "streamline-cafe.js-dist",
+            "name": "Streamline Cafe Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js-dist",
+            "version": "0.2.31-cafe.1.dev.51.81a2a30",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js-dist",
+              "sourceUrl": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip",
+              "lastModified": null,
+              "etag": "W/\"e64e7ec51650639ba70c0fc8090404e6baa4e5aaad91e9d2062da7b5364baad4\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:11:35.228096",
+              "lastChecked": "2026-11-24T14:11:35.228096"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:11:28.880862"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:11:28.181161"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline-cafe.js",
+          "name": "Streamline Cafe",
+          "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js",
+          "version": "0.2.31-cafe.1",
+          "isBundled": false,
+          "reaMetadata": {
+            "skinId": "streamline-cafe.js",
+            "sourceUrl": "github_release:loganfuller/streamline-cafe-js@v0.2.31-cafe.1",
+            "lastModified": "Sat, 21 Nov 2026 22:57:58 GMT",
+            "etag": "\"0x8DF4822E30A23B6\"",
+            "commitHash": null,
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-24T14:10:42.781046",
+            "lastChecked": "2026-11-24T14:11:29.204976"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "defaultRemoved": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/webui/skins/streamline-cafe.js"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin removed successfully",
+            "id": "streamline-cafe.js"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:38.836602",
+              "lastChecked": "2026-11-24T14:11:29.040935"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:22.739418",
+              "lastChecked": "2026-11-24T14:11:28.452096"
+            }
+          },
+          {
+            "id": "Nova-skin",
+            "name": "Nova",
+            "path": "/root/.local/share/decaid/web-ui/Nova-skin",
+            "version": "0.1.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "Nova-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@nova-v0.1.3",
+              "lastModified": "2026-11-13T17:45:19Z",
+              "etag": null,
+              "commitHash": "nova-v0.1.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:24.576318",
+              "lastChecked": "2026-11-24T14:11:28.738932"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "version": "0.3.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.13",
+              "lastModified": "2026-11-24T07:41:19Z",
+              "etag": null,
+              "commitHash": "v0.3.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:23.667200",
+              "lastChecked": "2026-11-24T14:11:28.594893"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:21.745810",
+              "lastChecked": "2026-11-24T14:11:28.312837"
+            }
+          },
+          {
+            "id": "streamline-cafe.js-dist",
+            "name": "Streamline Cafe Dev",
+            "path": "/root/.local/share/decaid/web-ui/streamline-cafe.js-dist",
+            "version": "0.2.31-cafe.1.dev.51.81a2a30",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline-cafe.js-dist",
+              "sourceUrl": "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip",
+              "lastModified": null,
+              "etag": "W/\"e64e7ec51650639ba70c0fc8090404e6baa4e5aaad91e9d2062da7b5364baad4\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-11-24T14:11:35.228096",
+              "lastChecked": "2026-11-24T14:11:35.228096"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "version": "0.5.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.5.1",
+              "lastModified": "2026-11-24T10:26:51Z",
+              "etag": null,
+              "commitHash": "v0.5.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:25.655199",
+              "lastChecked": "2026-11-24T14:11:28.880862"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "version": "0.2.32",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+              "lastModified": "2026-11-24T09:16:36Z",
+              "etag": null,
+              "commitHash": "v0.2.32",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-11-24T14:10:20.732175",
+              "lastChecked": "2026-11-24T14:11:28.181161"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "version": "0.2.32",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.32",
+            "lastModified": "2026-11-24T09:16:36Z",
+            "etag": null,
+            "commitHash": "v0.2.32",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-24T14:10:20.732175",
+            "lastChecked": "2026-11-24T14:11:28.181161"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "startAfterDefaultRemoved": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/stop"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "WebUI server stopped"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/start"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "WebUI server started",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": true,
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "port": 26077,
+          "ip": "localhost"
+        }
+      }
+    }
+  }
+}

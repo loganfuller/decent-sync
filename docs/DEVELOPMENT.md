@@ -199,13 +199,39 @@ Replace `X.Y.Z` with the new version.
    tag exists this release is the latest one, and such a test then fails on
    every pull request.
 
-2. Once CI has passed on the resulting commit as a push to `main`, tag it as
+2. Where a Decaid release has come out since the last decent-sync release,
+   the owner tries the two things Software Actions rest on that Decaid has
+   not promised to keep (ADR-0034), on the test tablet, with the Machine
+   idle and a backup taken first (`docs/AI_BUILD_NOTES.md`):
+
+   - **Start the update on the Tablet** first, while Decaid offers an
+     update on the test tablet (Android's permission for Decaid to install
+     apps granted), which is how the tablet gets onto the new release:
+     record in the release's pull request how many taps the tablet asked
+     for, whether Decaid reopened by itself, and whether the plugin
+     reconnected without help, and save the frames Decaid's update socket
+     sent (`/ws/v1/update`) beside `update-install-android.json` in
+     `server/test/fixtures/decaid/tablet-software-v0.9.3/`, as no other
+     Android state is recorded. #659's trial saw one tap, **Open**, and no
+     reopen, from Decaid's own update button, as the owner recalled it;
+     Android's installer usually asks to confirm the update before that,
+     and no remote start had been seen then. Where the update and the
+     taps differ, change the Decaid card's wording to match.
+   - **Restart the Skin view** from the Machine's Software tab, on the new
+     Decaid release: the screen goes blank for a moment and comes back on
+     the default Skin, and the action is done. If the Skin view does not
+     come back, Restart is broken by that release: say so in the release
+     notes and in an issue before tagging.
+
+   An agent may drive the server side; only the owner acts at the tablet.
+
+3. Once CI has passed on the resulting commit as a push to `main`, tag it as
    `vX.Y.Z` and push the tag. The latest release is the newest tag on `main`,
    so a tag pushed while that run is under way changes it partway through the
    jobs that test against it, and can fail them. A tag on any other commit
    fails the release, because pull request CI tests a merge with `main`
    rather than the tagged commit.
-3. Once the release is published, deploy it to every server you run before
+4. Once the release is published, deploy it to every server you run before
    tagging the next. Decaid installs the new plugin on every tablet within 12
    hours, and a plugin two releases ahead of its server falls outside what the
    two support together.

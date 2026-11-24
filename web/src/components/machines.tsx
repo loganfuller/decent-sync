@@ -288,6 +288,7 @@ export function ConfirmButton({
   description,
   confirmLabel,
   variant = "outline",
+  size,
   disabled,
   onConfirm,
 }: {
@@ -300,13 +301,15 @@ export function ConfirmButton({
   description: ReactNode;
   confirmLabel: string;
   variant?: "outline" | "destructive";
+  /** The button's size; the dialog is the same at any. */
+  size?: "sm";
   disabled?: boolean;
   onConfirm(): void;
 }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant={variant} disabled={disabled} aria-label={ariaLabel} aria-describedby={ariaDescribedBy}>
+        <Button variant={variant} size={size} disabled={disabled} aria-label={ariaLabel} aria-describedby={ariaDescribedBy}>
           {label}
         </Button>
       </AlertDialogTrigger>

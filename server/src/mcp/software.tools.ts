@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
 import { SOFTWARE_ACTION_KINDS } from "@decent-sync/protocol";
 import * as z from "zod";
-import { READ } from "../connected-apps/oauth.js";
+import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { readMachineId } from "../machines/input.js";
 import { MachinesService } from "../machines/machines.service.js";
 import { type SoftwareActionView, SoftwareActionsService } from "../software-actions/software-actions.service.js";
@@ -83,13 +83,27 @@ const softwareOutput = z.object({
         id: z.string(),
         name: z.string().nullable(),
         version: z.string().nullable(),
-        default: z.boolean().describe("The Skin Decaid shows as it starts."),
+        default: z.boolean().describe("The Skin Decaid shows as it starts, and once its Skin view restarts."),
         served: z.boolean().describe("Whether Decaid's Skin server serves it now."),
         updates,
+        removable: z.boolean().describe("Whether an Admin may remove it: it is neither the default, nor the one served, nor one that comes with Decaid."),
+        pageReported: z.boolean().describe("Whether it is served and has reported the page it shows, so reload_skin can ask it to reload."),
       }),
     )
     .nullable()
     .describe("Every Skin on the tablet; null until its tablet reports them."),
+  showing: z
+    .object({
+      skin: z.object({ id: z.string(), name: z.string().nullable(), version: z.string().nullable().describe("The version installed.") }).nullable().describe("The Skin served now; null while none is."),
+      page: z
+        .object({ version: z.string().nullable(), loadedAt: time, reportedAt: time })
+        .nullable()
+        .describe("The page that Skin reported it shows: its build, when it loaded and when it last reported; null for a Skin that reports none, which only a restart reloads."),
+      newerInstalled: z.boolean().describe("Whether the version installed is another than the one showing, so a reload is due."),
+      nextDefault: z.object({ id: z.string(), name: z.string().nullable() }).nullable().describe("The default Skin where it is not the one served: it shows once the Skin view restarts."),
+    })
+    .nullable()
+    .describe("What the tablet shows; null until its tablet reports its Skins."),
   pluginMustUpdate: z.boolean().describe("Whether the tablet's plugin is from before Software Actions, so none can be made until it updates."),
 });
 
@@ -97,13 +111,15 @@ const actionsInput = z.object({ machineId, ...page });
 
 const softwareActionOutput = z.object({
   id: z.string(),
-  kind: z.enum(SOFTWARE_ACTION_KINDS).or(z.string()).describe("What it did: installPlugin, enablePlugin, disablePlugin, changePluginSettings, checkPluginUpdates, approvePluginUpdate, removePlugin or checkDecaidUpdate."),
+  kind: z.enum(SOFTWARE_ACTION_KINDS).or(z.string()).describe(`What it did: ${SOFTWARE_ACTION_KINDS.join(", ")}.`),
   params: z
     .object({
       plugin: z.object({ id: z.string(), name: z.string().nullable() }).optional().describe("The plugin it acted on."),
+      skin: z.object({ id: z.string(), name: z.string().nullable() }).optional().describe("The Skin it acted on: chosen as the default, removed, or asked to reload."),
       repo: z.string().optional().describe("For an install: the GitHub repository."),
-      branch: z.string().nullable().optional().describe("For an install: the branch or commit; null for the latest release."),
-      version: z.string().optional().describe("For an approval: the version of the update approved."),
+      branch: z.string().nullable().optional().describe("For an install: the branch, or for a plugin a commit; null for the latest release."),
+      url: z.string().optional().describe("For a Skin installed from a URL: the URL."),
+      version: z.string().optional().describe("For an approval: the version of the update approved; for the start of Decaid's update, the release it offered."),
       addedPermissions: z.array(z.string()).optional().describe("For an approval: the permissions it added."),
       settings: z.array(z.string()).optional().describe("For a settings change: the names of the settings changed, never their values."),
     })
@@ -116,7 +132,11 @@ const softwareActionOutput = z.object({
   madeAt: time,
   sentAt: time.nullable(),
   answeredAt: time.nullable(),
-  outcome: z.enum(["done", "refused", "notConfirmed"]).nullable().describe("What came of it: done; refused; or notConfirmed, no answer came in time, so the tablet's lists say what it holds. Null while awaited."),
+  outcome: z
+    .enum(["done", "refused", "notConfirmed"])
+    .nullable()
+    .describe("What came of it: done; refused; or notConfirmed, no answer came in time, so the tablet's lists say what it holds, or the tablet could not see what came of it (note). Null while awaited."),
+  note: z.string().nullable().describe("For one the tablet answered as not confirmed: what did not show, such as a Skin's fresh page after a reload."),
   late: z.boolean().describe("Whether its outcome came from an answer after it was marked not confirmed."),
   refusal: z
     .discriminatedUnion("reason", [
@@ -124,18 +144,24 @@ const softwareActionOutput = z.object({
       z.object({ reason: z.literal("changedSince"), message: z.string().nullable() }),
       z.object({ reason: z.literal("expired") }),
       z.object({ reason: z.literal("notAllowed"), message: z.string().nullable() }),
+      z.object({ reason: z.literal("installNotPermitted"), message: z.string().nullable() }),
+      z.object({ reason: z.literal("noSkinServed"), message: z.string().nullable() }),
       z.object({ reason: z.literal("decaid"), status: z.number().int().nullable(), message: z.string().nullable() }),
     ])
     .nullable()
-    .describe("Why it was refused: the Machine was busy, the tablet's software changed since, it waited too long, the plugin would not do it to itself, or Decaid refused it, in its own words."),
+    .describe(
+      "Why it was refused: the Machine was busy, the tablet's software changed since, it waited too long, the plugin would not do it (to itself, or remove the default Skin or the one on screen), Android's permission for Decaid to install apps is not granted at the tablet (installNotPermitted), the Skin view did not start again so the tablet shows no Skin (noSkinServed), or Decaid refused it, in its own words.",
+    ),
   result: z
     .object({
       pluginId: z.string().optional(),
-      name: z.string().optional().describe("The plugin's name, as its tablet listed it."),
+      skinId: z.string().optional().describe("The Skin installed, chosen, removed, reloaded, or served once the Skin view restarted."),
+      name: z.string().optional().describe("The plugin's or Skin's name, as its tablet listed it."),
       version: z.string().optional().describe("The version installed afterwards."),
       loaded: z.boolean().optional(),
-      results: z.array(z.object({ item: z.string(), status: z.string(), error: z.string().optional(), version: z.string().optional() })).optional().describe("An update check's result for each plugin: updated, alreadyCurrent, pendingApproval or failed."),
-      decaid: z.record(z.string(), z.unknown()).optional().describe("Decaid's update state after a check for its own update."),
+      results: z.array(z.object({ item: z.string(), status: z.string(), error: z.string().optional(), version: z.string().optional() })).optional().describe("An update check's result for each plugin or Skin: updated, alreadyCurrent, pendingApproval or failed."),
+      page: z.object({ skinId: z.string(), version: z.string().optional(), loadedAt: z.string() }).optional().describe("The fresh page a Skin reported once asked to reload."),
+      decaid: z.record(z.string(), z.unknown()).optional().describe("Decaid's update state after a check for its own update, or once its update started."),
     })
     .nullable()
     .describe("What came of it, once done."),
@@ -145,14 +171,26 @@ const actionsOutput = z.object({ ...pageOutput, softwareActions: z.array(softwar
 
 /** A Software Action as list_software_actions gives it, its times with the offset of the Location its Machine was at then. */
 export function softwareActionOf(action: SoftwareActionView, zone: Zone): z.infer<typeof softwareActionOutput> {
-  const { id, kind, params, account, connectedApp, madeAt, sentAt, answeredAt, outcome, late, refusal, result } = action;
-  return { id, kind, params, account, connectedApp, madeAt: zone(madeAt), sentAt: sentAt && zone(sentAt), answeredAt: answeredAt && zone(answeredAt), outcome, late, refusal, result };
+  const { id, kind, params, account, connectedApp, madeAt, sentAt, answeredAt, outcome, note, late, refusal, result } = action;
+  return { id, kind, params, account, connectedApp, madeAt: zone(madeAt), sentAt: sentAt && zone(sentAt), answeredAt: answeredAt && zone(answeredAt), outcome, note, late, refusal, result };
 }
 
+const reloadInput = z.strictObject({
+  machineId,
+  how: z
+    .enum(["reload", "restart"])
+    .describe(
+      "reload asks the Skin on screen to load its page again, offered only where get_machine_software's showing.page is not null; restart stops and starts Decaid's Skin server, which rebuilds the Skin view on the default Skin, for any Skin, a hung one included: the screen is blank for a moment.",
+    ),
+});
+
+const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+
 /**
- * Reads of a Machine's Tablet Software and its Software Actions (ADR-0034).
- * An assistant reads them and makes none: a Software Action can put code on
- * a tablet, which ADR-0026 keeps out of the endpoint with what grants
+ * Reads of a Machine's Tablet Software and its Software Actions (ADR-0034),
+ * and the one Software Action an assistant makes: reloading the Skin or
+ * restarting the Skin view, which put no code on a tablet. Every other
+ * action can, which ADR-0026 keeps out of the endpoint with what grants
  * access, as text an assistant reads may try to steer it.
  */
 @Injectable()
@@ -167,7 +205,7 @@ export class SoftwareTools {
     name: "get_machine_software",
     title: "Get a Machine's Tablet Software",
     description:
-      "One Machine's Tablet Software, as its tablet last reported it: Decaid, with its version, the update it offers and whether its automatic update checks are on; every plugin, with its version, whether it is enabled, how it updates, any update that waits for approval with the permissions it adds, and the settings it declares; and every Skin, with its version, how it updates, which is the default and which is served. updates.how says what the tablet's next update check does to an item: followsReleases, a newer release of its repository is installed; followsBranch, the head of its branch is; pinned, it stays at its commit; followsUrl, a Skin is installed again once its URL serves something new; comesWithDecaid, a Skin Decaid may put its latest release back of as it starts; notUpdated, nothing. While automaticUpdateCheck is false nothing updates by itself. A setting's value is given to Admins only, and a secret's never: only whether it is set. Nothing here can be changed through an assistant: an Admin installs, enables, configures, updates and removes plugins on the Machine's Software tab in the management interface, as Software Actions, which list_software_actions lists.",
+      "One Machine's Tablet Software, as its tablet last reported it: Decaid, with its version, the update it offers and whether its automatic update checks are on; every plugin, with its version, whether it is enabled, how it updates, any update that waits for approval with the permissions it adds, and the settings it declares; and every Skin, with its version, how it updates, which is the default and which is served. updates.how says what the tablet's next update check does to an item: followsReleases, a newer release of its repository is installed; followsBranch, the head of its branch is; pinned, it stays at its commit; followsUrl, a Skin is installed again once its URL serves something new; comesWithDecaid, a Skin Decaid may put its latest release back of as it starts; notUpdated, nothing. While automaticUpdateCheck is false nothing updates by itself. A setting's value is given to Admins only, and a secret's never: only whether it is set. showing is what the tablet shows: the Skin served, the page it reported (its build and since when) where it reports one, whether a newer build is installed than the one showing, and the default Skin where a restart would show another. Of all this an assistant changes only the Skin on screen, with reload_skin: an Admin installs, enables, configures, updates and removes plugins and Skins, and starts Decaid's update, on the Machine's Software tab in the management interface, as Software Actions, which list_software_actions lists.",
     inputSchema: softwareInput,
     outputSchema: softwareOutput,
     annotations: { readOnlyHint: true },
@@ -184,7 +222,7 @@ export class SoftwareTools {
   @BudgetedTool({
     name: "list_software_actions",
     title: "List a Machine's Software Actions",
-    description: `One Machine's Software Actions, newest first: each thing an Admin asked its tablet to do to its plugins or to Decaid, with who asked, when, what it named and what came of it. kind: installPlugin, from a repository's latest release, or a branch or commit (params.repo, params.branch); enablePlugin, disablePlugin and removePlugin (params.plugin); changePluginSettings (params.settings, the names of the settings changed, never their values); checkPluginUpdates; approvePluginUpdate, of an update that waited on new permissions (params.version, params.addedPermissions); checkDecaidUpdate. Each is made once, while the tablet is connected and its Machine idle, and never kept for later. outcome: done, with result (the version installed, a result for each plugin checked, or Decaid's update state); refused, as refusal says why (machineBusy, the Machine was busy; changedSince, the tablet's software changed since; expired, it waited too long; notAllowed, Decent Sync's plugin never disables or removes itself, nor changes its own server address or Token; decaid, Decaid refused it, with its words); notConfirmed, no answer came in time, so get_machine_software says what the tablet holds; null while awaited. None can be made through an assistant. ${PAGED} Times are ISO 8601 with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.`,
+    description: `One Machine's Software Actions, newest first: each thing an Admin, or Staff reloading the Skin, asked its tablet to do to its plugins, its Skins or Decaid, with who asked, when, what it named and what came of it. kind: installPlugin, from a repository's latest release, or a branch or commit (params.repo, params.branch); enablePlugin, disablePlugin and removePlugin (params.plugin); changePluginSettings (params.settings, the names of the settings changed, never their values); checkPluginUpdates; approvePluginUpdate, of an update that waited on new permissions (params.version, params.addedPermissions); installSkin, from a repository's latest release or a branch, or a URL (params.url); chooseDefaultSkin and removeSkin (params.skin); checkSkinUpdates; reloadSkin and restartSkinView; checkDecaidUpdate; startDecaidUpdate, which someone at the tablet confirms in Android's installer, then taps Open. Each is made once, while the tablet is connected and, but for checkDecaidUpdate, its Machine idle, and never kept for later. outcome: done, with result (the version installed, a result for each plugin or Skin checked, the fresh page a reloaded Skin reported, or Decaid's update state); refused, as refusal says why (machineBusy, the Machine was busy; changedSince, the tablet's software changed since; expired, it waited too long; notAllowed, Decent Sync's plugin never disables or removes itself, changes its own server address or Token, or removes the default Skin or the one on screen; installNotPermitted, Android's permission for Decaid to install apps is not granted at the tablet; noSkinServed, the Skin view did not start again; decaid, Decaid refused it, with its words); notConfirmed, no answer came in time, so get_machine_software says what the tablet holds, or the tablet could not see what came of it, as note says; null while awaited. Only reload_skin makes one through an assistant. ${PAGED} Times are ISO 8601 with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.`,
     inputSchema: actionsInput,
     outputSchema: actionsOutput,
     annotations: { readOnlyHint: true },
@@ -197,5 +235,23 @@ export class SoftwareTools {
     const { softwareActions, total } = await this.actions.list(machine.id, { limit, offset }, callerOf(context).scope);
     const zone = zoneOf(machine);
     return { ...pageOf(total, offset, softwareActions.length), softwareActions: softwareActions.map((action) => softwareActionOf(action, zone)) };
+  }
+
+  @BudgetedTool({
+    name: "reload_skin",
+    title: "Reload a Machine's Skin",
+    description:
+      "Makes a Software Action that reloads the Skin on a Machine's tablet: how reload asks a Skin that reports its page to load it again, done once its fresh page reports in within 15 s and otherwise notConfirmed, when restart is the next step; how restart stops and starts Decaid's Skin server, which rebuilds the Skin view on the default Skin, done once it serves again, refused as noSkinServed where it does not. Sent at once, only while the Machine is online, and never kept for later; the tablet refuses it while the Machine is pulling a Shot, steaming, flushing or pouring water. Admins, and Staff at the Machine's Location, may make it. This returns it as made, usually before its answer: read what came of it with list_software_actions, newest first. It is the only Software Action an assistant can make.",
+    inputSchema: reloadInput,
+    outputSchema: z.object({ softwareAction: softwareActionOutput }),
+    annotations: CHANGES,
+    scopes: [READ, CHANGE],
+    budget: { rest: "The Machine's Software tab shows the action whole." },
+  })
+  async reloadSkin(input: z.infer<typeof reloadInput>, context: McpContext): Promise<{ softwareAction: z.infer<typeof softwareActionOutput> }> {
+    const machine = await this.machines.get(readMachineId(input.machineId));
+    const { accountId, role, scope, connectedAppId } = callerOf(context);
+    const made = await this.actions.make(machine.id, { kind: input.how === "reload" ? "reloadSkin" : "restartSkinView" }, { accountId, role, scope, connectedAppId });
+    return { softwareAction: softwareActionOf(made, zoneOf(machine)) };
   }
 }

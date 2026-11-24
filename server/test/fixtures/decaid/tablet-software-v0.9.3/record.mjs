@@ -1,18 +1,19 @@
-// Records what Decaid v0.9.3 answers the requests that manage its plugins, and what `host.localApi` gives a plugin
-// that makes them (README.md beside this script). One phase a run, as Decaid is restarted between them:
+// Records what Decaid v0.9.3 answers the requests that manage its plugins and Skins, and what `host.localApi` gives a
+// plugin that makes them (README.md beside this script). One phase a run, as Decaid is restarted between them:
 //
 //   node server/test/fixtures/decaid/tablet-software-v0.9.3/record.mjs <phase> <output file>
 //
 // The phases are `fresh` (a new Decaid), `pending` (one started with an older Decent Sync release in its plugins
 // folder, so that an update waits for approval) and `protected` (one started with "Require authorization for
-// extension management" on). It reads DECAID from the environment for another address than http://localhost:8080.
-// Every request goes to a throwaway Decaid: it installs, removes and configures plugins.
+// extension management" on), and `skins` (a new Decaid: Skin installs, update checks, the default Skin, its web server
+// and removals). It reads DECAID from the environment for another address than http://localhost:8080.
+// Every request goes to a throwaway Decaid: it installs, removes and configures plugins and Skins.
 import { readFileSync, writeFileSync } from "node:fs";
 
 const BASE = process.env.DECAID ?? "http://localhost:8080";
 const API = `${BASE}/api/v1`;
 const [phase, output] = process.argv.slice(2);
-if (!["fresh", "pending", "protected"].includes(phase) || !output) throw new Error("Usage: record.mjs <fresh|pending|protected> <output file>");
+if (!["fresh", "pending", "protected", "skins"].includes(phase) || !output) throw new Error("Usage: record.mjs <fresh|pending|protected|skins> <output file>");
 
 const PROBE = "localapi-probe.reaplugin";
 const probeFile = (name) => readFileSync(new URL(`./probe/${name}`, import.meta.url), "utf8");
@@ -34,8 +35,18 @@ async function send(method, path, body) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The plugin list without each plugin's endpoints and description, which no step changes and nothing here reads. */
+/** A Skin without its description, which nothing here reads: in the `skins` phase only, as the others keep it. */
+const skinTrimmed = (skin) => {
+  if (phase !== "skins" || !skin || typeof skin !== "object" || !("reaMetadata" in skin)) return skin;
+  const { description: _description, ...rest } = skin;
+  return rest;
+};
+
+/** The plugin list without each plugin's endpoints and description, which no step changes and nothing here reads, and
+ * the Skin list and default Skin without each Skin's description (`skins` only). */
 function trimmed(route, answer) {
+  if (route === "/webui/skins" && Array.isArray(answer.body)) return { status: answer.status, body: answer.body.map(skinTrimmed) };
+  if (route === "/webui/skins/default") return { status: answer.status, body: skinTrimmed(answer.body) };
   if (route !== "/plugins" || !Array.isArray(answer.body)) return answer;
   return { status: answer.status, body: answer.body.map(({ api: _api, description: _description, ...plugin }) => plugin) };
 }
@@ -85,7 +96,8 @@ function parsedBody(result) {
   } catch {
     return result;
   }
-  if (Array.isArray(body)) body = body.map(({ api: _api, description: _description, ...plugin }) => plugin);
+  if (Array.isArray(body)) body = body.map((item) => ("reaMetadata" in Object(item) ? skinTrimmed(item) : (({ api: _api, description: _description, ...plugin }) => plugin)(item)));
+  else body = skinTrimmed(body);
   return { resolved: { ...result.resolved, body, bodyWasText: true } };
 }
 
@@ -262,6 +274,66 @@ if (phase === "protected") {
       exchange.response.body = `${exchange.response.body.length} plugins, as in the reads`;
     }
   }
+}
+
+if (phase === "skins") {
+  const SKIN_READS = ["/webui/skins", "/webui/skins/default", "/webui/server/status"];
+  const skinStep = (name, requests) => step(name, requests, SKIN_READS);
+  const skinList = async () => (await send("GET", "/webui/skins")).response.body;
+  /** The Skin an install put there: the one new to the list, or the one whose `installedAt` changed. */
+  async function installedBy(name, request) {
+    const before = new Map((await skinList()).map((skin) => [skin.id, skin.reaMetadata?.installedAt]));
+    await skinStep(name, [request]);
+    const after = await skinList();
+    return (after.find((skin) => !before.has(skin.id)) ?? after.find((skin) => skin.reaMetadata && skin.reaMetadata.installedAt !== before.get(skin.id)))?.id;
+  }
+  const COMMIT = "d7729dc9532ae31d606447ee0648e20284268b2c";
+  const ZIP = `https://github.com/loganfuller/streamline-cafe-js/archive/${COMMIT}.zip`;
+
+  await skinStep("started", []);
+  const releaseId = await installedBy("releaseInstalled", ["POST", "/webui/skins/install/github-release", { repo: "loganfuller/streamline-cafe-js" }]);
+  const branchId = await installedBy("branchInstalled", ["POST", "/webui/skins/install/github-branch", { repo: "decentespresso/streamline-js", branch: "dist" }]);
+  const commitId = await installedBy("commitAsBranch", ["POST", "/webui/skins/install/github-branch", { repo: "loganfuller/streamline-cafe-js", branch: COMMIT }]);
+  const urlId = await installedBy("urlInstalled", ["POST", "/webui/skins/install/url", { url: ZIP }]);
+  recorded.installedIds = { releaseInstalled: releaseId ?? null, branchInstalled: branchId ?? null, commitAsBranch: commitId ?? null, urlInstalled: urlId ?? null };
+  process.stdout.write(`installed: ${JSON.stringify(recorded.installedIds)}\n`);
+  await skinStep("checked", [["POST", "/webui/skins/update"]]);
+  await skinStep("defaultSwitched", [["PUT", "/webui/skins/default", { skinId: releaseId }]]);
+  await skinStep("unknownDefault", [["PUT", "/webui/skins/default", { skinId: "no-such-skin" }]]);
+  await skinStep("serverStopped", [["POST", "/webui/server/stop"]]);
+  await skinStep("stoppedAgain", [["POST", "/webui/server/stop"]]);
+  await skinStep("serverStarted", [["POST", "/webui/server/start"]]);
+  await skinStep("startedAgain", [["POST", "/webui/server/start"]]);
+  await skinStep("bundledRemoveRefused", [["DELETE", "/webui/skins/insight"]]);
+  await skinStep("unknownRemoved", [["DELETE", "/webui/skins/no-such-skin"]]);
+  const defaultId = () => send("GET", "/webui/skins/default").then((answer) => answer.response.body?.id);
+  if (branchId && branchId !== (await defaultId())) await skinStep("removed", [["DELETE", `/webui/skins/${branchId}`]]);
+
+  // The same through the probe plugin's `host.localApi`: the default switched away and served, then switched back and
+  // served again, so that `defaultRemoved` removes the Skin being served.
+  await step("probeInstalled", await installProbe(), ["/plugins"]);
+  await localApi(
+    "localApi",
+    [
+      { path: "/api/v1/webui/skins/default", options: { method: "PUT", body: { skinId: "passione" } } },
+      { path: "/api/v1/webui/server/stop", options: { method: "POST" } },
+      { path: "/api/v1/webui/server/start", options: { method: "POST" } },
+      { path: "/api/v1/webui/server/status" },
+      { path: "/api/v1/webui/skins/update", options: { method: "POST" } },
+      { path: "/api/v1/webui/skins/no-such-skin", options: { method: "DELETE" } },
+      { path: "/api/v1/webui/skins/install/url", options: { method: "POST", body: { url: ZIP } } },
+      { path: "/api/v1/webui/skins/default", options: { method: "PUT", body: { skinId: releaseId } } },
+      { path: "/api/v1/webui/server/stop", options: { method: "POST" } },
+      { path: "/api/v1/webui/server/start", options: { method: "POST" } },
+    ],
+    SKIN_READS,
+  );
+
+  await skinStep("defaultRemoved", [["DELETE", `/webui/skins/${await defaultId()}`]]);
+  await skinStep("startAfterDefaultRemoved", [
+    ["POST", "/webui/server/stop"],
+    ["POST", "/webui/server/start"],
+  ]);
 }
 
 writeFileSync(output, `${JSON.stringify(recorded, null, 2)}\n`);

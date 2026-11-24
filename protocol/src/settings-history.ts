@@ -14,7 +14,9 @@ import type { WakeScheduleAction } from "./settings-fields.js";
  * (`LIBRARY_LISTS`): the Machine Settings, the Tablet Settings with the
  * presence settings, the plugins, their settings and the Skins, the paired
  * devices, the scale's information and the sensors. Decaid's own update
- * state (`decaidUpdate`) is left out: it changes by itself, with each check.
+ * state (`decaidUpdate`) is left out: it changes by itself, with each check;
+ * and so is the page a Skin reports it shows (`skinPage`), which changes
+ * with each load of the page.
  */
 export const SETTINGS_HISTORY_COLLECTIONS = [
   "appSettings",

@@ -226,7 +226,7 @@ Machine reads it; the values of plugins' settings show to Admins only, and a
 secret setting only as set or not set, to anyone.
 
 An Admin acts on it through Software Actions, which the plugin carries out
-through Decaid's own plugin routes with `manage.extensions`:
+through Decaid's own plugin and Skin routes with `manage.extensions`:
 
 - install a plugin from a GitHub repository's latest release, or from a
   branch or commit, which pins it (Decaid installs by no release tag); a new
@@ -237,22 +237,56 @@ through Decaid's own plugin routes with `manage.extensions`:
 - check the plugins for updates, with a result for each, and approve an
   update that waits on new permissions;
 - remove a plugin with its settings;
-- ask Decaid to check for its own update. Installing it still needs someone
-  at the tablet.
+- install a Skin from a GitHub repository's latest release, a branch, or a
+  URL serving a zip, such as a commit's archive
+  (`https://github.com/<owner>/<name>/archive/<commit>.zip`), which pins it:
+  Decaid installs no Skin from a commit given as a branch;
+- choose the default Skin, which shows the next time the Skin view
+  restarts, and check the Skins for updates;
+- remove a Skin that is neither the default, nor the one on screen, nor one that comes with Decaid;
+- reload the Skin on screen, or restart the Skin view (below);
+- ask Decaid to check for its own update, and start it: Decaid downloads it
+  and opens Android's installer, where someone at the tablet must tap
+  **Open**, and Decaid does not reopen by itself afterwards. Decaid refuses
+  to start it until Android's permission for it to install apps ("Install
+  unknown apps") has been granted at the tablet.
 
 Each is made once, only while the tablet is connected and the Machine runs
-nothing, as a Settings Edit is, and never kept for later. The plugin carries
+nothing, as a Settings Edit is, and never kept for later. Only the check for
+Decaid's update goes ahead while the Machine is busy. The plugin carries
 out one at a time, refuses one while the Machine is busy, and reads the
 plugins back afterwards, so the Machine's Settings History ties what changed
-to the action. Whatever it is sent, it never disables or removes itself, and
-of its own settings changes only the poll interval: its server address and
-Token are set on the tablet. An install from a repository whose plugin is
+to the action. Whatever it is sent, it never disables or removes itself, of
+its own settings changes only the poll interval, as its server address and
+Token are set on the tablet, and never removes the default Skin or the one on screen. An install from a repository whose plugin is
 `decent-sync.reaplugin` replaces this plugin with that build, as Decaid
 installs it: like every Software Action, it is an Admin's, trusted with the
 tablet. A tablet still running the plugin of the
 release before Software Actions is sent none until its plugin updates, and
 its Software tab says so. [COLLECTIONS.md](COLLECTIONS.md#software-actions)
 has the detail.
+
+### Reloading the Skin
+
+The Skin on a tablet reloads in two ways, and both are open to Admins, to
+Staff at the Machine's Location, and to an assistant acting for either
+(`reload_skin`). Neither runs while the Machine is pulling a Shot, steaming,
+flushing or pouring water.
+
+- **Reload** asks the Skin on screen to load its page again. It is offered
+  only for a Skin that reports its page to the plugin ([below](#reporting-the-page-and-reloading)),
+  and is done once the fresh page reports in, within 15 seconds; otherwise
+  it is not confirmed, and the restart is the next step. The Software tab
+  shows which build the tablet is showing and since when, and says when a
+  newer build is installed than the one on screen.
+- **Restart the Skin view** stops and starts Decaid's Skin server, which
+  has Decaid build its Skin view again on the default Skin, a hung Skin or
+  one that knows nothing of the plugin included. The screen is blank for a
+  moment. The plugin checks the Skin server serves again, starts it once
+  more if it does not, and says so plainly if the tablet is left showing no
+  Skin. Decaid has no reload route of its own
+  ([decentespresso/decaid#1029](https://github.com/decentespresso/decaid/issues/1029)),
+  so each new Decaid release is checked for it ([DEVELOPMENT.md](DEVELOPMENT.md#steps)).
 
 ## What it sends the server
 
@@ -472,7 +506,8 @@ Location](#the-locations-shots), [any one of them whole](#a-shot-whole) and
 [a Recipe's Reference Shot](#a-recipes-reference-shot),
 [chooses a Recipe's Reference Shot](#choosing-a-recipes-reference-shot), and
 [edits the rating and note of any Shot at the
-Location](#editing-a-shots-rating-and-note). It may also edit a Recipe by
+Location](#editing-a-shots-rating-and-note). It may [report its page and be
+asked to reload](#reporting-the-page-and-reloading). It may also edit a Recipe by
 writing its DYE2 record itself ([Writing DYE2's
 recipes](#writing-dye2s-recipes)).
 
@@ -925,6 +960,57 @@ Recipe if it is the one on screen.
   for a socket opened later. Read the status once the socket opens.
 - A Skin can send nothing on this socket.
 - Ignore a `what` you don't know. Later releases add more.
+
+### Reporting the page, and reloading
+
+A Skin that reports its page lets an Admin, or Staff at its Location,
+reload it from anywhere, and the Machine's Software tab show which build it
+is showing. A Skin that does neither is unaffected: it is never pushed the
+reload, and is reloaded only by restarting the Skin view.
+
+Each time the page loads, and each time its socket on `changes` opens, PUT
+its Skin id, its version and when the page loaded to the HTTP endpoint
+`page`:
+
+```js
+const PLUGIN = `http://${location.hostname}:8080/api/v1/plugins/decent-sync.reaplugin`;
+const page = { skinId: "streamline-cafe.js", version: "0.2.31-cafe.1", loadedAt: new Date(performance.timeOrigin).toISOString() };
+const report = () => fetch(`${PLUGIN}/page`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(page) }).catch(() => {});
+report();
+// ...and on each `open` of the WebSocket on `changes`:
+socket.addEventListener("open", report);
+```
+
+- `skinId` is the Skin's id as Decaid's Skin list names it: the `id` in its
+  `skin-manifest.json`. `version` is optional. `loadedAt` is an ISO 8601
+  time, the same for every report of one page load, and later for each new
+  load: `performance.timeOrigin` gives both. It may be at most a minute
+  ahead of the tablet's clock.
+- It answers 204, whether or not the plugin is connected to the server. A
+  body it can't read answers 400 with `invalidRequest` and a `message`;
+  any method but PUT answers 405.
+- Only a report from the tablet's own Skin view counts: one whose `Host`
+  is `localhost`, `127.0.0.1` or `[::1]`, as Decaid's Skin view loads the
+  Skin from `http://localhost:<port>/`. Address Decaid as your page's own
+  `location.hostname` does there. A report from another device, as a
+  browser on the cafe's network, answers 204 and is not kept, so it never
+  sets what the tablet shows or confirms a reload.
+- Report again each time your socket on `changes` opens. Decaid keeps it
+  open while it loads the plugin again, as after a settings change or an
+  update; the plugin then holds no page, and still asks your page to reload
+  when asked to, counting the first report of your Skin after its push.
+
+To be reloaded, listen on `changes` for:
+
+```json
+{ "what": "reload" }
+```
+
+and load the page again (`location.reload()`). The reload is done once your
+fresh page reports a later `loadedAt` than the page before (or, where the
+plugin holds none, reports at all) within 15 seconds; a page that
+reports nothing in that time, or a page of another Skin, leaves it not
+confirmed.
 
 ### Streamline's endpoints
 

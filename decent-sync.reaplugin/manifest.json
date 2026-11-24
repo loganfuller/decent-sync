@@ -71,6 +71,11 @@
       "id": "reference",
       "type": "http",
       "data": {}
+    },
+    {
+      "id": "page",
+      "type": "http",
+      "data": {}
     }
   ]
 }

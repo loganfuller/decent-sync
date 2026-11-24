@@ -268,6 +268,22 @@ describe("the latest release beside the change", () => {
     await expect.poll(async () => (await apis.change.get<{ softwareAction: { outcome: string | null } }>(`${actions}/${made.id}`)).softwareAction.outcome, { timeout: 20_000 }).toBe("done");
   });
 
+  // The page a Skin reports came in the same unreleased revision (#661), as a
+  // collection the latest release's server does not know, which it
+  // acknowledges and ignores: the change's plugin sends it to that server,
+  // and keeps its connection.
+  it("reports the page a Skin shows to the latest release's server, which acknowledges it and keeps the tablet connected", async () => {
+    const { machine, tablet } = await connected("mixed-skin-page", "change", "latest release");
+    const answer = await tablet.callEndpoint("page", { method: "PUT", body: { skinId: "streamline.js", version: "0.2.31", loadedAt: new Date().toISOString() } });
+    expect(answer.status).toBe(204);
+    type Frame = { type?: string; id?: string; name?: string };
+    await expect.poll(() => (tablet.sent as Frame[]).find((frame) => frame.type === "collection" && frame.name === "skinPage")?.id).toBeDefined();
+    const sent = (tablet.sent as Frame[]).find((frame) => frame.type === "collection" && frame.name === "skinPage")!;
+    await expect.poll(() => (tablet.received as Frame[]).some((frame) => frame.type === "ack" && frame.id === sent.id)).toBe(true);
+    expect(tablet.logs.some((line) => /protocol error/.test(line))).toBe(false);
+    await apis.change.waitForOnline(machine);
+  });
+
   // Turning steam back on takes the Loaded Recipe's steam temperature in the
   // plugin alone (ADR-0022, #374), so a tablet with the change's plugin keeps
   // the rule on the latest release's server. One with 1.6.0's plugin saves

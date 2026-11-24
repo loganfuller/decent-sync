@@ -390,7 +390,8 @@ describe("Software Actions", () => {
         { kind: "removePlugin", pluginId: VISUALIZER },
         { kind: "checkDecaidUpdate" },
       ]) {
-        expect(await refused(machine, body, 403, reader)).toMatch(/Only an Admin can do this/);
+        // Staff are let in to reload or restart the Skin, and refused the rest; a Viewer changes nothing.
+        expect(await refused(machine, body, 403, reader)).toMatch(reader === staff ? /Only an Admin can do this/ : /A Viewer can't change anything/);
       }
       // The install form's suggestions are an Admin's too.
       expect((await reader.call("GET", `/machines/${machine.machine.id}/plugin-sources`)).status).toBe(403);

@@ -18,8 +18,9 @@ import { expectTip } from "./support/tooltips.js";
 // checks' Settings Edit, with the log of them all, which starts closed. An
 // action is refused while the Machine is busy, at once while it is offline,
 // and not at all where the Tablet's plugin is from before Software Actions.
-// Staff read the lists and the log and are offered nothing; Viewers are
-// e2e/viewers.spec.ts's. The simulated tablets run the built plugin, their
+// Staff read the lists and the log and are offered only the restart of the
+// Skin view; Viewers are e2e/viewers.spec.ts's, and the Skins' actions
+// e2e/software-skins.spec.ts's. The simulated tablets run the built plugin, their
 // Decaid managing its plugins as Decaid v0.9.3 does (decaid-plugins.ts);
 // the repositories, commits, serials and settings are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -119,15 +120,16 @@ test("an Admin reads the Tablet's Decaid, plugins and Skins with how each update
   await expect(pluginRow(page, "Decent Sync").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Settings"]);
   await expect(pluginRow(page, "Visualizer upload").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Settings", "Disable", "Remove"]);
 
-  // The Skins, read-only: the default one marked, each one that comes with Decaid saying what Decaid may do as it starts.
+  // The Skins: the default one marked, each one that comes with Decaid saying what Decaid may do as it starts.
   const skins = page.getByRole("table", { name: "Skins" });
-  await expect(skins.getByRole("columnheader")).toHaveText(["Skin", "Version", "Updates"]);
-  const defaultSkin = rows(skins).filter({ hasText: "Default" });
+  await expect(skins.getByRole("columnheader")).toHaveText(["Skin", "Version", "Updates", "Actions"]);
+  const defaultSkin = rows(skins).filter({ has: page.getByText("Default", { exact: true }) });
   await expect(defaultSkin).toHaveCount(1);
   await expect(cell(defaultSkin, 0)).toHaveText(/^Streamline\.js\s*Default\s*Showing now$/);
   await expect(cell(defaultSkin, 2)).toHaveText("Comes with Decaid");
   await expectTip(defaultSkin, "how it updates", "Decaid may put its latest release back when it starts.");
-  await expect(region(page, "Skins").getByRole("button", { name: /^(?!About )/ })).toHaveCount(0);
+  // Neither made the default again nor removed.
+  await expect(defaultSkin.getByRole("button", { name: /^(?!About )/ })).toHaveCount(0);
 
   // Decaid finds a newer release of itself.
   managed.offerDecaid("0.9.4");
@@ -395,16 +397,17 @@ test("while the Machine is offline its actions are disabled with the reason, and
   await expect(cell(pluginRow(page, "Uploader"), 3)).toHaveText("Enabled");
 });
 
-test("Staff read the lists and the log and are offered nothing, and are shown no plugin setting's value", async ({ page, browser }) => {
+test("Staff read the lists and the log and are offered only the restart of the Skin view, and are shown no plugin setting's value", async ({ page, browser }) => {
   await asStaff(page, browser, async (samsPage) => {
     await samsPage.goto(`/machines/${frontId}?tab=software`);
     await expect(cell(pluginRow(samsPage, "Visualizer upload"), 3)).toHaveText("Disabled");
     await expect(field(region(samsPage, "Decaid"), "Automatic update checks")).toHaveText("On, every 12 hours");
-    await expect(rows(samsPage.getByRole("table", { name: "Skins" })).filter({ hasText: "Default" })).toHaveCount(1);
+    await expect(rows(samsPage.getByRole("table", { name: "Skins" })).filter({ has: samsPage.getByText("Default", { exact: true }) })).toHaveCount(1);
     const log = await openCard(samsPage, "Software Actions");
     // Who made each is named to Admins only.
     await expect(rows(log.getByRole("table")).first().getByRole("cell").nth(2)).toHaveText("An account");
-    expect(await offeredButtons(samsPage)).toEqual([]);
+    // At the Machine's Location, the restart of the Skin view, as its Skin doesn't report its page to be reloaded.
+    expect(await offeredButtons(samsPage)).toEqual(["Restart the Skin view"]);
     const visualizer = (await software(samsPage, frontId)).plugins!.find((plugin) => plugin.id === "visualizer.reaplugin")!;
     expect(visualizer.settings.every((setting) => !("value" in setting))).toBe(true);
 

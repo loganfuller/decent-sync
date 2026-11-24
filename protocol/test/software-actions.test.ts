@@ -13,6 +13,8 @@ import {
   decodeServerMessage,
   isPluginRepo,
   isSecretState,
+  isSkinUrl,
+  isSkinViewKind,
   namesCommit,
   pluginSettingKey,
   pluginSettingOf,
@@ -37,7 +39,7 @@ describe("a Software Action on the wire", () => {
     expect(manifest.permissions).toContain("manage.extensions");
   });
 
-  it("has two minutes for an install, an update check or an approval, and one for the rest", () => {
+  it("has two minutes for an install, an update check, an approval or the start of Decaid's update, and one for the rest", () => {
     const times = Object.fromEntries(SOFTWARE_ACTION_KINDS.map((kind) => [kind, softwareActionMs(kind)]));
     expect(times).toEqual({
       installPlugin: 120_000,
@@ -47,7 +49,14 @@ describe("a Software Action on the wire", () => {
       checkPluginUpdates: 120_000,
       approvePluginUpdate: 120_000,
       removePlugin: 60_000,
+      installSkin: 120_000,
+      chooseDefaultSkin: 60_000,
+      checkSkinUpdates: 120_000,
+      removeSkin: 60_000,
+      reloadSkin: 60_000,
+      restartSkinView: 60_000,
       checkDecaidUpdate: 120_000,
+      startDecaidUpdate: 120_000,
     });
     expect(softwareActionMs("a kind of a later release")).toBe(60_000);
   });
@@ -63,6 +72,15 @@ describe("a Software Action on the wire", () => {
       { type: "softwareAction", id, timeLeftMs: 59_000, kind: "changePluginSettings", pluginId: "visualizer.reaplugin", values: { Password: "a secret", Username: null }, expected: { Password: { isSet: false }, Username: "sam" } },
       { type: "softwareAction", id, timeLeftMs: 119_000, kind: "checkPluginUpdates" },
       { type: "softwareAction", id, timeLeftMs: 0, kind: "checkDecaidUpdate" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "installSkin", repo: "loganfuller/streamline-cafe-js" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "installSkin", repo: "decentespresso/streamline-js", branch: "dist" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "installSkin", url: "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip" },
+      { type: "softwareAction", id, timeLeftMs: 59_000, kind: "chooseDefaultSkin", skinId: "streamline-cafe.js" },
+      { type: "softwareAction", id, timeLeftMs: 59_000, kind: "removeSkin", skinId: "streamline-cafe.js-dist" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "checkSkinUpdates" },
+      { type: "softwareAction", id, timeLeftMs: 59_000, kind: "reloadSkin" },
+      { type: "softwareAction", id, timeLeftMs: 59_000, kind: "restartSkinView" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "startDecaidUpdate" },
     ];
     for (const action of actions) expect(decodeServerMessage(frame(action)), action.kind).toEqual({ ok: true, message: action });
     expect(decodeServerMessage(frame({ ...actions[0], repo: "not a repository" }))).toMatchObject({ ok: false, problem: "softwareAction.repo must be a GitHub repository, as owner/name" });
@@ -71,6 +89,16 @@ describe("a Software Action on the wire", () => {
     expect(decodeServerMessage(frame({ ...actions[7], kind: "rebootTablet" }))).toMatchObject({ ok: false, problem: expect.stringContaining("softwareAction.kind must be one of installPlugin") });
     expect(decodeServerMessage(frame({ ...actions[7], id: "action-1" }))).toMatchObject({ ok: false, problem: "softwareAction.id must be a UUID" });
     expect(decodeServerMessage(frame({ ...actions[7], timeLeftMs: -1 }))).toMatchObject({ ok: false, problem: "softwareAction.timeLeftMs must not be negative" });
+    // A Skin is installed from a repository or a URL, never both.
+    expect(decodeServerMessage(frame({ ...actions[11], repo: "loganfuller/streamline-cafe-js" }))).toMatchObject({ ok: false, problem: "softwareAction.repo must be absent" });
+    expect(decodeServerMessage(frame({ ...actions[11], url: "file:///sdcard/skin.zip" }))).toMatchObject({ ok: false, problem: "softwareAction.url must be an http or https URL" });
+    expect(decodeServerMessage(frame({ ...actions[12], skinId: "" }))).toMatchObject({ ok: false, problem: "softwareAction.skinId must not be empty" });
+  });
+
+  it("opens Reload and the restart, and only those, to Staff and assistants, and knows a URL a Skin installs from", () => {
+    expect(SOFTWARE_ACTION_KINDS.filter(isSkinViewKind)).toEqual(["reloadSkin", "restartSkinView"]);
+    for (const url of ["https://github.com/a/b/archive/main.zip", "http://192.168.1.20:8000/skin.zip?x=1"]) expect(isSkinUrl(url), url).toBe(true);
+    for (const url of ["github.com/a/b.zip", "ftp://x/y.zip", "https://", "https://a b/c.zip", 3]) expect(isSkinUrl(url), String(url)).toBe(false);
   });
 
   it("is answered as done, with what came of it, or refused, with why", () => {
@@ -85,9 +113,16 @@ describe("a Software Action on the wire", () => {
       { type: "softwareActed", id, outcome: "refused", reason: "notAllowed", message: "The Decent Sync plugin does not disable itself" },
       { type: "softwareActed", id, outcome: "refused", reason: "decaid", status: 500, message: "Couldn't install the plugin." },
       { type: "softwareActed", id, outcome: "refused", reason: "decaid", status: null, message: "Decaid did not answer" },
+      { type: "softwareActed", id, outcome: "done", result: { skinId: "streamline-cafe.js", name: "Streamline Cafe", version: "0.2.31-cafe.1" } },
+      { type: "softwareActed", id, outcome: "done", result: { skinId: "streamline.js", version: "0.2.32", page: { skinId: "streamline.js", version: "0.2.32", loadedAt: "2026-11-24T14:00:00.000Z" } } },
+      { type: "softwareActed", id, outcome: "notConfirmed", message: "The Skin was asked to reload, but no fresh page reported in within 15 s" },
+      { type: "softwareActed", id, outcome: "refused", reason: "installNotPermitted", message: "Installation requires approval on the Android device" },
+      { type: "softwareActed", id, outcome: "refused", reason: "noSkinServed", message: "Decaid's Skin server did not start again" },
     ];
     for (const answer of answers) expect(decodePluginMessage(frame(answer)), JSON.stringify(answer)).toEqual({ ok: true, message: answer });
-    expect(decodePluginMessage(frame({ ...answers[0], outcome: "installed" }))).toMatchObject({ ok: false, problem: "softwareActed.outcome must be one of done, refused" });
+    expect(decodePluginMessage(frame({ ...answers[0], outcome: "installed" }))).toMatchObject({ ok: false, problem: "softwareActed.outcome must be one of done, refused, notConfirmed" });
+    expect(decodePluginMessage(frame({ ...answers[11], reason: "decaid" }))).toMatchObject({ ok: false, problem: expect.stringContaining("softwareActed.reason must be absent") });
+    expect(decodePluginMessage(frame({ ...answers[11], result: { page: { skinId: "streamline.js", loadedAt: "yesterday" } } }))).toMatchObject({ ok: false, problem: expect.stringContaining("softwareActed.result.page.loadedAt") });
     expect(decodePluginMessage(frame({ ...answers[0], reason: "decaid" }))).toMatchObject({ ok: false, problem: expect.stringContaining("softwareActed.reason must be absent") });
     expect(decodePluginMessage(frame({ ...answers[4], state: "" }))).toMatchObject({ ok: false, problem: "softwareActed.state must not be empty" });
     expect(decodePluginMessage(frame({ type: "softwareActed", id, outcome: "refused", reason: "decaid", status: 500 }))).toMatchObject({ ok: false, problem: "softwareActed.message must be a string" });

@@ -3,7 +3,9 @@ import {
   MAX_SOFTWARE_NAME_LENGTH,
   OWN_CHANGEABLE_SETTING,
   SETTINGS_EDIT_STATES,
+  SKIN_RELOAD_MS,
   SOFTWARE_ACTION_START_MARGIN_MS,
+  type SkinPage,
   type SoftwareActed,
   type SoftwareAction,
   type SoftwareActionResult,
@@ -15,10 +17,11 @@ import type { Transports } from "./host.js";
 import { machineMissing } from "./loaded-recipes.js";
 import type { Outbox } from "./outbox.js";
 import type { SettingsAccess } from "./settings-edits.js";
+import type { SkinPages } from "./skin-page.js";
 import type { PluginStorage } from "./storage.js";
 
 // Software Actions (ADR-0034): what the server asks the plugin to do to the
-// Tablet's plugins and to Decaid, one at a time, through the routes Decaid's
+// Tablet's plugins, its Skins and Decaid, one at a time, through the routes Decaid's
 // own pages use, called with `host.localApi`. Decaid stays the source of
 // truth: nothing is put back later, and the lists are whatever it reports.
 
@@ -27,6 +30,17 @@ const UPDATE_SOCKET = "ws://localhost:8080/ws/v1/update";
 
 /** How long Decaid's check for its own update is waited for, once asked. */
 const UPDATE_CHECK_MS = 45_000;
+
+/**
+ * How long the start of Decaid's own update is waited for, once asked: its
+ * download, then the opening of Android's installer, within the two minutes
+ * the action has.
+ */
+const UPDATE_START_MS = 95_000;
+
+/** How long the Skin server is watched for serving again once started, and how often its status is read meanwhile. */
+const SERVING_WATCH_MS = 5_000;
+const SERVING_STEP_MS = 500;
 
 /** Where an action that may have Decaid load this plugin again is kept meanwhile, in Decaid's plugin storage. */
 const PENDING_KEY = "softwareAction";
@@ -48,6 +62,7 @@ const RESUME_WATCH_MS = 30_000;
 /** How Software Actions read the lists and report them, within their own `SettingsAccess.run` (`CollectionCapture.readSoftware`). */
 export interface SoftwareReports {
   readSoftware(what: "plugins" | "decaid", readBackOf?: string): Promise<unknown[] | undefined>;
+  readSoftwareSkins(readBackOf?: string): Promise<Record<string, unknown> | undefined>;
 }
 
 /** An action as it is kept while Decaid may load the plugin again under it: never a setting's value. */
@@ -102,6 +117,8 @@ export class SoftwareActions {
     private readonly storage: PluginStorage,
     private readonly transports: Transports & { send(handle: string, data: string): Promise<void> },
     private readonly log: (message: string) => void,
+    /** The page a Skin reports it shows, which Reload asks it to load again (`SkinPages`). */
+    private readonly pages?: SkinPages,
   ) {}
 
   /**
@@ -210,6 +227,9 @@ export class SoftwareActions {
       return refusedByDecaid(action.id, state.status, decaidMessage(state));
     }
 
+    if (isSkinAction(action)) return this.carryOutOnSkins(action, tooLate, endTime);
+    if (action.kind === "startDecaidUpdate") return this.startDecaidUpdate(action, tooLate, endTime);
+
     const before = await this.reports.readSoftware("plugins");
     if (before === undefined) return refusedByDecaid(action.id, null, "Decaid did not answer with its plugins");
     const changed = await changedSince(action, before);
@@ -245,6 +265,276 @@ export class SoftwareActions {
     if (answer === undefined) return refusedByDecaid(action.id, null, `Decaid did not answer: ${failure}`);
     if (!answer.ok) return refusedByDecaid(action.id, answer.status, decaidMessage(answer));
     return { type: "softwareActed", id: action.id, outcome: "done", result: resultOf(action, answer, before, after) };
+  }
+
+  /**
+   * Carries out an action on the Tablet's Skins, the machine idle: reads the
+   * Skins, refuses what no longer holds and what the plugin's protections
+   * forbid (removing the default Skin or the one served, whatever it is sent), asks Decaid,
+   * and reads the Skins back, whether or not Decaid took it.
+   */
+  private async carryOutOnSkins(action: SkinAction, tooLate: () => boolean, endTime: number): Promise<SoftwareActed | undefined> {
+    const before = await this.reports.readSoftwareSkins();
+    if (this.stopped) return undefined;
+    if (before === undefined) return refusedByDecaid(action.id, null, "Decaid did not answer with its Skins");
+    const forbidden = forbiddenOnSkins(action, before);
+    if (forbidden !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "notAllowed", message: forbidden };
+    const changed = skinsChangedSince(action, before, this.pages?.latest() ?? null);
+    if (changed !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: changed };
+    if (tooLate()) return expired(action.id);
+
+    if (action.kind === "reloadSkin") return this.reloadSkin(action, String(servedSkin(before)?.id));
+    if (action.kind === "restartSkinView") return this.restartSkinView(action);
+
+    let answer: Answer | undefined;
+    let failure = "";
+    try {
+      answer = await askOnSkins(action);
+    } catch (error) {
+      failure = describe(error);
+    }
+    if (this.stopped) return undefined;
+    // Decaid stops waiting on a call after a minute and goes on with it: an install is watched for until the action's time is up.
+    if (answer === undefined && action.kind === "installSkin" && /timed out/i.test(failure)) return this.watchSkinInstall(action, before, endTime);
+    // An update check is asked for again, which joins the one still running and answers with its results (`checkForSkinUpdates`),
+    // holding the actions after it meanwhile; not confirmed where that times out too, or the action's time is up.
+    if (answer === undefined && action.kind === "checkSkinUpdates" && /timed out/i.test(failure)) {
+      if (Date.now() >= endTime) return undefined;
+      try {
+        answer = await askOnSkins(action);
+      } catch (error) {
+        failure = describe(error);
+        if (this.stopped || /timed out/i.test(failure)) return undefined;
+      }
+      if (this.stopped) return undefined;
+    }
+    const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+    if (answer === undefined) return refusedByDecaid(action.id, null, `Decaid did not answer: ${failure}`);
+    if (!answer.ok) return refusedByDecaid(action.id, answer.status, decaidMessage(answer));
+    return { type: "softwareActed", id: action.id, outcome: "done", result: skinResultOf(action, answer, before, after) };
+  }
+
+  /** Reads the Skins every WATCH_STEP_MS until `until` for the Skin an install whose call timed out put there; undefined, and so not confirmed, where none shows. */
+  private async watchSkinInstall(action: SkinAction, before: Record<string, unknown>, until: number): Promise<SoftwareActed | undefined> {
+    for (;;) {
+      if (this.stopped) return undefined;
+      const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+      const installed = after === undefined ? undefined : installedSkin(before, after);
+      if (installed !== undefined) return { type: "softwareActed", id: action.id, outcome: "done", result: skinNamed(installed) };
+      if (Date.now() + WATCH_STEP_MS > until) return undefined;
+      await new Promise<void>((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
+    }
+  }
+
+  /**
+   * Asks the Skin on screen, `skinId`, to load its page again, by a push on
+   * `changes`, and waits up to SKIN_RELOAD_MS for its fresh page to report
+   * in: done with that page, or not confirmed. Fresh is a page of that Skin
+   * that loaded after the one last reported, both timed by the Skin view's
+   * clock (`performance.timeOrigin`); or, where none has reported in this
+   * load of the plugin, the first of that Skin to report after the push, as
+   * Decaid keeps a Skin's socket open across the plugin's loads, so the Skin
+   * reports again only once its page loads. Its `loadedAt` is not compared
+   * with the plugin's own clock then: the Skin view's runs behind it once the
+   * Tablet has slept.
+   */
+  private async reloadSkin(action: SkinAction, skinId: string): Promise<SoftwareActed | undefined> {
+    if (!this.pages) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "This load of the plugin takes no page reports" };
+    const pages = this.pages;
+    const shown = pages.latest();
+    const after = shown === null ? null : Date.parse(shown.loadedAt);
+    let stopWaiting = () => {};
+    const fresh = new Promise<SkinPage | undefined>((resolve) => {
+      const timer = setTimeout(() => settle(undefined), SKIN_RELOAD_MS);
+      const unsubscribe = pages.onReport((page) => {
+        // Only the Skin asked counts: a page of another says nothing of it.
+        if (page.skinId === skinId && (after === null || Date.parse(page.loadedAt) > after)) settle(page);
+      });
+      const settle = (page: SkinPage | undefined) => {
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(page);
+      };
+      stopWaiting = () => settle(undefined);
+    });
+    try {
+      pages.askReload();
+    } catch (error) {
+      stopWaiting();
+      return refusedByDecaid(action.id, null, `Decaid did not take the push asking the Skin to reload: ${describe(error)}`);
+    }
+    const page = await fresh;
+    if (this.stopped) return undefined;
+    await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+    if (page === undefined) {
+      return {
+        type: "softwareActed",
+        id: action.id,
+        outcome: "notConfirmed",
+        message: `The Skin was asked to reload, but no fresh page reported in within ${SKIN_RELOAD_MS / 1000} s`,
+      };
+    }
+    const reported = { skinId: page.skinId, ...(page.version === undefined ? {} : { version: page.version }), loadedAt: page.loadedAt };
+    return { type: "softwareActed", id: action.id, outcome: "done", result: { skinId: page.skinId, ...(page.version === undefined ? {} : { version: page.version }), page: reported } };
+  }
+
+  /**
+   * Stops Decaid's Skin server and starts it again, which has Decaid build
+   * its Skin view again on the default Skin, then watches its status until
+   * it serves, starting it once more if it does not: done with the Skin
+   * served, or refused as `noSkinServed` where the Tablet is left with none.
+   */
+  private async restartSkinView(action: SkinAction): Promise<SoftwareActed | undefined> {
+    const stopped = await manage("POST", "/webui/server/stop");
+    if (this.stopped) return undefined;
+    if (!stopped.ok) {
+      await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+      return refusedByDecaid(action.id, stopped.status, decaidMessage(stopped));
+    }
+    let said = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const started = await manage("POST", "/webui/server/start").catch((error: unknown) => ({ status: 0, ok: false, text: describe(error) }));
+      if (this.stopped) return undefined;
+      if (!started.ok) said = started.status === 0 ? started.text : decaidMessage(started);
+      if (await this.servingSoon()) {
+        const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+        const served = after === undefined ? undefined : servedSkin(after);
+        return { type: "softwareActed", id: action.id, outcome: "done", result: served === undefined ? {} : skinNamed(served) };
+      }
+      if (this.stopped) return undefined;
+    }
+    await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+    return {
+      type: "softwareActed",
+      id: action.id,
+      outcome: "refused",
+      reason: "noSkinServed",
+      message: `Decaid's Skin server did not start again${said === "" ? "" : `: ${said}`}`.slice(0, MAX_REFUSAL_LENGTH),
+    };
+  }
+
+  /** Whether Decaid's Skin server says it serves within SERVING_WATCH_MS. */
+  private async servingSoon(): Promise<boolean> {
+    const until = Date.now() + SERVING_WATCH_MS;
+    for (;;) {
+      if (this.stopped) return false;
+      const status = await request("GET", "/webui/server/status").catch(() => undefined);
+      const read = status?.ok ? parsed(status.text) : undefined;
+      if (isObject(read) && read.serving === true) return true;
+      if (Date.now() + SERVING_STEP_MS > until) return false;
+      await new Promise<void>((resolve) => setTimeout(() => resolve(), SERVING_STEP_MS));
+    }
+  }
+
+  /**
+   * Has Decaid start its own update, over its update socket, the machine
+   * idle: Decaid checks for it where it holds none, downloads it and opens
+   * Android's installer, which someone at the Tablet confirms. Done once
+   * Decaid says the installer opened (`installOverSocket`); refused where
+   * Android's permission for Decaid to install apps was not granted at the
+   * Tablet (`installNotPermitted`), where Decaid is checking, downloading
+   * or installing already, found no update or did not open the installer,
+   * or where it failed, in its words.
+   */
+  private async startDecaidUpdate(action: SoftwareAction, tooLate: () => boolean, endTime: number): Promise<SoftwareActed | undefined> {
+    await this.reports.readSoftware("decaid");
+    if (this.stopped) return undefined;
+    if (tooLate()) return expired(action.id);
+    let outcome: Started;
+    try {
+      outcome = await this.installOverSocket(Math.max(0, Math.min(UPDATE_START_MS, endTime - Date.now())));
+    } catch (error) {
+      outcome = { refused: "decaid", message: `Decaid did not answer: ${describe(error)}` };
+    }
+    if (this.stopped) return undefined;
+    await this.reports.readSoftware("decaid", action.id).catch(() => undefined);
+    if ("refused" in outcome) {
+      return outcome.refused === "installNotPermitted"
+        ? { type: "softwareActed", id: action.id, outcome: "refused", reason: "installNotPermitted", message: outcome.message.slice(0, MAX_REFUSAL_LENGTH) }
+        : refusedByDecaid(action.id, null, outcome.message);
+    }
+    if ("notConfirmed" in outcome) return { type: "softwareActed", id: action.id, outcome: "notConfirmed", message: outcome.notConfirmed };
+    const state = await request("GET", "/update").catch(() => undefined);
+    const decaid = state?.ok ? parsed(state.text) : undefined;
+    return { type: "softwareActed", id: action.id, outcome: "done", result: isObject(decaid) ? { decaid: updateState(decaid) } : {} };
+  }
+
+  /**
+   * Sends Decaid's update socket the command to install, once it has sent
+   * the state it opens with, and resolves with what came of it, judged from
+   * the states it sends: started at its second `installing`, which Decaid
+   * sends once Android's installer opens (`_installAttempt` sends a first
+   * before it checks the download and launches the installer); Decaid's
+   * refusal, as where Android's permission to install apps is not granted
+   * (`local_approval_required`); a check that found nothing, an installer
+   * that did not open, or a download or install that failed. Not confirmed
+   * where none of these shows within `limitMs`: UPDATE_START_MS, or less
+   * where the action's time is up sooner.
+   */
+  private async installOverSocket(limitMs: number): Promise<Started> {
+    const handle = await this.transports.open(UPDATE_SOCKET);
+    try {
+      return await new Promise<Started>((resolve, reject) => {
+        let opened = false;
+        let underWay = false;
+        let installing = false;
+        let over = false;
+        // What Decaid was last seen doing, for the note where the time is up: a download of its 120 MB or so goes on after.
+        let lastSeen: Record<string, unknown> = {};
+        const notConfirmed = () => {
+          const seconds = Math.round(limitMs / 1000);
+          if (lastSeen.phase === "downloading") {
+            const progress = typeof lastSeen.progress === "number" && Number.isFinite(lastSeen.progress) ? ` (${Math.round(Math.min(1, Math.max(0, lastSeen.progress)) * 100)}%)` : "";
+            return `Decaid was still downloading its update${progress} after ${seconds} s: Android's installer opens at the Tablet once it finishes`;
+          }
+          if (lastSeen.phase === "checking") return `Decaid was still checking for its update after ${seconds} s`;
+          return `Decaid's update did not reach Android's installer within ${seconds} s`;
+        };
+        const timer = setTimeout(() => settle({ notConfirmed: notConfirmed() }), limitMs);
+        const settle = (outcome: Started) => {
+          over = true;
+          clearTimeout(timer);
+          resolve(outcome);
+        };
+        const fail = (error: unknown) => {
+          over = true;
+          clearTimeout(timer);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+        this.transports.onEvent(handle, (event) => {
+          if (over) return;
+          if (event.type !== "data") return fail(new Error("its update socket closed"));
+          const frame = parsed(event.data);
+          if (!isObject(frame)) return;
+          if (typeof frame.error === "string" && frame.phase === undefined) {
+            return settle(frame.reason === "local_approval_required" ? { refused: "installNotPermitted", message: frame.error } : { refused: "decaid", message: frame.error });
+          }
+          const phase = frame.phase;
+          if (opened) lastSeen = frame;
+          if (!opened) {
+            opened = true;
+            // The state it opens with, from before the command, as an error an earlier check left. Decaid ignores the command,
+            // saying nothing, while it checks, downloads or installs (`downloadAndInstall`), so it is sent only once this is known.
+            if (phase === "checking") return settle({ refused: "decaid", message: "Decaid is checking for its update now: start the update once the check ends" });
+            if (phase === "downloading" || phase === "installing") return settle({ refused: "decaid", message: `Decaid is ${String(phase)} its update already` });
+            this.transports.send(handle, JSON.stringify({ command: "install" })).catch(fail);
+            return;
+          }
+          if (phase === "installing") {
+            if (installing) return settle({ started: true });
+            installing = true;
+            return;
+          }
+          if (phase === "error") return settle({ refused: "decaid", message: typeof frame.error === "string" && frame.error !== "" ? frame.error : "Decaid could not update itself" });
+          // After its first `installing`, `available` or `idle` is an installer that did not open (`permissionRequired`, `cancelled`).
+          if (installing && (phase === "available" || phase === "idle")) return settle({ refused: "decaid", message: "Decaid did not open Android's installer" });
+          if (phase === "checking" || phase === "downloading") underWay = true;
+          else if (phase === "idle" && underWay) settle({ refused: "decaid", message: "Decaid found no update to install" });
+        });
+      });
+    } finally {
+      this.transports.close(handle);
+    }
   }
 
   /**
@@ -365,6 +655,163 @@ function forbiddenToItself(action: SoftwareAction): string | null {
     return "The Decent Sync plugin changes none of its own settings but its poll interval: its server address and Token are set on the Tablet";
   }
   return null;
+}
+
+/** An action on the Tablet's Skins. */
+type SkinAction = Extract<SoftwareAction, { kind: "installSkin" | "chooseDefaultSkin" | "checkSkinUpdates" | "removeSkin" | "reloadSkin" | "restartSkinView" }>;
+
+const SKIN_KINDS: readonly string[] = ["installSkin", "chooseDefaultSkin", "checkSkinUpdates", "removeSkin", "reloadSkin", "restartSkinView"];
+
+function isSkinAction(action: SoftwareAction): action is SkinAction {
+  return SKIN_KINDS.includes(action.kind);
+}
+
+/** What the start of Decaid's own update came to. */
+type Started = { started: true } | { refused: "installNotPermitted" | "decaid"; message: string } | { notConfirmed: string };
+
+/** The Skins in a report of them, `{ skins, default, server }`. */
+function skinsIn(report: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(report.skins) ? report.skins.filter(isObject) : [];
+}
+
+/** The default Skin's id in a report of the Skins, or null where Decaid has none. */
+function defaultSkinId(report: Record<string, unknown>): string | null {
+  return isObject(report.default) && typeof report.default.id === "string" ? report.default.id : null;
+}
+
+/** The Skin Decaid's Skin server serves in a report of the Skins, by its path, or undefined where it serves none. */
+function servedSkin(report: Record<string, unknown>): Record<string, unknown> | undefined {
+  const server = isObject(report.server) ? report.server : {};
+  if (server.serving !== true || typeof server.path !== "string") return undefined;
+  return skinsIn(report).find((skin) => skin.path === server.path);
+}
+
+/**
+ * Why the plugin's own protections forbid an action on the Skins, or null:
+ * it never removes the default Skin, nor the one served, as Decaid would go
+ * on serving a folder that is gone, which answers 404 once the page loads
+ * again (`defaultRemoved`).
+ */
+function forbiddenOnSkins(action: SkinAction, before: Record<string, unknown>): string | null {
+  if (action.kind !== "removeSkin") return null;
+  if (action.skinId === defaultSkinId(before)) return "The plugin does not remove the default Skin: choose another default first";
+  if (action.skinId === servedSkin(before)?.id) return "The plugin does not remove the Skin on screen: restart the Skin view onto the default first";
+  return null;
+}
+
+/**
+ * What no longer holds on the Tablet of what an action on the Skins was
+ * made over, in words, or null: the Skin it names is gone, or, for Reload,
+ * the Skin served now is not the one whose page last reported.
+ */
+function skinsChangedSince(action: SkinAction, before: Record<string, unknown>, page: SkinPage | null): string | null {
+  if (action.kind === "chooseDefaultSkin" || action.kind === "removeSkin") {
+    return skinsIn(before).some((skin) => skin.id === action.skinId) ? null : `The Tablet has no Skin ${action.skinId} any more`;
+  }
+  if (action.kind === "reloadSkin") {
+    const served = servedSkin(before);
+    if (served === undefined) return "Decaid serves no Skin now: restart the Skin view";
+    // None reported in this load of the plugin, it is asked all the same: the server judged from the page it kept.
+    if (page !== null && page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id).slice(0, MAX_SOFTWARE_NAME_LENGTH)}, has not reported its page, so it can't be asked to reload`;
+  }
+  return null;
+}
+
+/** Decaid's request for an action on the Skins but Reload and the restart, through `host.localApi`. */
+function askOnSkins(action: SkinAction): Promise<Answer> {
+  switch (action.kind) {
+    case "installSkin":
+      if (action.url !== undefined) return manage("POST", "/webui/skins/install/url", { url: action.url });
+      return action.branch === undefined
+        ? manage("POST", "/webui/skins/install/github-release", { repo: action.repo })
+        : manage("POST", "/webui/skins/install/github-branch", { repo: action.repo, branch: action.branch });
+    case "chooseDefaultSkin":
+      return manage("PUT", "/webui/skins/default", { skinId: action.skinId });
+    case "checkSkinUpdates":
+      return manage("POST", "/webui/skins/update");
+    case "removeSkin":
+      return manage("DELETE", `/webui/skins/${encodeURIComponent(action.skinId)}`);
+    default:
+      return Promise.reject(new Error(`this plugin carries out no ${action.kind} this way`));
+  }
+}
+
+/** A Skin as a result names it: its id, and its name and version as the list holds them. */
+function skinNamed(skin: Record<string, unknown>): SoftwareActionResult {
+  return {
+    ...(typeof skin.id === "string" ? { skinId: skin.id } : {}),
+    ...(typeof skin.name === "string" && skin.name !== "" ? { name: skin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
+    ...(typeof skin.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
+  };
+}
+
+/** The id of the Skin an update check's result names: by its id, or, for one Decaid comes with, by the repository it updates from (`github_release:<repo>@<tag>`). */
+function skinIdFor(report: Record<string, unknown>, item: string): string | undefined {
+  const skin = skinsIn(report).find((entry) => {
+    if (entry.id === item) return true;
+    const metadata = isObject(entry.reaMetadata) ? entry.reaMetadata : {};
+    return typeof metadata.sourceUrl === "string" && metadata.sourceUrl.startsWith(`github_release:${item}@`);
+  });
+  return typeof skin?.id === "string" ? skin.id : undefined;
+}
+
+/** When Decaid installed each Skin in a report of them, by its id: its `reaMetadata.installedAt`, or its version and source where it records none. */
+function skinInstalls(report: Record<string, unknown>): Map<string, string> {
+  return new Map(
+    skinsIn(report).flatMap((skin) => {
+      if (typeof skin.id !== "string") return [];
+      const metadata = isObject(skin.reaMetadata) ? skin.reaMetadata : {};
+      return [[skin.id, typeof metadata.installedAt === "string" ? metadata.installedAt : `${String(skin.version)} ${String(metadata.sourceUrl)}`]];
+    }),
+  );
+}
+
+/** The Skin an install put on the Tablet: one new since `before`, or installed again since. */
+function installedSkin(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> | undefined {
+  const earlier = skinInstalls(before);
+  const now = skinInstalls(after);
+  const id = [...now].find(([skinId, installed]) => earlier.get(skinId) !== installed)?.[0];
+  return id === undefined ? undefined : skinsIn(after).find((skin) => skin.id === id);
+}
+
+/** What came of an action on the Skins Decaid took. */
+function skinResultOf(action: SkinAction, answer: Answer, before: Record<string, unknown>, after: Record<string, unknown> | undefined): SoftwareActionResult {
+  const listed = (report: Record<string, unknown> | undefined, id: string) => (report === undefined ? undefined : skinsIn(report).find((skin) => skin.id === id));
+  switch (action.kind) {
+    case "installSkin": {
+      const installed = after === undefined ? undefined : installedSkin(before, after);
+      return installed === undefined ? {} : skinNamed(installed);
+    }
+    case "chooseDefaultSkin": {
+      const skin = listed(after, action.skinId) ?? listed(before, action.skinId);
+      return skin === undefined ? { skinId: action.skinId } : skinNamed(skin);
+    }
+    case "removeSkin": {
+      const skin = listed(before, action.skinId);
+      return skin === undefined ? { skinId: action.skinId } : skinNamed(skin);
+    }
+    case "checkSkinUpdates": {
+      const said = parsed(answer.text);
+      const results = isObject(said) && Array.isArray(said.results) ? said.results : [];
+      // Decaid moves a Skin's install time only when it installs a build: one moved since the Skins were read was updated,
+      // whatever a check that joined Decaid's after the one that updated it says.
+      const earlier = skinInstalls(before);
+      const now = after === undefined ? earlier : skinInstalls(after);
+      return {
+        results: results.filter(isObject).flatMap((result): UpdateResult[] => {
+          if (typeof result.item !== "string" || typeof result.status !== "string") return [];
+          const skin = listed(after, result.item);
+          const id = skinIdFor(after ?? before, result.item);
+          const moved = id !== undefined && earlier.has(id) && now.has(id) && earlier.get(id) !== now.get(id);
+          const status = moved && result.error === undefined ? "updated" : result.status;
+          const version = typeof skin?.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {};
+          return [{ item: result.item.slice(0, MAX_SOFTWARE_NAME_LENGTH), status: status.slice(0, MAX_SOFTWARE_NAME_LENGTH), ...(typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}), ...version }];
+        }),
+      };
+    }
+    default:
+      return {};
+  }
 }
 
 /** Whether carrying an action out may have Decaid load this plugin again: any install or update check may bring its own update. */

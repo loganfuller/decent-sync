@@ -7,7 +7,9 @@ import {
   type SoftwareActionKind,
   isPluginRepo,
   isSecretState,
+  isSkinUrl,
   isSoftwareActionKind,
+  namesCommit,
 } from "@decent-sync/protocol";
 
 // Request bodies for the Software Actions endpoints, checked by hand like the
@@ -25,7 +27,12 @@ export type NewSoftwareAction =
   | { kind: "approvePluginUpdate"; pluginId: string; version: string; addedPermissions: string[] }
   /** Each setting's new value, and what the page showed for it: a value, null for one not set, or `{ isSet }` for a secret. */
   | { kind: "changePluginSettings"; pluginId: string; values: Record<string, unknown>; expected: Record<string, unknown> }
-  | { kind: "checkPluginUpdates" | "checkDecaidUpdate" };
+  /** From a repository's latest release or a branch, or from a URL. */
+  | { kind: "installSkin"; repo: string; branch: string | null }
+  | { kind: "installSkin"; url: string }
+  | { kind: "chooseDefaultSkin" | "removeSkin"; skinId: string }
+  | { kind: "reloadSkin" }
+  | { kind: "checkPluginUpdates" | "checkSkinUpdates" | "restartSkinView" | "checkDecaidUpdate" | "startDecaidUpdate" };
 
 export function readSoftwareAction(body: unknown): NewSoftwareAction {
   const fields = isObject(body) ? body : {};
@@ -76,9 +83,38 @@ export function readSoftwareAction(body: unknown): NewSoftwareAction {
       if (problems.length > 0) throw new BadRequestException(problems);
       return { kind, pluginId, values, expected };
     }
+    case "installSkin": {
+      if (fields.url !== undefined && fields.url !== null) {
+        const url = typeof fields.url === "string" ? fields.url.trim() : "";
+        if (!isSkinUrl(url) || fields.repo !== undefined || fields.branch !== undefined) {
+          throw new BadRequestException(["Give the URL of a zip to install the Skin from, such as https://github.com/owner/name/archive/<commit>.zip, and no repository"]);
+        }
+        return { kind, url };
+      }
+      const repo = typeof fields.repo === "string" ? fields.repo.trim() : "";
+      const branch = fields.branch === undefined || fields.branch === null ? null : typeof fields.branch === "string" ? fields.branch.trim() : "";
+      const problems = [
+        ...(isPluginRepo(repo) ? [] : ["Give the GitHub repository as owner/name, such as decentespresso/streamline-js, or a URL"]),
+        ...(branch === null || (branch !== "" && branch.length <= MAX_SOFTWARE_NAME_LENGTH && !/\s/.test(branch)) ? [] : ["Give a branch, or leave it out for the latest release"]),
+        // Decaid fails to install a Skin from a commit named as its branch (#659): its archive's URL pins it.
+        ...(branch !== null && namesCommit(branch) && isPluginRepo(repo) ? [`Decaid installs a Skin from a commit only by its archive's URL: https://github.com/${repo}/archive/${branch}.zip`] : []),
+      ];
+      if (problems.length > 0) throw new BadRequestException(problems);
+      return { kind, repo, branch };
+    }
+    case "chooseDefaultSkin":
+    case "removeSkin":
+      return { kind, skinId: readSkinId(fields.skinId) };
+    case "reloadSkin":
+      return { kind };
     default:
-      return { kind: kind as Extract<SoftwareActionKind, "checkPluginUpdates" | "checkDecaidUpdate"> };
+      return { kind: kind as Extract<SoftwareActionKind, "checkPluginUpdates" | "checkSkinUpdates" | "restartSkinView" | "checkDecaidUpdate" | "startDecaidUpdate"> };
   }
+}
+
+function readSkinId(value: unknown): string {
+  if (typeof value !== "string" || value === "" || value.length > MAX_SOFTWARE_NAME_LENGTH) throw new BadRequestException(["Name the Skin by its id"]);
+  return value;
 }
 
 function readPluginId(value: unknown): string {

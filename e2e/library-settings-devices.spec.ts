@@ -223,8 +223,9 @@ test("the Software tab shows the DYE2 and Streamline on the tablet, follows thei
   // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
   await expect(dye2Row.getByRole("cell").nth(1)).toHaveText("0.1.33");
   await expect(dye2Row.getByRole("cell").nth(3)).toHaveText("Enabled");
-  await expect(showing.getByRole("cell")).toHaveText(["Streamline.jsShowing now", "0.2.18", "Comes with Decaid"]);
-  await expect(rows(skins).filter({ hasText: "Default" }).getByRole("cell")).toHaveText(["Streamline.jsDefault", "0.2.18", "Follows a branch · decentespresso/streamline-js, dist"]);
+  // Each row ends with the actions an Admin may take on it (#661): none on the default Skin, which can't be removed.
+  await expect(showing.getByRole("cell")).toHaveText(["Streamline.jsShowing now", "0.2.18", "Comes with Decaid", "Make default"]);
+  await expect(rows(skins).filter({ has: page.getByText("Default", { exact: true }) }).getByRole("cell")).toHaveText(["Streamline.jsDefault", "0.2.18", "Follows a branch · decentespresso/streamline-js, dist", ""]);
 
   // DYE2 is disabled, and Decaid serves another Skin, as Quick Settings can.
   dye2.disable();
@@ -246,8 +247,9 @@ test("the Software tab shows the DYE2 and Streamline on the tablet, follows thei
     "/webui/server/status": { ...(other["/webui/server/status"] as object), path: cafe.path },
   });
   await expect.poll(servedSkin).toBe("streamline-cafe.js");
+  // The Skin on screen is not offered for removal: Decaid would go on serving its deleted folder.
   await afterDetailsPolls(page, async () => {
-    await expect(showing.getByRole("cell")).toHaveText(["Streamline CafeShowing now", "0.2.27-cafe.1", "Not updated"], { timeout: CHECK_MS });
+    await expect(showing.getByRole("cell")).toHaveText(["Streamline CafeShowing now", "0.2.27-cafe.1", "Not updated", "Make default"], { timeout: CHECK_MS });
   });
 
   // DYE2 is installed from its dist branch, and the Machine then goes offline: the lists stay as last reported.

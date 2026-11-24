@@ -1,10 +1,11 @@
-# Managing plugins on Decaid v0.9.3
+# Managing plugins and Skins on Decaid v0.9.3
 
-What Decaid v0.9.3's API answered the requests that manage its plugins, what
-`host.localApi` gave a plugin that made them, and Decaid's own update state
-and socket, for decent-sync #660: the Software Actions the plugin carries out
-(ADR-0034), and the simulated tablet's plugin management
-(`server/test/support/decaid-plugins.ts`), which answers from these files.
+What Decaid v0.9.3's API answered the requests that manage its plugins and
+Skins, what `host.localApi` gave a plugin that made them, and Decaid's own
+update state and socket, for decent-sync #660 and #661: the Software Actions
+the plugin carries out (ADR-0034), and the simulated tablet's plugin
+management (`server/test/support/decaid-plugins.ts`), which answers from
+these files.
 
 | File | What it holds |
 |---|---|
@@ -12,7 +13,9 @@ and socket, for decent-sync #660: the Software Actions the plugin carries out
 | `plugin-management.json` | A new Decaid: steps of installs, enabling and disabling, settings, update checks and a removal, the update socket, and a probe plugin's `host.localApi` calls (below) |
 | `pending-update.json` | A Decaid started with an older Decent Sync release in its plugins folder: the update check that leaves its update waiting, and its approval |
 | `protected.json` | A Decaid started with "Require authorization for extension management" on: the same requests without a token, and through `host.localApi` |
-| `record.mjs` | The script that recorded the three, a phase a run |
+| `skin-management.json` | A new Decaid: steps of Skin installs from a release, a branch and a URL, an update check, the default Skin, stopping and starting its web server, removals, and the same through the probe's `host.localApi`; `installedIds` holds the Skin id each install gave |
+| `update-install-android.json` | Not recorded by `record.mjs`: what Decaid v0.9.3 on the owner's Android test Tablet answered `{"command":"install"}` on `/ws/v1/update` with Android's "Install unknown apps" off for Decaid, as decent-sync #659's trial saw it on 2026-11-24 and its comment there quotes; the Linux release answers the command with no install at all (`updateInstall` below) |
+| `record.mjs` | The script that recorded the four, a phase a run |
 | `probe/` | The probe plugin `record.mjs` installs: it makes the `host.localApi` calls it is asked to and answers with what each resolved to or was rejected with |
 
 Each step is `{ exchanges, reads }`: the requests the script sent, with the
@@ -31,12 +34,15 @@ steps hold the frames it sent as it opened (`opened`), the command sent
 Two things are left out of every plugin list, in the reads and in the
 `localApi` answers alike, as no step changes them and nothing reads them
 here: each plugin's `api`, the endpoints it declares, and its `description`.
-In `protected.json`, the plugin list a request was answered with is given as
-how many plugins it held. Nothing else was edited.
+In `skin-management.json`, each Skin's `description` is left out likewise, in
+the Skin list, the default Skin and the `localApi` answers. In
+`protected.json`, the plugin list a request was answered with is given as how
+many plugins it held. Nothing else was edited.
 
 ## How they were recorded
 
-They were recorded on 2026-11-23 (UTC) by Decaid's v0.9.3 Linux arm64 release
+They were recorded on 2026-11-23 (UTC), `skin-management.json` on 2026-11-24
+in a new container set up the same way, by Decaid's v0.9.3 Linux arm64 release
 (`decaid-linux-arm64-0.9.3.tar.gz`, SHA-256
 `6df61c82f46ae864a985b4d3deb71fa522b328c2a6abce7f61c08dcccbfcd1c6`, as
 `decaid-0.9.3-SHA256SUMS.txt` names it; `GET /info` answers `0.9.3+3265`,
@@ -71,7 +77,7 @@ prompt no one answers, and Decaid's request then never returns.
 `record.mjs` ran on the host against the container's published port 8080,
 one request after another, waiting 2 s after each step's requests before its
 reads, a phase a run:
-`DECAID=<address> node server/test/fixtures/decaid/tablet-software-v0.9.3/record.mjs <fresh|pending|protected> <output file>`.
+`DECAID=<address> node server/test/fixtures/decaid/tablet-software-v0.9.3/record.mjs <fresh|pending|protected|skins> <output file>`.
 Each phase waited first until Decaid listed a plugin and every Skin's source,
 as a new Decaid installs the Skins it comes with in its first minute.
 
@@ -91,11 +97,24 @@ as a new Decaid installs the Skins it comes with in its first minute.
   `"requireExtensionManagementAuthorization": true` added to
   `shared_preferences.json`, which is where the setting on Decaid's Security
   page is kept, and Decaid started again.
+- **`skins`** (`skin-management.json`), on new data in its own container.
+  Each step reads `/webui/skins`, `/webui/skins/default` and
+  `/webui/server/status`. The `localApi` step comes after `removed` and
+  before `defaultRemoved`, with the probe installed and enabled just before
+  it (`probeInstalled`), so that its last calls serve the default again and
+  `defaultRemoved` removes the Skin being served. A trial run on the same
+  container first, whose `localApi` calls left the server serving
+  `passione`, answered the same; Decaid's data folder was then removed, the
+  preferences written again and Decaid started anew for the run recorded.
 
 The container reached GitHub, so the installs are of what those repositories
 held that day: `loganfuller/decent-sync` v1.12.2, `decentespresso/dye2`'s
 `dist` branch at `3a40837`, and `decentespresso/shot-upload` v0.2.5, which
-the first update check installed over the bundled v0.2.4.
+the first update check installed over the bundled v0.2.4. In `skins`:
+`loganfuller/streamline-cafe-js` v0.2.31-cafe.1, its commit `d7729dc` (a
+build that names itself `0.2.31-cafe.1.dev.51.81a2a30`), and
+`decentespresso/streamline-js`'s `dist` branch at `0.2.32-dev.41fd509.781`,
+beside the bundled Streamline.js v0.2.32.
 
 The simulated machine is `MockDe1`, the paths are the container's
 (`/root/.local/share/decaid/…`), and `192.168.1.20` is an example in the
@@ -163,3 +182,77 @@ in any file: the requests that carried none are all there are.
   with a `reaMetadata.sourceUrl` of `github_release:<repository>@<tag>`
   (`started`). `../plugins-and-skins-v0.9.0/` holds Skins installed from a
   branch, which are not.
+
+In `skin-management.json`:
+
+- **Skin ids.** A Skin's id is the `id` in its own `skin-manifest.json`,
+  whatever it was installed from, and its folder under `web-ui/` is named
+  by it. The cafe release installed as `streamline-cafe.js`, the
+  `streamline-js` `dist` branch as `streamline.js-dist` and the cafe
+  commit's archive as `streamline-cafe.js-dist` ("Streamline Cafe Dev"), as
+  those dev builds name themselves, so none of them installed over a Skin
+  already there, the bundled `streamline.js` included. `installedIds` holds
+  each, found as the Skin new to the list or the one whose `installedAt`
+  changed; `commitAsBranch` gave none.
+- **Install answers** name what was asked, never the Skin: 200
+  `{"success": true, "message": "Skin installed successfully from GitHub
+  release", "repo": …}`, from a branch with `repo` and `branch`, from a URL
+  with `url` (`releaseInstalled`, `branchInstalled`, `urlInstalled`).
+- **Sources.** Every Skin installed is `"isBundled": false`. From a release,
+  `reaMetadata.sourceUrl` is `github_release:<repository>@<tag>`, with
+  `commitHash` null (a bundled Skin's is its tag) and `lastModified` an HTTP
+  date (a bundled Skin's is ISO 8601); from a branch,
+  `github_branch:<repository>@<branch>`, `commitHash` `branch:<branch>`, no
+  commit recorded, `lastModified` and `includePrerelease` null; from a URL,
+  the URL itself, `commitHash` null.
+- **A commit as the branch** fails (`commitAsBranch`): 500 `{"error":
+  "Couldn't install the skin. The repository, release, or download was not
+  found. Check the address and try again."}`. Decaid's log shows it fetched
+  `https://github.com/<repository>/archive/refs/heads/<branch>.zip`, which no
+  commit has, where a plugin's branch install takes a commit
+  (`commitInstalled` in `plugin-management.json`). A Skin pinned to a commit
+  installs from `install/url` with `…/archive/<commit>.zip` (`urlInstalled`).
+- **`installedAt`** is new on an install over an id already there (and
+  `lastChecked` with it): the `localApi` step's URL install over
+  `streamline-cafe.js-dist` moved it from `14:11:01` to `14:11:35`. An update
+  check moves only `lastChecked`, of every Skin, bundled ones too
+  (`checked`).
+- **Update checks.** `POST /webui/skins/update` answers 200 `{"message":
+  "Skin update check completed", "results": [{"item", "status"}]}`, one a
+  Skin, all `alreadyCurrent` here. A bundled Skin's `item` is its repository;
+  an installed Skin's is its id, whatever its source (`checked`).
+- **The default Skin.** `PUT /webui/skins/default` answers 200 `{"success":
+  true, "message": "Default skin updated successfully", "skinId": …}`, and
+  for an id Decaid does not have, 404 `{"error": "Exception: Skin not found:
+  no-such-skin"}` (`defaultSwitched`, `unknownDefault`). `GET` answers the
+  whole Skin. Switching it changes nothing served: the status keeps the Skin
+  served before until the server is stopped and started.
+- **The web server.** `POST /webui/server/stop` answers 200 `{"message":
+  "WebUI server stopped"}`, then `"Not serving"` while stopped, the status
+  then `{"serving": false, "path": null, "port": null, "ip": null}`; `POST
+  /webui/server/start` answers 200 `{"message": "WebUI server started",
+  "path": …}` with the default's folder, then `"Already serving"`
+  (`serverStopped`, `stoppedAgain`, `serverStarted`, `startedAgain`). The
+  new default is served on a port of its own: each Skin's is kept by folder
+  in `shared_preferences.json`'s `webUISkinPorts`, here `streamline.js`
+  26077, `streamline-cafe.js` 25311 and `passione` 25498, the same in the
+  trial run on other data. The `ip` is `localhost`, as the container has no
+  Wi-Fi address.
+- **Removal.** A bundled Skin is refused 403 `{"error": "Exception: Cannot
+  remove bundled skin: insight"}`, an id Decaid does not have 500 (not 404)
+  `{"error": "Exception: Skin not found: no-such-skin"}`, and one installed
+  is removed, 200 `{"success": true, "message": "Skin removed successfully",
+  "id": …}` (`bundledRemoveRefused`, `unknownRemoved`, `removed`).
+- **Removing the default Skin** (`defaultRemoved`), while it is served,
+  answers 200 as any removal. The default then reads as the bundled
+  `streamline.js` (its log: `Preferred skin "streamline-cafe.js" not found,
+  falling back to default`), though the removed id stays saved as
+  `defaultSkinId`. The status still says the removed Skin is served on its
+  port, which answers `/` with 404 `Not Found` (checked by hand in the
+  container after the recording). Stopping and starting the server serves
+  `streamline.js` on its port (`startAfterDefaultRemoved`).
+- **`host.localApi` takes every Skin route asked** (`localApi`): switching
+  the default, stopping and starting the server, the status, an update
+  check, a removal and an install from a URL all resolved, none rejected,
+  `DELETE` of an unknown Skin resolving its 500. Stopping and starting the
+  server under the probe's call answered as it does any other request.

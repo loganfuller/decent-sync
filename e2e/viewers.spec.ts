@@ -111,10 +111,11 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       // Which of its Settings History it lists, which a Viewer chooses as anyone does.
       filters: [/^checkbox Show brief changes$/, /^button Hide Settings History$/, /^radio (All changes|Settings Edits)$/],
     },
-    // Its Tablet Software and Software Actions, which Staff and Viewers read and are offered nothing on (#660).
+    // Its Tablet Software and Software Actions, which Staff and Viewers read (#660), Staff at its Location restarting its Skin view (#661).
     {
       path: `/machines/${machineId}?tab=software`,
       loaded: (page) => page.getByRole("table", { name: "Plugins" }),
+      staffHave: "button Restart the Skin view",
       closed: ["Software Actions"],
       // What closes its Software Actions, which a Viewer opens as anyone does.
       filters: [/^button Hide Software Actions$/],

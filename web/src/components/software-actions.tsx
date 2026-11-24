@@ -9,14 +9,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { type SoftwareAction, type SoftwareActionPage, type TabletPlugin, api } from "@/lib/api";
+import { type SoftwareAction, type SoftwareActionPage, type TabletPlugin, type TabletSkin, api } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { nameDecaidState, namesCommit } from "@decent-sync/protocol";
 
 // Software Actions (ADR-0034): what an Admin asked a Machine's Tablet to do
-// to its plugins and to Decaid, worded as the Software tab's log and status
-// say it, the status of one just made followed until it has an outcome, and
-// the log of them all.
+// to its plugins, its Skins and Decaid, and Staff at its Location to its
+// Skin view (#661), worded as the Software tab's log and status say it, the
+// status of one just made followed until it has an outcome, and the log of
+// them all.
 
 /** How often an action awaiting its answer is read again. */
 const PENDING_POLL_MS = 1_000;
@@ -28,6 +29,9 @@ const PAGE_SIZE = 20;
 
 /** The Tablet's plugins as last reported, which name what an action named only by its id. */
 type Plugins = readonly TabletPlugin[] | null | undefined;
+
+/** The Tablet's Skins as last reported, which name what an update check names only by its id or repository. */
+type Skins = readonly TabletSkin[] | null | undefined;
 
 /** A plugin by the name the Tablet reported for it when the action was made, or now, or else as "a plugin". */
 function pluginName(id: string | undefined, named: string | null | undefined, plugins: Plugins): string {
@@ -42,16 +46,37 @@ export function sourceText(repo: string, branch: string | null | undefined): str
   return namesCommit(branch) ? `${repo} at ${branch.slice(0, 7)}` : `${repo}, ${branch}`;
 }
 
+/** A Skin by the name the Tablet reported for it when the action was made, or as done, or now, or else by its id. */
+function skinName(id: string | undefined, named: string | null | undefined, skins: Skins): string | null {
+  if (named) return named;
+  const now = id === undefined ? undefined : skins?.find((skin) => skin.id === id);
+  return now?.name ?? id ?? null;
+}
+
+/**
+ * Where a Skin is installed from as an install names it: its repository, with
+ * a branch it follows, or its URL, a GitHub commit's archive shortened to its
+ * repository and commit.
+ */
+export function skinSourceText(source: { repo?: string | null; branch?: string | null; url?: string | null }): string {
+  if (source.url) {
+    const archive = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/archive\/([0-9a-f]{40})\.zip$/i.exec(source.url);
+    return archive ? `${archive[1]} at ${archive[2]!.slice(0, 7)}` : source.url;
+  }
+  return source.repo ? sourceText(source.repo, source.branch) : "";
+}
+
 /**
  * What an action did, as the log says it, in the past tense whatever came of
  * it: "Installed the plugin DYE2 · decentespresso/dye2 at 717fa95",
- * "Changed Visualizer's settings · Username, Password". A plugin is named as
- * the Tablet reported it, the settings by their labels where it still
- * declares them.
+ * "Changed Visualizer's settings · Username, Password", "Made Streamline
+ * Cafe the default Skin". A plugin or Skin is named as the Tablet reported
+ * it, the settings by their labels where it still declares them.
  */
-export function actionText(action: SoftwareAction, plugins?: Plugins): string {
+export function actionText(action: SoftwareAction, plugins?: Plugins, skins?: Skins): string {
   const { params } = action;
   const plugin = pluginName(params.plugin?.id ?? action.result?.pluginId, params.plugin?.name, plugins);
+  const skin = skinName(params.skin?.id ?? action.result?.skinId, params.skin?.name ?? action.result?.name, skins);
   switch (action.kind) {
     case "installPlugin": {
       const installed = action.result?.pluginId ? pluginName(action.result.pluginId, action.result.name, plugins) : "a plugin";
@@ -78,8 +103,26 @@ export function actionText(action: SoftwareAction, plugins?: Plugins): string {
     }
     case "checkPluginUpdates":
       return "Checked plugins for updates";
+    case "installSkin": {
+      const installed = action.result?.skinId ? skinName(action.result.skinId, action.result.name, skins) : null;
+      const what = installed ? `Installed the Skin ${installed}` : "Installed a Skin";
+      const from = skinSourceText(params);
+      return from ? `${what} · ${from}` : what;
+    }
+    case "chooseDefaultSkin":
+      return skin ? `Made ${skin} the default Skin` : "Chose the default Skin";
+    case "removeSkin":
+      return skin ? `Removed the Skin ${skin}` : "Removed a Skin";
+    case "checkSkinUpdates":
+      return "Checked Skins for updates";
+    case "reloadSkin":
+      return skin ? `Reloaded the Skin ${skin}` : "Reloaded the Skin";
+    case "restartSkinView":
+      return "Restarted the Skin view";
     case "checkDecaidUpdate":
       return "Checked for Decaid's update";
+    case "startDecaidUpdate":
+      return `Started Decaid's update${params.version ? ` to ${params.version}` : ""} on the Tablet`;
     default:
       return "A Software Action of a later release";
   }
@@ -88,7 +131,8 @@ export function actionText(action: SoftwareAction, plugins?: Plugins): string {
 /** What Decaid's own update state says, as the Decaid card and an update check's outcome word it. */
 export function decaidUpdateText(update: { phase?: unknown; latestVersion?: unknown; error?: unknown }): string {
   const latest = typeof update.latestVersion === "string" && update.latestVersion !== "" ? update.latestVersion : null;
-  if (typeof update.error === "string" && update.error !== "") return `The check failed: ${update.error}`;
+  // A failed check, download or install alike, in Decaid's words, which say which ("Couldn't download the app update. ...").
+  if (typeof update.error === "string" && update.error !== "") return update.error;
   switch (update.phase) {
     case "checking":
       return "Checking";
@@ -97,15 +141,19 @@ export function decaidUpdateText(update: { phase?: unknown; latestVersion?: unkn
     case "installing":
       return latest ? `Installing ${latest}` : "Installing";
     case "error":
-      return "The check failed";
+      return "Decaid's last check or update failed";
   }
   return latest ? `${latest} is available` : "Up to date";
 }
 
-/** An update check's result for each plugin, short: "DYE2 updated to 0.1.43, 2 already current, Shot upload waits for approval". */
-function updateCheckText(results: NonNullable<NonNullable<SoftwareAction["result"]>["results"]>, plugins: Plugins): string {
-  if (results.length === 0) return "No plugin to check";
-  const named = (id: string) => pluginName(id, null, plugins).replace(/^a plugin$/, "A plugin no longer listed");
+/**
+ * An update check's result for each plugin or Skin, short: "DYE2 updated to
+ * 0.1.43, 2 already current, Shot upload waits for approval". A Skin is
+ * named by matching its id, or for one that comes with Decaid, which the
+ * check names by its repository, the repository it updates from.
+ */
+function updateCheckText(results: NonNullable<NonNullable<SoftwareAction["result"]>["results"]>, named: (item: string) => string, nothing: string): string {
+  if (results.length === 0) return nothing;
   const current = results.filter((result) => result.status === "alreadyCurrent").length;
   const parts = [
     ...results.filter((result) => result.status === "updated").map((result) => `${named(result.item)} updated${result.version ? ` to ${result.version}` : ""}`),
@@ -117,23 +165,43 @@ function updateCheckText(results: NonNullable<NonNullable<SoftwareAction["result
   return parts.join(", ");
 }
 
+/** A plugin an update check names by its id, by its name. */
+function pluginCheckedName(plugins: Plugins): (item: string) => string {
+  return (id) => pluginName(id, null, plugins).replace(/^a plugin$/, "A plugin no longer listed");
+}
+
+/** A Skin an update check names by its id, or by the repository of one that comes with Decaid, by its name. */
+function skinCheckedName(skins: Skins): (item: string) => string {
+  return (item) => {
+    const repo = item.toLowerCase();
+    const skin = skins?.find((entry) => entry.id === item) ?? skins?.find((entry) => "repo" in entry.updates && entry.updates.repo?.toLowerCase() === repo);
+    return skin?.name ?? skin?.id ?? item;
+  };
+}
+
 /**
  * What came of an action, short, as the log says it: "Done · 0.1.42",
  * "Refused: the Machine was pulling a shot", "Refused by Decaid: ...", "Not
- * confirmed", or "Waiting for the Tablet…" while it awaits its answer.
+ * confirmed", with what did not show where the plugin said, or "Waiting for
+ * the Tablet…" while it awaits its answer.
  */
-export function outcomeText(action: SoftwareAction, plugins?: Plugins): string {
+export function outcomeText(action: SoftwareAction, plugins?: Plugins, skins?: Skins): string {
   const late = action.late ? ", answered late" : "";
   switch (action.outcome) {
     case null:
       return "Waiting for the Tablet…";
     case "notConfirmed":
-      return "Not confirmed";
+      return action.note ? `Not confirmed · ${action.note}` : "Not confirmed";
     case "done": {
       const result = action.result;
-      if (action.kind === "checkPluginUpdates" && result?.results) return `Done${late} · ${updateCheckText(result.results, plugins)}`;
-      if (action.kind === "checkDecaidUpdate" && result?.decaid) return `Done${late} · ${decaidUpdateText(result.decaid)}`;
-      if ((action.kind === "installPlugin" || action.kind === "approvePluginUpdate") && result?.version) return `Done${late} · ${result.version}`;
+      if (action.kind === "checkPluginUpdates" && result?.results) return `Done${late} · ${updateCheckText(result.results, pluginCheckedName(plugins), "No plugin to check")}`;
+      if (action.kind === "checkSkinUpdates" && result?.results) return `Done${late} · ${updateCheckText(result.results, skinCheckedName(skins), "No Skin to check")}`;
+      if ((action.kind === "checkDecaidUpdate" || action.kind === "startDecaidUpdate") && result?.decaid) return `Done${late} · ${decaidUpdateText(result.decaid)}`;
+      if ((action.kind === "installPlugin" || action.kind === "approvePluginUpdate" || action.kind === "installSkin") && result?.version) return `Done${late} · ${result.version}`;
+      if (action.kind === "reloadSkin" && (result?.page?.version ?? result?.version)) return `Done${late} · showing ${result?.page?.version ?? result?.version}`;
+      if (action.kind === "restartSkinView" && (result?.name ?? result?.skinId)) {
+        return `Done${late} · showing ${result?.name ?? result?.skinId}${result?.version ? ` ${result.version}` : ""}`;
+      }
       return `Done${late}`;
     }
     case "refused":
@@ -152,6 +220,13 @@ function refusalText(action: SoftwareAction): string {
     case "changedSince":
     case "notAllowed":
       return refusal.message ? `Refused: ${refusal.message}` : "Refused";
+    case "installNotPermitted":
+      return (
+        "Refused: Android's permission for Decaid to install apps has not been granted on the Tablet. Someone there must allow it " +
+        "(Android settings, Apps, Decaid, Install unknown apps), or start the update on Decaid's own screen"
+      );
+    case "noSkinServed":
+      return "The Skin view did not start again, so the Tablet shows no Skin now: restart it again, or reopen Decaid at the Tablet";
     case "decaid":
       if (refusal.status === null) return `Refused: ${refusal.message ?? "Decaid did not answer"}`;
       return `Refused by Decaid: ${refusal.message ?? `no reason given (${refusal.status})`}`;
@@ -167,20 +242,37 @@ function sentence(text: string): string {
 
 /** What explains an outcome, for a tooltip beside it, where it needs explaining. */
 function outcomeAbout(action: SoftwareAction): string | undefined {
+  if (action.outcome === "notConfirmed" && action.note) {
+    return action.kind === "reloadSkin"
+      ? "The Tablet asked the Skin to load its page again, but no fresh page reported in. A Skin that hung reloads only when the Skin view restarts."
+      : "The Tablet carried it out, but what came of it never showed. Check the lists before trying again.";
+  }
   if (action.outcome === "notConfirmed") {
     return "The Tablet didn't answer in time, or its connection closed first. Check the lists before trying again: it may have been done all the same.";
   }
   if (action.outcome === "refused" && action.refusal?.reason === "expired") return "The Tablet got it too late to start it, so nothing was done.";
+  if (action.outcome === "refused" && action.refusal?.reason === "installNotPermitted" && action.refusal.message) return `Decaid said: ${sentence(action.refusal.message)}`;
+  if (action.outcome === "refused" && action.refusal?.reason === "noSkinServed" && action.refusal.message) return sentence(action.refusal.message);
   if (action.late) return "The Tablet answered after the action was marked not confirmed.";
   return undefined;
 }
 
+/** What an action's status says after its outcome, for those whose outcome leaves something to do or to know. */
+function afterword(action: SoftwareAction): string | null {
+  if (action.outcome === "done" && action.kind === "chooseDefaultSkin") return "It shows once the Skin view restarts.";
+  if (action.outcome === "done" && action.kind === "startDecaidUpdate") {
+    return "Someone at the Tablet must now confirm the update in Android's installer, then tap Open: Decaid does not reopen by itself.";
+  }
+  if (action.outcome === "notConfirmed" && action.kind === "reloadSkin") return "Restart the Skin view to load it again.";
+  return null;
+}
+
 /** An outcome with what explains it in a tooltip, as the log shows it. */
-export function SoftwareActionOutcome({ action, plugins }: { action: SoftwareAction; plugins?: Plugins }) {
+export function SoftwareActionOutcome({ action, plugins, skins }: { action: SoftwareAction; plugins?: Plugins; skins?: Skins }) {
   const about = outcomeAbout(action);
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span>{outcomeText(action, plugins)}</span>
+      <span>{outcomeText(action, plugins, skins)}</span>
       {about && <InfoTip label="About this outcome">{about}</InfoTip>}
     </span>
   );
@@ -203,11 +295,13 @@ export function SoftwareActionStatus({
   machineId,
   action: made,
   plugins,
+  skins,
   onAnswered,
 }: {
   machineId: string;
   action: SoftwareAction;
   plugins: Plugins;
+  skins?: Skins;
   onAnswered(): Promise<void> | void;
 }) {
   const [action, setAction] = useState(made);
@@ -216,11 +310,12 @@ export function SoftwareActionStatus({
   const awaiting = outcome === null || (outcome === "notConfirmed" && action.answeredAt === null);
   const answered = useRef(onAnswered);
   answered.current = onAnswered;
-  // Named by the plugins as they stood when it was made, as a removed one is gone from them once it is answered.
+  // Named by the plugins and Skins as they stood when it was made, as a removed one is gone from them once it is answered.
   const [named] = useState(plugins);
+  const [namedSkins] = useState(skins);
 
   useEffect(() => {
-    if (made.outcome !== null && made.outcome !== "notConfirmed") void answered.current();
+    if (isAnswered(made)) void answered.current();
   }, [made]);
 
   useEffect(() => {
@@ -236,7 +331,7 @@ export function SoftwareActionStatus({
           stopped = true;
           clearInterval(timer);
           setAction(softwareAction);
-          if (softwareAction.outcome !== null && softwareAction.outcome !== "notConfirmed") await answered.current();
+          if (isAnswered(softwareAction)) await answered.current();
         } catch (caught) {
           if (!stopped) setError(failure(caught, "The action could not be read"));
         }
@@ -249,14 +344,18 @@ export function SoftwareActionStatus({
     };
   }, [awaiting, outcome, machineId, made.id]);
 
-  const what = actionText(action, plugins ?? named);
+  const what = actionText(action, plugins ?? named, skins ?? namedSkins);
   const about = outcomeAbout(action);
+  const after = afterword(action);
   const [title, description] =
     outcome === null
       ? ["Waiting for the Tablet…", `${what}. Sent to the Tablet, waiting for its answer.`]
       : outcome === "notConfirmed"
-        ? ["Not confirmed", `${what}. Check the lists before trying again.`]
-        : [outcome === "done" ? "Done" : "Refused", `${what}. ${sentence(outcomeText(action, plugins ?? named))}`];
+        ? ["Not confirmed", `${what}. ${action.note ? sentence(action.note) : "Check the lists before trying again."}${after ? ` ${after}` : ""}`]
+        : [
+            outcome === "done" ? "Done" : action.refusal?.reason === "noSkinServed" ? "No Skin shown" : "Refused",
+            `${what}. ${sentence(outcomeText(action, plugins ?? named, skins ?? namedSkins))}${after ? ` ${after}` : ""}`,
+          ];
   return (
     <Alert role="status" variant={outcome === "refused" || outcome === "notConfirmed" ? "destructive" : "default"}>
       <AlertTitle className="flex items-center gap-1.5">
@@ -271,32 +370,38 @@ export function SoftwareActionStatus({
   );
 }
 
+/** Whether an action has its answer from the Tablet: done, refused, or not confirmed as the plugin answered it, rather than as no answer came. */
+function isAnswered(action: SoftwareAction): boolean {
+  return action.outcome !== null && (action.outcome !== "notConfirmed" || action.answeredAt !== null);
+}
+
 /**
  * The Machine's Software Actions, newest first, a page at a time: when each
  * was made, what it did, who made it and what came of it. Shown closed until
  * opened, as most who read the tab do not need it, and loaded again
  * whenever `answered` changes, as an action made on the tab is answered.
  */
-export function SoftwareActionsCard({ machineId, plugins, answered }: { machineId: string; plugins: Plugins; answered: number }) {
+export function SoftwareActionsCard({ machineId, plugins, skins, answered }: { machineId: string; plugins: Plugins; skins?: Skins; answered: number }) {
   return (
     <CollapsibleCard
       title="Software Actions"
       info={
         <>
           <p>
-            Each thing an Admin asked the Tablet to do to its plugins or to Decaid from here or through a Connected App, newest first, with who
-            asked and what came of it. Each is made once, only while the Tablet is connected, and never kept for later.
+            Each thing an Admin asked the Tablet to do to its plugins, its Skins or Decaid, and each reload or restart of its Skin view Staff at
+            its Location asked for, from here or through a Connected App, newest first, with who asked and what came of it. Each is made once,
+            only while the Tablet is connected, and never kept for later.
           </p>
           <p>The changes each made are listed in the Settings History too, tied to it.</p>
         </>
       }
     >
-      <SoftwareActionsLog machineId={machineId} plugins={plugins} answered={answered} />
+      <SoftwareActionsLog machineId={machineId} plugins={plugins} skins={skins} answered={answered} />
     </CollapsibleCard>
   );
 }
 
-function SoftwareActionsLog({ machineId, plugins, answered }: { machineId: string; plugins: Plugins; answered: number }) {
+function SoftwareActionsLog({ machineId, plugins, skins, answered }: { machineId: string; plugins: Plugins; skins: Skins; answered: number }) {
   const [offset, setOffset] = useState(0);
   const load = useCallback(async () => {
     const query = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
@@ -330,12 +435,12 @@ function SoftwareActionsLog({ machineId, plugins, answered }: { machineId: strin
             {data.page.softwareActions.map((action) => (
               <TableRow key={action.id}>
                 <TableCell className="align-top">{formatTime(action.madeAt)}</TableCell>
-                <TableCell className="min-w-48 align-top whitespace-normal">{actionText(action, plugins)}</TableCell>
+                <TableCell className="min-w-48 align-top whitespace-normal">{actionText(action, plugins, skins)}</TableCell>
                 <TableCell className="min-w-28 align-top whitespace-normal">
                   <SoftwareActionMadeBy action={action} />
                 </TableCell>
                 <TableCell className="min-w-40 align-top whitespace-normal">
-                  <SoftwareActionOutcome action={action} plugins={plugins} />
+                  <SoftwareActionOutcome action={action} plugins={plugins} skins={skins} />
                 </TableCell>
               </TableRow>
             ))}
