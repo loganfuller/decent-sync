@@ -72,6 +72,7 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `pluginSettings` | `GET /plugins/{id}/settings` for each plugin in the list just read that declares settings, one read each | content |
 | `decaidUpdate` | `GET /update` | content |
 | `skins` | `GET /webui/skins`, `/webui/skins/default` and `/webui/server/status`, three reads | content |
+| `skinPage` | none: the page a Skin last reported to the plugin's `page` endpoint, held by the plugin (Plugins and Skins, below) | content |
 | `pairedDevices` | `GET /devices`, without devices only discovered nearby | content |
 | `scaleInfo` | `GET /scale/info` | content |
 | `sensors` | `GET /sensors` | content |
@@ -678,7 +679,10 @@ software card shows. Those two rows are only shown: nothing is refused at
 `hello` or flagged below ADR-0017's minimums. Ticket
 [#660](https://github.com/loganfuller/decent-sync/issues/660) shows every
 plugin and Skin, with Decaid, as the Machine's Tablet Software, and has an
-Admin manage the plugins through Software Actions (below).
+Admin manage the plugins through Software Actions (below). Ticket
+[#661](https://github.com/loganfuller/decent-sync/issues/661) adds the
+Skins, Reload and the restart of the Skin view, and the start of Decaid's
+update.
 
 `plugins` is Decaid's plugin list as sent: each plugin's manifest with
 `loaded`, `autoLoad`, `source` (how it was installed, such as
@@ -755,7 +759,19 @@ it or is queued before that action's read-back. A poll skips the three while
 an action runs, which may wait minutes on Decaid, so the rest of the poll,
 DYE2's recipes and the Library lists included, is never held up by one: the
 action's read-back reports them, and the next poll, in full where the
-skipped read was a full one.
+skipped read was a full one. The Skins (`skins`) are read in that queue
+too, for the actions on them (#661).
+
+`skinPage` is the page a Skin last reported it shows, as `{ skinId, version,
+loadedAt, reportedAt }` (`SkinPage` in `protocol/src/software-actions.ts`):
+what a Skin's author has it PUT to the plugin's `page` endpoint each time
+its page loads and each time its socket on `changes` opens (`PLUGIN.md`,
+Reporting the page), `loadedAt` as the Skin gave it and `reportedAt` when
+the plugin heard it, both by the tablet's clock. The plugin holds it for its
+load, reports it as each arrives and on each full read, and reports it
+unavailable until a Skin reports one in that load, so the server keeps the
+page an earlier load heard of. It is no part of the Settings History, as it
+changes with each load of the page.
 
 ### Tablet Software
 
@@ -784,7 +800,16 @@ in `server/test/tablet-software.test.ts` on the recorded lists):
   secret.
 - **Each Skin**: its id, name and version, whether it is the default, and
   whether Decaid's Skin server is serving its folder now, and how it
-  updates.
+  updates; whether an Admin may remove it (`removable`: neither the default
+  nor one that comes with Decaid); and, for the one served, whether it has
+  reported its page (`pageReported`), which Reload needs.
+- **What the Tablet shows** (`showing`, #661), null until the Skins are
+  reported: the Skin served now with the version installed; the page it
+  reported, where the latest `skinPage` is that Skin's, with its version,
+  `loadedAt` and `reportedAt`; whether a newer build is installed than the
+  one showing (`newerInstalled`: both versions known and different); and
+  the default Skin where it is not the one served (`nextDefault`), which
+  shows once the Skin view restarts.
 - **Whether its plugin must update**: its plugin's wire revision, as its
   latest `hello` gave it, is from before Software Actions.
 
@@ -809,7 +834,8 @@ Decaid has one setting for update checks, Tablet-wide, and nothing per item
 ## Software Actions
 
 A Software Action (ADR-0034, `GLOSSARY.md`) is one thing an Admin asks a
-Machine's Tablet to do to its plugins or to Decaid, made in the management
+Machine's Tablet to do to its plugins, its Skins or Decaid, or that Staff at
+the Machine's Location ask of its Skin view, made in the management
 interface and carried out at once by the plugin on the Tablet whose
 connection holds the Machine, through Decaid's own routes. As with a Settings
 Edit, nothing holds what the Tablet should run afterwards: its software is
@@ -833,7 +859,44 @@ the kinds that act on plugins and on Decaid's own update check
 - `removePlugin`: removes a plugin with its settings. One Decaid bundles is
   back after Decaid next starts;
 - `checkDecaidUpdate`: has Decaid check for a newer release of itself.
-  Installing one still needs someone at the Tablet.
+
+Ticket [#661](https://github.com/loganfuller/decent-sync/issues/661) adds
+the kinds that act on Skins, on the Skin view and on Decaid's own update:
+
+- `installSkin`: installs a Skin from a GitHub repository's latest release,
+  or the head of a `branch`, or from a `url` serving a zip, such as a
+  commit's archive (`https://github.com/<repo>/archive/<commit>.zip`),
+  which is Pinned. Decaid fails a commit given as a Skin's branch, as it
+  downloads `archive/refs/heads/<branch>.zip` (recorded in
+  `server/test/fixtures/decaid/tablet-software-v0.9.3/skin-management.json`),
+  so the server refuses one with 400 naming the archive's URL. A Skin's id
+  is the one its own `skin-manifest.json` gives, whatever it was installed
+  from, so a `dist` build installs beside the release rather than over it;
+- `chooseDefaultSkin`: makes a Skin the default (`PUT /webui/skins/default`),
+  which changes nothing on screen until the Skin view restarts;
+- `checkSkinUpdates`: has Decaid check every Skin it updates for a newer
+  build now, with a result for each (`POST /webui/skins/update`), a Skin
+  Decaid comes with named by its repository, any other by its id;
+- `removeSkin`: removes a Skin that is neither the default nor one Decaid
+  comes with. Decaid refuses the second (403) but removes the default as
+  any other, and its server then serves a folder that is gone, so the
+  plugin refuses that itself;
+- `reloadSkin`: pushes `{"what":"reload"}` on the plugin's `changes`
+  socket, and is done once a page with a later `loadedAt` reports in within
+  `SKIN_RELOAD_MS` (15 s), with that page; otherwise the plugin answers it
+  as not confirmed, saying so (`note`);
+- `restartSkinView`: `POST /webui/server/stop` then `/webui/server/start`,
+  which has Decaid build its Skin view again on the default Skin (#659's
+  trial), then reads `GET /webui/server/status` every 0.5 s for up to 5 s
+  until it serves; where it does not, it starts it once more, and refuses
+  the action as `noSkinServed` where the Tablet is left serving no Skin;
+- `startDecaidUpdate`: sends `{"command":"install"}` on Decaid's update
+  socket, and is done once Decaid's state reaches `installing`, as Android's
+  installer opens, where someone at the Tablet must tap Open; Decaid does
+  not reopen by itself (#659). Refused as `installNotPermitted` where Decaid
+  answers `local_approval_required`, as Android's permission for it to
+  install apps was not granted at the Tablet, and as `decaid` where it found
+  no update, failed, or does not install itself, as on Linux.
 
 How each is made, carried out and answered:
 
@@ -841,12 +904,16 @@ How each is made, carried out and answered:
   kind, ... }`: for `installPlugin`, `repo` and `branch`, null or absent for
   the latest release; for the kinds that act on one plugin, its `pluginId`;
   for `approvePluginUpdate`, also the `version` and `addedPermissions` of the
-  update shown; for `changePluginSettings`, `values`, each setting changed
+  update shown; for `installSkin`, `repo` and `branch` or a `url`; for
+  `chooseDefaultSkin` and `removeSkin`, its `skinId`; for `changePluginSettings`, `values`, each setting changed
   by its name with its new value, null clearing one, and `expected`, each of
   those settings as the page showed it: a value, null for one not set, or `{
-  "isSet": true|false }` for a secret. Only an Admin makes one, of any kind:
-  Staff and Viewers are refused with 403, as each can put code on the
-  Tablet. It is refused at once, with nothing kept: 400 for a body of the
+  "isSet": true|false }` for a secret. Only an Admin makes one, as most can
+  put code on the Tablet, but that Staff at the Machine's Location may make
+  `reloadSkin` and `restartSkinView` (`SKIN_VIEW_KINDS`), which install
+  nothing: anyone else is refused with 403, Staff elsewhere with "You can
+  reload or restart the Skin only of a Machine at a Location you work at",
+  and Viewers change nothing. It is refused at once, with nothing kept: 400 for a body of the
   wrong shape, a setting the plugin's manifest declares none of, a value not
   of the setting's type, or disabling, removing or changing any but the poll
   interval of Decent Sync's own plugin, which the plugin refuses too; 409
@@ -855,16 +922,21 @@ How each is made, carried out and answered:
   is from before `SOFTWARE_ACTIONS_WIRE_REVISION` ("The Tablet's plugin must
   update before it takes a Software Action", ADR-0025), for a plugin the
   Tablet's latest list does not hold, or for an approval of an update other
-  than the one that waits now. No refusal repeats a setting's value. It
+  than the one that waits now; 400 for removing the default Skin or one
+  Decaid comes with; 409 for a Skin the Tablet's latest list does not hold,
+  for Reload while the Skin served has not reported its page, and for
+  starting Decaid's update while its latest reported state offers none it
+  can install (`latestVersion` and `installable`). No refusal repeats a setting's value. It
   answers 201 with `{ softwareAction }`, its outcome pending (null). `GET
   /api/machines/:id/software-actions/:actionId` reads one, which the page
   reads until it has an outcome, and `GET /api/machines/:id/software-actions`
   lists the Machine's actions, newest first, paged by `limit` and `offset`,
   as `{ softwareActions, total, limit, offset }`: both are marked for Staff,
   so Staff and Viewers read them. Each action is `{ id, machineId, kind,
-  params, account, connectedApp, madeAt, sentAt, answeredAt, outcome, late,
-  refusal, result }`: `params` what it named, the plugin as `{ id, name }`,
-  with its name as the Tablet reported it then, the `repo` and `branch`, the
+  params, account, connectedApp, madeAt, sentAt, answeredAt, outcome, note,
+  late, refusal, result }`: `params` what it named, the plugin or Skin as `{
+  id, name }`, with its name as the Tablet reported it then, the `repo` and
+  `branch` or `url`, the offered `version` of Decaid's update started, the
   update's `version` and `addedPermissions`, and for a settings change the
   names of the settings changed (`settings`), never their values; `account`
   named to Admins and to others by its id only, and `connectedApp` as a
@@ -873,8 +945,9 @@ How each is made, carried out and answered:
   Edit is. An action is a row of `software_actions`, inserted with the
   Machine's row locked, which also judges it online, naming the connection
   and tablet holding it then, with its time (`softwareActionMs`): 2 minutes
-  for an install, an update check, of the plugins or Decaid, and an approval,
-  which installs, and 1 minute for the rest. It is announced with `NOTIFY
+  for an install, an update check, of the plugins, the Skins or Decaid, an
+  approval, which installs, and the start of Decaid's update, which
+  downloads it, and 1 minute for the rest. It is announced with `NOTIFY
   software_actions` in the same transaction. The instance holding that
   connection claims it with the row locked again, while the connection still
   holds the Machine and its plugin is at the revision, by setting when it was
@@ -908,18 +981,23 @@ How each is made, carried out and answered:
   1. refuses as `notAllowed`, whatever it is sent, what its own protections
      forbid: disabling or removing itself, and changing any of its own
      settings but `PollSeconds`, as its server address and Token are its
-     connection to the server;
+     connection to the server; and, once it has read the Skins (step 3),
+     removing the default Skin;
   2. reads `GET /machine/state`, going ahead only in a state a Settings Edit
      goes ahead in (`SETTINGS_EDIT_STATES`), or where no machine is connected
      to the Tablet, and otherwise refusing it as `machineBusy`, naming the
      state. `checkDecaidUpdate` skips this, as Decaid's check touches neither
-     the Machine nor the Skin;
+     the Machine nor the Skin; Reload and the restart do not, so neither
+     runs while a Shot is pulled, or the Machine steams, flushes or pours
+     water;
   3. reads the plugin list and the plugins' settings, reports them if they
      changed, and refuses the action as `changedSince`, in words, where what
      it was made over no longer holds: the plugin it names is gone, another
      update waits than the one shown, or none, or a setting it changes holds
      another value than the form showed, a secret compared by whether it is
-     set;
+     set; for an action on the Skins, it reads them instead, and refuses as
+     `changedSince` where the Skin it names is gone, or, for Reload, where
+     the Skin served is not the one whose page it last heard;
   4. asks Decaid through `host.localApi` (`manage` in `plugin/src/decaid.ts`):
      `POST /plugins/install/github-release` or `/install/github-branch`,
      `POST /plugins/{id}/enable` or `/disable`, `POST /plugins/{id}/settings`
@@ -927,12 +1005,14 @@ How each is made, carried out and answered:
      /plugins/{id}/update/approve` or `DELETE /plugins/{id}`; or, for
      `checkDecaidUpdate`, sends `{"command":"check"}` on Decaid's update
      socket (`/ws/v1/update`) and waits, up to 45 s, for its state to leave
-     `checking`;
+     `checking`; for the Skin kinds, the routes above, through `host.localApi`
+     too; for `startDecaidUpdate`, `{"command":"install"}` on the update
+     socket, waiting up to 95 s;
   5. whether Decaid took it or not, reads the lists again and queues each as
      a `collection` delivery naming the action (`softwareActionId`): the
-     plugin list and the plugins' settings, or for `checkDecaidUpdate`
-     Decaid's update state; then queues its answer, `softwareActed`, behind
-     them.
+     plugin list and the plugins' settings, the Skins for an action on
+     them, or Decaid's update state for one on it; then queues its answer,
+     `softwareActed`, behind them.
 - **Outcomes.** `done`, with a `result`: the plugin it acted on, by its id
   and the name the Tablet listed it under, its version afterwards and
   whether it was loaded; for `checkPluginUpdates`, a result
@@ -940,10 +1020,17 @@ How each is made, carried out and answered:
   `alreadyCurrent`, `pendingApproval` or `failed`, with Decaid's `error`,
   and the version installed afterwards); for `checkDecaidUpdate`, Decaid's
   update state without its release notes, refused as `decaid` where the
-  check left it in `error`. Or `refused`, with a reason: `machineBusy`, with
-  the state; `changedSince` or `notAllowed`, with the plugin's words;
-  `expired`; or `decaid`, with Decaid's HTTP status, null where it did not
-  answer or was not asked, and its words. Or not confirmed.
+  check left it in `error`; for a Skin installed, made the default or
+  removed, the Skin by `skinId`, name and version, and for the restart the
+  one served afterwards; for `checkSkinUpdates`, a result for each Skin; for
+  Reload, the fresh `page`; for `startDecaidUpdate`, Decaid's update state.
+  Or `refused`, with a reason: `machineBusy`, with the state;
+  `changedSince`, `notAllowed`, `installNotPermitted` or `noSkinServed`,
+  with the plugin's or Decaid's words; `expired`; or `decaid`, with
+  Decaid's HTTP status, null where it did not answer or was not asked, and
+  its words. Or not confirmed: unanswered in its time (below), or answered
+  so by the plugin, `outcome: "notConfirmed"` with its words as `note`, as
+  for a Reload whose fresh page never reported in.
 - **When Decaid loads the plugin again.** Decaid unloads a plugin to install
   its update or save its settings, and the call that asked is never answered
   to it. So before an action that may do that to the plugin itself, any
@@ -995,15 +1082,24 @@ How each is made, carried out and answered:
 - **Through an assistant** (ADR-0026). `get_machine_software` gives a
   Machine's Tablet Software as `GET /api/machines/:id/tablet-software` does,
   and `list_software_actions` its actions as the list above does, times in
-  the zone of the Location the Machine was at. No tool makes a Software
-  Action: installing code on a Tablet is no assistant's to do (ADR-0034).
+  the zone of the Location the Machine was at, with `showing`. One tool
+  makes a Software Action, `reload_skin`, marked as changing: `how` is
+  `reload` or `restart`, made through the same service as the REST route,
+  so with the same limits, Staff's Location among them, and recorded as the
+  account's through its Connected App. No other: installing code on a
+  Tablet is no assistant's to do (ADR-0034).
 - **The Software tab.** The Machine page's fifth tab, between Settings and
   Setup, shows the Machine's Tablet Software: a Decaid card, with its
   version, the update it offers, Check now, and the automatic update checks,
   which an Admin turns on or off there as a Settings Edit, with the notes
   that Decaid follows a change when it next starts and that nothing on the
-  Tablet updates by itself while they are off; a Plugins table; a Skins
-  table, shown only; and a Software Actions log, which starts collapsed. With
+  Tablet updates by itself while they are off, and, where Decaid offers an
+  update it can install, Start the update on the Tablet; a Plugins table; a
+  Skins table, with the strip of what the Tablet shows above it, Reload
+  where the Skin served reported its page and Restart the Skin view behind a
+  confirmation always; and a Software Actions log, which starts collapsed.
+  Staff at the Machine's Location are offered Reload and the restart, and
+  nothing else. With
   the automatic update checks off, the tab says so above the lists. Where
   the Tablet's plugin is from before Software Actions, it says the plugin
   must update. The Setup tab keeps the firmware version and links to it.
@@ -1014,7 +1110,10 @@ managing its plugins as v0.9.3 does
 (`server/test/support/decaid-plugins.ts`),
 `server/test/software-action-deadline.test.ts` the times, actions never
 sent, unloads, the plugin's own protections and the actions answered after
-it loads again, `server/test/assistant-software.test.ts` the two tools,
+it loads again, `server/test/skin-actions.test.ts` the Skin kinds, Reload,
+the restart and Decaid's update with a simulated Decaid managing its Skins
+as v0.9.3 does (`server/test/support/decaid-skins.ts`),
+`server/test/assistant-software.test.ts` the three tools,
 `protocol/test/software-actions.test.ts` the messages, and
 `server/test/latest-release/mixed-versions.test.ts` the previous release's
 plugin beside this server.
@@ -1297,12 +1396,13 @@ the Settings History.
   none is. Every field from Decaid's payload is null
   where it is missing or not a string.
 - `GET /api/machines/:id/tablet-software` returns `{ tabletSoftware: {
-  decaid, plugins, skins, pluginMustUpdate } }` (Tablet Software, above):
+  decaid, plugins, skins, showing, pluginMustUpdate } }` (Tablet Software, above):
   `decaid` as `{ version, build, update, automaticUpdateCheck }`; each
   plugin `{ id, name, version, state, updates, lastError, pendingUpdate,
   permissions, own, settings }`; each Skin `{ id, name, version, default,
-  served, updates }`; `updates` as `{ how, ... }` with its `repo`, `branch`,
-  `commit` or `url`; `plugins` and `skins` null until reported. Everyone who
+  served, updates, removable, pageReported }`; `showing` as `{ skin, page,
+  newerInstalled, nextDefault }`; `updates` as `{ how, ... }` with its `repo`, `branch`,
+  `commit` or `url`; `plugins`, `skins` and `showing` null until reported. Everyone who
   reads the Machine reads it; a setting's `value` is given to Admins only.
 - `GET /api/machines/:id/plugin-sources` returns `{ pluginSources }`, the
   distinct sources the plugins on the other Machines were installed from,
@@ -1310,6 +1410,12 @@ the Settings History.
   version, repo, branch, updates, machines }`, `branch` the branch or commit
   an install names, null for the latest release, `version` the highest
   reported, and `machines` how many use it. Admins only.
+- `GET /api/machines/:id/skin-sources` returns `{ skinSources }`, the same
+  for the Skins on the other Machines, for the Skin install form: each `{
+  skinId, name, version, repo, branch, url, updates, machines }`, a
+  repository with its branch, null for the latest release, or a `url` with
+  no repository. Skins that come with Decaid and those with no recorded
+  source are left out. Admins only.
 - The Software Actions routes are under Software Actions, above.
 - `GET /api/machines/:id/paired-devices` returns `{ pairedDevices: { reportedAt,
   available, receivedAt, scale, auxiliaryScale, sensors, others } }`, each

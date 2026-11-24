@@ -86,7 +86,7 @@ every plugin this server accepts can follow a Draft, and the REST API's
 ### The plugin's update waits for approval on each tablet once
 
 This release's plugin adds two permissions: `manage.extensions`, with which
-it manages the tablet's plugins when an Admin asks (docs/PLUGIN.md,
+it manages the tablet's plugins and Skins when an Admin asks (docs/PLUGIN.md,
 Permissions), and `notifications`, with which it says on the tablet why it
 stopped syncing (docs/PLUGIN.md, When the plugin stops syncing).
 Decaid installs an update that adds a permission only once someone approves

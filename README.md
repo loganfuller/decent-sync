@@ -320,10 +320,17 @@ Each server has one owner: a household, or a business with all of its sites.
   connected and the Machine idle, an Admin installs a plugin from a
   repository's latest release, a branch or a commit, enables, disables,
   configures and removes one, checks the plugins for updates and approves
-  one that waits on new permissions, asks Decaid to check for its own update,
-  and turns the automatic update checks on or off. Each action is made once,
-  never kept for later, and logged with who asked and what came of it. Staff
-  and Viewers read the tab. Skins are shown, not yet managed.
+  one that waits on new permissions, installs a Skin from a release, a branch
+  or a URL, chooses the default Skin, checks the Skins for updates and
+  removes one, asks Decaid to check for its own update and starts it, with
+  someone at the tablet tapping Open, and turns the automatic update checks
+  on or off. The tab shows which Skin build the tablet is showing and since
+  when, for a Skin that reports its page, and says when a newer one is
+  installed. Reload asks such a Skin to load its page again, and Restart the
+  Skin view rebuilds the view on the default Skin for any Skin; Admins, and
+  Staff at the Machine's Location, may do either, and so may an assistant.
+  Each action is made once, never kept for later, and logged with who asked
+  and what came of it. Staff and Viewers read the tab.
 - **Setup.** Its Setup tab holds what is looked at seldom: its hardware,
   firmware and tablets, with a link to the Software tab for what the tablet
   runs, its Location and where it has been, whether it shares the Library,
@@ -530,7 +537,7 @@ What each release added. See [all releases](https://github.com/loganfuller/decen
 | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) |
 | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) |
 
-In progress, in v1.13.0 ([#657](https://github.com/loganfuller/decent-sync/issues/657)): each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins managed there, on a Machine's Software tab, and a notice on the Tablet saying why its plugin stopped syncing. Still to come in it: its Skins managed and reloaded.
+In progress, in v1.13.0 ([#657](https://github.com/loganfuller/decent-sync/issues/657)): each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins and Skins managed there, on a Machine's Software tab, its Skin reloaded from anywhere and Decaid's own update started, and a notice on the Tablet saying why its plugin stopped syncing.
 
 Planned after that, in no fixed order:
 
