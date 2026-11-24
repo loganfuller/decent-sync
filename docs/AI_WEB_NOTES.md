@@ -5,6 +5,7 @@ Conventions of the management interface (`web/`) that no single file states.
 ## Components
 
 - Add shadcn/ui components with `npx shadcn add`, which writes them to `web/src/components/ui/` (`web/components.json`).
+- A message of what came of something asked of a Machine, shown where it was asked (a Software Action's, a Settings Edit's), is a `StatusAlert` (`web/src/components/status-alert.tsx`): pending ones have no close button, a plain success goes by itself after 8 s unless hovered, focused or its tab is hidden, and the rest stay until dismissed.
 
 ## Page width
 
