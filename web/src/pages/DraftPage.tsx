@@ -1,10 +1,8 @@
 import {
   type Profile as ProfileDefinition,
-  type ProfileText,
   type SimulatedRun,
   checkProfile,
   fieldLabel,
-  profileTextOf,
   startingShape,
   textEditOf,
   widestLimits,
@@ -81,8 +79,6 @@ function DraftEditor({ id }: { id: string }) {
   const [saving, setSaving] = useState<"saved" | "saving" | "failed">("saved");
   const [library, setLibrary] = useState<{ id: string; title: string }[]>([]);
   const [baseline, setBaseline] = useState<{ label: string; profile: ProfileDefinition } | null>(null);
-  // For a new version, the Profile it replaces with its title, author and notes, once read: with its steps, the Draft edits those (#667).
-  const [versionOf, setVersionOf] = useState<{ id: string; text: ProfileText }>();
   // What of a file was held to the ranges, in words, named by the steps as the Draft was first read, before any was moved.
   const [held, setHeld] = useState<string[]>([]);
   // Saving: one save at a time, of the latest change, naming the count of saves it started from.
@@ -142,14 +138,12 @@ function DraftEditor({ id }: { id: string }) {
   // What it started from, drawn faint behind it: the Library Profile, named by its version where it has more than one, or the starting shape.
   const startedFromId = draft?.startedFrom?.id;
   const shapeKey = draft?.shape?.key;
-  const asVersion = draft?.publishesAs === "version";
   useEffect(() => {
     let current = true;
     if (startedFromId) {
       const from = `/profiles/${encodeURIComponent(startedFromId)}`;
       Promise.all([api<{ profile: Profile }>("GET", from), api<{ versions: ProfileVersion[] }>("GET", `${from}/versions`).catch(() => ({ versions: [] }))]).then(
         ([{ profile }, { versions }]) => {
-          if (current && asVersion) setVersionOf({ id: profile.id, text: profileTextOf(profile.content.profile) });
           const definition = definitionOf(profile);
           if (!current || !definition) return;
           const name = versions.length > 1 && !profile.bundled ? versionNames(versions).get(profile.id) : undefined;
@@ -164,7 +158,7 @@ function DraftEditor({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [startedFromId, shapeKey, asVersion]);
+  }, [startedFromId, shapeKey]);
 
   // Set once the page is left, after which a change still unsaved gets one more try and no retries.
   const left = useRef(false);
@@ -281,8 +275,9 @@ function DraftEditor({ id }: { id: string }) {
   }, []);
 
   const limits = useMemo(() => widestLimits(draft?.models ?? []), [draft?.models]);
-  // Only while it publishes as a new version: a save, as an assistant's, may make it a separate Profile meanwhile.
-  const replaces = asVersion ? versionOf : undefined;
+  // For a new version, the Profile it replaces with its title, author and notes as they were when the Draft began, as the server
+  // read it last: with its steps, the Draft edits those it changed (#667). None once a save, as an assistant's, makes it separate.
+  const replaces = draft?.versionOf ?? undefined;
   const checks = useMemo(
     () => (profile && draft ? checkProfile(profile, { models: draft.models, libraryProfiles: library, run, ...(replaces ? { versionOf: replaces } : {}) }) : undefined),
     [profile, draft, library, run, replaces],

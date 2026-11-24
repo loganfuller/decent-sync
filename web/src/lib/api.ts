@@ -1,4 +1,4 @@
-import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileTextField } from "@decent-sync/protocol";
+import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileText, ProfileTextField } from "@decent-sync/protocol";
 import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
@@ -1318,6 +1318,12 @@ export interface Draft extends DraftSummary {
    * server of the release before.
    */
   editsText?: ProfileTextField[] | null;
+  /**
+   * For a new version, while the Library has the Profile it started from: that Profile, with its title, author and
+   * notes as they were when the Draft began, which the page checks it against. Null otherwise; absent from a server
+   * of the release before, whose page checks it as a new version.
+   */
+  versionOf?: { id: string; text: ProfileText } | null;
   /** For a new version, the versions of the Profile it started from the Library gained since it began, the latest first: publishing it forks the chain beside them. */
   newer: { id: string; title: string | null; savedAt: string }[];
 }

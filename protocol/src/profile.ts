@@ -634,7 +634,9 @@ export interface ProfileCheckContext {
   libraryProfiles?: ReadonlyArray<{ id: string; title: string }>;
   /**
    * For a new version, the Profile it would replace, by id, with its title,
-   * author and notes. A profile with its steps is an edit of those (#667,
+   * author and notes as they were when the Draft began, so an edit of them
+   * made since is not taken for the Draft's. A profile with its steps is an
+   * edit of those it changes (#667,
    * `textEditOf`), not a Profile of its own, so is checked as one: blocked
    * where it changes none of them (`unchanged`), and, where it changes the
    * title, for a title another of `libraryProfiles` has (`titleInUse`).
@@ -841,7 +843,7 @@ export function profileTextOf(value: unknown): ProfileText {
  * differ, so it would be a new Profile Version. The title is compared
  * trimmed, as an edit of it is saved.
  */
-export function textEditOf(profile: Profile, from: { id: string; text: ProfileText }): ProfileTextField[] | null {
+export function textEditOf(profile: Profile, from: { readonly id: string; readonly text: ProfileText }): ProfileTextField[] | null {
   if (profileId(profile) !== from.id) return null;
   const now = profileTextOf(profile);
   return PROFILE_TEXT_FIELDS.filter((field) => (field === "title" ? now.title.trim() !== from.text.title.trim() : now[field] !== from.text[field]));

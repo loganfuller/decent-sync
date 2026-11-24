@@ -2952,7 +2952,8 @@ Viewer can't read that Staff can). Publishing one makes it a Profile
   of its title, author and notes (Publishing, below), refused only where
   it changes none of them (`unchanged`), as a Draft of Edit unchanged, or
   takes a title another Profile has, Archived ones too (`titleInUse`). Its
-  read says which of them it changes (`editsText`), null for any other
+  read says which of them it changes since it began (`editsText`), and the
+  Profile's as they were then (`versionOf`), each null for any other
   Draft. A simulation adds the run's checks.
 - **Simulated** as a Library Profile is, as the model of the Profile it
   started from, or else a Bengle where every Machine of the account is one,
@@ -3028,8 +3029,13 @@ Locations' tablets as any Profile, parents first.
 - **An edit of the Profile it started from** (#667): a new version whose
   steps are that Profile's has its id, as Decaid's id leaves out the title,
   author and notes, so publishing it inserts nothing. It edits those of
-  them that differ, through the Profile page's edit
-  (`LibraryEditsService.editProfile`, in the same transaction): written to
+  them the Draft changed since it began, compared with the Profile's as
+  they were then, rebuilt from its history (`versionContext`), so an edit
+  of another of them made meanwhile, on its page or a tablet, stays. It
+  goes through the Profile page's edit (`LibraryEditsService.editProfile`,
+  in the same transaction), made over the Profile as it was when the Draft
+  began, so an edit of the same field made since is replaced and kept as a
+  Lost Edit: written to
   every tablet that holds the Profile, kept in its history under the
   account, Lost Edits as any edit makes, and refused (409) for a title
   another Profile has, Archived ones too, and for one of Decaid's bundled

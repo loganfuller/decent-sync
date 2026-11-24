@@ -3,6 +3,7 @@ import {
   type HeldValue,
   MAX_PROFILE_STEPS,
   type MachineModel,
+  PROFILE_TEXT_FIELDS,
   type Profile,
   type ProfileCheckContext,
   type ProfileChecks,
@@ -92,6 +93,13 @@ export interface DraftView extends DraftSummary {
    * any other Draft, which publishing makes a Profile.
    */
   editsText: ProfileTextField[] | null;
+  /**
+   * For a new version, while the Library has the Profile it started from:
+   * that Profile, with its title, author and notes as they were when the
+   * Draft began (`versionContext`), which `editsText` compares the Draft's
+   * with, as the page checks it. Null for any other Draft.
+   */
+  versionOf: { id: string; text: ProfileText } | null;
   /**
    * For a new version, the versions of the Profile it started from that the
    * Library gained since it began, the latest first, from a tablet or
@@ -308,7 +316,7 @@ export class DraftsService {
     const [started, models] = await Promise.all([this.startedFrom([row]), accountModels(this.prisma)]);
     const from = row.startedFromId === null ? null : await this.profiles.get(row.startedFromId).catch((caught: unknown) => (caught instanceof NotFoundException ? null : Promise.reject(caught)));
     const publishesAs = row.publishesAs === DraftPublishing.VERSION ? "version" : "separate";
-    const context = await this.checkContext(profile, models, { startedFrom: row.startedFromId === null ? null : { id: row.startedFromId }, publishesAs });
+    const context = await this.checkContext(profile, models, { startedFrom: row.startedFromId === null ? null : { id: row.startedFromId }, publishesAs, createdAt: row.createdAt });
     return {
       ...summary(row, started, scope),
       profile,
@@ -316,6 +324,7 @@ export class DraftsService {
       models,
       machineModel: from?.machineModel ?? (models.length === 1 && models[0] === "Bengle" ? "Bengle" : "DE1"),
       checks: checkProfile(profile, context),
+      versionOf: context.versionOf ?? null,
       editsText: context.versionOf ? textEditOf(profile, context.versionOf) : null,
       newer: row.publishesAs === DraftPublishing.VERSION && row.startedFromId !== null ? await newerVersions(this.prisma, row.startedFromId, row.createdAt) : [],
     };
@@ -324,20 +333,20 @@ export class DraftsService {
   /**
    * What a Draft's checks are judged against: the models, the Library
    * Profile with its steps, if one has them, and, for a new version, the
-   * Profile it would replace with its title, author and notes, while the
-   * Library has it (#667).
+   * Profile it would replace with its title, author and notes as they were
+   * when the Draft began, while the Library has it (#667, `versionContext`).
    */
   private async checkContext(
     profile: Profile,
     models: MachineModel[],
-    draft: { startedFrom: { id: string } | null; publishesAs: DraftPublishesAs },
+    draft: { startedFrom: { id: string } | null; publishesAs: DraftPublishesAs; createdAt: Date | string },
   ): Promise<ProfileCheckContext & { models: MachineModel[]; libraryProfiles: { id: string; title: string }[] }> {
     const id = profileId(profile);
     const same = profile.steps.length === 0 ? null : await this.prisma.profile.findUnique({ where: { id }, select: { id: true, content: true } });
     const title = same ? readProfile((same.content as { profile?: unknown }).profile).profile?.title : undefined;
     const libraryProfiles = same ? [{ id: same.id, title: title?.trim() || same.id }] : [];
     const sourceId = draft.publishesAs === "version" ? (draft.startedFrom?.id ?? null) : null;
-    const version = sourceId === null ? undefined : await versionContext(this.prisma, profile, sourceId);
+    const version = sourceId === null ? undefined : await versionContext(this.prisma, profile, sourceId, new Date(draft.createdAt));
     if (!version) return { models, libraryProfiles };
     const others = version.libraryProfiles.filter((other) => !libraryProfiles.some((each) => each.id === other.id));
     return { models, libraryProfiles: [...libraryProfiles, ...others], versionOf: version.versionOf };
@@ -428,29 +437,53 @@ export function readDraftSave(body: unknown): DraftSave {
 }
 
 /**
- * For a Draft publishing as a new version of `sourceId`, what its checks
- * need of that Profile (#667): it, with its title, author and notes, so a
- * Draft with its steps is checked as an edit of those; and, where such a
- * Draft changes the title, the Library's other Profiles of that title,
- * Archived ones too, compared as Streamline compares titles, which it may
- * not take, as an edit on the Profile page may not
- * (`LibraryEditsService.editProfile`). Undefined where the Library no
- * longer has the Profile.
+ * For a Draft publishing as a new version of `sourceId`, begun at `since`,
+ * what its checks and its publishing need of that Profile (#667): it, with
+ * its title, author and notes as they were when the Draft began
+ * (`textWhenStarted`), so a Draft with its steps is checked as an edit of
+ * those it changed, and an edit of another field made since is not undone;
+ * its text as it stands now; and, where such a Draft changes the title, the
+ * Library's other Profiles of that title, Archived ones too, compared as
+ * Streamline compares titles, which it may not take, as an edit on the
+ * Profile page may not (`LibraryEditsService.editProfile`). Undefined where
+ * the Library no longer has the Profile.
  */
 export async function versionContext(
   db: Prisma.TransactionClient,
   profile: Profile,
   sourceId: string,
-): Promise<{ versionOf: { id: string; text: ProfileText }; libraryProfiles: { id: string; title: string }[] } | undefined> {
+  since: Date,
+): Promise<{ versionOf: { id: string; text: ProfileText }; now: ProfileText; libraryProfiles: { id: string; title: string }[] } | undefined> {
   const [source] = await db.$queryRaw<{ content: unknown }[]>`SELECT content FROM profiles WHERE id = ${sourceId}`;
   if (!source) return undefined;
-  const versionOf = { id: sourceId, text: profileTextOf((source.content as { profile?: unknown } | null)?.profile) };
-  const libraryProfiles = [{ id: sourceId, title: versionOf.text.title.trim() || sourceId }];
+  const now = profileTextOf((source.content as { profile?: unknown } | null)?.profile);
+  const versionOf = { id: sourceId, text: await textWhenStarted(db, sourceId, since, now) };
+  const libraryProfiles = [{ id: sourceId, title: now.title.trim() || sourceId }];
   if (textEditOf(profile, versionOf)?.includes("title")) {
     const others = await db.$queryRaw<{ id: string; title: string | null }[]>`SELECT id, content -> 'profile' ->> 'title' AS title FROM profiles WHERE id <> ${sourceId}`;
     for (const other of others) if (other.title !== null && sameTitle(other.title, profile.title)) libraryProfiles.push({ id: other.id, title: other.title });
   }
-  return { versionOf, libraryProfiles };
+  return { versionOf, now, libraryProfiles };
+}
+
+/**
+ * A Profile's title, author and notes as they were at `since`, from its
+ * history (ADR-0020): each field edited since takes the value its latest
+ * version taken in by then set, and any other keeps `now`, its value as it
+ * stands. So does one its history sets no value of by then, as a Profile
+ * older than its history.
+ */
+async function textWhenStarted(db: Prisma.TransactionClient, profileId: string, since: Date, now: ProfileText): Promise<ProfileText> {
+  const versions = await db.$queryRaw<{ fields: Record<string, unknown>; later: boolean }[]>`
+    SELECT fields, received_at > ${since}::timestamptz AS later FROM item_versions
+    WHERE kind = 'profile' AND item_id = ${profileId} AND location_id IS NULL AND fields ?| ${[...PROFILE_TEXT_FIELDS]}::text[]
+    ORDER BY seq`;
+  const then: Record<string, unknown> = {};
+  for (const { fields, later } of versions) if (!later) for (const field of PROFILE_TEXT_FIELDS) if (Object.hasOwn(fields, field)) then[field] = fields[field];
+  const text = profileTextOf(then);
+  return Object.fromEntries(
+    PROFILE_TEXT_FIELDS.map((field) => [field, Object.hasOwn(then, field) && versions.some(({ fields, later }) => later && Object.hasOwn(fields, field)) ? text[field] : now[field]]),
+  ) as ProfileText;
 }
 
 /**

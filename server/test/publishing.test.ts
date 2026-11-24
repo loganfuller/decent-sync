@@ -55,6 +55,7 @@ interface Draft {
   newer: { id: string; title: string | null; savedAt: string }[];
   checks: { blocking: { code: string; message: string }[] };
   editsText: string[] | null;
+  versionOf: { id: string; text: { title: string; author: string; notes: string } } | null;
 }
 
 interface ProfileView {
@@ -392,6 +393,29 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     // The tablet that holds it gets the notes, still one record under its id.
     await expect.poll(() => textOn(cafeTablet, id), { timeout: 15_000 }).toEqual({ title: "Publish text", author: "Lab", notes: "Reworded notes" });
     expect(cafeTablet.profiles().filter((record) => (record.profile as Fields).title === "Publish text").map((record) => record.id)).toEqual([id]);
+  });
+
+  it("edits only what the Draft changed since it began: an edit of another field made since stays, and one of the same field is kept as a Lost Edit (#667)", async () => {
+    const id = await savedOnCafeTablet("Publish meanwhile", 9.45);
+    const draft = await start({ profileId: id, as: "version" });
+    // Retitled and given notes on its page after the Draft began, which still holds the title and notes it began with.
+    await api.send("PATCH", path(id), { content: { title: "Publish meanwhile (house)", notes: "Page notes" } }, 200);
+    const reworded = await save(draft, { ...draft.profile, notes: "Draft notes" });
+    expect(reworded).toMatchObject({
+      editsText: ["notes"],
+      versionOf: { id, text: { title: "Publish meanwhile", author: "Lab", notes: "First notes" } },
+      checks: { blocking: [] },
+    });
+    expect(await publish(reworded, {})).toMatchObject({ profile: { id, title: "Publish meanwhile (house)" }, edited: ["notes"] });
+    // The title stays the page's; the Draft's notes, the later edit, win over the page's, which are kept as a Lost Edit.
+    expect((await profile(id)).content.profile).toMatchObject({ title: "Publish meanwhile (house)", author: "Lab", notes: "Draft notes" });
+    const { lostEdits } = await api.get<{ lostEdits: { field: string; value: unknown }[] }>(path(id, "/history"));
+    expect(lostEdits.map(({ field, value }) => ({ field, value }))).toEqual([{ field: "notes", value: "Page notes" }]);
+
+    // A Draft that changes nothing since it began is refused as unchanged, though the Profile changed since.
+    const later = await start({ profileId: id, as: "version" });
+    await api.send("PATCH", path(id), { content: { author: "Roaster" } }, 200);
+    expect((await api.get<{ draft: Draft }>(`/drafts/${later.id}`)).draft).toMatchObject({ editsText: [], checks: { blocking: [{ code: "unchanged" }] } });
   });
 
   it("refuses, as an edit of the Profile, a title another Profile has, Archived ones too; and as ever steps another Profile has, and a separate Profile with its source's (#667)", async () => {

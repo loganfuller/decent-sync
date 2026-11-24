@@ -269,7 +269,7 @@ export function PublishDialog({
           {(error ?? loadError ?? locationsError) && <FormError error={error ?? loadError ?? locationsError} />}
           {loading && !loadError && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-          {!textEdit && newer && newer.length > 0 && (
+          {newer && newer.length > 0 && (
             <Alert role="status">
               <AlertDescription className="grid gap-2">
                 {newer.map((version) => {
@@ -281,8 +281,10 @@ export function PublishDialog({
                         <Link to={profilePath(version.id)} className="font-semibold underline underline-offset-4" target="_blank">
                           {profileTitle(version)}
                         </Link>
-                        , was saved on {formatTime(version.savedAt)}, after this Draft began. Publishing saves this Draft from the version it started from all the same, so the chain
-                        forks: both stay versions.
+                        , was saved on {formatTime(version.savedAt)}, after this Draft began.{" "}
+                        {textEdit
+                          ? `Publishing edits the ${textFieldsText(textEdit)} of the version it started from all the same, not the newer version's.`
+                          : "Publishing saves this Draft from the version it started from all the same, so the chain forks: both stay versions."}
                       </p>
                       {rows.length > 0 && <ChangesTable caption={`How ${profileTitle(version)} differs from this Draft`} before="The newer version" after="This Draft" rows={rows} />}
                     </div>

@@ -162,7 +162,7 @@ export class PublishingService {
       const version = row.publishesAs === "VERSION";
       if (!version && ask.recipes.length > 0) throw new BadRequestException("A separate Profile moves no Recipes: the Profile it started from keeps them");
       if (version && row.startedFromId !== null && profileId(profile) === row.startedFromId) {
-        const edited = await this.publishTextEdit(tx, draftId, profile, row.startedFromId, ask, editor);
+        const edited = await this.publishTextEdit(tx, { id: draftId, createdAt: row.createdAt }, profile, row.startedFromId, ask, editor);
         if (edited) return edited;
       }
       if (ask.locations.length === 0) throw new BadRequestException([NO_LOCATIONS]);
@@ -233,7 +233,7 @@ export class PublishingService {
    */
   private async publishTextEdit(
     tx: Prisma.TransactionClient,
-    draftId: string,
+    draft: { id: string; createdAt: Date },
     profile: Profile,
     sourceId: string,
     ask: PublishAsk,
@@ -245,7 +245,7 @@ export class PublishingService {
     // Never so through the API, which starts no new version from one, but a bundled Profile's text is Decaid's.
     if (source.bundled) throw new ConflictException(BUNDLED_PROFILE_TEXT);
     // A title another Profile has is judged again by the edit, under PROFILE_TITLE_LOCK; this says so as a check.
-    const { versionOf, libraryProfiles } = (await versionContext(tx, profile, sourceId))!;
+    const { versionOf, now: was, libraryProfiles } = (await versionContext(tx, profile, sourceId, draft.createdAt))!;
     const checks = checkProfile(profile, { models: await accountModels(tx), libraryProfiles, versionOf });
     if (checks.blocking.length > 0) throw refusal(checks.blocking);
     if (ask.locations.length > 0 || ask.recipes.length > 0)
@@ -254,10 +254,12 @@ export class PublishingService {
       );
     const edited = textEditOf(profile, versionOf) ?? [];
     const now = profileTextOf(profile);
-    await this.edits.editProfile(sourceId, readContentEdit("profile", { content: Object.fromEntries(edited.map((field) => [field, now[field]])) }), editor, tx);
-    await lockFollowingForDelete(tx, draftId);
-    await tx.$executeRaw`DELETE FROM drafts WHERE id = ${draftId}::uuid`;
-    return { profile: { id: sourceId, title: (edited.includes("title") ? now.title : versionOf.text.title).trim() || null }, replaced: null, shownAt: [], hiddenAt: [], keptAt: [], moved: [], forked: [], edited };
+    // Those the Draft changed since it began, made over the Profile as it was then: an edit of another since stays.
+    await this.edits.editProfile(sourceId, readContentEdit("profile", { content: Object.fromEntries(edited.map((field) => [field, now[field]])) }), editor, { tx, seenAt: draft.createdAt });
+    await lockFollowingForDelete(tx, draft.id);
+    await tx.$executeRaw`DELETE FROM drafts WHERE id = ${draft.id}::uuid`;
+    const [{ title }] = await tx.$queryRaw<[{ title: string | null }]>`SELECT content -> 'profile' ->> 'title' AS title FROM profiles WHERE id = ${sourceId}`;
+    return { profile: { id: sourceId, title: (title ?? was.title).trim() || null }, replaced: null, shownAt: [], hiddenAt: [], keptAt: [], moved: [], forked: [], edited };
   }
 
   /**

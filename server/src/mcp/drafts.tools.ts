@@ -63,8 +63,12 @@ const draftItem = draftSummary.extend({
     .array(z.enum(PROFILE_TEXT_FIELDS))
     .nullable()
     .describe(
-      "For a new version whose steps are those of startedFrom, its profileId being startedFrom's: which of startedFrom's title, author and notes it changes. Publishing it then edits those of startedFrom, as edit_profile does, and makes no Profile, so publish_draft is given no locations or recipes; empty where it changes nothing, which can't be published. Null for any other Draft, which publishing makes a Profile.",
+      "For a new version whose steps are those of startedFrom, its profileId being startedFrom's: which of startedFrom's title, author and notes it changes from versionOf, those as they were when the Draft began. Publishing it then edits those of startedFrom, as edit_profile does, and makes no Profile, so publish_draft is given no locations or recipes; an edit of another of them made since the Draft began stays. Empty where it changes nothing, which can't be published. Null for any other Draft, which publishing makes a Profile.",
     ),
+  versionOf: z
+    .object({ id: z.string(), text: z.object({ title: z.string(), author: z.string(), notes: z.string() }) })
+    .nullable()
+    .describe("For a new version while the Library has startedFrom: startedFrom, with its title, author and notes as they were when the Draft began, which editsText compares the Draft's with. Null for any other Draft."),
   newer: z
     .array(newerShape)
     .describe("For a new version, the versions of startedFrom the Library gained since the Draft began, from a tablet or another Draft, the latest first: publishing it then forks the chain beside them, so tell the person and offer to compare first. Empty otherwise."),
