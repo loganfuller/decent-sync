@@ -41,6 +41,8 @@ function recording(file: string): Record<string, Step> {
 const MANAGEMENT = recording("plugin-management.json");
 const PENDING = recording("pending-update.json");
 const PROTECTED = recording("protected.json");
+/** What Decaid on the owner's Android test Tablet answered the command to install its update with Android's permission off, in #659's trial (README). */
+const ANDROID_INSTALL = recording("update-install-android.json");
 
 /** Decaid's answer to the nth request of a recorded step. */
 function recorded(step: Step | undefined, index: number): { status: number; body: unknown } {
@@ -175,6 +177,14 @@ export class SimulatedPlugins {
   update: Json = decaidUpdateState();
   private found: Json | undefined;
   private noCheck: Json | undefined;
+  /**
+   * How Decaid answers the command to install its update: as its Linux
+   * release does (`linux`, recorded), which installs nothing itself; or as
+   * Decaid on Android does, with Android's permission for it to install apps
+   * granted (`androidPermitted`) or not (`androidNotPermitted`, as #659's
+   * trial saw).
+   */
+  installOn: "linux" | "androidPermitted" | "androidNotPermitted" = "linux";
 
   constructor(options: { plugins?: ListedPlugin[]; requireAuthorization?: boolean } = {}) {
     this.plugins = structuredClone(options.plugins ?? []);
@@ -228,12 +238,35 @@ export class SimulatedPlugins {
     } catch {
       return [];
     }
+    if (command === "install" && this.installOn !== "linux") return this.installDecaid();
     if (command !== "check" || this.noCheck) return [structuredClone(this.noCheck ?? MANAGEMENT.updateInstall!.frames![0]!)];
     // Downloading or installing its update, it takes no command to check, and says nothing (`requestCheck`).
     if (this.update.phase === "downloading" || this.update.phase === "installing") return [];
     const [checking] = MANAGEMENT.updateChecked!.frames!;
     this.update = structuredClone(this.found ?? decaidUpdateState());
     return [{ ...structuredClone(this.update), phase: checking!.phase, latestVersion: null, installable: false }, structuredClone(this.update)];
+  }
+
+  /**
+   * The frames Decaid on Android sends for the command to install its
+   * update (`UpdateHandler._install`, `UpdateCheckService.downloadAndInstall`):
+   * without Android's permission, its refusal, as #659's trial saw it; with
+   * it, where it found no update, its check that finds none; and where it
+   * found one, `downloading`, `available` once downloaded, then `installing`
+   * as Android's installer opens. Those last are derived from the recorded
+   * state and the service's source: no update was on offer to record.
+   */
+  private installDecaid(): Json[] {
+    if (this.installOn === "androidNotPermitted") return structuredClone(ANDROID_INSTALL.notPermitted!.frames!);
+    if (this.update.phase === "downloading" || this.update.phase === "installing") return [];
+    if (this.found === undefined) {
+      const [checking] = MANAGEMENT.updateChecked!.frames!;
+      this.update = decaidUpdateState();
+      return [{ ...structuredClone(this.update), phase: checking!.phase }, structuredClone(this.update)];
+    }
+    const offered = structuredClone(this.found);
+    this.update = { ...offered, phase: "installing" };
+    return [{ ...offered, phase: "downloading", progress: 0 }, { ...offered, phase: "available" }, structuredClone(this.update)];
   }
 
   /**

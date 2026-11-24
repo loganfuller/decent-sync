@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { pluginSources, pluginUpdates, pluginView, skinUpdates, skinViews, tabletSoftwareView } from "../src/software-actions/tablet-software.js";
+import { pluginSources, pluginUpdates, pluginView, showingView, skinUpdates, skinViews, tabletSoftwareView } from "../src/software-actions/tablet-software.js";
 import { bundledPlugins, decaidUpdateState, recordedPlugin, skinsOn093 } from "./support/decaid-plugins.js";
+import { recordedSkin } from "./support/decaid-skins.js";
 import { pluginsAndSkinsAt } from "./support/simulated-tablet.js";
 
 // How a plugin or Skin updates (#657's table, ADR-0034), worked out from
@@ -67,6 +68,49 @@ describe("how a Skin updates", () => {
     expect(skinUpdates(from(null))).toEqual({ how: "notUpdated" });
   });
 
+  it("is Pinned where it was installed from a commit's archive, as recorded, and follows releases or a branch where installed from one", () => {
+    expect(skinUpdates(recordedSkin("streamline-cafe.js-dist"))).toEqual({
+      how: "pinned",
+      repo: null,
+      commit: "d7729dc9532ae31d606447ee0648e20284268b2c",
+      url: "https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip",
+    });
+    expect(skinUpdates(recordedSkin("streamline-cafe.js", "releaseInstalled"))).toEqual({ how: "followsReleases", repo: "loganfuller/streamline-cafe-js" });
+    expect(skinUpdates(recordedSkin("streamline.js-dist", "branchInstalled"))).toEqual({ how: "followsBranch", repo: "decentespresso/streamline-js", branch: "dist" });
+  });
+
+  it("is removable unless it is the default or comes with Decaid, and says whether the Skin served reported its page", () => {
+    const served = skinsOn093();
+    const skins = [...(served["/webui/skins"] as Record<string, unknown>[]), recordedSkin("streamline-cafe.js")];
+    const page = { skinId: "streamline.js", version: "0.2.31", loadedAt: "2026-11-24T14:00:00.000Z", reportedAt: "2026-11-24T14:00:01.000Z" };
+    const views = skinViews({ skins, default: served["/webui/skins/default"], server: served["/webui/server/status"] }, page)!;
+    expect(views.filter((skin) => skin.removable).map((skin) => skin.id)).toEqual(["streamline-cafe.js"]);
+    expect(views.filter((skin) => skin.pageReported).map((skin) => skin.id)).toEqual(["streamline.js"]);
+    // A page another Skin reported is not the served one's.
+    expect(skinViews({ skins, default: served["/webui/skins/default"], server: served["/webui/server/status"] }, { ...page, skinId: "streamline-cafe.js" })!.some((skin) => skin.pageReported)).toBe(false);
+  });
+
+  it("shows the build the Tablet is showing, a newer one installed, and the default a restart would show", () => {
+    const served = skinsOn093();
+    const skins = [...(served["/webui/skins"] as Record<string, unknown>[]), recordedSkin("streamline-cafe.js")];
+    // Streamline as installed is 0.2.31; the page showing is an older build's.
+    const page = { skinId: "streamline.js", version: "0.2.30", loadedAt: "2026-11-24T14:00:00.000Z", reportedAt: "2026-11-24T14:05:00.000Z" };
+    const views = skinViews({ skins, default: recordedSkin("streamline-cafe.js"), server: served["/webui/server/status"] }, page)!;
+    expect(showingView(views, page)).toEqual({
+      skin: { id: "streamline.js", name: "Streamline.js", version: "0.2.31" },
+      page: { version: "0.2.30", loadedAt: page.loadedAt, reportedAt: page.reportedAt },
+      newerInstalled: true,
+      nextDefault: { id: "streamline-cafe.js", name: "Streamline Cafe" },
+    });
+    // The build installed showing, the default served: nothing due.
+    const current = { ...page, version: "0.2.31" };
+    const same = skinViews({ skins, default: served["/webui/skins/default"], server: served["/webui/server/status"] }, current)!;
+    expect(showingView(same, current)).toMatchObject({ newerInstalled: false, nextDefault: null });
+    // No Skin served: nothing showing, and the default shows once the Skin view starts.
+    const stopped = skinViews({ skins, default: served["/webui/skins/default"], server: { serving: false, path: null } }, page)!;
+    expect(showingView(stopped, page)).toEqual({ skin: null, page: null, newerInstalled: false, nextDefault: { id: "streamline.js", name: "Streamline.js" } });
+  });
+
   it("marks the default Skin and the one Decaid's Skin server serves", () => {
     const served = skinsOn093();
     const views = skinViews({ skins: served["/webui/skins"], default: served["/webui/skins/default"], server: served["/webui/server/status"] })!;
@@ -118,15 +162,15 @@ describe("a Machine's Tablet Software", () => {
 
   it("reads Decaid's version and build, its update state and its automatic update checks, each absent until reported", () => {
     const view = tabletSoftwareView(
-      { plugins: report(bundledPlugins()), pluginSettings: null, skins: null, decaidUpdate: report(decaidUpdateState()), appSettings: report({ automaticUpdateCheck: false }) },
+      { plugins: report(bundledPlugins()), pluginSettings: null, skins: null, skinPage: null, decaidUpdate: report(decaidUpdateState()), appSettings: report({ automaticUpdateCheck: false }) },
       { decaidVersion: "0.9.3+3265", pluginMustUpdate: false },
       true,
     );
     expect(view.decaid).toEqual({ version: "0.9.3", build: "3265", update: { phase: "idle", latestVersion: null, installable: false, error: null, reportedAt: at.toISOString() }, automaticUpdateCheck: false });
     expect(view.skins).toBeNull();
     expect(view.plugins!.map((plugin) => plugin.id)).toEqual(bundledPlugins().map((plugin) => plugin.id));
-    const nothing = tabletSoftwareView({ plugins: null, pluginSettings: null, skins: null, decaidUpdate: null, appSettings: null }, { decaidVersion: null, pluginMustUpdate: true }, false);
-    expect(nothing).toEqual({ decaid: { version: null, build: null, update: null, automaticUpdateCheck: null }, plugins: null, skins: null, pluginMustUpdate: true });
+    const nothing = tabletSoftwareView({ plugins: null, pluginSettings: null, skins: null, skinPage: null, decaidUpdate: null, appSettings: null }, { decaidVersion: null, pluginMustUpdate: true }, false);
+    expect(nothing).toEqual({ decaid: { version: null, build: null, update: null, automaticUpdateCheck: null }, plugins: null, skins: null, showing: null, pluginMustUpdate: true });
   });
 
   it("suggests each distinct source once, with how many Machines use it and the highest version there", () => {

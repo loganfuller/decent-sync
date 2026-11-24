@@ -16,9 +16,9 @@ import {
 // them (COLLECTIONS.md), with made-up ids.
 
 describe("SETTINGS_HISTORY_COLLECTIONS", () => {
-  it("is every collection but the Library's lists and Decaid's own update state, in COLLECTION_NAMES order", () => {
-    // Decaid's update state changes with each check, by itself (ADR-0034).
-    expect(SETTINGS_HISTORY_COLLECTIONS).toEqual(COLLECTION_NAMES.filter((name) => !(LIBRARY_LISTS as readonly string[]).includes(name) && name !== "decaidUpdate"));
+  it("is every collection but the Library's lists, Decaid's own update state and the Skin's page, in COLLECTION_NAMES order", () => {
+    // Decaid's update state changes with each check, by itself, and a Skin's page with each load of it (ADR-0034).
+    expect(SETTINGS_HISTORY_COLLECTIONS).toEqual(COLLECTION_NAMES.filter((name) => !(LIBRARY_LISTS as readonly string[]).includes(name) && name !== "decaidUpdate" && name !== "skinPage"));
   });
 });
 

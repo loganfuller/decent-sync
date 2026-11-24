@@ -3,6 +3,7 @@ import { SyncConnection } from "./connection.js";
 import type { Plugin, PluginHost } from "./host.js";
 import { readSettings } from "./settings.js";
 import { answerSkin } from "./skin-api.js";
+import { SkinPages } from "./skin-page.js";
 import { answerHttp } from "./skins.js";
 import { TabletNotice } from "./tablet-notice.js";
 
@@ -14,6 +15,8 @@ export function createPlugin(host: PluginHost): Plugin {
   const log = (message: string) => host.log(message);
   // What Decaid shows on the tablet while the plugin has stopped syncing, kept by Decaid across loads.
   const notice = new TabletNotice(host, log);
+  // The page a Skin reports it shows, which a Skin reports whether or not the plugin connects (ADR-0034).
+  const pages = new SkinPages(host, log);
 
   return {
     id: __PLUGIN_ID__,
@@ -27,7 +30,7 @@ export function createPlugin(host: PluginHost): Plugin {
         notice.withdraw();
         return;
       }
-      connection = new SyncConnection(host, read.settings, log, notice);
+      connection = new SyncConnection(host, read.settings, log, notice, pages);
       connection.start();
     },
     onUnload() {
@@ -45,6 +48,6 @@ export function createPlugin(host: PluginHost): Plugin {
     },
     // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking what the server
     // holds is told the server can't be reached.
-    __httpRequestHandler: (request) => answerSkin(request, connection?.skinRequests, connection?.references) ?? answerHttp(request),
+    __httpRequestHandler: (request) => pages.answer(request) ?? answerSkin(request, connection?.skinRequests, connection?.references) ?? answerHttp(request),
   };
 }

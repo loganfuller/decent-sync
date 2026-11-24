@@ -13,6 +13,7 @@ import { updateShot } from "./decaid-shots.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { NotificationCenter } from "./decaid-notices.js";
 import { type ListedPlugin, type OwnPlugin, SimulatedPlugins, decaidInfo093 } from "./decaid-plugins.js";
+import type { SimulatedSkins } from "./decaid-skins.js";
 import { type FieldWriteFailure, type KeptMachineSettings, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, resetMachineSettings, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import { latestReleaseDir } from "./latest-release.mjs";
@@ -696,6 +697,13 @@ export interface SimulatedTabletOptions {
    */
   plugins?: SimulatedPlugins;
   /**
+   * The tablet's Skins and what manages them, kept across loads: Decaid's
+   * Skin list, default, installs, update check, removal and Skin server
+   * (decaid-skins.ts), in place of the Skins routes of `api`. Without it the
+   * Skins are `api`'s, read only.
+   */
+  skins?: SimulatedSkins;
+  /**
    * Decaid's notification center, kept across loads as the plugins are: the
    * notices the plugin puts up with `host.notify` (decaid-notices.ts).
    * Defaults to an empty one.
@@ -854,6 +862,8 @@ export class SimulatedTablet {
   readonly storage: PluginStorage;
   /** The tablet's Decaid's plugins and their management (`SimulatedTabletOptions.plugins`). */
   readonly plugins: SimulatedPlugins;
+  /** The tablet's Skins and their management, where given (`SimulatedTabletOptions.skins`). */
+  readonly skins: SimulatedSkins | undefined;
   /** Decaid's notification center (`SimulatedTabletOptions.notices`). */
   readonly notices: NotificationCenter;
   /** The request ids `host.notify` has returned this load. */
@@ -1011,6 +1021,7 @@ export class SimulatedTablet {
     this.storage = options.storage ?? new PluginStorage();
     this.storage.decaidStarted();
     this.plugins = options.plugins ?? new SimulatedPlugins();
+    this.skins = options.skins;
     this.notices = options.notices ?? new NotificationCenter();
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
@@ -2127,6 +2138,8 @@ export class SimulatedTablet {
     if (kept) return response(kept.status, JSON.stringify(kept.body));
     if (method === "GET" && route === "/plugins") return response(200, JSON.stringify(this.listedPlugins()));
     if (method === "GET" && route === "/update") return response(200, JSON.stringify(this.plugins.update));
+    const skin = this.skins?.answer(method, route, requestBody);
+    if (skin) return response(skin.status, JSON.stringify(skin.body));
     if (!this.dye2?.answers(route)) {
       const dye2 = this.dye2?.listing();
       const managed = await this.plugins.answer(method, route, requestBody, via, this.ownPlugin(), dye2 ? [dye2 as ListedPlugin] : []);

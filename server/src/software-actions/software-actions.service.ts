@@ -10,12 +10,13 @@ import {
   type SoftwareAction,
   type SoftwareActionKind,
   type SoftwareActionResult,
+  isSkinViewKind,
   isSoftwareActionKind,
   peerHasWireRevision,
   sameValue,
   softwareActionMs,
 } from "@decent-sync/protocol";
-import type { Scope } from "../accounts/scope.js";
+import { type Scope, includesLocation } from "../accounts/scope.js";
 import { ADMINS_ONLY } from "../accounts/guards.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
@@ -25,7 +26,7 @@ import { lockMachine } from "../machines/machines.service.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { type NewSoftwareAction, softwareActionNotFound } from "./input.js";
-import { type PluginSettingView, settingViews } from "./tablet-software.js";
+import { type PluginSettingView, settingViews, skinViews } from "./tablet-software.js";
 
 /** Why a Software Action was refused, as the REST API gives it. */
 export type SoftwareActionRefusalView =
@@ -33,12 +34,16 @@ export type SoftwareActionRefusalView =
   /** What no longer held on the Tablet, in the plugin's words. */
   | { reason: "changedSince"; message: string | null }
   | { reason: "expired" }
-  /** What the plugin would not do to itself, in its words. */
+  /** What the plugin would not do to itself or the default Skin, in its words. */
   | { reason: "notAllowed"; message: string | null }
+  /** Android's permission for Decaid to install apps is not granted at the Tablet, with Decaid's words. */
+  | { reason: "installNotPermitted"; message: string | null }
+  /** The Skin view was stopped and did not start again, with Decaid's words. */
+  | { reason: "noSkinServed"; message: string | null }
   /** Decaid's status, null where it did not answer or was not asked, and its words. */
   | { reason: "decaid"; status: number | null; message: string | null };
 
-/** Who makes a Software Action: an Admin's account, in the management interface or through a Connected App acting as it. */
+/** Who makes a Software Action: an Admin's account, or for Reload and the restart a Staff member's, in the management interface or through a Connected App acting as it. */
 export interface SoftwareActionMaker {
   accountId: string;
   role: AccountRole;
@@ -54,8 +59,12 @@ export interface SoftwareActionMaker {
  */
 export interface SoftwareActionParams {
   plugin?: { id: string; name: string | null };
+  /** The Skin it acts on, with its name as the Tablet reported it then. */
+  skin?: { id: string; name: string | null };
   repo?: string;
   branch?: string | null;
+  /** The URL a Skin is installed from. */
+  url?: string;
   version?: string;
   addedPermissions?: string[];
   settings?: string[];
@@ -78,9 +87,12 @@ export interface SoftwareActionView {
   /**
    * What came of it; null while it awaits its answer. `notConfirmed` once
    * it is no longer awaited, until an answer arriving after that replaces
-   * it, but for an `expired` refusal, which leaves it not confirmed.
+   * it, but for an `expired` refusal, which leaves it not confirmed; and
+   * where the plugin answered that what came of it never showed.
    */
   outcome: "done" | "refused" | "notConfirmed" | null;
+  /** For one the plugin answered as not confirmed: what did not show, in its words. */
+  note: string | null;
   /** Whether its outcome came from an answer that arrived after it was marked not confirmed. */
   late: boolean;
   refusal: SoftwareActionRefusalView | null;
@@ -159,19 +171,28 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Makes an action and announces it, or refuses it at once with nothing
-   * kept: 403 for anyone but an Admin; 400 for one that names what the
+   * kept: 403 for anyone but an Admin, but that Staff may reload the Skin
+   * or restart the Skin view of a Machine at a Location they work at
+   * (`SKIN_VIEW_KINDS`); 400 for one that names what the
    * Tablet does not report, or that Decent Sync's own plugin refuses; 409
    * while the Machine is offline, its connection's Tablet reports another
    * machine's hardware, its plugin is from before Software Actions, or what
    * the page showed is no longer what the Tablet reports.
    */
   async make(machineId: string, action: NewSoftwareAction, maker: SoftwareActionMaker): Promise<SoftwareActionView> {
-    if (maker.role !== AccountRole.ADMIN) throw new ForbiddenException(ADMINS_ONLY);
+    const admin = maker.role === AccountRole.ADMIN;
+    if (!admin && !(maker.role === AccountRole.STAFF && isSkinViewKind(action.kind))) throw new ForbiddenException(ADMINS_ONLY);
     await this.forgetHeld(machineId);
     const onlineSinceMs = this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
     const timeMs = softwareActionMs(action.kind);
     const made = await this.prisma.$transaction(async (tx) => {
       if (!(await lockMachine(tx, machineId))) throw machineNotFound();
+      if (!admin) {
+        const latest = await tx.locationAssignment.findFirst({ where: { machineId }, orderBy: { effectiveFrom: "desc" }, select: { locationId: true } });
+        if (!includesLocation(maker.scope, latest?.locationId ?? null)) {
+          throw new ForbiddenException("You can reload or restart the Skin only of a Machine at a Location you work at");
+        }
+      }
       // Online as the Machine's status judges it, by PostgreSQL's clock: held by a connection heard from recently.
       const [holder] = await tx.$queryRaw<[{ sessionId: string | null; tabletId: string | null; online: boolean; mismatched: boolean; wireRevision: number | null }]>`
         SELECT connected_session_id AS "sessionId", connected_tablet_id AS "tabletId",
@@ -214,6 +235,16 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
    */
   private async checked(tx: Prisma.TransactionClient, machineId: string, action: NewSoftwareAction): Promise<{ params: SoftwareActionParams; held: Held | null }> {
     if (action.kind === "installPlugin") return { params: { repo: action.repo, branch: action.branch }, held: null };
+    if (action.kind === "installSkin") return { params: "url" in action ? { url: action.url } : { repo: action.repo, branch: action.branch }, held: null };
+    if (action.kind === "chooseDefaultSkin" || action.kind === "removeSkin" || action.kind === "reloadSkin") return { params: await this.checkedOnSkins(tx, machineId, action), held: null };
+    if (action.kind === "startDecaidUpdate") {
+      const report = await tx.reportedCollection.findUnique({ where: { machineId_name: { machineId, name: "decaidUpdate" } }, select: { value: true, receivedAt: true } });
+      const state = report?.receivedAt && isRecord(report.value) ? report.value : {};
+      if (typeof state.latestVersion !== "string" || state.latestVersion === "" || state.installable !== true) {
+        throw new ConflictException("Decaid offers no update it can install on this Tablet: check for its update first");
+      }
+      return { params: { version: state.latestVersion }, held: null };
+    }
     if (!("pluginId" in action)) return { params: {}, held: null };
     const report = await tx.reportedCollection.findUnique({ where: { machineId_name: { machineId, name: "plugins" } }, select: { value: true, receivedAt: true } });
     const list = report?.receivedAt && Array.isArray(report.value) ? (report.value as unknown[]) : [];
@@ -251,6 +282,35 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         return { params: { plugin: named, settings: Object.keys(action.values) }, held: { values: action.values, expected: action.expected } };
       }
     }
+  }
+
+  /**
+   * What an action on a Skin names, checked against the Skins the Tablet
+   * last reported: the Skin is there; one removed is neither the default nor
+   * one that comes with Decaid, which keeps it; and for Reload, the Skin
+   * served now has reported its page.
+   */
+  private async checkedOnSkins(
+    tx: Prisma.TransactionClient,
+    machineId: string,
+    action: Extract<NewSoftwareAction, { kind: "chooseDefaultSkin" | "removeSkin" | "reloadSkin" }>,
+  ): Promise<SoftwareActionParams> {
+    const reports = await tx.reportedCollection.findMany({ where: { machineId, name: { in: ["skins", "skinPage"] }, receivedAt: { not: null } }, select: { name: true, value: true } });
+    const skins = skinViews(reports.find((report) => report.name === "skins")?.value, reports.find((report) => report.name === "skinPage")?.value) ?? [];
+    if (action.kind === "reloadSkin") {
+      const served = skins.find((skin) => skin.served);
+      if (!served) throw new ConflictException("Decaid serves no Skin on this Tablet now: restart the Skin view instead");
+      if (!served.pageReported) throw new ConflictException(`${served.name ?? served.id} has not reported its page, so it can't be asked to reload: restart the Skin view instead`);
+      return { skin: { id: served.id, name: served.name } };
+    }
+    const skin = skins.find((candidate) => candidate.id === action.skinId);
+    if (!skin) throw new ConflictException("The Tablet reports no such Skin: it may have been removed since the page was loaded");
+    if (action.kind === "removeSkin") {
+      // The plugin refuses the first itself, and Decaid the second, whatever they are sent: said here first, with nothing kept.
+      if (skin.default) throw new BadRequestException(`${skin.name ?? skin.id} is the default Skin, which can't be removed: choose another default first`);
+      if (skin.updates.how === "comesWithDecaid") throw new BadRequestException(`${skin.name ?? skin.id} comes with Decaid, which keeps it: it can't be removed`);
+    }
+    return { skin: { id: skin.id, name: skin.name } };
   }
 
   /** One of the Machine's actions, it and whether it is not confirmed read from one snapshot. */
@@ -391,7 +451,7 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
    * and whether it came late; null for an action of another Machine, or
    * none, or one already answered.
    */
-  async recordAnswer(machineId: string, answer: SoftwareActed): Promise<{ outcome: "done" | "refused"; late: boolean } | null> {
+  async recordAnswer(machineId: string, answer: SoftwareActed): Promise<{ outcome: SoftwareActed["outcome"]; late: boolean } | null> {
     const reason = answer.outcome === "refused" ? (answer.reason ?? "decaid") : null;
     const [updated] = await this.prisma.$transaction(async (tx) => {
       // Whether it is late is judged with the Machine's row held, as a Settings Edit's answer is.
@@ -401,11 +461,11 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
           answered_at = now(),
           late = ${this.noLongerAwaited()},
           held = NULL,
-          outcome = ${answer.outcome === "done" ? "DONE" : "REFUSED"},
+          outcome = ${answer.outcome === "done" ? "DONE" : answer.outcome === "notConfirmed" ? "NOT_CONFIRMED" : "REFUSED"},
           refusal = ${reason},
           machine_state = ${reason === "machineBusy" ? (answer.state ?? null) : null},
           decaid_status = ${reason === "decaid" ? (answer.status ?? null) : null}::integer,
-          message = ${reason === null ? null : (answer.message ?? null)},
+          message = ${answer.outcome === "done" ? null : (answer.message ?? null)},
           result = ${answer.outcome === "done" && answer.result ? JSON.stringify(answer.result) : null}::jsonb
         WHERE id = ${answer.id.toLowerCase()}::uuid AND machine_id = ${machineId}::uuid AND answered_at IS NULL
         RETURNING late`;
@@ -453,8 +513,18 @@ function messageOf(row: { id: string; kind: string; params: SoftwareActionParams
     case "changePluginSettings":
       // Without its values, as a row another statement emptied, there is nothing to send.
       return row.held === null ? undefined : { ...base, kind, pluginId, values: row.held.values, expected: row.held.expected };
+    case "installSkin":
+      return row.params.url ? { ...base, kind, url: row.params.url } : { ...base, kind, repo: row.params.repo ?? "", ...(row.params.branch ? { branch: row.params.branch } : {}) };
+    case "chooseDefaultSkin":
+    case "removeSkin":
+      return { ...base, kind, skinId: row.params.skin?.id ?? "" };
+    case "checkSkinUpdates":
+    case "reloadSkin":
+    case "restartSkinView":
+      return { ...base, kind };
     case "checkPluginUpdates":
     case "checkDecaidUpdate":
+    case "startDecaidUpdate":
       return { ...base, kind };
   }
 }
@@ -463,7 +533,7 @@ function messageOf(row: { id: string; kind: string; params: SoftwareActionParams
 function view(action: StoredAction, scope: Scope, notConfirmed: boolean): SoftwareActionView {
   // A refusal as too late, arriving once the action was no longer awaited, leaves it not confirmed.
   const stillNotConfirmed = notConfirmed || (action.late && action.refusal === "expired");
-  const outcome = stillNotConfirmed ? "notConfirmed" : action.outcome === "DONE" ? "done" : action.outcome === "REFUSED" ? "refused" : null;
+  const outcome = stillNotConfirmed || action.outcome === "NOT_CONFIRMED" ? "notConfirmed" : action.outcome === "DONE" ? "done" : action.outcome === "REFUSED" ? "refused" : null;
   return {
     id: action.id,
     machineId: action.machineId,
@@ -476,6 +546,7 @@ function view(action: StoredAction, scope: Scope, notConfirmed: boolean): Softwa
     sentAt: action.sentAt?.toISOString() ?? null,
     answeredAt: action.answeredAt?.toISOString() ?? null,
     outcome,
+    note: action.outcome === "NOT_CONFIRMED" && !stillNotConfirmed ? action.message : null,
     late: action.late && !stillNotConfirmed,
     refusal: outcome === "refused" ? refusalView(action) : null,
     result: outcome === "done" && isRecord(action.result) ? (action.result as SoftwareActionResult) : null,
@@ -489,6 +560,8 @@ function refusalView(action: StoredAction): SoftwareActionRefusalView {
       return { reason, state: action.machineState };
     case "changedSince":
     case "notAllowed":
+    case "installNotPermitted":
+    case "noSkinServed":
       return { reason, message: action.message };
     case "expired":
       return { reason };

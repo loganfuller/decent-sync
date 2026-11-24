@@ -7,12 +7,14 @@ import { readPage } from "../pagination.js";
 import { readSoftwareAction, readSoftwareActionId } from "./input.js";
 import { type SoftwareActionView, SoftwareActionsService } from "./software-actions.service.js";
 import { TabletSoftwareService } from "./tablet-software.service.js";
-import type { PluginSourceView, TabletSoftwareView } from "./tablet-software.js";
+import type { PluginSourceView, SkinSourceView, TabletSoftwareView } from "./tablet-software.js";
 
 /**
  * A Machine's Tablet Software and its Software Actions (ADR-0034). Staff
- * and Viewers read both; only an Admin makes an action, as each can put
- * code on the Tablet, so the routes that do carry no `@AllowStaff()`.
+ * and Viewers read both. Only an Admin makes an action, as most can put
+ * code on the Tablet, but that Staff at the Machine's Location may reload
+ * its Skin or restart its Skin view: the route that makes them lets Staff
+ * in, and the service judges each kind.
  */
 @Controller("api/machines")
 export class SoftwareActionsController {
@@ -34,7 +36,14 @@ export class SoftwareActionsController {
     return { pluginSources: await this.software.sources(readMachineId(id)) };
   }
 
-  /** Makes an action, answered with its outcome pending, or refuses it at once with nothing kept. */
+  /** The sources the other Machines' Skins were installed from, for the Skin install form. */
+  @Get(":id/skin-sources")
+  async skinSources(@Param("id") id: string): Promise<{ skinSources: SkinSourceView[] }> {
+    return { skinSources: await this.software.skinSources(readMachineId(id)) };
+  }
+
+  /** Makes an action, answered with its outcome pending, or refuses it at once with nothing kept: Staff only reload the Skin or restart the Skin view, at their Locations. */
+  @AllowStaff()
   @Post(":id/software-actions")
   async make(@Param("id") id: string, @Body() body: unknown, @CurrentSession() signedIn: SignedIn): Promise<{ softwareAction: SoftwareActionView }> {
     const maker = { accountId: signedIn.account.id, role: signedIn.account.role, scope: signedIn.scope, connectedAppId: null };

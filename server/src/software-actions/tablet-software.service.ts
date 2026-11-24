@@ -4,9 +4,9 @@ import type { Scope } from "../accounts/scope.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { takesSoftwareActions } from "./software-actions.service.js";
-import { type PluginSourceView, type TabletSoftwareView, pluginSources, tabletSoftwareView } from "./tablet-software.js";
+import { type PluginSourceView, type SkinSourceView, type TabletSoftwareView, pluginSources, skinSources, tabletSoftwareView } from "./tablet-software.js";
 
-const REPORTS = ["plugins", "pluginSettings", "skins", "decaidUpdate", "appSettings"] as const satisfies readonly CollectionName[];
+const REPORTS = ["plugins", "pluginSettings", "skins", "skinPage", "decaidUpdate", "appSettings"] as const satisfies readonly CollectionName[];
 
 /** A Machine's Tablet Software, from what its Tablet last reported (ADR-0034). */
 @Injectable()
@@ -28,7 +28,7 @@ export class TabletSoftwareService {
     });
     const report = (name: (typeof REPORTS)[number]) => rows.find((row) => row.name === name) ?? null;
     return tabletSoftwareView(
-      { plugins: report("plugins"), pluginSettings: report("pluginSettings"), skins: report("skins"), decaidUpdate: report("decaidUpdate"), appSettings: report("appSettings") },
+      { plugins: report("plugins"), pluginSettings: report("pluginSettings"), skins: report("skins"), skinPage: report("skinPage"), decaidUpdate: report("decaidUpdate"), appSettings: report("appSettings") },
       // A Machine that has not connected since the revision was kept is not said to need an update.
       { decaidVersion: machine.decaidVersion, pluginMustUpdate: machine.wireRevision !== null && !takesSoftwareActions(machine.wireRevision) },
       scope.kind === "everything",
@@ -47,5 +47,15 @@ export class TabletSoftwareService {
       select: { value: true },
     });
     return pluginSources(rows.map((row) => row.value));
+  }
+
+  /** The sources the Skins on the other Machines were installed from, which the Skin install form offers, most used first: an Admin's read. */
+  async skinSources(machineId: string): Promise<SkinSourceView[]> {
+    if ((await this.prisma.machine.count({ where: { id: machineId } })) === 0) throw machineNotFound();
+    const rows = await this.prisma.reportedCollection.findMany({
+      where: { name: "skins", machineId: { not: machineId }, receivedAt: { not: null } },
+      select: { value: true },
+    });
+    return skinSources(rows.map((row) => row.value));
   }
 }

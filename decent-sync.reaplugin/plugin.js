@@ -522,11 +522,23 @@ var __decentSync = (() => {
     "checkPluginUpdates",
     "approvePluginUpdate",
     "removePlugin",
-    "checkDecaidUpdate"
+    "installSkin",
+    "chooseDefaultSkin",
+    "checkSkinUpdates",
+    "removeSkin",
+    "reloadSkin",
+    "restartSkinView",
+    "checkDecaidUpdate",
+    "startDecaidUpdate"
   ];
   var SOFTWARE_ACTION_START_MARGIN_MS = 15e3;
   var MAX_SOFTWARE_NAME_LENGTH = 200;
   var MAX_PLUGIN_SETTINGS = 200;
+  var MAX_SKIN_URL_LENGTH = 2e3;
+  function isSkinUrl(value) {
+    return typeof value === "string" && value.length <= MAX_SKIN_URL_LENGTH && /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:[/?#]\S*)?$/i.test(value);
+  }
+  var SKIN_RELOAD_MS = 15e3;
   function isPluginRepo(value) {
     return typeof value === "string" && value.length <= MAX_SOFTWARE_NAME_LENGTH && /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(value);
   }
@@ -1556,6 +1568,20 @@ var __decentSync = (() => {
               fields.objectField("values");
               fields.objectField("expected");
               break;
+            case "installSkin":
+              if (object3.url !== void 0) {
+                fields.skinUrl("url");
+                fields.absent("repo");
+                fields.absent("branch");
+              } else {
+                fields.pluginRepo("repo");
+                if (object3.branch !== void 0) fields.string("branch", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              }
+              break;
+            case "chooseDefaultSkin":
+            case "removeSkin":
+              fields.string("skinId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              break;
             default:
               break;
           }
@@ -1722,6 +1748,10 @@ var __decentSync = (() => {
     /** A GitHub repository a plugin is installed from (`isPluginRepo`). */
     pluginRepo(key2) {
       if (!isPluginRepo(this.object[key2])) this.problem(key2, "must be a GitHub repository, as owner/name");
+    }
+    /** A URL a Skin is installed from (`isSkinUrl`). */
+    skinUrl(key2) {
+      if (!isSkinUrl(this.object[key2])) this.problem(key2, "must be an http or https URL");
     }
     /** Any JSON value but null. */
     present(key2) {
@@ -3685,6 +3715,8 @@ var __decentSync = (() => {
     { name: "pluginSettings", read: () => Promise.resolve({ kind: "unavailable" }) },
     { name: "decaidUpdate", path: "/update" },
     { name: "skins", read: readSkins },
+    // Held by the plugin, as a Skin reports it (`SkinPages`), rather than read from Decaid.
+    { name: "skinPage", read: () => Promise.resolve({ kind: "unavailable" }) },
     { name: "pairedDevices", path: "/devices", select: pairedDevices },
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
@@ -3693,14 +3725,14 @@ var __decentSync = (() => {
   var PROFILES = SOURCES.find((source) => source.name === "profiles");
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
   var SETTINGS = new Set(SETTINGS_COLLECTION_NAMES);
-  var SOFTWARE = /* @__PURE__ */ new Set(["plugins", "pluginSettings", "decaidUpdate"]);
+  var SOFTWARE = /* @__PURE__ */ new Set(["plugins", "pluginSettings", "decaidUpdate", "skins"]);
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
   var DAILY = /* @__PURE__ */ new Set(["sensorCalibration"]);
   var DAILY_MS = 24 * 60 * 6e4;
   var FROM_MACHINE = /* @__PURE__ */ new Set([...MACHINE_SETTINGS, ...DAILY]);
   var CollectionCapture = class {
-    constructor(outbox, library, settings, pollMs, machine, sawRecipes, software) {
+    constructor(outbox, library, settings, pollMs, machine, sawRecipes, software, skinPage = () => null) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "library", library);
       __publicField(this, "settings", settings);
@@ -3708,6 +3740,7 @@ var __decentSync = (() => {
       __publicField(this, "machine", machine);
       __publicField(this, "sawRecipes", sawRecipes);
       __publicField(this, "software", software);
+      __publicField(this, "skinPage", skinPage);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
       /** The ids of the tablet's Profiles as last read, or undefined before the first read. */
@@ -3949,6 +3982,34 @@ var __decentSync = (() => {
       return Array.isArray(this.pluginList) ? this.pluginList : void 0;
     }
     /**
+     * Decaid's Skins read now, within Software Actions' `SettingsAccess.run`,
+     * as a Software Action on them does before and after it acts, and queued
+     * as `readSoftware` queues the plugin list. Resolves with them as
+     * reported, `{ skins, default, server }`, or undefined where Decaid did
+     * not answer with them.
+     */
+    async readSoftwareSkins(readBackOf) {
+      const reading = await readSkins();
+      if (this.stopped) return void 0;
+      this.queueReading("skins", reading, readBackOf !== void 0, readBackOf === void 0 ? void 0 : { softwareActionId: readBackOf });
+      this.queued.delete("skins");
+      return reading.kind === "value" && typeof reading.value === "object" && reading.value !== null ? reading.value : void 0;
+    }
+    /** Queues a report of the page a Skin just reported, if it is another than the last queued. */
+    reportSkinPage() {
+      if (this.stopped) return;
+      this.queueReading("skinPage", this.skinPageReading(), false);
+    }
+    /**
+     * The page a Skin last reported as a reading: unavailable until one
+     * reports in this load, so the server keeps the page an earlier load
+     * heard of, as the Skin's page did not change with the plugin's load.
+     */
+    skinPageReading() {
+      const page = this.skinPage();
+      return page === null ? { kind: "unavailable" } : { kind: "value", value: page, etag: null };
+    }
+    /**
      * The sensor calibration with one target read again, within
      * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
      * place of the target's last, beside the other targets as last read.
@@ -3965,7 +4026,7 @@ var __decentSync = (() => {
       const last = this.last.get(source.name);
       const reading = selected(
         source,
-        await (source.name === "pluginSettings" ? readPluginSettings(this.pluginList) : "read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)))
+        await (source.name === "pluginSettings" ? readPluginSettings(this.pluginList) : source.name === "skinPage" ? Promise.resolve(this.skinPageReading()) : "read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)))
       );
       if (this.stopped) return false;
       if (source.name === "plugins" && reading.kind !== "notModified") this.pluginList = reading.kind === "value" ? reading.value : void 0;
@@ -5475,18 +5536,22 @@ var __decentSync = (() => {
   // src/software-actions.ts
   var UPDATE_SOCKET = "ws://localhost:8080/ws/v1/update";
   var UPDATE_CHECK_MS = 45e3;
+  var UPDATE_START_MS = 95e3;
+  var SERVING_WATCH_MS = 5e3;
+  var SERVING_STEP_MS = 500;
   var PENDING_KEY = "softwareAction";
   var PENDING_MS = 10 * 6e4;
   var WATCH_STEP_MS = 3e3;
   var RESUME_WATCH_MS = 3e4;
   var SoftwareActions = class {
-    constructor(access, outbox, reports, storage, transports, log) {
+    constructor(access, outbox, reports, storage, transports, log, pages) {
       __publicField(this, "access", access);
       __publicField(this, "outbox", outbox);
       __publicField(this, "reports", reports);
       __publicField(this, "storage", storage);
       __publicField(this, "transports", transports);
       __publicField(this, "log", log);
+      __publicField(this, "pages", pages);
       __publicField(this, "stopped", false);
     }
     /**
@@ -5586,6 +5651,8 @@ var __decentSync = (() => {
       } else if (!machineMissing(state)) {
         return refusedByDecaid2(action.id, state.status, decaidMessage2(state));
       }
+      if (isSkinAction(action)) return this.carryOutOnSkins(action, tooLate, endTime);
+      if (action.kind === "startDecaidUpdate") return this.startDecaidUpdate(action, tooLate);
       const before = await this.reports.readSoftware("plugins");
       if (before === void 0) return refusedByDecaid2(action.id, null, "Decaid did not answer with its plugins");
       const changed = await changedSince2(action, before);
@@ -5615,6 +5682,214 @@ var __decentSync = (() => {
       if (answer === void 0) return refusedByDecaid2(action.id, null, `Decaid did not answer: ${failure}`);
       if (!answer.ok) return refusedByDecaid2(action.id, answer.status, decaidMessage2(answer));
       return { type: "softwareActed", id: action.id, outcome: "done", result: resultOf(action, answer, before, after) };
+    }
+    /**
+     * Carries out an action on the Tablet's Skins, the machine idle: reads the
+     * Skins, refuses what no longer holds and what the plugin's protections
+     * forbid (removing the default Skin, whatever it is sent), asks Decaid,
+     * and reads the Skins back, whether or not Decaid took it.
+     */
+    async carryOutOnSkins(action, tooLate, endTime) {
+      const before = await this.reports.readSoftwareSkins();
+      if (this.stopped) return void 0;
+      if (before === void 0) return refusedByDecaid2(action.id, null, "Decaid did not answer with its Skins");
+      const forbidden = forbiddenOnSkins(action, before);
+      if (forbidden !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "notAllowed", message: forbidden };
+      const changed = skinsChangedSince(action, before, this.pages?.latest() ?? null);
+      if (changed !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: changed };
+      if (tooLate()) return expired2(action.id);
+      if (action.kind === "reloadSkin") return this.reloadSkin(action);
+      if (action.kind === "restartSkinView") return this.restartSkinView(action);
+      let answer;
+      let failure = "";
+      try {
+        answer = await askOnSkins(action);
+      } catch (error) {
+        failure = describe2(error);
+      }
+      if (this.stopped) return void 0;
+      if (answer === void 0 && action.kind === "installSkin" && /timed out/i.test(failure)) return this.watchSkinInstall(action, before, endTime);
+      const after = await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
+      if (answer === void 0) return refusedByDecaid2(action.id, null, `Decaid did not answer: ${failure}`);
+      if (!answer.ok) return refusedByDecaid2(action.id, answer.status, decaidMessage2(answer));
+      return { type: "softwareActed", id: action.id, outcome: "done", result: skinResultOf(action, answer, before, after) };
+    }
+    /** Reads the Skins every WATCH_STEP_MS until `until` for the Skin an install whose call timed out put there; undefined, and so not confirmed, where none shows. */
+    async watchSkinInstall(action, before, until) {
+      for (; ; ) {
+        if (this.stopped) return void 0;
+        const after = await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
+        const installed = after === void 0 ? void 0 : installedSkin(before, after);
+        if (installed !== void 0) return { type: "softwareActed", id: action.id, outcome: "done", result: skinNamed(installed) };
+        if (Date.now() + WATCH_STEP_MS > until) return void 0;
+        await new Promise((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
+      }
+    }
+    /**
+     * Asks the Skin on screen to load its page again, by a push on `changes`,
+     * and waits up to SKIN_RELOAD_MS for its fresh page to report in: done
+     * with that page, or not confirmed.
+     */
+    async reloadSkin(action) {
+      const shown = this.pages?.latest() ?? null;
+      if (!this.pages || shown === null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "No Skin has reported its page to the plugin since it loaded" };
+      const pages = this.pages;
+      let stopWaiting = () => {
+      };
+      const fresh = new Promise((resolve) => {
+        const timer = setTimeout(() => settle(void 0), SKIN_RELOAD_MS);
+        const unsubscribe = pages.onReport((page2) => {
+          if (Date.parse(page2.loadedAt) > Date.parse(shown.loadedAt)) settle(page2);
+        });
+        const settle = (page2) => {
+          clearTimeout(timer);
+          unsubscribe();
+          resolve(page2);
+        };
+        stopWaiting = () => settle(void 0);
+      });
+      try {
+        pages.askReload();
+      } catch (error) {
+        stopWaiting();
+        return refusedByDecaid2(action.id, null, `Decaid did not take the push asking the Skin to reload: ${describe2(error)}`);
+      }
+      const page = await fresh;
+      if (this.stopped) return void 0;
+      await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
+      if (page === void 0) {
+        return {
+          type: "softwareActed",
+          id: action.id,
+          outcome: "notConfirmed",
+          message: `The Skin was asked to reload, but no fresh page reported in within ${SKIN_RELOAD_MS / 1e3} s`
+        };
+      }
+      const reported = { skinId: page.skinId, ...page.version === void 0 ? {} : { version: page.version }, loadedAt: page.loadedAt };
+      return { type: "softwareActed", id: action.id, outcome: "done", result: { skinId: page.skinId, ...page.version === void 0 ? {} : { version: page.version }, page: reported } };
+    }
+    /**
+     * Stops Decaid's Skin server and starts it again, which has Decaid build
+     * its Skin view again on the default Skin, then watches its status until
+     * it serves, starting it once more if it does not: done with the Skin
+     * served, or refused as `noSkinServed` where the Tablet is left with none.
+     */
+    async restartSkinView(action) {
+      const stopped = await manage("POST", "/webui/server/stop");
+      if (this.stopped) return void 0;
+      if (!stopped.ok) {
+        await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
+        return refusedByDecaid2(action.id, stopped.status, decaidMessage2(stopped));
+      }
+      let said = "";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const started = await manage("POST", "/webui/server/start").catch((error) => ({ status: 0, ok: false, text: describe2(error) }));
+        if (this.stopped) return void 0;
+        if (!started.ok) said = started.status === 0 ? started.text : decaidMessage2(started);
+        if (await this.servingSoon()) {
+          const after = await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
+          const served = after === void 0 ? void 0 : servedSkin(after);
+          return { type: "softwareActed", id: action.id, outcome: "done", result: served === void 0 ? {} : skinNamed(served) };
+        }
+        if (this.stopped) return void 0;
+      }
+      await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
+      return {
+        type: "softwareActed",
+        id: action.id,
+        outcome: "refused",
+        reason: "noSkinServed",
+        message: `Decaid's Skin server did not start again${said === "" ? "" : `: ${said}`}`.slice(0, MAX_REFUSAL_LENGTH)
+      };
+    }
+    /** Whether Decaid's Skin server says it serves within SERVING_WATCH_MS. */
+    async servingSoon() {
+      const until = Date.now() + SERVING_WATCH_MS;
+      for (; ; ) {
+        if (this.stopped) return false;
+        const status = await request("GET", "/webui/server/status").catch(() => void 0);
+        const read = status?.ok ? parsed5(status.text) : void 0;
+        if (isObject8(read) && read.serving === true) return true;
+        if (Date.now() + SERVING_STEP_MS > until) return false;
+        await new Promise((resolve) => setTimeout(() => resolve(), SERVING_STEP_MS));
+      }
+    }
+    /**
+     * Has Decaid start its own update, over its update socket, the machine
+     * idle: Decaid checks for it where it holds none, downloads it and opens
+     * Android's installer, which someone at the Tablet confirms. Done once
+     * Decaid's state reaches `installing`; refused where Android's permission
+     * for Decaid to install apps was not granted at the Tablet
+     * (`installNotPermitted`), where Decaid found no update, or where it
+     * failed, in its words.
+     */
+    async startDecaidUpdate(action, tooLate) {
+      await this.reports.readSoftware("decaid");
+      if (this.stopped) return void 0;
+      if (tooLate()) return expired2(action.id);
+      let outcome;
+      try {
+        outcome = await this.installOverSocket();
+      } catch (error) {
+        outcome = { refused: "decaid", message: `Decaid did not answer: ${describe2(error)}` };
+      }
+      if (this.stopped) return void 0;
+      await this.reports.readSoftware("decaid", action.id).catch(() => void 0);
+      if ("refused" in outcome) {
+        return outcome.refused === "installNotPermitted" ? { type: "softwareActed", id: action.id, outcome: "refused", reason: "installNotPermitted", message: outcome.message.slice(0, MAX_REFUSAL_LENGTH) } : refusedByDecaid2(action.id, null, outcome.message);
+      }
+      if ("notConfirmed" in outcome) return { type: "softwareActed", id: action.id, outcome: "notConfirmed", message: outcome.notConfirmed };
+      const state = await request("GET", "/update").catch(() => void 0);
+      const decaid = state?.ok ? parsed5(state.text) : void 0;
+      return { type: "softwareActed", id: action.id, outcome: "done", result: isObject8(decaid) ? { decaid: updateState(decaid) } : {} };
+    }
+    /**
+     * Sends Decaid's update socket the command to install, and resolves with
+     * what came of it, judged from the states it sends: `installing` once
+     * Android's installer opens; Decaid's refusal, as where Android's
+     * permission to install apps is not granted (`local_approval_required`);
+     * a check that found nothing, or a download or install that failed. Not
+     * confirmed where none of these shows by UPDATE_START_MS.
+     */
+    async installOverSocket() {
+      const handle = await this.transports.open(UPDATE_SOCKET);
+      try {
+        return await new Promise((resolve, reject) => {
+          let opened = false;
+          let underWay = false;
+          const timer = setTimeout(() => resolve({ notConfirmed: `Decaid's update did not reach Android's installer within ${UPDATE_START_MS / 1e3} s` }), UPDATE_START_MS);
+          const settle = (outcome) => {
+            clearTimeout(timer);
+            resolve(outcome);
+          };
+          this.transports.onEvent(handle, (event) => {
+            if (event.type !== "data") {
+              clearTimeout(timer);
+              return reject(new Error("its update socket closed"));
+            }
+            const frame = parsed5(event.data);
+            if (!isObject8(frame)) return;
+            if (typeof frame.error === "string" && frame.phase === void 0) {
+              return settle(frame.reason === "local_approval_required" ? { refused: "installNotPermitted", message: frame.error } : { refused: "decaid", message: frame.error });
+            }
+            const phase = frame.phase;
+            if (!opened) {
+              opened = true;
+              if (phase === "downloading" || phase === "installing") return settle({ refused: "decaid", message: `Decaid is ${String(phase)} its update already` });
+            }
+            if (phase === "installing") return settle({ started: true });
+            if (phase === "error") return settle({ refused: "decaid", message: typeof frame.error === "string" && frame.error !== "" ? frame.error : "Decaid could not update itself" });
+            if (phase === "checking" || phase === "downloading") underWay = true;
+            else if (phase === "idle" && underWay) settle({ refused: "decaid", message: "Decaid found no update to install" });
+          });
+          this.transports.send(handle, JSON.stringify({ command: "install" })).catch((error) => {
+            clearTimeout(timer);
+            reject(error instanceof Error ? error : new Error(String(error)));
+          });
+        });
+      } finally {
+        this.transports.close(handle);
+      }
     }
     /**
      * Has Decaid check for a newer release of itself, over its update socket,
@@ -5724,6 +5999,104 @@ var __decentSync = (() => {
       return "The Decent Sync plugin changes none of its own settings but its poll interval: its server address and Token are set on the Tablet";
     }
     return null;
+  }
+  var SKIN_KINDS = ["installSkin", "chooseDefaultSkin", "checkSkinUpdates", "removeSkin", "reloadSkin", "restartSkinView"];
+  function isSkinAction(action) {
+    return SKIN_KINDS.includes(action.kind);
+  }
+  function skinsIn(report) {
+    return Array.isArray(report.skins) ? report.skins.filter(isObject8) : [];
+  }
+  function defaultSkinId(report) {
+    return isObject8(report.default) && typeof report.default.id === "string" ? report.default.id : null;
+  }
+  function servedSkin(report) {
+    const server = isObject8(report.server) ? report.server : {};
+    if (server.serving !== true || typeof server.path !== "string") return void 0;
+    return skinsIn(report).find((skin) => skin.path === server.path);
+  }
+  function forbiddenOnSkins(action, before) {
+    if (action.kind === "removeSkin" && action.skinId === defaultSkinId(before)) return "The plugin does not remove the default Skin: choose another default first";
+    return null;
+  }
+  function skinsChangedSince(action, before, page) {
+    if (action.kind === "chooseDefaultSkin" || action.kind === "removeSkin") {
+      return skinsIn(before).some((skin) => skin.id === action.skinId) ? null : `The Tablet has no Skin ${action.skinId} any more`;
+    }
+    if (action.kind === "reloadSkin") {
+      const served = servedSkin(before);
+      if (served === void 0) return "Decaid serves no Skin now: restart the Skin view";
+      if (page === null || page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id)}, has not reported its page, so it can't be asked to reload`;
+    }
+    return null;
+  }
+  function askOnSkins(action) {
+    switch (action.kind) {
+      case "installSkin":
+        if (action.url !== void 0) return manage("POST", "/webui/skins/install/url", { url: action.url });
+        return action.branch === void 0 ? manage("POST", "/webui/skins/install/github-release", { repo: action.repo }) : manage("POST", "/webui/skins/install/github-branch", { repo: action.repo, branch: action.branch });
+      case "chooseDefaultSkin":
+        return manage("PUT", "/webui/skins/default", { skinId: action.skinId });
+      case "checkSkinUpdates":
+        return manage("POST", "/webui/skins/update");
+      case "removeSkin":
+        return manage("DELETE", `/webui/skins/${encodeURIComponent(action.skinId)}`);
+      default:
+        return Promise.reject(new Error(`this plugin carries out no ${action.kind} this way`));
+    }
+  }
+  function skinNamed(skin) {
+    return {
+      ...typeof skin.id === "string" ? { skinId: skin.id } : {},
+      ...typeof skin.name === "string" && skin.name !== "" ? { name: skin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {},
+      ...typeof skin.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}
+    };
+  }
+  function skinInstalls(report) {
+    return new Map(
+      skinsIn(report).flatMap((skin) => {
+        if (typeof skin.id !== "string") return [];
+        const metadata = isObject8(skin.reaMetadata) ? skin.reaMetadata : {};
+        return [[skin.id, typeof metadata.installedAt === "string" ? metadata.installedAt : `${String(skin.version)} ${String(metadata.sourceUrl)}`]];
+      })
+    );
+  }
+  function installedSkin(before, after) {
+    const earlier = skinInstalls(before);
+    const now2 = skinInstalls(after);
+    const id = [...now2].find(([skinId, installed]) => earlier.get(skinId) !== installed)?.[0];
+    return id === void 0 ? void 0 : skinsIn(after).find((skin) => skin.id === id);
+  }
+  function skinResultOf(action, answer, before, after) {
+    const listed = (report, id) => report === void 0 ? void 0 : skinsIn(report).find((skin) => skin.id === id);
+    switch (action.kind) {
+      case "installSkin": {
+        const installed = after === void 0 ? void 0 : installedSkin(before, after);
+        return installed === void 0 ? {} : skinNamed(installed);
+      }
+      case "chooseDefaultSkin": {
+        const skin = listed(after, action.skinId) ?? listed(before, action.skinId);
+        return skin === void 0 ? { skinId: action.skinId } : skinNamed(skin);
+      }
+      case "removeSkin": {
+        const skin = listed(before, action.skinId);
+        return skin === void 0 ? { skinId: action.skinId } : skinNamed(skin);
+      }
+      case "checkSkinUpdates": {
+        const said = parsed5(answer.text);
+        const results = isObject8(said) && Array.isArray(said.results) ? said.results : [];
+        return {
+          results: results.filter(isObject8).flatMap((result) => {
+            if (typeof result.item !== "string" || typeof result.status !== "string") return [];
+            const skin = listed(after, result.item);
+            const version = typeof skin?.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {};
+            return [{ item: result.item.slice(0, MAX_SOFTWARE_NAME_LENGTH), status: result.status.slice(0, MAX_SOFTWARE_NAME_LENGTH), ...typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}, ...version }];
+          })
+        };
+      }
+      default:
+        return {};
+    }
   }
   function mayReloadItself(action) {
     if (action.kind === "installPlugin" || action.kind === "checkPluginUpdates") return true;
@@ -6847,7 +7220,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1e3} s.`]
   ]);
   var SyncConnection = class {
-    constructor(host, settings, log, notice) {
+    constructor(host, settings, log, notice, pages) {
       __publicField(this, "host", host);
       __publicField(this, "settings", settings);
       __publicField(this, "log", log);
@@ -6900,6 +7273,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       __publicField(this, "settingsEdits");
       /** Carries out the Software Actions the server asks for, one at a time, in the Settings Edits' queue (ADR-0034). */
       __publicField(this, "softwareActions");
+      /** Stops reporting each page a Skin reports, as the connection stops. */
+      __publicField(this, "stopPageReports");
       /** Writes the edits of Shots made through the server into the Shots the tablet holds, one at a time (ADR-0031). */
       __publicField(this, "shotEdits", new ShotEdits());
       /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
@@ -6980,10 +7355,12 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         settings.pollSeconds * 1e3,
         this.activity,
         (value) => this.loadedRecipes.sawRecipes(value),
-        softwareAccess
+        softwareAccess,
+        () => pages.latest()
       );
+      this.stopPageReports = pages.onReport(() => this.collections.reportSkinPage());
       this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
-      this.softwareActions = new SoftwareActions(softwareAccess, this.outbox, this.collections, this.storage, localTransports, log);
+      this.softwareActions = new SoftwareActions(softwareAccess, this.outbox, this.collections, this.storage, localTransports, log, pages);
       this.writes = new LibraryWrites(
         library,
         this.outbox,
@@ -7044,6 +7421,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       this.loadedRecipes.stop();
       this.settingsEdits.stop();
       this.softwareActions.stop();
+      this.stopPageReports();
       this.shot.stop();
       this.liveView.stop();
       this.tabletId.stop();
@@ -7505,11 +7883,84 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     return `${scheme}://${match[2]}${SYNC_PATH}`;
   }
 
+  // src/skin-page.ts
+  var PAGE_ENDPOINT = "page";
+  var CHANGES_ENDPOINT2 = "changes";
+  var RELOAD = { what: "reload" };
+  var MAX_AHEAD_MS = 6e4;
+  var INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+  var SkinPages = class {
+    constructor(host, log) {
+      __publicField(this, "host", host);
+      __publicField(this, "log", log);
+      __publicField(this, "page", null);
+      __publicField(this, "listeners", /* @__PURE__ */ new Set());
+    }
+    /** The page last reported in this load, or null. */
+    latest() {
+      return this.page;
+    }
+    /** Calls `listener` with each page reported from now on, until the function it returns is called. */
+    onReport(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    /**
+     * Answers a request to `page`, or undefined for any other endpoint. A PUT
+     * of `{ skinId, version, loadedAt }` is kept, stamped with when it was
+     * heard, and answered 204; a body of another shape 400, saying what is
+     * wrong with it; any other method 405.
+     */
+    answer(request2) {
+      if (request2.endpoint !== PAGE_ENDPOINT) return void 0;
+      if (request2.method !== "PUT") return { ...json3(405, { error: "Only PUT is answered" }), headers: { "Content-Type": "application/json", Allow: "PUT" } };
+      const body = request2.body;
+      const fields = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
+      const problems = [
+        ...typeof fields.skinId === "string" && fields.skinId !== "" && fields.skinId.length <= MAX_SOFTWARE_NAME_LENGTH ? [] : ["Give skinId, the Skin's id as Decaid's Skin list names it"],
+        ...fields.version === void 0 || fields.version === null || typeof fields.version === "string" && fields.version.length <= MAX_SOFTWARE_NAME_LENGTH ? [] : ["Give version as text, or leave it out"],
+        ...isLoadTime(fields.loadedAt) ? [] : ["Give loadedAt, when the page loaded, as an ISO 8601 time such as new Date(performance.timeOrigin).toISOString() gives"]
+      ];
+      if (problems.length > 0) return json3(400, { code: "invalidRequest", message: problems.join(". ") + "." });
+      const page = {
+        skinId: fields.skinId,
+        ...typeof fields.version === "string" && fields.version !== "" ? { version: fields.version } : {},
+        loadedAt: new Date(Date.parse(fields.loadedAt)).toISOString(),
+        reportedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      this.page = page;
+      for (const listener of [...this.listeners]) {
+        try {
+          listener(page);
+        } catch (error) {
+          this.log(`Could not take in a Skin's page report: ${describe6(error)}`);
+        }
+      }
+      return { status: 204, headers: {}, body: "" };
+    }
+    /** Asks the Skins listening on `changes` to load their page again. Throws if Decaid refuses the push. */
+    askReload() {
+      this.host.emit(CHANGES_ENDPOINT2, RELOAD);
+    }
+  };
+  function isLoadTime(value) {
+    if (typeof value !== "string" || !INSTANT.test(value)) return false;
+    const time = Date.parse(value);
+    return Number.isFinite(time) && time <= Date.now() + MAX_AHEAD_MS;
+  }
+  function json3(status, body) {
+    return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  }
+  function describe6(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   // src/index.ts
   function createPlugin(host) {
     let connection;
     const log = (message) => host.log(message);
     const notice = new TabletNotice(host, log);
+    const pages = new SkinPages(host, log);
     return {
       id: "decent-sync.reaplugin",
       version: "1.12.2",
@@ -7521,7 +7972,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           notice.withdraw();
           return;
         }
-        connection = new SyncConnection(host, read.settings, log, notice);
+        connection = new SyncConnection(host, read.settings, log, notice, pages);
         connection.start();
       },
       onUnload() {
@@ -7538,7 +7989,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       },
       // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking what the server
       // holds is told the server can't be reached.
-      __httpRequestHandler: (request2) => answerSkin(request2, connection?.skinRequests, connection?.references) ?? answerHttp(request2)
+      __httpRequestHandler: (request2) => pages.answer(request2) ?? answerSkin(request2, connection?.skinRequests, connection?.references) ?? answerHttp(request2)
     };
   }
   return __toCommonJS(index_exports);

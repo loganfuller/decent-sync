@@ -1,5 +1,6 @@
 // Software Actions (ADR-0034, #657): what an Admin asks a Tablet to do to its
-// plugins and to Decaid through the management interface, one at a time, as
+// plugins, its Skins and Decaid through the management interface, and what
+// Staff at the Machine's Location may ask of its Skin view, one at a time, as
 // a Settings Edit is made (ADR-0023): only while the Tablet is connected,
 // never queued, and kept with who asked and what came of it. The wire
 // messages, shared by the plugin, which carries each out through Decaid's
@@ -34,7 +35,23 @@ export const OWN_CHANGEABLE_SETTING = "PollSeconds";
  *   permission the plugin does not hold, which waits for approval;
  * - `approvePluginUpdate`: installs a plugin's update that waits;
  * - `removePlugin`: removes a plugin with its settings;
- * - `checkDecaidUpdate`: has Decaid check for a newer release of itself.
+ * - `installSkin`: installs a Skin from a GitHub repository, its latest
+ *   release or the head of a branch, or from a URL serving a zip, such as a
+ *   commit's archive, which never moves. Decaid installs no Skin from a
+ *   commit given as a branch;
+ * - `chooseDefaultSkin`: makes a Skin the one Decaid serves as it starts and
+ *   after its Skin view restarts, which is the next time it shows;
+ * - `checkSkinUpdates`: has Decaid check every Skin it updates for a newer
+ *   build now, installing each it finds;
+ * - `removeSkin`: removes a Skin that is neither the default nor one that
+ *   comes with Decaid;
+ * - `reloadSkin`: asks the Skin on screen to load its page again, which a
+ *   Skin that reports its page does (`SkinPage`);
+ * - `restartSkinView`: stops and starts Decaid's Skin server, which has
+ *   Decaid build its Skin view again on the default Skin;
+ * - `checkDecaidUpdate`: has Decaid check for a newer release of itself;
+ * - `startDecaidUpdate`: has Decaid download its update and open Android's
+ *   installer, which someone at the Tablet confirms.
  */
 export const SOFTWARE_ACTION_KINDS = [
   "installPlugin",
@@ -44,7 +61,14 @@ export const SOFTWARE_ACTION_KINDS = [
   "checkPluginUpdates",
   "approvePluginUpdate",
   "removePlugin",
+  "installSkin",
+  "chooseDefaultSkin",
+  "checkSkinUpdates",
+  "removeSkin",
+  "reloadSkin",
+  "restartSkinView",
   "checkDecaidUpdate",
+  "startDecaidUpdate",
 ] as const;
 
 export type SoftwareActionKind = (typeof SOFTWARE_ACTION_KINDS)[number];
@@ -55,10 +79,23 @@ export function isSoftwareActionKind(kind: unknown): kind is SoftwareActionKind 
 
 /**
  * The kinds that have Decaid download something, which get the longer time
- * (`softwareActionMs`): an install, an update check, and the approval of an
- * update that waits, which installs it.
+ * (`softwareActionMs`): an install, an update check, the approval of an
+ * update that waits, which installs it, and the start of Decaid's own
+ * update, which downloads it.
  */
-const DOWNLOADING_KINDS: readonly string[] = ["installPlugin", "checkPluginUpdates", "approvePluginUpdate", "checkDecaidUpdate"];
+const DOWNLOADING_KINDS: readonly string[] = ["installPlugin", "checkPluginUpdates", "approvePluginUpdate", "installSkin", "checkSkinUpdates", "checkDecaidUpdate", "startDecaidUpdate"];
+
+/**
+ * The kinds Staff at the Machine's Location may make besides Admins, and
+ * the only ones an assistant may (ADR-0034): reloading the Skin and
+ * restarting the Skin view, which put no code on the Tablet. Every other
+ * kind is an Admin's alone.
+ */
+export const SKIN_VIEW_KINDS = ["reloadSkin", "restartSkinView"] as const satisfies readonly SoftwareActionKind[];
+
+export function isSkinViewKind(kind: unknown): kind is (typeof SKIN_VIEW_KINDS)[number] {
+  return typeof kind === "string" && (SKIN_VIEW_KINDS as readonly string[]).includes(kind);
+}
 
 /**
  * How long a Software Action of the kind has to be answered from when it was
@@ -92,6 +129,18 @@ export const MAX_UPDATE_RESULTS = 200;
 /** The most characters of a text setting's value. */
 export const MAX_PLUGIN_SETTING_LENGTH = 10_000;
 
+/** The most characters of the URL a Skin is installed from. */
+export const MAX_SKIN_URL_LENGTH = 2000;
+
+/** A URL a Skin is installed from: http or https, with no spaces, as Decaid's `install/url` downloads a zip from it. */
+export function isSkinUrl(value: unknown): value is string {
+  // The protocol runs where no URL class is assumed: a scheme, then a host, then anything but spaces.
+  return typeof value === "string" && value.length <= MAX_SKIN_URL_LENGTH && /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:[/?#]\S*)?$/i.test(value);
+}
+
+/** How long Reload waits for the Skin's fresh page to report in before it is not confirmed. */
+export const SKIN_RELOAD_MS = 15_000;
+
 /** A GitHub repository as Decaid's install routes take one: `owner/name`. */
 export function isPluginRepo(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAX_SOFTWARE_NAME_LENGTH && /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(value);
@@ -123,8 +172,8 @@ export function isSecretState(value: unknown): value is SecretState {
  * For each, it refuses it as `expired` once the connection that sent it has
  * closed, or with less than SOFTWARE_ACTION_START_MARGIN_MS of `timeLeftMs`
  * left; refuses what its own protections forbid as `notAllowed`: disabling
- * or removing itself, and changing any of its own settings but the poll
- * interval; reads the machine's state, but for `checkDecaidUpdate`, and
+ * or removing itself, changing any of its own settings but the poll
+ * interval, and removing the default Skin; reads the machine's state, but for `checkDecaidUpdate`, and
  * goes ahead only while the machine is running nothing
  * (SETTINGS_EDIT_STATES) or none is connected to the tablet; reads the
  * lists and reports them; makes Decaid's request through `host.localApi`;
@@ -170,7 +219,21 @@ export type SoftwareAction = {
        */
       expected: Record<string, unknown>;
     }
-  | { kind: "checkPluginUpdates" | "checkDecaidUpdate" }
+  | {
+      kind: "installSkin";
+      /** The GitHub repository, `owner/name`; absent for an install from a URL. */
+      repo?: string;
+      /** The branch whose head to install; absent for the repository's latest release. */
+      branch?: string;
+      /** The URL of a zip to install, in place of a repository. */
+      url?: string;
+    }
+  | {
+      kind: "chooseDefaultSkin" | "removeSkin";
+      skinId: string;
+    }
+  | { kind: "checkSkinUpdates" | "reloadSkin" | "restartSkinView" }
+  | { kind: "checkPluginUpdates" | "checkDecaidUpdate" | "startDecaidUpdate" }
 );
 
 /**
@@ -182,38 +245,79 @@ export type SoftwareAction = {
  * - `expired`: the plugin got it too late to start it. Nothing was asked of
  *   Decaid. Answered after the action was marked not confirmed, it leaves
  *   that mark;
- * - `notAllowed`: the plugin's own protections forbid it;
+ * - `notAllowed`: the plugin's own protections forbid it: disabling or
+ *   removing itself, changing its own server address or Token, or removing
+ *   the default Skin;
+ * - `installNotPermitted`: Decaid may not install its own update, as
+ *   Android's permission for it to install apps has not been granted at the
+ *   Tablet;
+ * - `noSkinServed`: the Skin view was stopped and did not start again, so
+ *   the Tablet shows no Skin;
  * - `decaid`: Decaid refused it, or did not answer, or was not asked, as for
  *   a kind this plugin does not carry out.
  */
-export const SOFTWARE_ACTED_REFUSALS = ["machineBusy", "changedSince", "expired", "notAllowed", "decaid"] as const;
+export const SOFTWARE_ACTED_REFUSALS = ["machineBusy", "changedSince", "expired", "notAllowed", "installNotPermitted", "noSkinServed", "decaid"] as const;
 
 export type SoftwareActedRefusal = (typeof SOFTWARE_ACTED_REFUSALS)[number];
 
-/** One plugin's result of an update check, as Decaid answers it: `updated`, `alreadyCurrent`, `pendingApproval` or `failed`, a failure with Decaid's words. */
+/** One plugin's or Skin's result of an update check, as Decaid answers it: `updated`, `alreadyCurrent`, `pendingApproval` or `failed`, a failure with Decaid's words. */
 export interface UpdateResult {
-  /** The plugin's id. */
+  /** The plugin's or Skin's id. */
   item: string;
   status: string;
   error?: string;
-  /** The version installed after the check, where the plugin list held the plugin. */
+  /** The version installed after the check, where the list held it. */
   version?: string;
+}
+
+/**
+ * The page a Skin reported it shows (`SkinPage`) as an action's result
+ * carries it: the Skin's id and version as it gave them, and when its page
+ * loaded.
+ */
+export interface ShownPage {
+  skinId: string;
+  version?: string;
+  loadedAt: string;
 }
 
 /** What came of a Software Action that was done. */
 export interface SoftwareActionResult {
   /** The plugin installed, enabled, disabled, configured, updated or removed. */
   pluginId?: string;
-  /** Its name, as the plugin list held it afterwards, or before where it was removed: what an install's log names it by. */
+  /** The Skin installed, made the default or removed, or the one served once the Skin view restarted. */
+  skinId?: string;
+  /** Its name, as the list held it afterwards, or before where it was removed: what an install's log names it by. */
   name?: string;
   /** Its version as installed afterwards. */
   version?: string;
   /** Whether it was loaded afterwards. */
   loaded?: boolean;
-  /** An update check's result for each plugin Decaid checked. */
+  /** An update check's result for each plugin or Skin Decaid checked. */
   results?: UpdateResult[];
-  /** Decaid's update state after a check for its own update, as `GET /update` answers. */
+  /** The fresh page a Skin reported once asked to reload. */
+  page?: ShownPage;
+  /** Decaid's update state after a check for its own update, or once its update started, as `GET /update` answers. */
   decaid?: Record<string, unknown>;
+}
+
+/**
+ * The page a Skin on the Tablet reported it shows, kept by the plugin and
+ * reported as the `skinPage` collection: what a Skin's author has it send
+ * the plugin's `page` endpoint each time its page loads and each time its
+ * connection to the plugin opens (docs/PLUGIN.md), with when the plugin
+ * heard it. Unavailable until a Skin reports one in this load of the
+ * plugin, so the server keeps the page an earlier load heard of.
+ */
+export interface SkinPage {
+  /** The Skin's id, as Decaid's Skin list names it. */
+  skinId: string;
+  /** Its version, as its manifest gives it; absent where it gave none. */
+  version?: string;
+  /** When the page loaded, by the tablet's clock, as the Skin gave it. */
+  loadedAt: string;
+  /** When the plugin last heard from that page, by the tablet's clock. */
+  reportedAt: string;
 }
 
 /**
@@ -228,8 +332,13 @@ export interface SoftwareActed {
   type: "softwareActed";
   /** The action's id. */
   id: string;
-  /** `done`: Decaid took it; `refused`: the plugin did not ask it to, or Decaid refused (`reason`). */
-  outcome: "done" | "refused";
+  /**
+   * `done`: Decaid took it; `refused`: the plugin did not ask it to, or
+   * Decaid refused (`reason`); `notConfirmed`: asked, but what came of it
+   * never showed, as a Skin asked to reload whose fresh page did not report
+   * in within SKIN_RELOAD_MS, said in `message`.
+   */
+  outcome: "done" | "refused" | "notConfirmed";
   /** Why it was refused; absent once done. */
   reason?: SoftwareActedRefusal;
   /** For `machineBusy`: the machine's state, as Decaid names it. */
@@ -238,9 +347,9 @@ export interface SoftwareActed {
   status?: number | null;
   /**
    * For `decaid`: what Decaid answered (its `error`), or why it did not
-   * answer or was not asked. For `changedSince` and `notAllowed`: what no
-   * longer held, or what the plugin would not do, in words. Cut to
-   * MAX_REFUSAL_LENGTH, and never a setting's value.
+   * answer or was not asked. For the other refusals, and for `notConfirmed`:
+   * what no longer held, what the plugin would not do, or what did not
+   * show, in words. Cut to MAX_REFUSAL_LENGTH, and never a setting's value.
    */
   message?: string;
   /** What came of it, once done. */

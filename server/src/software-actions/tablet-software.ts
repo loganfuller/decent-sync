@@ -80,6 +80,26 @@ export interface SkinView {
   /** Whether Decaid's Skin server is serving this Skin now. */
   served: boolean;
   updates: UpdatesView;
+  /** Whether it may be removed: it is neither the default nor one that comes with Decaid. */
+  removable: boolean;
+  /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
+  pageReported: boolean;
+}
+
+/**
+ * What the Tablet shows (#661): the Skin served now, the page it reported
+ * showing where it reports one, and the default Skin where a restart of
+ * the Skin view would show another.
+ */
+export interface ShowingView {
+  /** The Skin Decaid's Skin server serves now, with the version installed; null while it serves none. */
+  skin: { id: string; name: string | null; version: string | null } | null;
+  /** The page that Skin last reported, by the tablet's clock; null where it reported none. */
+  page: { version: string | null; loadedAt: string; reportedAt: string } | null;
+  /** Whether the version installed is another than the one its page reported, so that a reload is due. */
+  newerInstalled: boolean;
+  /** The default Skin where it is not the one served: it shows once the Skin view restarts. */
+  nextDefault: { id: string; name: string | null } | null;
 }
 
 /** Decaid's own update state, as its `GET /update` answered. */
@@ -108,6 +128,8 @@ export interface TabletSoftwareView {
   plugins: PluginView[] | null;
   /** Null until the Tablet reports its Skins. */
   skins: SkinView[] | null;
+  /** Null until the Tablet reports its Skins. */
+  showing: ShowingView | null;
   /**
    * Whether the Tablet's plugin is from before Software Actions, so that
    * none is sent to it until it updates (ADR-0025).
@@ -205,13 +227,15 @@ export function settingViews(declared: unknown, own: boolean, held?: Record_, or
 
 /** A Machine's Tablet Software from its Tablet's latest reports; `admin` says whether the plugins' settings are given with their values. */
 export function tabletSoftwareView(
-  reports: { plugins: Report | null; pluginSettings: Report | null; skins: Report | null; decaidUpdate: Report | null; appSettings: Report | null },
+  reports: { plugins: Report | null; pluginSettings: Report | null; skins: Report | null; skinPage: Report | null; decaidUpdate: Report | null; appSettings: Report | null },
   machine: { decaidVersion: string | null; pluginMustUpdate: boolean },
   admin: boolean,
 ): TabletSoftwareView {
   const plugins = latestValue(reports.plugins);
   const held = latestValue(reports.pluginSettings);
   const skins = latestValue(reports.skins);
+  const page = latestValue(reports.skinPage);
+  const skinList = skinViews(skins, page);
   const update = latestValue(reports.decaidUpdate);
   const settings = latestValue(reports.appSettings);
   const [version, build] = (machine.decaidVersion ?? "").split("+");
@@ -232,22 +256,95 @@ export function tabletSoftwareView(
       automaticUpdateCheck: isRecord(settings) && typeof settings.automaticUpdateCheck === "boolean" ? settings.automaticUpdateCheck : null,
     },
     plugins: Array.isArray(plugins) ? plugins.filter(isRecord).flatMap((plugin) => pluginView(plugin, isRecord(held) ? held[String(plugin.id)] : undefined, admin) ?? []) : null,
-    skins: skinViews(skins),
+    skins: skinList,
+    showing: skinList === null ? null : showingView(skinList, page),
     pluginMustUpdate: machine.pluginMustUpdate,
   };
 }
 
-/** The Skins as last reported: the default by its id, the served one by the path Decaid's Skin server serves. */
-export function skinViews(skins: unknown): SkinView[] | null {
+/**
+ * The Skins as last reported: the default by its id, the served one by the
+ * path Decaid's Skin server serves, and whether that one reported its page,
+ * by the `skinPage` collection's value (`page`).
+ */
+export function skinViews(skins: unknown, page?: unknown): SkinView[] | null {
   if (!isRecord(skins) || !Array.isArray(skins.skins)) return null;
   const defaultId = isRecord(skins.default) ? text(skins.default.id) : null;
   const server = isRecord(skins.server) ? skins.server : null;
   const servedPath = server?.serving === true ? text(server.path) : null;
+  const pageOf = isRecord(page) ? text(page.skinId) : null;
   return skins.skins.filter(isRecord).flatMap((skin): SkinView[] => {
     const id = text(skin.id);
     if (id === null) return [];
-    return [{ id, name: text(skin.name), version: text(skin.version), default: id === defaultId, served: servedPath !== null && skin.path === servedPath, updates: skinUpdates(skin) }];
+    const updates = skinUpdates(skin);
+    const isDefault = id === defaultId;
+    const served = servedPath !== null && skin.path === servedPath;
+    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, removable: !isDefault && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
   });
+}
+
+/** What the Tablet shows, from its Skins and the page last reported (`skinPage`). */
+export function showingView(skins: readonly SkinView[], page: unknown): ShowingView {
+  const served = skins.find((skin) => skin.served) ?? null;
+  const shown = served?.pageReported && isRecord(page) ? page : null;
+  const loadedAt = shown === null ? null : text(shown.loadedAt);
+  const reportedAt = shown === null ? null : text(shown.reportedAt);
+  const pageView = shown !== null && loadedAt !== null && reportedAt !== null ? { version: text(shown.version), loadedAt, reportedAt } : null;
+  const nextDefault = skins.find((skin) => skin.default && !skin.served) ?? null;
+  return {
+    skin: served && { id: served.id, name: served.name, version: served.version },
+    page: pageView,
+    newerInstalled: pageView !== null && served !== null && pageView.version !== null && served.version !== null && pageView.version !== served.version,
+    nextDefault: nextDefault && { id: nextDefault.id, name: nextDefault.name },
+  };
+}
+
+/**
+ * A source a Skin is installed from on other Machines, which the Skin
+ * install form offers: a repository, with its branch for one that follows
+ * one, or a URL, with the Skin's name and version there and how many
+ * Machines use it. Skins that come with Decaid and ones with no recorded
+ * source are left out.
+ */
+export interface SkinSourceView {
+  skinId: string;
+  name: string | null;
+  /** The version installed from it, the highest reported where Machines differ. */
+  version: string | null;
+  /** The repository an install names, with its branch, null for the latest release; or the URL, with no repository. */
+  repo: string | null;
+  branch: string | null;
+  url: string | null;
+  updates: UpdatesView;
+  machines: number;
+}
+
+/** The distinct sources of the Skins in several Machines' Skin reports, most used first. */
+export function skinSources(reports: readonly unknown[]): SkinSourceView[] {
+  const found = new Map<string, SkinSourceView>();
+  for (const report of reports) {
+    if (!isRecord(report) || !Array.isArray(report.skins)) continue;
+    const seen = new Set<string>();
+    for (const skin of report.skins.filter(isRecord)) {
+      const id = text(skin.id);
+      const updates = skinUpdates(skin);
+      let source: { repo: string | null; branch: string | null; url: string | null } | null = null;
+      if (updates.how === "followsReleases" && updates.repo !== null) source = { repo: updates.repo, branch: null, url: null };
+      else if (updates.how === "followsBranch" && updates.repo !== null) source = { repo: updates.repo, branch: updates.branch, url: null };
+      else if ((updates.how === "pinned" || updates.how === "followsUrl") && updates.url !== null) source = { repo: null, branch: null, url: updates.url };
+      if (id === null || source === null) continue;
+      const key = JSON.stringify([id, source.repo?.toLowerCase() ?? null, source.branch, source.url]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const version = text(skin.version);
+      const earlier = found.get(key);
+      if (earlier) {
+        earlier.machines += 1;
+        if (version !== null && (earlier.version === null || version.localeCompare(earlier.version, undefined, { numeric: true }) > 0)) earlier.version = version;
+      } else found.set(key, { skinId: id, name: text(skin.name), version, ...source, updates, machines: 1 });
+    }
+  }
+  return [...found.values()].sort((a, b) => b.machines - a.machines || (a.name ?? a.skinId).localeCompare(b.name ?? b.skinId));
 }
 
 /**

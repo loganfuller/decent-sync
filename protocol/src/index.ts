@@ -21,6 +21,7 @@ import {
   type SoftwareActed,
   type SoftwareAction,
   isPluginRepo,
+  isSkinUrl,
 } from "./software-actions.js";
 
 export * from "./chunking.js";
@@ -590,6 +591,9 @@ export interface MachineStateDelivery {
  * - `decaidUpdate`, Decaid's own update state, as its `GET /update` answers;
  * - `skins`, Decaid's Skins: their list, the default Skin and what the WebUI
  *   server serves;
+ * - `skinPage`, the page a Skin last reported it shows (`SkinPage`), which
+ *   the plugin holds rather than reads from Decaid, unavailable until a
+ *   Skin reports one in the plugin's load (ADR-0034);
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
  * - `scaleInfo`, the connected scale's firmware and battery level;
  * - `sensors`.
@@ -612,6 +616,7 @@ export const COLLECTION_NAMES = [
   "pluginSettings",
   "decaidUpdate",
   "skins",
+  "skinPage",
   "pairedDevices",
   "scaleInfo",
   "sensors",
@@ -2840,7 +2845,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
     case "softwareActed":
       return check<SoftwareActed>(object, "softwareActed", (fields) => {
         fields.uuid("id");
-        fields.oneOf("outcome", ["done", "refused"]);
+        fields.oneOf("outcome", ["done", "refused", "notConfirmed"]);
         if (object.outcome === "refused") fields.oneOf("reason", SOFTWARE_ACTED_REFUSALS);
         else fields.absent("reason");
         if (object.reason === "machineBusy") fields.string("state", { nonEmpty: true, maxLength: MAX_HARDWARE_LENGTH });
@@ -2851,6 +2856,14 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.optionalObject("result", (result) => {
           const given = isObject(object.result) ? object.result : {};
           if (given.pluginId !== undefined) result.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.skinId !== undefined) result.string("skinId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.page !== undefined) {
+            result.optionalObject("page", (page) => {
+              page.string("skinId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              if (isObject(given.page) && given.page.version !== undefined) page.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+              page.instant("loadedAt");
+            });
+          }
           if (given.name !== undefined) result.string("name", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
           if (given.version !== undefined) result.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
           if (given.loaded !== undefined) result.boolean("loaded");
@@ -3054,6 +3067,21 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
             fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
             fields.objectField("values");
             fields.objectField("expected");
+            break;
+          case "installSkin":
+            // From a repository, with or without a branch, or from a URL: never both.
+            if (object.url !== undefined) {
+              fields.skinUrl("url");
+              fields.absent("repo");
+              fields.absent("branch");
+            } else {
+              fields.pluginRepo("repo");
+              if (object.branch !== undefined) fields.string("branch", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            }
+            break;
+          case "chooseDefaultSkin":
+          case "removeSkin":
+            fields.string("skinId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
             break;
           default:
             break;
@@ -3271,6 +3299,11 @@ class FieldChecker {
   /** A GitHub repository a plugin is installed from (`isPluginRepo`). */
   pluginRepo(key: string): void {
     if (!isPluginRepo(this.object[key])) this.problem(key, "must be a GitHub repository, as owner/name");
+  }
+
+  /** A URL a Skin is installed from (`isSkinUrl`). */
+  skinUrl(key: string): void {
+    if (!isSkinUrl(this.object[key])) this.problem(key, "must be an http or https URL");
   }
 
   /** Any JSON value but null. */
