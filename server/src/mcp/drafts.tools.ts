@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
-import { MACHINE_MODELS, STARTING_SHAPES } from "@decent-sync/protocol";
+import { MACHINE_MODELS, PROFILE_TEXT_FIELDS, STARTING_SHAPES } from "@decent-sync/protocol";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { type DraftSummary, type DraftView, DraftsService, MAX_DRAFT_STEPS } from "../library/drafts.service.js";
@@ -57,7 +57,13 @@ const draftItem = draftSummary.extend({
   checks: z
     .object({ blocking: z.array(checkShape), advice: z.array(checkShape) })
     .describe(
-      "Its checks, but those of a simulated run, which simulate_draft adds: blocking, what would stop it being published, as no title, no steps, a step with no name, a value out of range, more steps than a machine takes or steps a Library Profile has (sameSteps); and advice, what the machine accepts but may not be meant, each naming its step by index, or null for the whole profile.",
+      "Its checks, but those of a simulated run, which simulate_draft adds: blocking, what would stop it being published, as no title, no steps, a step with no name, a value out of range, more steps than a machine takes or steps a Library Profile has (sameSteps), but for a new version with the steps of startedFrom, which edits its title, author and notes (editsText) and is stopped where it changes none of them (unchanged) or takes a title another Profile has (titleInUse); and advice, what the machine accepts but may not be meant, each naming its step by index, or null for the whole profile.",
+    ),
+  editsText: z
+    .array(z.enum(PROFILE_TEXT_FIELDS))
+    .nullable()
+    .describe(
+      "For a new version whose steps are those of startedFrom, its profileId being startedFrom's: which of startedFrom's title, author and notes it changes. Publishing it then edits those of startedFrom, as edit_profile does, and makes no Profile, so publish_draft is given no locations or recipes; empty where it changes nothing, which can't be published. Null for any other Draft, which publishing makes a Profile.",
     ),
   newer: z
     .array(newerShape)
@@ -182,7 +188,13 @@ const whereInput = {
 const publishInput = z.object({
   id: id.describe("The Draft."),
   saves: z.number().int().min(1).describe("The Draft's saves as last read: refused where someone saved it since, as the person would publish what they haven't seen."),
-  ...whereInput,
+  locations: z
+    .array(id)
+    .optional()
+    .describe(
+      "The ids of the Locations to show it at, at least one; Staff only those they work at. For a new version, those showing the Profile it replaces are the usual choice. None for a Draft whose editsText is a list, which edits the Profile it started from where it is.",
+    ),
+  recipes: whereInput.recipes,
 });
 
 const returnInput = z.object({
@@ -200,6 +212,12 @@ const publishedOutput = z.object({
     keptAt: z.array(z.object({ location: placeShape, recipes: z.array(recipeRefShape) })).describe("Locations chosen that still show the Profile it replaced, as Recipes there not moved name it."),
     moved: z.array(recipeRefShape).describe("The Recipes moved to it, each an edit in its history, reaching the Machines that have it loaded."),
     forked: z.array(newerShape).describe("Newer versions of the Profile the Draft started from, beside which it now forks the chain."),
+    edited: z
+      .array(z.enum(PROFILE_TEXT_FIELDS))
+      .nullable()
+      .describe(
+        "For a Draft with the steps of the Profile it started from, which publishing made an edit of that Profile: which of its title, author and notes changed. profile is then the Profile edited, under its own id, replaced null, and nothing was shown, hidden or moved. Null where a Profile was published, or a version returned to.",
+      ),
   }),
 });
 
@@ -329,14 +347,14 @@ export class DraftsTools {
   @BudgetedTool({
     name: "publish_draft",
     title: "Publish a Draft",
-    description: `Publishes a Draft, making it a Profile under the id Decaid computes, as its page in the management interface does: shown at the Locations given, where the Library writes it to the tablets as any Profile, whether or not they are online now, and the Draft discarded. As a new version (publishesAs version), the Recipes given move to it, and the Profile it started from is hidden at each Location given but where a Recipe not moved still names it; as a separate Profile, it moves no Recipes and the one it started from is untouched. Refused for what get_draft's blocking checks name, for a title a Profile shown at one of the Locations has (but the versions it replaces), and at a Location with a Machine that can't run it. Tell the person what it changes at each Location, the Recipes and the Machines that have them loaded, and ask before calling it. ${DRAFTS}`,
+    description: `Publishes a Draft, making it a Profile under the id Decaid computes, as its page in the management interface does: shown at the Locations given, where the Library writes it to the tablets as any Profile, whether or not they are online now, and the Draft discarded. As a new version (publishesAs version), the Recipes given move to it, and the Profile it started from is hidden at each Location given but where a Recipe not moved still names it; as a separate Profile, it moves no Recipes and the one it started from is untouched. Refused for what get_draft's blocking checks name, for a title a Profile shown at one of the Locations has (but the versions it replaces), and at a Location with a Machine that can't run it. A new version whose steps are those of the Profile it started from (get_draft's editsText a list) has that Profile's id, so is no new Profile: publishing it edits that Profile's title, author and notes as edit_profile does, written to every tablet that holds it and kept in its history, given no locations or recipes, and changes nothing else; refused where it changes none of them, for a title another Profile has, and for one of Decaid's bundled Profiles. Tell the person what it changes at each Location, the Recipes and the Machines that have them loaded, or, for an edit, which of the Profile's title, author and notes change, and ask before calling it. ${DRAFTS}`,
     inputSchema: publishInput,
     outputSchema: publishedOutput,
     annotations: { ...CHANGES, idempotentHint: false },
     scopes: [READ, CHANGE],
   })
-  async publishDraft({ id: draftId, saves, locations, recipes = [] }: z.infer<typeof publishInput>, context: McpContext): Promise<{ published: PublishedView }> {
-    return { published: await this.publishing.publish(draftId, { ...readWhere(locations, recipes), saves }, editorOf(context), callerOf(context).scope) };
+  async publishDraft({ id: draftId, saves, locations = [], recipes = [] }: z.infer<typeof publishInput>, context: McpContext): Promise<{ published: PublishedView }> {
+    return { published: await this.publishing.publish(draftId, { ...readPublishAsk({ locations, recipes }, false), saves }, editorOf(context), callerOf(context).scope) };
   }
 
   @BudgetedTool({

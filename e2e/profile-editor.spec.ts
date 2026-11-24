@@ -83,10 +83,12 @@ test("Edit on a Profile's page starts a Draft of it, saved as it changes in the 
   await expect(page).toHaveURL(/\/library\/drafts\//);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Lab Soak Draft");
   await expect(page.getByText("Will publish as a new version of Lab Soak")).toBeVisible();
-  // Unchanged, its steps are the Profile's own, which stops it publishing.
+  // Unchanged, it is the Profile itself, which stops it publishing (#667).
   await expect(checksStatus(page)).toHaveAccessibleName(/^Checks: 1 thing stops publishing/);
   await checksStatus(page).click();
-  await expect(checks(page).getByRole("region", { name: "Stops it publishing" }).getByText('Its steps are those of "Lab Soak", which the Library has.')).toBeVisible();
+  await expect(
+    checks(page).getByRole("region", { name: "Stops it publishing" }).getByText('Nothing has changed: its steps, title, author and notes are those of "Lab Soak", which it started from.'),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(checks(page)).toHaveCount(0);
   const graph = page.getByRole("region", { name: "How it runs" });

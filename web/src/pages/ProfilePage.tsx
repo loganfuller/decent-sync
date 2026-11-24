@@ -13,7 +13,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useMayChange } from "@/auth";
 import { ItemHistoryCard, SourceText, itemPath } from "@/components/item-history";
 import { ItemShotsCard } from "@/components/item-shots";
-import { useStartDraft } from "@/components/drafts";
+import { textFieldsText, useStartDraft } from "@/components/drafts";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ArchiveButton, ContentForm, DeleteButton, PROFILE_FIELDS } from "@/components/library-forms";
@@ -624,10 +624,18 @@ function StepsCard({ definition, run }: { definition: ProfileDefinition | null; 
   );
 }
 
-/** What publishing, or returning to a version, did: where it is shown, where the one it replaced was hidden or kept shown, the Recipes moved, and any fork. */
+/** What publishing, or returning to a version, did: for a Draft that edited its title, author or notes, which (#667); otherwise where it is shown, where the one it replaced was hidden or kept shown, the Recipes moved, and any fork. */
 function PublishedNotice({ published }: { published: Published }) {
   const names = (places: { name: string }[]) => places.map((place) => place.name).join(", ");
   const replaced = published.replaced ? profileTitle(published.replaced) : null;
+  if (published.edited)
+    return (
+      <Alert role="status">
+        <AlertDescription>
+          <p>{`Its ${textFieldsText(published.edited)} changed. Tablets that hold it get the change as they get any edit of it.`}</p>
+        </AlertDescription>
+      </Alert>
+    );
   return (
     <Alert role="status">
       <AlertDescription className="grid gap-1">

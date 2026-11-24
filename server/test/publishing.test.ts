@@ -18,7 +18,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // there but where a Recipe not moved names it; a separate Profile leaves the
 // one it came from as it is; returning creates nothing; the refusals; a fork;
 // Staff and Viewers; a tablet answering under another id; a tablet off when
-// a Profile is published to its Location. Serials are made up, from 58001.
+// a Profile is published to its Location. A new version that changes only
+// the title, author or notes of the Profile it started from, so has its id,
+// is an edit of that Profile instead (#667). Serials are made up, from 58001.
 
 type Fields = Record<string, unknown>;
 
@@ -41,6 +43,7 @@ interface Published {
   keptAt: { location: Place; recipes: RecipeRef[] }[];
   moved: RecipeRef[];
   forked: { id: string; title: string | null; savedAt: string }[];
+  edited: string[] | null;
 }
 
 interface Draft {
@@ -50,6 +53,8 @@ interface Draft {
   profileId: string;
   publishesAs: "version" | "separate";
   newer: { id: string; title: string | null; savedAt: string }[];
+  checks: { blocking: { code: string; message: string }[] };
+  editsText: string[] | null;
 }
 
 interface ProfileView {
@@ -200,6 +205,7 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
       keptAt: [{ location: { id: cafe.id, name: "Publish cafe" }, recipes: [{ id: recipes.ristretto, name: "Publish Ristretto", location: { id: cafe.id, name: "Publish cafe" } }] }],
       moved: [{ id: recipes.espresso, name: "Publish Espresso", location: { id: cafe.id, name: "Publish cafe" } }],
       forked: [],
+      edited: null,
     });
     // The Draft is gone, and the Profile is the Library's, read through the other instance at once.
     expect((await api.call("GET", `/drafts/${draft.id}`)).status).toBe(404);
@@ -297,10 +303,14 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
 
   it("refuses steps a Profile has, naming it, a title shown at a Location chosen, what the checks stop, and a Draft saved since it was read", async () => {
     const third = profileId(soak("Publish soak", 7));
-    const unchanged = await start({ profileId: third, as: "version" });
-    const same = await refusal(api, "POST", `/drafts/${unchanged.id}/publish`, { saves: unchanged.saves, locations: [cafe.id] }, 409);
+    // A new version with another Profile's steps.
+    const another = await save(await start({ profileId: third, as: "version" }), soak("Publish soak", 7.5));
+    const same = await refusal(api, "POST", `/drafts/${another.id}/publish`, { saves: another.saves, locations: [cafe.id] }, 409);
     expect(same.message).toMatch(/Its steps are those of "Publish soak"/);
     expect(same.checks?.map((check) => check.code)).toEqual(["sameSteps"]);
+    // One unchanged, which is the Profile it started from, steps, title, author and notes (#667).
+    const unchanged = await start({ profileId: third, as: "version" });
+    expect((await refusal(api, "POST", `/drafts/${unchanged.id}/publish`, { saves: unchanged.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["unchanged"]);
 
     // A separate Profile titled as one shown at the cafe, refused there.
     const titled = await save(await start({ profileId: third, as: "separate" }), soak("publish SOAK ", 6));
@@ -335,6 +345,96 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect((await refusal(api, "POST", `/drafts/${read.id}/publish`, { saves: read.saves + 1, locations: ["00000000-0000-4000-8000-000000000000"] }, 404)).message).toBe("No such Location");
     expect((await refusal(api, "POST", `/drafts/${read.id}/publish`, { saves: read.saves + 1, locations: [] }, 400)).message).toEqual([expect.stringMatching(/at least one/)]);
     expect((await api.call("GET", `/drafts/${read.id}`)).status).toBe(200);
+  });
+
+  /** A Profile the cafe's tablet saves, by a barista, once the Library has it. */
+  async function savedOnCafeTablet(title: string, pressure: number): Promise<string> {
+    const record = await cafeTablet.addProfile({ ...derivedProfile(title, pressure), author: "Lab", notes: "First notes" });
+    await expect.poll(async () => (await api.call("GET", path(String(record.id)))).status, { timeout: 15_000 }).toBe(200);
+    return String(record.id);
+  }
+  const profileCount = async () => (await api.get<{ profiles: unknown[] }>("/profiles")).profiles.length;
+  /** The tablet's record of the Profile's title, author and notes, if it holds one. */
+  const textOn = (tablet: SimulatedTablet, id: string) => {
+    const held = tablet.profiles().find((record) => record.id === id)?.profile as Fields | undefined;
+    return held && { title: held.title, author: held.author, notes: held.notes };
+  };
+
+  it("publishes a new version that changes only the Profile's notes as an edit of that Profile, written to its tablets, changing nothing else (#667)", async () => {
+    const id = await savedOnCafeTablet("Publish text", 9.05);
+    const onIt = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: cafe.id, content: { name: "Publish Text Espresso", profileId: id } }, 201)).recipe.id;
+    const before = { count: await profileCount(), shown: await shownAt(id), content: (await profile(id)).content };
+
+    // Unchanged, it is the Profile itself, which leaves nothing to publish.
+    const draft = await start({ profileId: id, as: "version" });
+    expect(draft).toMatchObject({ profileId: id, editsText: [] });
+    expect((await refusal(api, "POST", `/drafts/${draft.id}/publish`, { saves: draft.saves }, 409)).checks?.map((check) => check.code)).toEqual(["unchanged"]);
+
+    // Its notes reworded: an edit of them, which its checks no longer stop, naming no Location or Recipe.
+    const reworded = await save(draft, { ...draft.profile, notes: "Reworded notes" });
+    expect(reworded).toMatchObject({ profileId: id, editsText: ["notes"], checks: { blocking: [] } });
+    for (const where of [{ locations: [cafe.id] }, { recipes: [onIt] }])
+      expect((await refusal(api, "POST", `/drafts/${reworded.id}/publish`, { saves: reworded.saves, ...where }, 400)).message).toMatch(/give no locations or recipes/);
+    const published = await publish(reworded, {});
+    expect(published).toEqual({ profile: { id, title: "Publish text" }, replaced: null, shownAt: [], hiddenAt: [], keptAt: [], moved: [], forked: [], edited: ["notes"] });
+
+    // The Draft is gone, and the Profile, under its id, read through the other instance, has the notes and nothing else changed.
+    expect((await api.call("GET", `/drafts/${reworded.id}`)).status).toBe(404);
+    expect(await profileCount()).toBe(before.count);
+    const after = (await profile(id, otherApi)).content;
+    expect(after.profile).toEqual({ ...(before.content.profile as Fields), notes: "Reworded notes" });
+    expect(after.parentId).toEqual(before.content.parentId);
+    expect(await shownAt(id)).toEqual(before.shown);
+    expect((await recipe(onIt)).content.profileId).toBe(id);
+    const history = (await api.get<{ versions: { fields: Fields; source: { account: { id: string } | null; machine: unknown } }[] }>(path(id, "/history"))).versions;
+    expect(history[0]).toMatchObject({ fields: { notes: "Reworded notes" }, source: { account: { id: adminId }, machine: null } });
+
+    // The tablet that holds it gets the notes, still one record under its id.
+    await expect.poll(() => textOn(cafeTablet, id), { timeout: 15_000 }).toEqual({ title: "Publish text", author: "Lab", notes: "Reworded notes" });
+    expect(cafeTablet.profiles().filter((record) => (record.profile as Fields).title === "Publish text").map((record) => record.id)).toEqual([id]);
+  });
+
+  it("refuses, as an edit of the Profile, a title another Profile has, Archived ones too; and as ever steps another Profile has, and a separate Profile with its source's (#667)", async () => {
+    const id = await savedOnCafeTablet("Publish retitled", 9.15);
+    const draft = await start({ profileId: id, as: "version" });
+
+    // Another Profile's title, as Streamline compares titles: its checks say so, and publishing refuses it, leaving the Draft and the Profile.
+    const taken = await save(draft, { ...draft.profile, title: "publish SOAK " });
+    expect(taken.editsText).toEqual(["title"]);
+    expect(taken.checks.blocking).toEqual([{ code: "titleInUse", step: null, path: "title", message: 'A Profile in the Library is titled "Publish soak" already.' }]);
+    expect((await refusal(api, "POST", `/drafts/${taken.id}/publish`, { saves: taken.saves }, 409)).checks?.map((check) => check.code)).toEqual(["titleInUse"]);
+    expect((await api.get<{ draft: Draft }>(`/drafts/${taken.id}`)).draft.saves).toBe(taken.saves);
+    expect(((await profile(id)).content.profile as Fields).title).toBe("Publish retitled");
+
+    // An Archived Profile's title too, as tablets keep their records hidden.
+    const archived = await savedOnCafeTablet("Publish archived title", 9.35);
+    await api.send("PUT", path(archived, "/archived"), { archived: true }, 200);
+    const asArchived = await save(taken, { ...draft.profile, title: "Publish Archived Title" });
+    expect((await refusal(api, "POST", `/drafts/${asArchived.id}/publish`, { saves: asArchived.saves }, 409)).checks?.map((check) => check.code)).toEqual(["titleInUse"]);
+
+    // A title of its own is taken, with its author, as one edit.
+    const retitled = await save(asArchived, { ...draft.profile, title: "Publish retitled v2", author: "Coffee lead" });
+    expect((await publish(retitled, {})).edited).toEqual(["title", "author"]);
+    expect(((await profile(id)).content.profile as Fields)).toMatchObject({ title: "Publish retitled v2", author: "Coffee lead", notes: "First notes" });
+
+    // Steps another Profile has, which it would be, are still refused, naming it.
+    const third = profileId(soak("Publish soak", 7));
+    const other = await start({ profileId: id, as: "version" });
+    const asThird = await save(other, { ...soak("Publish retitled v2", 7) });
+    expect(asThird.editsText).toBeNull();
+    expect(asThird.profileId).toBe(third);
+    expect((await refusal(api, "POST", `/drafts/${asThird.id}/publish`, { saves: asThird.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["sameSteps"]);
+
+    // A separate Profile needs steps of its own: with its source's, it is refused as ever, a bundled one's too, which only Duplicate starts a Draft from.
+    const copy = await start({ profileId: id, as: "separate" });
+    expect(copy.editsText).toBeNull();
+    expect((await refusal(api, "POST", `/drafts/${copy.id}/publish`, { saves: copy.saves, locations: [cafe.id] }, 409)).checks?.map((check) => check.code)).toEqual(["sameSteps"]);
+    expect((await refusal(api, "POST", "/drafts", { profileId: CLASSIC, as: "version" }, 409)).message).toMatch(/bundled/);
+    const classicCopy = await start({ profileId: CLASSIC, as: "separate" });
+    const fromBundled = await refusal(api, "POST", `/drafts/${classicCopy.id}/publish`, { saves: classicCopy.saves, locations: [cafe.id] }, 409);
+    expect(fromBundled.message).toMatch(/Its steps are those of "Classic Italian espresso"/);
+    // Any other Draft still names a Location to show it at.
+    expect((await refusal(api, "POST", `/drafts/${classicCopy.id}/publish`, { saves: classicCopy.saves }, 400)).message).toEqual([expect.stringMatching(/at least one/)]);
   });
 
   it("warns of a newer version the Library gained since the Draft began, and publishing then forks the chain", async () => {
@@ -407,6 +507,32 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     const staffReturn = await staffAssistant.client.callTool({ name: "return_to_profile_version", arguments: { profileId: latest, from: fourth, locations: [cafe.id] } });
     expect(staffReturn.isError).toBe(true);
     expect(JSON.stringify(staffReturn.content)).toMatch(/only at the Locations/);
+  });
+
+  it("publishes a Draft that changes only its Profile's text as an edit of it through an assistant, which get_draft tells apart (#667)", async () => {
+    const id = await savedOnCafeTablet("Publish text by assistant", 9.25);
+    const draft = await start({ profileId: id, as: "version" });
+    const unchanged = await assistant.client.callTool({ name: "publish_draft", arguments: { id: draft.id, saves: draft.saves } });
+    expect(unchanged.isError).toBe(true);
+    expect(JSON.stringify(unchanged.content)).toMatch(/Nothing has changed/);
+
+    const edited = await save(draft, { ...draft.profile, author: "Coffee lead" });
+    expect((await assistant.call<{ draft: Draft }>("get_draft", { id: draft.id })).draft).toMatchObject({ profileId: id, editsText: ["author"], checks: { blocking: [] } });
+    const { published } = await assistant.call<{ published: Published }>("publish_draft", { id: draft.id, saves: edited.saves });
+    expect(published).toEqual({ profile: { id, title: "Publish text by assistant" }, replaced: null, shownAt: [], hiddenAt: [], keptAt: [], moved: [], forked: [], edited: ["author"] });
+    expect((await api.call("GET", `/drafts/${draft.id}`)).status).toBe(404);
+    await expect.poll(() => textOn(cafeTablet, id), { timeout: 15_000 }).toEqual({ title: "Publish text by assistant", author: "Coffee lead", notes: "First notes" });
+
+    // A title another Profile has is refused here too; and an edit given a Location to show it at.
+    const again = await start({ profileId: id, as: "version" });
+    const taken = await save(again, { ...again.profile, title: "Publish soak" });
+    const refused = await assistant.client.callTool({ name: "publish_draft", arguments: { id: again.id, saves: taken.saves } });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toMatch(/titled \\"Publish soak\\" already/);
+    const notes = await save(taken, { ...again.profile, notes: "By assistant" });
+    const placed = await assistant.client.callTool({ name: "publish_draft", arguments: { id: again.id, saves: notes.saves, locations: [cafe.id] } });
+    expect(placed.isError).toBe(true);
+    expect(JSON.stringify(placed.content)).toMatch(/give no locations or recipes/);
   });
 
   it("publishes to a Location whose tablet is off, which gets it on connecting", async () => {

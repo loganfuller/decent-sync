@@ -1,6 +1,7 @@
-import type { Profile as ProfileDefinition } from "@decent-sync/protocol";
+import { type Profile as ProfileDefinition, type ProfileTextField, profileTextOf } from "@decent-sync/protocol";
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
+import { textFieldsText } from "@/components/drafts";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { formatTime, useLocations } from "@/components/machines";
 import { profilePath, profileTitle } from "@/components/profiles";
@@ -22,6 +23,9 @@ import { definitionOf } from "@/pages/ProfilePage";
 // shown for a Recipe not moved; and, for a Draft whose source gained a
 // newer version since it began, that publishing forks the chain, with how
 // that version differs from the Draft. Staff choose only their Locations.
+// A new version with the steps of the Profile it started from edits that
+// Profile's title, author and notes instead (#667): the dialog says which,
+// before and after, and asks for no Locations or Recipes.
 
 /** What the dialog publishes: a Draft, as it stands now, or a return to an earlier version of a Profile. */
 export type PublishTarget =
@@ -30,6 +34,8 @@ export type PublishTarget =
       draft: Draft;
       /** The Draft's profile as the page has it now, which it has saved. */
       profile: ProfileDefinition;
+      /** What publishing it edits of the Profile it started from, where its steps are that Profile's (`textEditOf` in protocol/); null otherwise. */
+      editsText: ProfileTextField[] | null;
       /** The Draft's count of saves as the page has saved it. */
       saves(): number;
     }
@@ -46,11 +52,18 @@ function sourceOf(draft: Draft): string | null {
   return draft.startedFrom && draft.startedFrom.bundled !== null ? draft.startedFrom.id : null;
 }
 
-/** The Profile a target replaces, if any: a new version's source, or the later version returned from. */
+/** What a Draft target edits of the Profile it started from, where it changes some of its title, author and notes and nothing else; null otherwise. */
+function editedText(target: PublishTarget): ProfileTextField[] | null {
+  return target.kind === "draft" && target.editsText && target.editsText.length > 0 ? target.editsText : null;
+}
+
+/** The Profile a target replaces, if any: a new version's source, or the later version returned from; none for a text edit, which replaces nothing. */
 function replacedId(target: PublishTarget): string | null {
   if (target.kind === "return") return target.from.id;
-  return target.draft.publishesAs === "version" ? sourceOf(target.draft) : null;
+  return target.draft.publishesAs === "version" && !editedText(target) ? sourceOf(target.draft) : null;
 }
+
+const TEXT_FIELD_NAMES: Record<ProfileTextField, string> = { title: "Title", author: "Author", notes: "Notes" };
 
 export function PublishDialog({
   target,
@@ -70,6 +83,7 @@ export function PublishDialog({
   const mayChangeAt = useMayChangeAt();
   const { locations, error: locationsError } = useLocations();
   const replaces = replacedId(target);
+  const textEdit = editedText(target);
   // What it replaces, its Recipes and, for a Draft, the newer versions' profiles; read once the dialog opens.
   const [replaced, setReplaced] = useState<Profile | null>();
   const [recipes, setRecipes] = useState<RecipeOnProfile[]>();
@@ -155,6 +169,15 @@ export function PublishDialog({
   const comparedWith = replaced ?? startedFrom;
   const before = comparedWith ? definitionOf(comparedWith) : null;
   const changes = before && after ? differences(before, after) : null;
+  // For a text edit, its fields before and after: the Profile's as the dialog read it, and the Draft's.
+  const textChanges: [string, string, string][] | null =
+    textEdit && comparedWith && target.kind === "draft"
+      ? textEdit.map((field) => {
+          const was = profileTextOf(comparedWith.content.profile)[field];
+          const now = profileTextOf(target.profile)[field];
+          return [TEXT_FIELD_NAMES[field], was.trim() || "None", now.trim() || "None"];
+        })
+      : null;
   const chosen = chosenLocations ?? new Set<string>();
   const offered = (locations ?? []).filter((location) => mayChangeAt(location.id) || chosen.has(location.id));
   const recipesAt = (locationId: string) => (recipes ?? []).filter(({ recipe }) => recipe.location?.id === locationId);
@@ -179,14 +202,19 @@ export function PublishDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (chosen.size === 0) return setError("Choose at least one Location to show it at");
+    if (chosen.size === 0 && !textEdit) return setError("Choose at least one Location to show it at");
     setError(undefined);
     setPublishing(true);
-    const moved = [...chosenRecipes].filter((recipeId) => (recipes ?? []).some(({ recipe }) => recipe.id === recipeId && recipe.location && chosen.has(recipe.location.id)));
+    // A text edit changes the Profile where it is, so names no Location or Recipe.
+    const moved = textEdit ? [] : [...chosenRecipes].filter((recipeId) => (recipes ?? []).some(({ recipe }) => recipe.id === recipeId && recipe.location && chosen.has(recipe.location.id)));
     try {
       const { published } =
         target.kind === "draft"
-          ? await api<{ published: Published }>("POST", `/drafts/${encodeURIComponent(target.draft.id)}/publish`, { locations: [...chosen], recipes: moved, saves: target.saves() })
+          ? await api<{ published: Published }>("POST", `/drafts/${encodeURIComponent(target.draft.id)}/publish`, {
+              locations: textEdit ? [] : [...chosen],
+              recipes: moved,
+              saves: target.saves(),
+            })
           : await api<{ published: Published }>("POST", `/profiles/${encodeURIComponent(target.to.id)}/return`, { from: target.from.id, locations: [...chosen], recipes: moved });
       setOpen(false);
       reset();
@@ -203,6 +231,11 @@ export function PublishDialog({
     target.kind === "return" ? (
       <>
         {target.to.name} is shown again at the Locations you choose, in place of {name(target.from)}, with the Recipes you choose. Nothing new is created.
+      </>
+    ) : textEdit && target.draft.startedFrom ? (
+      <>
+        Edits {target.draft.startedFrom.title ?? "the Profile it started from"}&apos;s {textFieldsText(textEdit)}, as its page does: its steps are the Profile&apos;s, so no Profile is
+        created, and where it is shown, its Recipes and its versions stay as they are. Tablets that hold it get the change, whether or not they are online now.
       </>
     ) : target.draft.publishesAs === "version" && sourceOf(target.draft) && target.draft.startedFrom ? (
       <>
@@ -236,7 +269,7 @@ export function PublishDialog({
           {(error ?? loadError ?? locationsError) && <FormError error={error ?? loadError ?? locationsError} />}
           {loading && !loadError && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-          {newer && newer.length > 0 && (
+          {!textEdit && newer && newer.length > 0 && (
             <Alert role="status">
               <AlertDescription className="grid gap-2">
                 {newer.map((version) => {
@@ -259,7 +292,14 @@ export function PublishDialog({
             </Alert>
           )}
 
-          {changes && (
+          {textChanges && (
+            <section className="grid gap-2" aria-label="What changed">
+              <h3 className="text-sm font-semibold">What changed</h3>
+              <ChangesTable caption="What changed" before={name(comparedWith)} after="This Draft" rows={textChanges} />
+            </section>
+          )}
+
+          {changes && !textEdit && (
             <section className="grid gap-2" aria-label="What changed">
               <h3 className="text-sm font-semibold">What changed</h3>
               {changes.length === 0 ? (
@@ -270,7 +310,7 @@ export function PublishDialog({
             </section>
           )}
 
-          {!loading && (
+          {!loading && !textEdit && (
             <fieldset className="grid gap-2">
               <legend className="mb-2 text-sm font-semibold">Show it at</legend>
               {offered.length === 0 && <p className="text-sm text-muted-foreground">There is no Location you may publish to.</p>}
@@ -335,7 +375,7 @@ export function PublishDialog({
           )}
 
           <div>
-            <Button type="submit" disabled={publishing || loading || chosen.size === 0}>
+            <Button type="submit" disabled={publishing || loading || (chosen.size === 0 && !textEdit)}>
               {target.kind === "draft" ? "Publish" : "Return to this version"}
             </Button>
           </div>
@@ -368,8 +408,8 @@ function ChangesTable({ caption, before, after, rows }: { caption: string; befor
               <th scope="row" className="py-1 pr-3 text-left font-normal text-muted-foreground">
                 {what}
               </th>
-              <td className="py-1 pr-3">{was}</td>
-              <td className="py-1">{now}</td>
+              <td className="whitespace-pre-line py-1 pr-3">{was}</td>
+              <td className="whitespace-pre-line py-1">{now}</td>
             </tr>
           ))}
         </tbody>

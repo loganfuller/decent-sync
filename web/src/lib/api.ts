@@ -1,4 +1,4 @@
-import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks } from "@decent-sync/protocol";
+import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileTextField } from "@decent-sync/protocol";
 import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
@@ -1312,6 +1312,12 @@ export interface Draft extends DraftSummary {
   machineModel: MachineModel;
   /** Its checks but those of a simulated run, which the page makes itself. */
   checks: ProfileChecks;
+  /**
+   * For a new version with the steps of the Profile it started from: which of that Profile's title, author and
+   * notes it changes, which publishing it edits there, making no Profile (#667). Null otherwise; absent from a
+   * server of the release before.
+   */
+  editsText?: ProfileTextField[] | null;
   /** For a new version, the versions of the Profile it started from the Library gained since it began, the latest first: publishing it forks the chain beside them. */
   newer: { id: string; title: string | null; savedAt: string }[];
 }
@@ -1384,6 +1390,12 @@ export interface Published {
   moved: { id: string; name: string | null; location: { id: string; name: string } }[];
   /** Newer versions of the Profile the Draft started from, beside which it now forks the chain. */
   forked: { id: string; title: string | null; savedAt: string }[];
+  /**
+   * For a Draft with the steps of the Profile it started from, which publishing made an edit of that Profile (#667):
+   * which of its title, author and notes changed, the Profile being the one edited and nothing shown, hidden or
+   * moved. Null where a Profile was published; absent from a server of the release before.
+   */
+  edited?: ProfileTextField[] | null;
 }
 
 /** A Draft started, with what of a file was held to the ranges. */

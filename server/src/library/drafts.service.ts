@@ -4,7 +4,10 @@ import {
   MAX_PROFILE_STEPS,
   type MachineModel,
   type Profile,
+  type ProfileCheckContext,
   type ProfileChecks,
+  type ProfileText,
+  type ProfileTextField,
   STARTING_SHAPES,
   checkProfile,
   holdToLimits,
@@ -12,9 +15,11 @@ import {
   outOfRange,
   outOfRangeText,
   profileId,
+  profileTextOf,
   readProfile,
   readProfileFile,
   startingShape,
+  textEditOf,
   widestLimits,
 } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
@@ -24,6 +29,7 @@ import type { Editor } from "./history.js";
 import { type SourceView, viewSource } from "./history.service.js";
 import { type ProfileSimulation, ProfileSimulationService, type SimulationAsk } from "./profile-simulation.service.js";
 import { followedDraftSaved, lockFollowingForDelete } from "./draft-following.js";
+import { sameTitle } from "./library-edits.service.js";
 import { accountModels } from "./profile-reach.js";
 import { MAX_PROFILE_VERSIONS, ProfilesService } from "./profiles.service.js";
 
@@ -78,6 +84,14 @@ export interface DraftView extends DraftSummary {
   machineModel: MachineModel;
   /** Its checks (`checkProfile`), against the widest ranges of those models and the Library's Profiles, but those of a simulated run, which a simulation gives. */
   checks: ProfileChecks;
+  /**
+   * For a new version with the steps of the Profile it started from, while
+   * the Library has that Profile: which of its title, author and notes the
+   * Draft changes, as publishing it edits them there and makes no Profile
+   * (#667); none where it changes nothing, which its checks stop. Null for
+   * any other Draft, which publishing makes a Profile.
+   */
+  editsText: ProfileTextField[] | null;
   /**
    * For a new version, the versions of the Profile it started from that the
    * Library gained since it began, the latest first, from a tablet or
@@ -283,7 +297,7 @@ export class DraftsService {
     if (draft.profile.steps.length > MAX_PROFILE_STEPS)
       throw new ConflictException(`The Draft has ${draft.profile.steps.length} steps, more than the ${MAX_PROFILE_STEPS} a machine takes, so it can't be simulated`);
     if (draft.profile.steps.length === 0) throw new ConflictException("The Draft has no steps to simulate");
-    const simulated = await this.simulation.simulateProfile(draft.profile, ask, draft.machineModel, await this.checkContext(draft.profile, draft.models));
+    const simulated = await this.simulation.simulateProfile(draft.profile, ask, draft.machineModel, await this.checkContext(draft.profile, draft.models, draft));
     return { draft: { id: draft.id, title: draft.title }, ...simulated };
   }
 
@@ -293,23 +307,40 @@ export class DraftsService {
     if (!profile) throw new ConflictException(`Draft ${row.id}'s profile can't be read as Decaid reads one`);
     const [started, models] = await Promise.all([this.startedFrom([row]), accountModels(this.prisma)]);
     const from = row.startedFromId === null ? null : await this.profiles.get(row.startedFromId).catch((caught: unknown) => (caught instanceof NotFoundException ? null : Promise.reject(caught)));
+    const publishesAs = row.publishesAs === DraftPublishing.VERSION ? "version" : "separate";
+    const context = await this.checkContext(profile, models, { startedFrom: row.startedFromId === null ? null : { id: row.startedFromId }, publishesAs });
     return {
       ...summary(row, started, scope),
       profile,
       profileId: profileId(profile),
       models,
       machineModel: from?.machineModel ?? (models.length === 1 && models[0] === "Bengle" ? "Bengle" : "DE1"),
-      checks: checkProfile(profile, await this.checkContext(profile, models)),
+      checks: checkProfile(profile, context),
+      editsText: context.versionOf ? textEditOf(profile, context.versionOf) : null,
       newer: row.publishesAs === DraftPublishing.VERSION && row.startedFromId !== null ? await newerVersions(this.prisma, row.startedFromId, row.createdAt) : [],
     };
   }
 
-  /** What a Draft's checks are judged against: the models, and the Library Profile with its steps, if one has them. */
-  private async checkContext(profile: Profile, models: MachineModel[]): Promise<{ models: MachineModel[]; libraryProfiles: { id: string; title: string }[] }> {
+  /**
+   * What a Draft's checks are judged against: the models, the Library
+   * Profile with its steps, if one has them, and, for a new version, the
+   * Profile it would replace with its title, author and notes, while the
+   * Library has it (#667).
+   */
+  private async checkContext(
+    profile: Profile,
+    models: MachineModel[],
+    draft: { startedFrom: { id: string } | null; publishesAs: DraftPublishesAs },
+  ): Promise<ProfileCheckContext & { models: MachineModel[]; libraryProfiles: { id: string; title: string }[] }> {
     const id = profileId(profile);
     const same = profile.steps.length === 0 ? null : await this.prisma.profile.findUnique({ where: { id }, select: { id: true, content: true } });
     const title = same ? readProfile((same.content as { profile?: unknown }).profile).profile?.title : undefined;
-    return { models, libraryProfiles: same ? [{ id: same.id, title: title?.trim() || same.id }] : [] };
+    const libraryProfiles = same ? [{ id: same.id, title: title?.trim() || same.id }] : [];
+    const sourceId = draft.publishesAs === "version" ? (draft.startedFrom?.id ?? null) : null;
+    const version = sourceId === null ? undefined : await versionContext(this.prisma, profile, sourceId);
+    if (!version) return { models, libraryProfiles };
+    const others = version.libraryProfiles.filter((other) => !libraryProfiles.some((each) => each.id === other.id));
+    return { models, libraryProfiles: [...libraryProfiles, ...others], versionOf: version.versionOf };
   }
 
   /** The Library Profiles the Drafts were started from, by id: each's title and whether it is bundled. */
@@ -401,6 +432,32 @@ export function readDraftSave(body: unknown): DraftSave {
  * Library gained after `since`, as from a tablet or another Draft: the
  * latest first. A bundled Profile is never one.
  */
+/**
+ * For a Draft publishing as a new version of `sourceId`, what its checks
+ * need of that Profile (#667): it, with its title, author and notes, so a
+ * Draft with its steps is checked as an edit of those; and, where such a
+ * Draft changes the title, the Library's other Profiles of that title,
+ * Archived ones too, compared as Streamline compares titles, which it may
+ * not take, as an edit on the Profile page may not
+ * (`LibraryEditsService.editProfile`). Undefined where the Library no
+ * longer has the Profile.
+ */
+export async function versionContext(
+  db: Prisma.TransactionClient,
+  profile: Profile,
+  sourceId: string,
+): Promise<{ versionOf: { id: string; text: ProfileText }; libraryProfiles: { id: string; title: string }[] } | undefined> {
+  const [source] = await db.$queryRaw<{ content: unknown }[]>`SELECT content FROM profiles WHERE id = ${sourceId}`;
+  if (!source) return undefined;
+  const versionOf = { id: sourceId, text: profileTextOf((source.content as { profile?: unknown } | null)?.profile) };
+  const libraryProfiles = [{ id: sourceId, title: versionOf.text.title.trim() || sourceId }];
+  if (textEditOf(profile, versionOf)?.includes("title")) {
+    const others = await db.$queryRaw<{ id: string; title: string | null }[]>`SELECT id, content -> 'profile' ->> 'title' AS title FROM profiles WHERE id <> ${sourceId}`;
+    for (const other of others) if (other.title !== null && sameTitle(other.title, profile.title)) libraryProfiles.push({ id: other.id, title: other.title });
+  }
+  return { versionOf, libraryProfiles };
+}
+
 export async function newerVersions(db: Prisma.TransactionClient, profileId: string, since: Date): Promise<NewerVersion[]> {
   const rows = await db.$queryRaw<{ id: string; title: string | null; savedAt: Date }[]>`
     WITH RECURSIVE down AS (

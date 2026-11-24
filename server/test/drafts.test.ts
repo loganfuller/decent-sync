@@ -38,6 +38,7 @@ interface Draft {
   models: string[];
   machineModel: string;
   checks: { blocking: Array<{ code: string; step: number | null; message: string }>; advice: Array<{ code: string; step: number | null }> };
+  editsText: string[] | null;
 }
 
 interface Between {
@@ -141,8 +142,9 @@ describe("Drafts", () => {
       models: ["DE1"],
       machineModel: "DE1",
     });
-    // Unchanged, its steps are the Profile's own, which publishing would refuse.
-    expect(draft.checks.blocking).toEqual([{ code: "sameSteps", step: null, path: "steps", message: 'Its steps are those of "Lab soak", which the Library has.' }]);
+    // Unchanged, it is the Profile itself, steps, title, author and notes, which publishing would refuse (#667).
+    expect(draft.editsText).toEqual([]);
+    expect(draft.checks.blocking).toEqual([{ code: "unchanged", step: null, message: 'Nothing has changed: its steps, title, author and notes are those of "Lab soak", which it started from.' }]);
     expect(await read(draft.id, otherApi)).toEqual(draft);
   });
 

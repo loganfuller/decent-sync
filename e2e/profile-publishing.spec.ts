@@ -13,7 +13,9 @@ import { tabletAt } from "./support/tablets.js";
 // which stays shown there. From the new version's page, the soak is
 // returned to through the same dialog. A Duplicate, published as a separate
 // Profile, says what it changes from the one it started from and moves no
-// Recipes. Serials are made up, from 58051.
+// Recipes. A Draft that changes only the soak's notes is an edit of the
+// soak instead (#667): the Draft page says so, and the dialog says which
+// fields change and asks for no Locations. Serials are made up, from 58051.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Fields = Record<string, unknown>;
@@ -127,4 +129,43 @@ test("says what a separate Profile changes from the one it started from, and off
   await expect(dialog.getByRole("list", { name: "Recipes at Separate lab" })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "Shown at Separate lab" })).toBeVisible();
+});
+
+test("publishes a Draft that changes only the notes as an edit of the Profile it started from, asking for no Locations or Recipes", async ({ page }) => {
+  const lab = await createLocation(page, "Text lab");
+  const tablet = await tabletAt(page, server, "Text lab group", lab, "58053", { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [classicRecord], ...NO_DYE2_LISTS });
+  const soakId = String((await tablet.addProfile({ ...soak("Text Soak"), target_weight: 44, notes: "First notes" })).id);
+  await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(soakId)}`)).status()).toBe(200);
+  const made = await page.request.post("/api/recipes", { data: { locationId: lab.id, slot: 1, content: { name: "Text Espresso", profileId: soakId } } });
+  expect(made.status(), await made.text()).toBe(201);
+
+  await page.goto(`/library/profiles/${encodeURIComponent(soakId)}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page).toHaveURL(/\/library\/drafts\//);
+  // Unchanged, nothing would be published.
+  await expect(page.getByRole("button", { name: /^Checks: 1 thing stops publishing/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+  await expect(page.getByText("Will publish as a new version of Text Soak")).toBeVisible();
+
+  // Its notes reworded: its steps are still the soak's, so it publishes as an edit of the soak's notes.
+  await inspector(page).getByRole("tab", { name: "Whole Profile" }).click();
+  await inspector(page).getByLabel("Notes", { exact: true }).fill("Reworded in a Draft");
+  await expect(page.getByText("saving…")).toHaveCount(0);
+  await expect(page.getByText("Will publish as an edit of Text Soak's notes")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Checks: Nothing stops publishing/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Publish the Draft" });
+  await expect(dialog.getByText(/^Edits Text Soak's notes, as its page does/)).toBeVisible();
+  const changed = dialog.getByRole("region", { name: "What changed" });
+  await expect(changed.getByRole("row", { name: /Notes/ })).toContainText("First notes");
+  await expect(changed.getByRole("row", { name: /Notes/ })).toContainText("Reworded in a Draft");
+  await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+
+  // The soak's own page, under its id, saying what changed; still shown at the Lab, with its Recipe.
+  await expect(page).toHaveURL(new RegExp(`/library/profiles/${encodeURIComponent(soakId)}$`));
+  await expect(page.getByRole("status").filter({ hasText: "Its notes changed." })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Recipes on this version" })).toContainText("Text Espresso");
+  await expect.poll(() => (tablet.profiles().find((record) => record.id === soakId)?.profile as Fields | undefined)?.notes, { timeout: 15_000 }).toBe("Reworded in a Draft");
 });

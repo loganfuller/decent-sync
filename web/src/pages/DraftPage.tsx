@@ -1,4 +1,14 @@
-import { type Profile as ProfileDefinition, type SimulatedRun, checkProfile, fieldLabel, startingShape, widestLimits } from "@decent-sync/protocol";
+import {
+  type Profile as ProfileDefinition,
+  type ProfileText,
+  type SimulatedRun,
+  checkProfile,
+  fieldLabel,
+  profileTextOf,
+  startingShape,
+  textEditOf,
+  widestLimits,
+} from "@decent-sync/protocol";
 import { Redo2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
@@ -71,6 +81,8 @@ function DraftEditor({ id }: { id: string }) {
   const [saving, setSaving] = useState<"saved" | "saving" | "failed">("saved");
   const [library, setLibrary] = useState<{ id: string; title: string }[]>([]);
   const [baseline, setBaseline] = useState<{ label: string; profile: ProfileDefinition } | null>(null);
+  // For a new version, the Profile it replaces with its title, author and notes, once read: with its steps, the Draft edits those (#667).
+  const [versionOf, setVersionOf] = useState<{ id: string; text: ProfileText }>();
   // What of a file was held to the ranges, in words, named by the steps as the Draft was first read, before any was moved.
   const [held, setHeld] = useState<string[]>([]);
   // Saving: one save at a time, of the latest change, naming the count of saves it started from.
@@ -130,12 +142,14 @@ function DraftEditor({ id }: { id: string }) {
   // What it started from, drawn faint behind it: the Library Profile, named by its version where it has more than one, or the starting shape.
   const startedFromId = draft?.startedFrom?.id;
   const shapeKey = draft?.shape?.key;
+  const asVersion = draft?.publishesAs === "version";
   useEffect(() => {
     let current = true;
     if (startedFromId) {
       const from = `/profiles/${encodeURIComponent(startedFromId)}`;
       Promise.all([api<{ profile: Profile }>("GET", from), api<{ versions: ProfileVersion[] }>("GET", `${from}/versions`).catch(() => ({ versions: [] }))]).then(
         ([{ profile }, { versions }]) => {
+          if (current && asVersion) setVersionOf({ id: profile.id, text: profileTextOf(profile.content.profile) });
           const definition = definitionOf(profile);
           if (!current || !definition) return;
           const name = versions.length > 1 && !profile.bundled ? versionNames(versions).get(profile.id) : undefined;
@@ -150,7 +164,7 @@ function DraftEditor({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [startedFromId, shapeKey]);
+  }, [startedFromId, shapeKey, asVersion]);
 
   // Set once the page is left, after which a change still unsaved gets one more try and no retries.
   const left = useRef(false);
@@ -267,7 +281,12 @@ function DraftEditor({ id }: { id: string }) {
   }, []);
 
   const limits = useMemo(() => widestLimits(draft?.models ?? []), [draft?.models]);
-  const checks = useMemo(() => (profile && draft ? checkProfile(profile, { models: draft.models, libraryProfiles: library, run }) : undefined), [profile, draft, library, run]);
+  const checks = useMemo(
+    () => (profile && draft ? checkProfile(profile, { models: draft.models, libraryProfiles: library, run, ...(versionOf ? { versionOf } : {}) }) : undefined),
+    [profile, draft, library, run, versionOf],
+  );
+  // What publishing it edits of the Profile it started from, where its steps are that Profile's (#667).
+  const editsText = useMemo(() => (profile && versionOf ? textEditOf(profile, versionOf) : null), [profile, versionOf]);
   const steps = profile?.steps.length ?? 0;
   const chosen = Math.min(selected, Math.max(0, steps - 1));
   const select = useCallback((index: number) => {
@@ -359,7 +378,7 @@ function DraftEditor({ id }: { id: string }) {
               {profile.title.trim() || "Untitled"} <Badge>Draft</Badge>
             </h1>
             <p className="text-sm text-muted-foreground">
-              {`Will publish as ${draftBecomes(draft).replace(/^A new/, "a new")} · `}
+              {`Will publish as ${draftBecomes(draft, editsText).replace(/^An? /, (article) => article.toLowerCase())} · `}
               {saving === "saving" ? "saving…" : saving === "failed" ? "not saved" : <SavedBy draft={draft} />}
             </p>
           </div>
@@ -372,7 +391,7 @@ function DraftEditor({ id }: { id: string }) {
               <Redo2 aria-hidden />
             </Button>
             <PublishDialog
-              target={{ kind: "draft", draft, profile, saves: () => saves.current }}
+              target={{ kind: "draft", draft, profile, editsText, saves: () => saves.current }}
               label="Publish"
               disabled={saving !== "saved" || checks.blocking.length > 0}
               onPublished={(published) => {
