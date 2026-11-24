@@ -283,7 +283,7 @@ export class SoftwareActions {
     if (changed !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: changed };
     if (tooLate()) return expired(action.id);
 
-    if (action.kind === "reloadSkin") return this.reloadSkin(action);
+    if (action.kind === "reloadSkin") return this.reloadSkin(action, String(servedSkin(before)?.id));
     if (action.kind === "restartSkinView") return this.restartSkinView(action);
 
     let answer: Answer | undefined;
@@ -327,20 +327,25 @@ export class SoftwareActions {
   }
 
   /**
-   * Asks the Skin on screen to load its page again, by a push on `changes`,
-   * and waits up to SKIN_RELOAD_MS for its fresh page to report in: done
-   * with that page, or not confirmed.
+   * Asks the Skin on screen, `skinId`, to load its page again, by a push on
+   * `changes`, and waits up to SKIN_RELOAD_MS for its fresh page to report
+   * in: done with that page, or not confirmed. Fresh is a page of that Skin
+   * that loaded after the one last reported, or, where none has reported in
+   * this load of the plugin, after the push: Decaid keeps a Skin's socket
+   * open across the plugin's loads, so the Skin reports again only once its
+   * page loads.
    */
-  private async reloadSkin(action: SkinAction): Promise<SoftwareActed | undefined> {
-    const shown = this.pages?.latest() ?? null;
-    if (!this.pages || shown === null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "No Skin has reported its page to the plugin since it loaded" };
+  private async reloadSkin(action: SkinAction, skinId: string): Promise<SoftwareActed | undefined> {
+    if (!this.pages) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "This load of the plugin takes no page reports" };
     const pages = this.pages;
+    const shown = pages.latest();
+    const after = shown === null ? Date.now() : Date.parse(shown.loadedAt);
     let stopWaiting = () => {};
     const fresh = new Promise<SkinPage | undefined>((resolve) => {
       const timer = setTimeout(() => settle(undefined), SKIN_RELOAD_MS);
       const unsubscribe = pages.onReport((page) => {
-        // Only the Skin asked counts: a page of another, as one still open in a browser, says nothing of it.
-        if (page.skinId === shown.skinId && Date.parse(page.loadedAt) > Date.parse(shown.loadedAt)) settle(page);
+        // Only the Skin asked counts: a page of another says nothing of it.
+        if (page.skinId === skinId && Date.parse(page.loadedAt) > after) settle(page);
       });
       const settle = (page: SkinPage | undefined) => {
         clearTimeout(timer);
@@ -422,10 +427,11 @@ export class SoftwareActions {
    * Has Decaid start its own update, over its update socket, the machine
    * idle: Decaid checks for it where it holds none, downloads it and opens
    * Android's installer, which someone at the Tablet confirms. Done once
-   * Decaid's state reaches `installing`; refused where Android's permission
-   * for Decaid to install apps was not granted at the Tablet
-   * (`installNotPermitted`), where Decaid found no update, or where it
-   * failed, in its words.
+   * Decaid says the installer opened (`installOverSocket`); refused where
+   * Android's permission for Decaid to install apps was not granted at the
+   * Tablet (`installNotPermitted`), where Decaid is checking, downloading
+   * or installing already, found no update or did not open the installer,
+   * or where it failed, in its words.
    */
   private async startDecaidUpdate(action: SoftwareAction, tooLate: () => boolean, endTime: number): Promise<SoftwareActed | undefined> {
     await this.reports.readSoftware("decaid");
@@ -470,7 +476,18 @@ export class SoftwareActions {
         let underWay = false;
         let installing = false;
         let over = false;
-        const timer = setTimeout(() => settle({ notConfirmed: `Decaid's update did not reach Android's installer within ${Math.round(limitMs / 1000)} s` }), limitMs);
+        // What Decaid was last seen doing, for the note where the time is up: a download of its 120 MB or so goes on after.
+        let lastSeen: Record<string, unknown> = {};
+        const notConfirmed = () => {
+          const seconds = Math.round(limitMs / 1000);
+          if (lastSeen.phase === "downloading") {
+            const progress = typeof lastSeen.progress === "number" && Number.isFinite(lastSeen.progress) ? ` (${Math.round(Math.min(1, Math.max(0, lastSeen.progress)) * 100)}%)` : "";
+            return `Decaid was still downloading its update${progress} after ${seconds} s: Android's installer opens at the Tablet once it finishes`;
+          }
+          if (lastSeen.phase === "checking") return `Decaid was still checking for its update after ${seconds} s`;
+          return `Decaid's update did not reach Android's installer within ${seconds} s`;
+        };
+        const timer = setTimeout(() => settle({ notConfirmed: notConfirmed() }), limitMs);
         const settle = (outcome: Started) => {
           over = true;
           clearTimeout(timer);
@@ -490,6 +507,7 @@ export class SoftwareActions {
             return settle(frame.reason === "local_approval_required" ? { refused: "installNotPermitted", message: frame.error } : { refused: "decaid", message: frame.error });
           }
           const phase = frame.phase;
+          if (opened) lastSeen = frame;
           if (!opened) {
             opened = true;
             // The state it opens with, from before the command, as an error an earlier check left. Decaid ignores the command,
@@ -690,7 +708,8 @@ function skinsChangedSince(action: SkinAction, before: Record<string, unknown>, 
   if (action.kind === "reloadSkin") {
     const served = servedSkin(before);
     if (served === undefined) return "Decaid serves no Skin now: restart the Skin view";
-    if (page === null || page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id).slice(0, MAX_SOFTWARE_NAME_LENGTH)}, has not reported its page, so it can't be asked to reload`;
+    // None reported in this load of the plugin, it is asked all the same: the server judged from the page it kept.
+    if (page !== null && page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id).slice(0, MAX_SOFTWARE_NAME_LENGTH)}, has not reported its page, so it can't be asked to reload`;
   }
   return null;
 }
@@ -721,6 +740,16 @@ function skinNamed(skin: Record<string, unknown>): SoftwareActionResult {
     ...(typeof skin.name === "string" && skin.name !== "" ? { name: skin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
     ...(typeof skin.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
   };
+}
+
+/** The id of the Skin an update check's result names: by its id, or, for one Decaid comes with, by the repository it updates from (`github_release:<repo>@<tag>`). */
+function skinIdFor(report: Record<string, unknown>, item: string): string | undefined {
+  const skin = skinsIn(report).find((entry) => {
+    if (entry.id === item) return true;
+    const metadata = isObject(entry.reaMetadata) ? entry.reaMetadata : {};
+    return typeof metadata.sourceUrl === "string" && metadata.sourceUrl.startsWith(`github_release:${item}@`);
+  });
+  return typeof skin?.id === "string" ? skin.id : undefined;
 }
 
 /** When Decaid installed each Skin in a report of them, by its id: its `reaMetadata.installedAt`, or its version and path where it records none. */
@@ -761,12 +790,19 @@ function skinResultOf(action: SkinAction, answer: Answer, before: Record<string,
     case "checkSkinUpdates": {
       const said = parsed(answer.text);
       const results = isObject(said) && Array.isArray(said.results) ? said.results : [];
+      // Decaid moves a Skin's install time only when it installs a build: one moved since the Skins were read was updated,
+      // whatever a check that joined Decaid's after the one that updated it says.
+      const earlier = skinInstalls(before);
+      const now = after === undefined ? earlier : skinInstalls(after);
       return {
         results: results.filter(isObject).flatMap((result): UpdateResult[] => {
           if (typeof result.item !== "string" || typeof result.status !== "string") return [];
           const skin = listed(after, result.item);
+          const id = skinIdFor(after ?? before, result.item);
+          const moved = id !== undefined && earlier.has(id) && now.has(id) && earlier.get(id) !== now.get(id);
+          const status = moved && result.error === undefined ? "updated" : result.status;
           const version = typeof skin?.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {};
-          return [{ item: result.item.slice(0, MAX_SOFTWARE_NAME_LENGTH), status: result.status.slice(0, MAX_SOFTWARE_NAME_LENGTH), ...(typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}), ...version }];
+          return [{ item: result.item.slice(0, MAX_SOFTWARE_NAME_LENGTH), status: status.slice(0, MAX_SOFTWARE_NAME_LENGTH), ...(typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}), ...version }];
         }),
       };
     }

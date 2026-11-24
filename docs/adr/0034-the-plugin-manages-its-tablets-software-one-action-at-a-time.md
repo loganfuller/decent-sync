@@ -29,5 +29,5 @@ This raises the Decaid minimum to v0.9.3 (ADR-0017) and amends ADR-0023.
 
 - An Admin's account, or the server itself, can now put code on every connected tablet. Before this, the server could change settings and Library items only.
 - The release that adds `manage.extensions` waits for approval on each tablet once. `notifications` (#540) is added in the same release, so it is one approval.
-- Decaid's own update is shown, can be checked for and started, but not finished from the server: Android's installer asks someone at the tablet to tap Open, and Decaid does not reopen by itself (#659's trial).
+- Decaid's own update is shown, can be checked for and started, but not finished from the server: Android's installer asks someone at the tablet to confirm the update and tap Open, and Decaid does not reopen by itself (#659's trial).
 - Decaid installs by latest release, branch, commit or URL, not by release tag (decentespresso/decaid#1030), so a Pinned build is named by its commit or URL. A Skin takes no commit as its branch, so a Pinned Skin is installed from its commit's archive URL (#661).

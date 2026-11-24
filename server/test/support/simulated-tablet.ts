@@ -1808,7 +1808,7 @@ export class SimulatedTablet {
    * of a call that takes about three: a test whose calls may take that long
    * runs its server with a longer heartbeat interval.
    */
-  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown; query?: Record<string, string>; atTabletPace?: boolean } = {}): Promise<EndpointAnswer> {
+  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown; query?: Record<string, string>; headers?: Record<string, string>; atTabletPace?: boolean } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
     if (this.unloaded) return json(404, { error: `plugin with ${this.pluginId} not loaded` });
@@ -1821,7 +1821,8 @@ export class SimulatedTablet {
       requestId: `${this.pluginId}_${endpoint}_${Date.now()}`,
       endpoint,
       method: options.method ?? "GET",
-      headers: {},
+      // Decaid hands the plugin the request's headers (`_handlePluginApiEndpoint`); by default as from the Tablet's own Skin view, which loads the Skin from localhost.
+      headers: options.headers ?? { host: "localhost:8080" },
       body: options.body === undefined ? null : JSON.parse(JSON.stringify(options.body)),
       query: { ...options.query },
     };

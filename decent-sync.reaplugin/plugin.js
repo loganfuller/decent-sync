@@ -5698,7 +5698,7 @@ var __decentSync = (() => {
       const changed = skinsChangedSince(action, before, this.pages?.latest() ?? null);
       if (changed !== null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: changed };
       if (tooLate()) return expired2(action.id);
-      if (action.kind === "reloadSkin") return this.reloadSkin(action);
+      if (action.kind === "reloadSkin") return this.reloadSkin(action, String(servedSkin(before)?.id));
       if (action.kind === "restartSkinView") return this.restartSkinView(action);
       let answer;
       let failure = "";
@@ -5736,20 +5736,25 @@ var __decentSync = (() => {
       }
     }
     /**
-     * Asks the Skin on screen to load its page again, by a push on `changes`,
-     * and waits up to SKIN_RELOAD_MS for its fresh page to report in: done
-     * with that page, or not confirmed.
+     * Asks the Skin on screen, `skinId`, to load its page again, by a push on
+     * `changes`, and waits up to SKIN_RELOAD_MS for its fresh page to report
+     * in: done with that page, or not confirmed. Fresh is a page of that Skin
+     * that loaded after the one last reported, or, where none has reported in
+     * this load of the plugin, after the push: Decaid keeps a Skin's socket
+     * open across the plugin's loads, so the Skin reports again only once its
+     * page loads.
      */
-    async reloadSkin(action) {
-      const shown = this.pages?.latest() ?? null;
-      if (!this.pages || shown === null) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "No Skin has reported its page to the plugin since it loaded" };
+    async reloadSkin(action, skinId) {
+      if (!this.pages) return { type: "softwareActed", id: action.id, outcome: "refused", reason: "changedSince", message: "This load of the plugin takes no page reports" };
       const pages = this.pages;
+      const shown = pages.latest();
+      const after = shown === null ? Date.now() : Date.parse(shown.loadedAt);
       let stopWaiting = () => {
       };
       const fresh = new Promise((resolve) => {
         const timer = setTimeout(() => settle(void 0), SKIN_RELOAD_MS);
         const unsubscribe = pages.onReport((page2) => {
-          if (page2.skinId === shown.skinId && Date.parse(page2.loadedAt) > Date.parse(shown.loadedAt)) settle(page2);
+          if (page2.skinId === skinId && Date.parse(page2.loadedAt) > after) settle(page2);
         });
         const settle = (page2) => {
           clearTimeout(timer);
@@ -5828,10 +5833,11 @@ var __decentSync = (() => {
      * Has Decaid start its own update, over its update socket, the machine
      * idle: Decaid checks for it where it holds none, downloads it and opens
      * Android's installer, which someone at the Tablet confirms. Done once
-     * Decaid's state reaches `installing`; refused where Android's permission
-     * for Decaid to install apps was not granted at the Tablet
-     * (`installNotPermitted`), where Decaid found no update, or where it
-     * failed, in its words.
+     * Decaid says the installer opened (`installOverSocket`); refused where
+     * Android's permission for Decaid to install apps was not granted at the
+     * Tablet (`installNotPermitted`), where Decaid is checking, downloading
+     * or installing already, found no update or did not open the installer,
+     * or where it failed, in its words.
      */
     async startDecaidUpdate(action, tooLate, endTime) {
       await this.reports.readSoftware("decaid");
@@ -5873,7 +5879,17 @@ var __decentSync = (() => {
           let underWay = false;
           let installing = false;
           let over = false;
-          const timer = setTimeout(() => settle({ notConfirmed: `Decaid's update did not reach Android's installer within ${Math.round(limitMs / 1e3)} s` }), limitMs);
+          let lastSeen = {};
+          const notConfirmed = () => {
+            const seconds = Math.round(limitMs / 1e3);
+            if (lastSeen.phase === "downloading") {
+              const progress = typeof lastSeen.progress === "number" && Number.isFinite(lastSeen.progress) ? ` (${Math.round(Math.min(1, Math.max(0, lastSeen.progress)) * 100)}%)` : "";
+              return `Decaid was still downloading its update${progress} after ${seconds} s: Android's installer opens at the Tablet once it finishes`;
+            }
+            if (lastSeen.phase === "checking") return `Decaid was still checking for its update after ${seconds} s`;
+            return `Decaid's update did not reach Android's installer within ${seconds} s`;
+          };
+          const timer = setTimeout(() => settle({ notConfirmed: notConfirmed() }), limitMs);
           const settle = (outcome) => {
             over = true;
             clearTimeout(timer);
@@ -5893,6 +5909,7 @@ var __decentSync = (() => {
               return settle(frame.reason === "local_approval_required" ? { refused: "installNotPermitted", message: frame.error } : { refused: "decaid", message: frame.error });
             }
             const phase = frame.phase;
+            if (opened) lastSeen = frame;
             if (!opened) {
               opened = true;
               if (phase === "checking") return settle({ refused: "decaid", message: "Decaid is checking for its update now: start the update once the check ends" });
@@ -6052,7 +6069,7 @@ var __decentSync = (() => {
     if (action.kind === "reloadSkin") {
       const served = servedSkin(before);
       if (served === void 0) return "Decaid serves no Skin now: restart the Skin view";
-      if (page === null || page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id).slice(0, MAX_SOFTWARE_NAME_LENGTH)}, has not reported its page, so it can't be asked to reload`;
+      if (page !== null && page.skinId !== served.id) return `The Skin served now, ${String(served.name ?? served.id).slice(0, MAX_SOFTWARE_NAME_LENGTH)}, has not reported its page, so it can't be asked to reload`;
     }
     return null;
   }
@@ -6077,6 +6094,14 @@ var __decentSync = (() => {
       ...typeof skin.name === "string" && skin.name !== "" ? { name: skin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {},
       ...typeof skin.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}
     };
+  }
+  function skinIdFor(report, item) {
+    const skin = skinsIn(report).find((entry) => {
+      if (entry.id === item) return true;
+      const metadata = isObject8(entry.reaMetadata) ? entry.reaMetadata : {};
+      return typeof metadata.sourceUrl === "string" && metadata.sourceUrl.startsWith(`github_release:${item}@`);
+    });
+    return typeof skin?.id === "string" ? skin.id : void 0;
   }
   function skinInstalls(report) {
     return new Map(
@@ -6111,12 +6136,17 @@ var __decentSync = (() => {
       case "checkSkinUpdates": {
         const said = parsed5(answer.text);
         const results = isObject8(said) && Array.isArray(said.results) ? said.results : [];
+        const earlier = skinInstalls(before);
+        const now2 = after === void 0 ? earlier : skinInstalls(after);
         return {
           results: results.filter(isObject8).flatMap((result) => {
             if (typeof result.item !== "string" || typeof result.status !== "string") return [];
             const skin = listed(after, result.item);
+            const id = skinIdFor(after ?? before, result.item);
+            const moved = id !== void 0 && earlier.has(id) && now2.has(id) && earlier.get(id) !== now2.get(id);
+            const status = moved && result.error === void 0 ? "updated" : result.status;
             const version = typeof skin?.version === "string" && skin.version !== "" ? { version: skin.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {};
-            return [{ item: result.item.slice(0, MAX_SOFTWARE_NAME_LENGTH), status: result.status.slice(0, MAX_SOFTWARE_NAME_LENGTH), ...typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}, ...version }];
+            return [{ item: result.item.slice(0, MAX_SOFTWARE_NAME_LENGTH), status: status.slice(0, MAX_SOFTWARE_NAME_LENGTH), ...typeof result.error === "string" ? { error: result.error.slice(0, MAX_REFUSAL_LENGTH) } : {}, ...version }];
           })
         };
       }
@@ -7914,6 +7944,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   var CHANGES_ENDPOINT2 = "changes";
   var RELOAD = { what: "reload" };
   var MAX_AHEAD_MS = 6e4;
+  var LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
   var INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
   var SkinPages = class {
     constructor(host, log) {
@@ -7935,7 +7966,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
      * Answers a request to `page`, or undefined for any other endpoint. A PUT
      * of `{ skinId, version, loadedAt }` is kept, stamped with when it was
      * heard, and answered 204; a body of another shape 400, saying what is
-     * wrong with it; any other method 405.
+     * wrong with it; any other method 405. A page reported from another
+     * device than the Tablet, by its `Host`, is answered 204 and not kept.
      */
     answer(request2) {
       if (request2.endpoint !== PAGE_ENDPOINT) return void 0;
@@ -7948,6 +7980,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         ...isLoadTime(fields.loadedAt) ? [] : ["Give loadedAt, when the page loaded, as an ISO 8601 time such as new Date(performance.timeOrigin).toISOString() gives"]
       ];
       if (problems.length > 0) return json3(400, { code: "invalidRequest", message: problems.join(". ") + "." });
+      if (!fromTablet(request2.headers)) return { status: 204, headers: {}, body: "" };
       const page = {
         skinId: fields.skinId,
         ...typeof fields.version === "string" && fields.version !== "" ? { version: fields.version } : {},
@@ -7969,6 +8002,10 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       this.host.emit(CHANGES_ENDPOINT2, RELOAD);
     }
   };
+  function fromTablet(headers) {
+    const host = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === "host")?.[1];
+    return typeof host === "string" && LOCAL_HOST.test(host.trim());
+  }
   function isLoadTime(value) {
     if (typeof value !== "string" || !INSTANT.test(value)) return false;
     const time = Date.parse(value);

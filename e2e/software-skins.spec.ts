@@ -268,14 +268,14 @@ test("an Admin starts Decaid's update on the Tablet behind a confirmation, refus
   await decaid.getByRole("button", { name: "Check now" }).click();
   await expect(status).toHaveText("DoneChecked for Decaid's update. Done · 0.9.4 is available.");
   const offer = decaid.getByRole("group", { name: "Decaid's update" });
-  await expect(offer).toHaveText(/^Decaid 0\.9\.4 can be installed\. Someone at the Tablet taps Open once it is, as Decaid does not reopen by itself\.Start the update on the Tablet$/);
+  await expect(offer).toHaveText(/^Decaid 0\.9\.4 can be installed\. Someone at the Tablet confirms it and taps Open once it is, as Decaid does not reopen by itself\.Start the update on the Tablet$/);
 
   /** Starts the update, confirming it. */
   async function start() {
     await offer.getByRole("button", { name: "Start the update on the Tablet" }).click();
     const confirm = page.getByRole("alertdialog", { name: "Start Decaid's update on the Tablet?" });
     await expect(confirm).toContainText(
-      "Decaid downloads 0.9.4 and installs it through Android's installer. Someone at the Tablet must then tap Open in the installer: Decaid does not reopen by itself, and the Machine is offline until it does.",
+      "Decaid downloads 0.9.4 and installs it through Android's installer. Someone at the Tablet must then confirm the update in the installer and tap Open: Decaid does not reopen by itself, and the Machine is offline until it does.",
     );
     await confirm.getByRole("button", { name: "Start the update" }).click();
   }
@@ -294,7 +294,7 @@ test("an Admin starts Decaid's update on the Tablet behind a confirmation, refus
   plugins.installOn = "androidPermitted";
   await start();
   await expect(status).toHaveText(
-    "DoneStarted Decaid's update to 0.9.4 on the Tablet. Done · Installing 0.9.4. Someone at the Tablet must now tap Open in Android's installer: Decaid does not reopen by itself.",
+    "DoneStarted Decaid's update to 0.9.4 on the Tablet. Done · Installing 0.9.4. Someone at the Tablet must now confirm the update in Android's installer, then tap Open: Decaid does not reopen by itself.",
   );
   await expect(field(decaid, "Update")).toHaveText("Installing 0.9.4");
   await expect(offer).toHaveCount(0);

@@ -204,18 +204,24 @@ Replace `X.Y.Z` with the new version.
    not promised to keep (ADR-0034), on the test tablet, with the Machine
    idle and a backup taken first (`docs/AI_BUILD_NOTES.md`):
 
-   - **Restart the Skin view** from the Machine's Software tab, on that
+   - **Start the update on the Tablet** first, while Decaid offers an
+     update on the test tablet (Android's permission for Decaid to install
+     apps granted), which is how the tablet gets onto the new release:
+     record in the release's pull request how many taps the tablet asked
+     for, whether Decaid reopened by itself, and whether the plugin
+     reconnected without help, and save the frames Decaid's update socket
+     sent (`/ws/v1/update`) beside `update-install-android.json` in
+     `server/test/fixtures/decaid/tablet-software-v0.9.3/`, as no other
+     Android state is recorded. #659's trial saw one tap, **Open**, and no
+     reopen, from Decaid's own update button, as the owner recalled it;
+     Android's installer usually asks to confirm the update before that,
+     and no remote start had been seen then. Where the update and the
+     taps differ, change the Decaid card's wording to match.
+   - **Restart the Skin view** from the Machine's Software tab, on the new
      Decaid release: the screen goes blank for a moment and comes back on
      the default Skin, and the action is done. If the Skin view does not
      come back, Restart is broken by that release: say so in the release
      notes and in an issue before tagging.
-   - **Start the update on the Tablet**, while Decaid offers an update on
-     the test tablet (Android's permission for Decaid to install apps
-     granted): record in the release's pull request how many taps the
-     tablet asked for, whether Decaid reopened by itself, and whether the
-     plugin reconnected without help. #659's trial expected one tap,
-     Android's **Open**, and no reopen, from Decaid's own update button,
-     but no remote start had been seen then.
 
    An agent may drive the server side; only the owner acts at the tablet.
 

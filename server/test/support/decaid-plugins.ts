@@ -184,9 +184,10 @@ export class SimulatedPlugins {
    * granted (`androidPermitted`) or not (`androidNotPermitted`, as #659's
    * trial saw), or granted but with the installer failing to open
    * (`androidInstallFails`, as where the downloaded file is gone: a `StateError`, in `remoteErrorMessage`'s words),
-   * or granted but with Android's installer not opening (`androidInstallerNotOpened`, `cancelled`: `_emitNeutral`).
+   * or granted but with Android's installer not opening (`androidInstallerNotOpened`, `cancelled`: `_emitNeutral`),
+   * or granted on a slow link, its download still under way when the action's time is up (`androidSlowDownload`).
    */
-  installOn: "linux" | "androidPermitted" | "androidNotPermitted" | "androidInstallFails" | "androidInstallerNotOpened" = "linux";
+  installOn: "linux" | "androidPermitted" | "androidNotPermitted" | "androidInstallFails" | "androidInstallerNotOpened" | "androidSlowDownload" = "linux";
 
   constructor(options: { plugins?: ListedPlugin[]; requireAuthorization?: boolean } = {}) {
     this.plugins = structuredClone(options.plugins ?? []);
@@ -270,6 +271,10 @@ export class SimulatedPlugins {
       return [{ ...structuredClone(this.update), phase: checking!.phase }, structuredClone(this.update)];
     }
     const offered = structuredClone(this.found);
+    if (this.installOn === "androidSlowDownload") {
+      this.update = { ...offered, phase: "downloading", progress: 0.62 };
+      return [{ ...offered, phase: "downloading", progress: 0 }, structuredClone(this.update)];
+    }
     const started = [{ ...offered, phase: "downloading", progress: 0 }, { ...offered, phase: "available" }, { ...offered, phase: "installing" }];
     if (this.installOn === "androidInstallFails") {
       this.update = { ...offered, phase: "error", error: "Couldn't install the app update. Try again." };

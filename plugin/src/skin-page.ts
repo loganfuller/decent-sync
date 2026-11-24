@@ -5,13 +5,16 @@ import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
 // the plugin which Skin and version it is each time its page loads, and each
 // time its connection to the plugin opens, at the plugin's HTTP endpoint
 // `page`, as docs/PLUGIN.md describes for a Skin's author. The plugin keeps
-// the latest, reports it as the `skinPage` collection, and asks the Skin to
-// reload by a push on `changes`, the socket the Skin listens on for what the
-// plugin tells it (skin-api.ts). A Skin that does neither is unaffected: it
-// is never pushed anything it does not read, and Reload is not offered for
-// it. Kept for the plugin's load, across its connections to the server: a
-// load after Decaid loaded the plugin again hears from the Skin once its
-// socket opens again.
+// the latest from the Tablet's own Skin view, which loads the Skin from
+// localhost (Decaid's `_skinUrl`), reports it as the `skinPage` collection,
+// and asks the Skin to reload by a push on `changes`, the socket the Skin
+// listens on for what the plugin tells it (skin-api.ts). A report from
+// another device, as a browser on the cafe's network, is answered and not
+// kept. A Skin that does neither is unaffected: it is never pushed anything
+// it does not read, and Reload is not offered for it. Kept for the plugin's
+// load, across its connections to the server. Decaid keeps a Skin's socket
+// open across the plugin's loads, so a load after Decaid loaded the plugin
+// again hears from the Skin only once its page loads again.
 
 /** The plugin's HTTP endpoint a Skin reports its page at (manifest.json). */
 const PAGE_ENDPOINT = "page";
@@ -24,6 +27,9 @@ const RELOAD = { what: "reload" } as const;
 
 /** How far ahead of the tablet's clock a page's load time may be: the Skin and the plugin read the same clock. */
 const MAX_AHEAD_MS = 60_000;
+
+/** The hosts the Tablet's own Skin view addresses Decaid by, with any port: it loads the Skin from `http://localhost:<port>/`. */
+const LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 
 /** An ISO 8601 instant with its offset or Z, as `Date.prototype.toISOString` writes one. */
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -53,7 +59,8 @@ export class SkinPages {
    * Answers a request to `page`, or undefined for any other endpoint. A PUT
    * of `{ skinId, version, loadedAt }` is kept, stamped with when it was
    * heard, and answered 204; a body of another shape 400, saying what is
-   * wrong with it; any other method 405.
+   * wrong with it; any other method 405. A page reported from another
+   * device than the Tablet, by its `Host`, is answered 204 and not kept.
    */
   answer(request: HttpRequest): HttpAnswer | undefined {
     if (request.endpoint !== PAGE_ENDPOINT) return undefined;
@@ -66,6 +73,7 @@ export class SkinPages {
       ...(isLoadTime(fields.loadedAt) ? [] : ["Give loadedAt, when the page loaded, as an ISO 8601 time such as new Date(performance.timeOrigin).toISOString() gives"]),
     ];
     if (problems.length > 0) return json(400, { code: "invalidRequest", message: problems.join(". ") + "." });
+    if (!fromTablet(request.headers)) return { status: 204, headers: {}, body: "" };
     const page: SkinPage = {
       skinId: fields.skinId as string,
       ...(typeof fields.version === "string" && fields.version !== "" ? { version: fields.version } : {}),
@@ -87,6 +95,12 @@ export class SkinPages {
   askReload(): void {
     this.host.emit(CHANGES_ENDPOINT, RELOAD);
   }
+}
+
+/** Whether a request came from the Tablet itself, by its `Host` header, whatever its case. */
+function fromTablet(headers: Record<string, string>): boolean {
+  const host = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === "host")?.[1];
+  return typeof host === "string" && LOCAL_HOST.test(host.trim());
 }
 
 /** Whether a page's load time is an instant no later than a minute ahead of the tablet's clock. */

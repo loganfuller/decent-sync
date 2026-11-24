@@ -131,7 +131,8 @@ export function actionText(action: SoftwareAction, plugins?: Plugins, skins?: Sk
 /** What Decaid's own update state says, as the Decaid card and an update check's outcome word it. */
 export function decaidUpdateText(update: { phase?: unknown; latestVersion?: unknown; error?: unknown }): string {
   const latest = typeof update.latestVersion === "string" && update.latestVersion !== "" ? update.latestVersion : null;
-  if (typeof update.error === "string" && update.error !== "") return `The check failed: ${update.error}`;
+  // A failed check, download or install alike, in Decaid's words, which say which ("Couldn't download the app update. ...").
+  if (typeof update.error === "string" && update.error !== "") return update.error;
   switch (update.phase) {
     case "checking":
       return "Checking";
@@ -140,7 +141,7 @@ export function decaidUpdateText(update: { phase?: unknown; latestVersion?: unkn
     case "installing":
       return latest ? `Installing ${latest}` : "Installing";
     case "error":
-      return "The check failed";
+      return "Decaid's last check or update failed";
   }
   return latest ? `${latest} is available` : "Up to date";
 }
@@ -260,7 +261,7 @@ function outcomeAbout(action: SoftwareAction): string | undefined {
 function afterword(action: SoftwareAction): string | null {
   if (action.outcome === "done" && action.kind === "chooseDefaultSkin") return "It shows once the Skin view restarts.";
   if (action.outcome === "done" && action.kind === "startDecaidUpdate") {
-    return "Someone at the Tablet must now tap Open in Android's installer: Decaid does not reopen by itself.";
+    return "Someone at the Tablet must now confirm the update in Android's installer, then tap Open: Decaid does not reopen by itself.";
   }
   if (action.outcome === "notConfirmed" && action.kind === "reloadSkin") return "Restart the Skin view to load it again.";
   return null;

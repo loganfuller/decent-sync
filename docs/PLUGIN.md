@@ -989,9 +989,16 @@ socket.addEventListener("open", report);
 - It answers 204, whether or not the plugin is connected to the server. A
   body it can't read answers 400 with `invalidRequest` and a `message`;
   any method but PUT answers 405.
-- Report again when the socket opens because the plugin forgets the page
-  when Decaid loads it again, as after a settings change or an update, and
-  reconnects your socket only once you do.
+- Only a report from the tablet's own Skin view counts: one whose `Host`
+  is `localhost`, `127.0.0.1` or `[::1]`, as Decaid's Skin view loads the
+  Skin from `http://localhost:<port>/`. Address Decaid as your page's own
+  `location.hostname` does there. A report from another device, as a
+  browser on the cafe's network, answers 204 and is not kept, so it never
+  sets what the tablet shows or confirms a reload.
+- Report again each time your socket on `changes` opens. Decaid keeps it
+  open while it loads the plugin again, as after a settings change or an
+  update; the plugin then holds no page, and still asks your page to reload
+  when asked to, counting the page that loads after its push.
 
 To be reloaded, listen on `changes` for:
 
@@ -1001,7 +1008,8 @@ To be reloaded, listen on `changes` for:
 
 and load the page again (`location.reload()`). The reload is done once your
 fresh page reports a later `loadedAt` within 15 seconds; a page that
-reports nothing in that time leaves it not confirmed.
+reports nothing in that time, or a page of another Skin, leaves it not
+confirmed.
 
 ### Streamline's endpoints
 

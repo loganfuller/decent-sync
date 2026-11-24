@@ -218,7 +218,7 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
       <CardHeader>
         <CardTitleWithInfo title="Decaid">
           <p>The app the Tablet runs, which runs its plugins and serves its Skins, as its Tablet last reported it.</p>
-          <p>Decaid's own update can be started from here. Someone at the Tablet then taps Open in Android's installer, as Decaid does not reopen by itself.</p>
+          <p>Decaid's own update can be started from here. Someone at the Tablet then confirms it in Android's installer and taps Open, as Decaid does not reopen by itself.</p>
         </CardTitleWithInfo>
         {acting.offered && (
           <CardAction>
@@ -238,7 +238,7 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
                 {decaidUpdateText(decaid.update)}
                 <InfoTip label="About Update">
                   <p>As the Tablet reported at {formatTime(decaid.update.reportedAt)}.</p>
-                  {decaid.update.installable && <p>Someone at the Tablet taps Open once it is installed, as Decaid does not reopen by itself.</p>}
+                  {decaid.update.installable && <p>Someone at the Tablet confirms it in Android's installer and taps Open once it is installed, as Decaid does not reopen by itself.</p>}
                 </InfoTip>
               </span>
             ) : (
@@ -263,14 +263,14 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
           <Item variant="outline" role="group" aria-label="Decaid's update" className="bg-muted/40">
             <ItemContent className="min-w-48">
               <ItemDescription className="line-clamp-none text-foreground">
-                Decaid {update} can be installed. Someone at the Tablet taps Open once it is, as Decaid does not reopen by itself.
+                Decaid {update} can be installed. Someone at the Tablet confirms it and taps Open once it is, as Decaid does not reopen by itself.
               </ItemDescription>
             </ItemContent>
             <ItemActions className="flex-wrap">
               <ConfirmButton
                 label="Start the update on the Tablet"
                 title="Start Decaid's update on the Tablet?"
-                description={`Decaid downloads ${update} and installs it through Android's installer. Someone at the Tablet must then tap Open in the installer: Decaid does not reopen by itself, and the Machine is offline until it does.`}
+                description={`Decaid downloads ${update} and installs it through Android's installer. Someone at the Tablet must then confirm the update in the installer and tap Open: Decaid does not reopen by itself, and the Machine is offline until it does.`}
                 confirmLabel="Start the update"
                 size="sm"
                 disabled={making || acting.blocked !== null}

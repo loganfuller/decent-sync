@@ -224,6 +224,28 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     expect(skins.checksRun).toBe(1);
   });
 
+  it("names a Skin the check updated as updated where the check asked again ran after it, and found it current", async () => {
+    const skins = new SimulatedSkins();
+    skins.install(recordedSkin(CAFE));
+    skins.offerNewer(CAFE, "0.2.32-cafe.1");
+    skins.checkMs = 1_500;
+    const plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
+    plugins.localApiTimeoutMs = 1_000;
+    const { machine, tablet } = await connected("Skins check ended before the join", { skins, plugins });
+    const action = await make(machine, { kind: "checkSkinUpdates" });
+    // The check asked again arrives only once the first has ended, and so runs one of its own.
+    await expect.poll(() => skins.managed.includes("POST /webui/skins/update")).toBe(true);
+    const held = tablet.holdRequests("POST", "/webui/skins/update");
+    await expect.poll(() => held.arrived === 1 && skins.checksRun === 1).toBe(true);
+    skins.checkMs = 0;
+    held.release();
+    const checked = await answered(machine, action.id);
+    expect(checked).toMatchObject({ outcome: "done" });
+    expect(skins.checksRun).toBe(2);
+    expect(checked.result!.results).toContainEqual({ item: CAFE, status: "updated", version: "0.2.32-cafe.1" });
+    expect(checked.result!.results).toContainEqual({ item: "decentespresso/streamline-js", status: "alreadyCurrent" });
+  });
+
   it("removes a Skin, refuses the default and one Decaid comes with, and has the plugin refuse the default whatever it is sent", async () => {
     const skins = new SimulatedSkins();
     skins.install(recordedSkin(CAFE));
@@ -292,6 +314,31 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     reloadsWhenAsked(tablet, "passione", () => "1.0.0");
     const elsewhere = await done(machine, { kind: "reloadSkin" });
     expect(elsewhere).toMatchObject({ outcome: "notConfirmed", note: "The Skin was asked to reload, but no fresh page reported in within 15 s", result: null });
+  });
+
+  it("keeps no page reported from another device, and asks the Skin to reload after Decaid loaded the plugin again", async () => {
+    const { machine, tablet } = await connected("Skins reload after a load");
+    expect(await reportPage(tablet, "streamline.js", "0.2.31", new Date(Date.now() - 60_000).toISOString())).toBe(204);
+    await expect.poll(async () => (await software(machine)).showing?.page).toMatchObject({ version: "0.2.31" });
+
+    // A browser on the cafe's network showing the same Skin: answered, not kept, and its fresh page confirms no Reload.
+    const fromBrowser = async (version: string) =>
+      (await tablet.callEndpoint("page", { method: "PUT", headers: { host: "192.168.1.20:8080" }, body: { skinId: "streamline.js", version, loadedAt: new Date().toISOString() } })).status;
+    expect(await fromBrowser("0.2.32")).toBe(204);
+    tablet.onEmit = (event, payload) => {
+      if (event === "changes" && (payload as { what?: unknown }).what === "reload") setTimeout(() => void fromBrowser("0.2.32"), 5);
+    };
+    expect(await done(machine, { kind: "reloadSkin" })).toMatchObject({ outcome: "notConfirmed", result: null });
+    expect((await software(machine)).showing?.page).toMatchObject({ version: "0.2.31" });
+
+    // Decaid keeps the Skin's socket open as it loads the plugin again, so the Skin reports nothing until its page loads:
+    // the server keeps the page it had, Reload still goes, and the page that loads after the push confirms it.
+    const again = await tablet.reload();
+    await api.waitForOnline(machine);
+    await expect.poll(async () => (await software(machine)).skins!.find((entry) => entry.served)?.pageReported).toBe(true);
+    reloadsWhenAsked(again, "streamline.js", () => "0.2.32");
+    expect(await done(machine, { kind: "reloadSkin" })).toMatchObject({ outcome: "done", result: { skinId: "streamline.js", version: "0.2.32" } });
+    await expect.poll(async () => (await software(machine)).showing?.page).toMatchObject({ version: "0.2.32" });
   });
 
   it("runs neither Reload nor the restart while the Machine is busy, refusing each with its state", async () => {
@@ -370,6 +417,14 @@ describe("Skin actions, Reload and Restart the Skin view, and Decaid's update", 
     // Or ends without the installer opening, as where it was cancelled.
     plugins.installOn = "androidInstallerNotOpened";
     expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({ outcome: "refused", refusal: { reason: "decaid", message: "Decaid did not open Android's installer" } });
+
+    // A download slower than the action's time: not confirmed, saying how far it got, as the installer opens later.
+    plugins.installOn = "androidSlowDownload";
+    expect(await done(machine, { kind: "startDecaidUpdate" })).toMatchObject({
+      outcome: "notConfirmed",
+      note: "Decaid was still downloading its update (62%) after 95 s: Android's installer opens at the Tablet once it finishes",
+    });
+    plugins.update = offered;
 
     // A release withdrawn since: Decaid checks again before it downloads, and finds none.
     plugins.installOn = "androidPermitted";
