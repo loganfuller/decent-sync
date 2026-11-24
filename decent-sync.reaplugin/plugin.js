@@ -5686,7 +5686,7 @@ var __decentSync = (() => {
     /**
      * Carries out an action on the Tablet's Skins, the machine idle: reads the
      * Skins, refuses what no longer holds and what the plugin's protections
-     * forbid (removing the default Skin, whatever it is sent), asks Decaid,
+     * forbid (removing the default Skin or the one served, whatever it is sent), asks Decaid,
      * and reads the Skins back, whether or not Decaid took it.
      */
     async carryOutOnSkins(action, tooLate, endTime) {

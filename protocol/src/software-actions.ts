@@ -173,7 +173,7 @@ export function isSecretState(value: unknown): value is SecretState {
  * closed, or with less than SOFTWARE_ACTION_START_MARGIN_MS of `timeLeftMs`
  * left; refuses what its own protections forbid as `notAllowed`: disabling
  * or removing itself, changing any of its own settings but the poll
- * interval, and removing the default Skin; reads the machine's state, but for `checkDecaidUpdate`, and
+ * interval, and removing the default Skin or the one on screen; reads the machine's state, but for `checkDecaidUpdate`, and
  * goes ahead only while the machine is running nothing
  * (SETTINGS_EDIT_STATES) or none is connected to the tablet; reads the
  * lists and reports them; makes Decaid's request through `host.localApi`;
@@ -247,7 +247,7 @@ export type SoftwareAction = {
  *   that mark;
  * - `notAllowed`: the plugin's own protections forbid it: disabling or
  *   removing itself, changing its own server address or Token, or removing
- *   the default Skin;
+ *   the default Skin or the one on screen;
  * - `installNotPermitted`: Decaid may not install its own update, as
  *   Android's permission for it to install apps has not been granted at the
  *   Tablet;

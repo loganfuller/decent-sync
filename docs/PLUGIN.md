@@ -258,7 +258,7 @@ out one at a time, refuses one while the Machine is busy, and reads the
 plugins back afterwards, so the Machine's Settings History ties what changed
 to the action. Whatever it is sent, it never disables or removes itself, of
 its own settings changes only the poll interval, as its server address and
-Token are set on the tablet, and never removes the default Skin. An install from a repository whose plugin is
+Token are set on the tablet, and never removes the default Skin or the one on screen. An install from a repository whose plugin is
 `decent-sync.reaplugin` replaces this plugin with that build, as Decaid
 installs it: like every Software Action, it is an Admin's, trusted with the
 tablet. A tablet still running the plugin of the

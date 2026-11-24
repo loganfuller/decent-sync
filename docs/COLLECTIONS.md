@@ -930,8 +930,8 @@ How each is made, carried out and answered:
   is from before `SOFTWARE_ACTIONS_WIRE_REVISION` ("The Tablet's plugin must
   update before it takes a Software Action", ADR-0025), for a plugin the
   Tablet's latest list does not hold, or for an approval of an update other
-  than the one that waits now; 400 for removing the default Skin or one
-  Decaid comes with; 409 for a Skin the Tablet's latest list does not hold,
+  than the one that waits now; 400 for removing the default Skin, the one
+  served, or one Decaid comes with; 409 for a Skin the Tablet's latest list does not hold,
   for Reload while the Skin served has not reported its page, and for
   starting Decaid's update while its latest reported state offers none it
   can install (`latestVersion` and `installable`). No refusal repeats a setting's value. It
@@ -990,7 +990,7 @@ How each is made, carried out and answered:
      forbid: disabling or removing itself, and changing any of its own
      settings but `PollSeconds`, as its server address and Token are its
      connection to the server; and, once it has read the Skins (step 3),
-     removing the default Skin;
+     removing the default Skin or the one served;
   2. reads `GET /machine/state`, going ahead only in a state a Settings Edit
      goes ahead in (`SETTINGS_EDIT_STATES`), or where no machine is connected
      to the Tablet, and otherwise refusing it as `machineBusy`, naming the

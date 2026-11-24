@@ -286,8 +286,8 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * What an action on a Skin names, checked against the Skins the Tablet
-   * last reported: the Skin is there; one removed is neither the default nor
-   * one that comes with Decaid, which keeps it; and for Reload, the Skin
+   * last reported: the Skin is there; one removed is neither the default, nor
+   * the one served, nor one that comes with Decaid, which keeps it; and for Reload, the Skin
    * served now has reported its page.
    */
   private async checkedOnSkins(

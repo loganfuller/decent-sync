@@ -481,8 +481,8 @@ function skinLabel(skin: { id: string; name: string | null }): string {
  * The Skins on the Tablet, each with its version and how it updates, the
  * default one and the one showing marked, under a strip saying what the
  * Tablet shows; for an Admin, a check for updates, an install, and on each
- * row making it the default and, for one neither the default nor one that
- * comes with Decaid, removing it behind a confirmation.
+ * row making it the default and, for one neither the default, nor the one
+ * served, nor one that comes with Decaid, removing it behind a confirmation.
  */
 function SkinsCard({ skins, showing, acting }: { skins: TabletSkin[] | null; showing: TabletShowing | null; acting: Acting }) {
   const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
