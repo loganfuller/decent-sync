@@ -91,13 +91,14 @@ describe("Software Actions, their time and the plugin's own protections", () => 
   }
   /**
    * Whether every connection of the instance whose `application_name` is `name` is idle, with no statement running, none waiting
-   * on a lock and no transaction open: then it holds no lock, and takes none until it runs again. It must have connections.
+   * on a lock and no transaction open: then it holds none of a transaction's locks, and takes none until it runs again. It must
+   * have connections. A state hidden from this role (NULL) counts as busy.
    */
   const idle = async (name: string) => {
     const database = await server.connectDatabase();
     try {
       const { rows } = await database.query<{ connections: number; busy: number }>(
-        "SELECT count(*)::int AS connections, count(*) FILTER (WHERE state <> 'idle')::int AS busy FROM pg_stat_activity WHERE datname = current_database() AND application_name = $1",
+        "SELECT count(*)::int AS connections, count(*) FILTER (WHERE state IS DISTINCT FROM 'idle')::int AS busy FROM pg_stat_activity WHERE datname = current_database() AND application_name = $1",
         [name],
       );
       expect(rows[0]!.connections, `connections named ${name}`).toBeGreaterThan(0);
@@ -361,10 +362,10 @@ describe("Software Actions, their time and the plugin's own protections", () => 
       const { machine, tablet, plugins } = await connected("Deadline frozen instance", frozen);
       const password = "a third made-up password 2342 for the test";
       rememberSecret(password);
-      // Stopped inside one of its transactions on the Machine's row, as a heartbeat's, or with a statement on it still running, it
-      // would hold that row until PostgreSQL ends the transaction (idle_in_transaction_session_timeout), and the action couldn't be
-      // made meanwhile: it is let go and stopped again until all its connections are idle. A moment after the stop, so that a
-      // statement it sent just before has reached PostgreSQL by then.
+      // Stopped inside one of its transactions on the Machine's row, such as claim()'s, it would hold that row until PostgreSQL ends
+      // the transaction (idle_in_transaction_session_timeout), and the action couldn't be made meanwhile: it is let go and stopped
+      // again until all its connections are idle. A moment after the stop, so that a statement it sent just before has reached
+      // PostgreSQL by then.
       for (let attempt = 1; ; attempt++) {
         frozen.signal("SIGSTOP");
         await new Promise((resolve) => setTimeout(resolve, 100));
