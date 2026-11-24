@@ -2947,8 +2947,16 @@ Viewer can't read that Staff can). Publishing one makes it a Profile
   a Profile, and not one of Decaid's bundled ones (409).
 - **Checked** as any profile is (`checkProfile`), against the widest ranges
   of the account's models and the Library's Profiles, so one whose steps a
-  Library Profile has, as a Draft of Edit unchanged, is refused publishing;
-  a simulation adds the run's checks.
+  Library Profile has is refused publishing (`sameSteps`), but for a new
+  version with the steps of the Profile it started from: that is an edit
+  of its title, author and notes (Publishing, below), refused only where
+  it takes a title another Profile has, Archived ones too (`titleInUse`).
+  One that changes none of them since it began, as a Draft of Edit
+  unchanged, has nothing to publish: no check says so, as it is no fault,
+  but its page offers no Publish and publishing refuses it (409). Its
+  read says which of them it changes since it began (`editsText`), and the
+  Profile's as they were then (`versionOf`), each null for any other
+  Draft. A simulation adds the run's checks.
 - **Simulated** as a Library Profile is, as the model of the Profile it
   started from, or else a Bengle where every Machine of the account is one,
   and otherwise a DE1 (`DraftView.machineModel`).
@@ -2990,7 +2998,7 @@ tablet online. In one transaction it inserts the Profile, its content a
 record as Decaid creates one (`{ profile, parentId, isDefault: false,
 metadata: null }`), with no Location it was created at; records it joining
 the Library as the account's edit; shows it at the Locations chosen, at
-least one; and deletes the Draft. From there the Library writes it to those
+least one (400 for none); and deletes the Draft. From there the Library writes it to those
 Locations' tablets as any Profile, parents first.
 
 - **As a new version**, its `parentId` is the Profile the Draft started
@@ -3020,6 +3028,29 @@ Locations' tablets as any Profile, parents first.
   Location where a Machine can't run it (`refuseUnrunnableAt`, #588); and
   when the Draft was saved since the person read it, as they would publish
   what they have not seen (`saves`, the count of saves read).
+- **An edit of the Profile it started from** (#667): a new version whose
+  steps are that Profile's has its id, as Decaid's id leaves out the title,
+  author and notes, so publishing it inserts nothing. It edits those of
+  them the Draft changed since it began, compared with the Profile's as
+  they were then, rebuilt from its history (`versionContext`), so an edit
+  of another of them made meanwhile, on its page or a tablet, stays. It
+  goes through the Profile page's edit (`LibraryEditsService.editProfile`,
+  in the same transaction), made over the Profile as it was when the Draft
+  began, so an edit of the same field made since is replaced and kept as a
+  Lost Edit: written to
+  every tablet that holds the Profile, kept in its history under the
+  account, Lost Edits as any edit makes, and refused (409) for a title
+  another Profile has, Archived ones too, and for one of Decaid's bundled
+  Profiles. It is given no Locations or Recipes (400 for any), and the
+  Profile stays shown where it is, with its Recipes and versions. The
+  Draft is deleted, ending any following of it, and the answer is that
+  Profile, `replaced` null, nothing shown, hidden or moved, and `edited`,
+  the fields it changed; `edited` is null for every other publish and
+  return. Locks: the Draft's row, then the Profile's, then
+  `PROFILE_TITLE_LOCK` where the title changes, as an edit on its page
+  takes them. The Draft page says it will publish as an edit of the
+  Profile's title, author or notes, naming those it changes, and the
+  dialog lists them, before and after, and asks for no Locations.
 - **A fork.** A Draft's read lists `newer`, the versions saved down the chain
   from the Profile it started from that the Library gained after it began,
   from a tablet or another Draft. Publishing it then saves it from the

@@ -631,6 +631,17 @@ export interface ProfileChecks {
 export interface ProfileCheckContext {
   /** The Library's Profiles, by id and title: one with this profile's id has its steps. */
   libraryProfiles?: ReadonlyArray<{ id: string; title: string }>;
+  /**
+   * For a new version, the Profile it would replace, by id, with its title,
+   * author and notes as they were when the Draft began, so an edit of them
+   * made since is not taken for the Draft's. A profile with its steps is an
+   * edit of those it changes (#667,
+   * `textEditOf`), not a Profile of its own, so is checked as one: not for
+   * its steps, and, where it changes the title, for a title another of
+   * `libraryProfiles` has (`titleInUse`). One that changes none of them has
+   * nothing to publish, which is no fault of it, so no check says so.
+   */
+  versionOf?: { id: string; text: ProfileText };
   /** The titles of the Profiles shown where this one would be, for a separate Profile, which may share none of them. */
   titlesInUse?: readonly string[];
   /**
@@ -701,7 +712,14 @@ export function checkProfile(profile: Profile, context: ProfileCheckContext = {}
   for (const value of outOfRange(profile, widestLimits(models))) {
     blocking.push({ code: "outOfRange", step: value.step, path: value.path, message: `${outOfRangeText(profile, value)}.` });
   }
-  if (context.libraryProfiles && profile.steps.length > 0) {
+  const textEdit = context.versionOf && profile.steps.length > 0 ? textEditOf(profile, context.versionOf) : null;
+  if (textEdit !== null) {
+    if (textEdit.includes("title")) {
+      const title = profile.title.trim().toLowerCase();
+      const other = context.libraryProfiles?.find((item) => item.id !== context.versionOf!.id && item.title.trim().toLowerCase() === title);
+      if (title !== "" && other) blocking.push({ code: "titleInUse", step: null, path: "title", message: `A Profile in the Library is titled "${other.title.trim()}" already.` });
+    }
+  } else if (context.libraryProfiles && profile.steps.length > 0) {
     const id = profileId(profile);
     const same = context.libraryProfiles.find((item) => item.id === id);
     if (same) blocking.push({ code: "sameSteps", step: null, path: "steps", message: `Its steps are those of "${same.title}", which the Library has.` });
@@ -811,4 +829,19 @@ export type ProfileText = Record<ProfileTextField, string>;
 export function profileTextOf(value: unknown): ProfileText {
   const profile = isObject(value) ? value : {};
   return { title: readOptionalString(profile.title) ?? "", author: readOptionalString(profile.author) ?? "", notes: readOptionalString(profile.notes) ?? "" };
+}
+
+/**
+ * What publishing a profile as a new version of `from` (ADR-0032, #667)
+ * edits of it, where the profile's steps are `from`'s: then its id is
+ * `from`'s, as Decaid's id leaves out the title, author and notes, so
+ * publishing it makes no Profile and edits those of `from` that differ, in
+ * `PROFILE_TEXT_FIELDS` order, none where none does. Null where its steps
+ * differ, so it would be a new Profile Version. The title is compared
+ * trimmed, as an edit of it is saved.
+ */
+export function textEditOf(profile: Profile, from: { readonly id: string; readonly text: ProfileText }): ProfileTextField[] | null {
+  if (profileId(profile) !== from.id) return null;
+  const now = profileTextOf(profile);
+  return PROFILE_TEXT_FIELDS.filter((field) => (field === "title" ? now.title.trim() !== from.text.title.trim() : now[field] !== from.text[field]));
 }

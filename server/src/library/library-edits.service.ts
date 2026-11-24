@@ -324,9 +324,12 @@ export class LibraryEditsService {
    * Workflow's profile, and of the profile it loads at wake, by its title,
    * so would take either for the other. Judged under PROFILE_TITLE_LOCK,
    * taken after the Profile's row lock, so two edits never both take a
-   * title.
+   * title. Within a transaction the caller holds where given, as publishing
+   * a Draft that changes only these edits its Profile (#667), and then made
+   * over the Profile as it was at `seenAt`, when the Draft began, so an edit
+   * of the same field made since is kept as a Lost Edit where it gives way.
    */
-  async editProfile(id: string, values: Record<string, unknown>, editor: Editor): Promise<void> {
+  async editProfile(id: string, values: Record<string, unknown>, editor: Editor, within?: { tx: Prisma.TransactionClient; seenAt: Date }): Promise<void> {
     await this.editShared({ kind: "profile", id }, values, editor, null, async (content, row, tx) => {
       if (row.bundled) throw new ConflictException(BUNDLED_PROFILE_TEXT);
       const title = values.title;
@@ -338,7 +341,7 @@ export class LibraryEditsService {
         if (other) throw new ConflictException(`A Profile in the Library is titled "${other.title}" already`);
       }
       return values;
-    });
+    }, within);
   }
 
   /**
@@ -365,7 +368,9 @@ export class LibraryEditsService {
    * Location's for a Grinder, whose Archived state changes only under it.
    * With a scope, Staff edit a Grinder only at its own Location. With
    * `over`, the edit is what it returns for the item's content as it stands,
-   * and its row, read under that lock, or is refused as it throws.
+   * and its row, read under that lock, or is refused as it throws. Within
+   * `within` where given, a transaction the caller holds, else its own; made
+   * over the item as it was at its `seenAt`, else as it stands.
    */
   private async editShared(
     item: ItemRef,
@@ -373,9 +378,10 @@ export class LibraryEditsService {
     editor: Editor,
     scope: Scope | null,
     over?: (content: Record<string, unknown>, row: ItemRow, tx: Prisma.TransactionClient) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    within?: { tx: Prisma.TransactionClient; seenAt: Date },
   ): Promise<void> {
     const description = KINDS[item.kind];
-    await this.prisma.$transaction(async (tx) => {
+    const edit = async (tx: Prisma.TransactionClient) => {
       if (description.belongsToLocation) {
         const [owned] = await tx.$queryRaw<{ locationId: string | null }[]>`
           SELECT location_id AS "locationId" FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
@@ -387,9 +393,11 @@ export class LibraryEditsService {
       await lockItems(tx, item.kind, [item.id]);
       const row = await found(tx, item.kind, item.id);
       const edit = over ? await over(description.values(row.content), row, tx) : values;
-      const edited = await editContent(tx, item, { values: edit, at: await editTime(tx), seenAt: "everything" }, accountSource(editor));
+      const edited = await editContent(tx, item, { values: edit, at: await editTime(tx), seenAt: within?.seenAt ?? "everything" }, accountSource(editor));
       if (edited.writesDue) await notify(tx, "library_changes", item.id);
-    }, INTAKE_TRANSACTION);
+    };
+    if (within) await edit(within.tx);
+    else await this.prisma.$transaction(edit, INTAKE_TRANSACTION);
   }
 
   /** 404 unless every Location exists. */

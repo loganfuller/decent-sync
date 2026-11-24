@@ -21,6 +21,7 @@ import {
   standardPuck,
   startingShape,
   stepsKey,
+  textEditOf,
 } from "../src/index.js";
 import { sha256Hex } from "../src/sha256.js";
 
@@ -357,6 +358,34 @@ describe("the checks", () => {
       { code: "titleInUse", step: null, path: "title", message: 'A Profile shown there is titled "Plain" already.' },
     ]);
     expect(checkProfile(profile, { libraryProfiles: [{ id: "profile:00000000000000000000", title: "Other" }], titlesInUse: ["Other"] }).blocking).toEqual([]);
+  });
+
+  it("take a new version with the steps of the Profile it replaces as an edit of its title, author and notes (#667)", () => {
+    const profile = { ...plain(), author: "Lab", notes: "First notes" };
+    const id = profileId(profile);
+    const versionOf = { id, text: { title: "Plain", author: "Lab", notes: "First notes" } };
+    const library = [
+      { id, title: "Plain" },
+      { id: "profile:00000000000000000000", title: "Taken " },
+    ];
+    // Nothing changed: nothing to publish, which no check calls a fault, nor its steps the Library's.
+    expect(textEditOf(profile, versionOf)).toEqual([]);
+    expect(checkProfile(profile, { libraryProfiles: library, versionOf }).blocking).toEqual([]);
+    // Its notes, and its title but for spaces around it, which an edit of it trims: an edit of the notes, which nothing stops.
+    const reworded = { ...profile, title: " Plain ", notes: "Reworded" };
+    expect(textEditOf(reworded, versionOf)).toEqual(["notes"]);
+    expect(checkProfile(reworded, { libraryProfiles: library, versionOf }).blocking).toEqual([]);
+    expect(textEditOf({ ...profile, title: "Plainer", author: "" }, versionOf)).toEqual(["title", "author"]);
+    // A title another Library Profile has, compared as Streamline compares titles.
+    expect(checkProfile({ ...profile, title: "taken" }, { libraryProfiles: library, versionOf }).blocking).toEqual([
+      { code: "titleInUse", step: null, path: "title", message: 'A Profile in the Library is titled "Taken" already.' },
+    ]);
+    // Other steps make a new version, which no Profile in the Library has.
+    const changed = { ...profile, steps: [profile.steps[0]!, { ...profile.steps[1]!, pressure: 8.5 } as ProfileStep] };
+    expect(textEditOf(changed, versionOf)).toBeNull();
+    expect(checkProfile(changed, { libraryProfiles: library, versionOf }).blocking).toEqual([]);
+    // Steps another Profile has are refused as ever, the one it replaces being another.
+    expect(checkProfile(profile, { libraryProfiles: library, versionOf: { ...versionOf, id: "profile:11111111111111111111" } }).blocking.map((check) => check.code)).toEqual(["sameSteps"]);
   });
 
   it("advise of a weight limit, an exit on a step of no length and a flow above the pump's, each naming its step", () => {

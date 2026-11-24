@@ -1,3 +1,4 @@
+import type { ProfileTextField } from "@decent-sync/protocol";
 import { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { SourceText } from "@/components/item-history";
@@ -50,13 +51,24 @@ export function useStartDraft(): { start(body: DraftStartBody): Promise<void>; s
   return { start, starting, error };
 }
 
-/** What a Draft will become when it is published, in words. */
-export function draftBecomes(draft: DraftSummary): string {
+/**
+ * What a Draft will become when it is published, in words: for a new version
+ * with the steps of the Profile it started from, given what it changes of
+ * that Profile's title, author and notes, an edit of them (#667).
+ */
+export function draftBecomes(draft: DraftSummary, editsText?: readonly ProfileTextField[] | null): string {
   const from = draft.startedFrom?.title ?? "a Profile since deleted";
+  if (draft.publishesAs === "version" && editsText && editsText.length > 0) return `An edit of ${from}'s ${textFieldsText(editsText)}`;
   if (draft.publishesAs === "version") return `A new version of ${from}`;
   if (draft.startedFrom) return `A new Profile, a copy of ${from}`;
   if (draft.shape) return `A new Profile, from ${draft.shape.title}`;
   return "A new Profile, from a file";
+}
+
+/** Some of a Profile's title, author and notes, in words: "notes", "title and notes", "title, author and notes". */
+export function textFieldsText(fields: readonly ProfileTextField[]): string {
+  if (fields.length <= 1) return fields.join("");
+  return `${fields.slice(0, -1).join(", ")} and ${fields[fields.length - 1]}`;
 }
 
 /** When the Draft was saved last, and by whom. */

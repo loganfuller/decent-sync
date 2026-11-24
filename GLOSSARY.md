@@ -158,7 +158,7 @@ One profile in a chain in which each was saved from the one before, shown as the
 _Avoid_: Revision; version (for one accepted edit in an item's history)
 
 **Draft**:
-A profile being written or changed in the management interface, held by the server and offered on no tablet. Publishing it makes it a profile, or a new profile version, and it is gone once published or discarded. A machine at a location marked for it can follow a draft, taking its steps as they are saved, to try it.
+A profile being written or changed in the management interface, held by the server and offered on no tablet. Publishing it makes it a profile, or a new profile version, or, where it changes only the title, author or notes of the profile it changes, edits that profile; it is gone once published or discarded. A machine at a location marked for it can follow a draft, taking its steps as they are saved, to try it.
 _Avoid_: Unsaved profile, working copy
 
 **Trial Shot**:
