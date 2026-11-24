@@ -89,6 +89,22 @@ describe("Software Actions, their time and the plugin's own protections", () => 
     }
     return id;
   }
+  /** Whether no other transaction holds the Machine's row now, as making an action would find it: tried without waiting, and let go. */
+  const rowFree = async (machine: CreatedMachine) => {
+    const database = await server.connectDatabase();
+    try {
+      await database.query("BEGIN");
+      await database.query("SELECT 1 FROM machines WHERE id = $1::uuid FOR UPDATE NOWAIT", [machine.machine.id]);
+      return true;
+    } catch (error) {
+      // lock_not_available
+      if ((error as { code?: string }).code === "55P03") return false;
+      throw error;
+    } finally {
+      await database.query("ROLLBACK").catch(() => {});
+      await database.end();
+    }
+  };
   const heldOf = async (id: string) => {
     const database = await server.connectDatabase();
     try {
@@ -342,19 +358,19 @@ describe("Software Actions, their time and the plugin's own protections", () => 
       const { machine, tablet, plugins } = await connected("Deadline frozen instance", frozen);
       const password = "a third made-up password 2342 for the test";
       rememberSecret(password);
-      // Stopped inside one of its transactions on the Machine's row, as a heartbeat's, it holds that row until PostgreSQL ends
-      // the transaction (idle_in_transaction_session_timeout), and the action can't be made meanwhile: it is let go and stopped again.
-      let made: ActionView | undefined;
-      for (let attempt = 1; made === undefined; attempt++) {
+      // Stopped inside one of its transactions on the Machine's row, as a heartbeat's, it would hold that row until PostgreSQL ends
+      // the transaction (idle_in_transaction_session_timeout), and the action couldn't be made meanwhile: it is let go and stopped
+      // again until the row is free. A moment after the stop, so that a statement it sent just before has taken its lock by then.
+      for (let attempt = 1; ; attempt++) {
         frozen.signal("SIGSTOP");
-        const response = await api.call("POST", path(machine), { kind: "changePluginSettings", pluginId: VISUALIZER, values: { Password: password }, expected: { Password: { isSet: false } } });
-        if (response.status === 201) made = ((await response.json()) as { softwareAction: ActionView }).softwareAction;
-        else {
-          expect(attempt, await response.text()).toBeLessThan(3);
-          frozen.signal("SIGCONT");
-          await api.waitForOnline(machine);
-        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (await rowFree(machine)) break;
+        expect(attempt, "the stopped instance held the Machine's row at every stop").toBeLessThan(20);
+        frozen.signal("SIGCONT");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await api.waitForOnline(machine);
       }
+      const made = await make(machine, { kind: "changePluginSettings", pluginId: VISUALIZER, values: { Password: password }, expected: { Password: { isSet: false } } });
       expect((await heldOf(made.id)).held).not.toBeNull();
       // 61 s and a moment on, the instance that made it has taken its values out, with no read of the Machine's actions.
       await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(made.madeAt) + 63_000 - Date.now())));
