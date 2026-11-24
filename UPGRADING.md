@@ -44,8 +44,8 @@ This release follows Decaid v0.9.3
 tablet's plugins through it
 ([ADR-0034](docs/adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
 Before deploying, update each tablet's Decaid to v0.9.3 or later, at the
-tablet: Android asks someone there to confirm the install. Then deploy the
-server. It refuses a tablet on Decaid v0.9.2 or older, and its Machine's
+tablet: Android asks someone there to confirm the install. Then, once every
+tablet runs the 1.12.0 plugin or later (below), deploy the server. It refuses a tablet on Decaid v0.9.2 or older, and its Machine's
 page says why, though 1.12.2 still accepts one while it serves beside this
 release. On a tablet that updates to it:
 
@@ -135,8 +135,8 @@ from it, which brings back the default Skin: an Admin may ask for either,
 and so may Staff at the Machine's Location. Staff and Viewers read the tab; the values of
 plugins' settings show to Admins only, and a secret only as set or not set.
 Assistants read a Machine's software with `get_machine_software` and
-`list_software_actions`, and make one Software Action only, the reload or
-restart with `reload_skin`. Each plugin's settings now join the Machine's
+`list_software_actions`, and make no Software Action but reloading the Skin
+or restarting the Skin view, with `reload_skin`. Each plugin's settings now join the Machine's
 Settings History. Nothing is needed.
 
 ### Automatic update checks are changed on the Software tab, by Admins

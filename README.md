@@ -317,7 +317,8 @@ Each server has one owner: a household, or a business with all of its sites.
   it offers and whether its automatic update checks are on, and every plugin
   and Skin on the tablet, each with its version and how it updates: Pinned,
   following releases or a branch, or not updated. While the tablet is
-  connected and the Machine idle, an Admin installs a plugin from a
+  connected (and, for all but the check for Decaid's update, the Machine
+  idle), an Admin installs a plugin from a
   repository's latest release, a branch or a commit, enables, disables,
   configures and removes one, checks the plugins for updates and approves
   one that waits on new permissions, installs a Skin from a release, a branch
