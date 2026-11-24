@@ -19,8 +19,9 @@ export type Lasting = "pending" | "passing" | "staying";
  * A status message of what came of something asked of a Machine, such as a
  * Software Action or a Settings Edit, in place where it was asked. An answered
  * one has a Dismiss button; a passing one also goes by itself, held while the
- * pointer is over it or focus is inside it, as a toast is, and its time
- * starts again once they leave. `shows` is what it says, its title and
+ * pointer is over it, focus is inside it or the page's tab is hidden, as a
+ * toast is, and its time starts again once they leave or the tab shows
+ * again, so it isn't gone before it is seen. `shows` is what it says, its title and
  * text: once it has gone, it stays hidden until it says something else, as
  * when an answer arrives late for one dismissed as not confirmed. Hiding it
  * only hides it: what it is about goes on, read until answered, and stays in
@@ -37,7 +38,15 @@ export function StatusAlert({
   const [gone, setGone] = useState<string>();
   const [pointer, setPointer] = useState(false);
   const [focused, setFocused] = useState(false);
-  const held = pointer || focused;
+  const [hidden, setHidden] = useState(() => document.hidden);
+  const held = pointer || focused || hidden;
+
+  useEffect(() => {
+    const changed = () => setHidden(document.hidden);
+    changed();
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
 
   useEffect(() => {
     if (lasting !== "passing" || held || gone === shows) return;

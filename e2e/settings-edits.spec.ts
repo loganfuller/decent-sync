@@ -2,7 +2,7 @@ import { expect, type Browser, type Locator, type Page, test } from "@playwright
 import { SimulatedTablet, derivedDe1Pro, sensorCalibration, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, openCard, rows } from "./support/locators.js";
-import { DETAILS_POLL_MS } from "./support/polling.js";
+import { DETAILS_POLL_MS, setTabHidden } from "./support/polling.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -62,12 +62,17 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   await expect(status.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
   write.release();
   await expect(status).toContainText("Applied");
+  // Applied, it doesn't go while the page's tab is hidden, as someone who switched tabs hasn't seen it.
+  await setTabHidden(page, true);
   await expect(status).toContainText("Fan threshold: 40 °C.");
   // Its values come from the latest report, read back after the write.
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
   expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
-  // Applied, it goes by itself after a while, the pointer away from it.
   await page.mouse.move(0, 0);
+  await page.clock.fastForward(20_000);
+  await expect(status).toContainText("Applied");
+  // Shown again, it goes by itself after a while, its time starting again then.
+  await setTabHidden(page, false);
   await page.clock.fastForward(7_000);
   await expect(status).toContainText("Applied");
   await page.clock.fastForward(1_500);
@@ -83,6 +88,7 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   await expect(status).toContainText("Not changed");
   await expect(status).toContainText("The Machine was busy (espresso). Edit it again once it is idle.");
   expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
+  await page.mouse.move(0, 0);
   await page.clock.fastForward(20_000);
   await expect(status).toContainText("Not changed");
   await status.getByRole("button", { name: "Dismiss" }).click();

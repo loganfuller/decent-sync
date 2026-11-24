@@ -303,6 +303,7 @@ test("an action is refused while the Machine is busy, its message staying until 
   await expect(cell(pluginRow(page, "Time To Ready"), 3)).toHaveText("Enabled");
   front.reportState("idle", "idle");
   // A refusal stays until dismissed.
+  await page.mouse.move(0, 0);
   await page.clock.fastForward(20_000);
   await expect(refused).toHaveText("RefusedDisabled Time To Ready. Refused: the Machine was pulling a shot.");
   await refused.getByRole("button", { name: "Dismiss" }).click();
@@ -379,6 +380,7 @@ test("an action is refused while the Machine is busy, its message staying until 
   const failed = plugins.getByRole("status");
   await expect(failed).toContainText("Checked plugins for updates. Done · ");
   await expect(failed).toContainText("Decent shot upload failed: Couldn't update the plugin. Try again.");
+  await page.mouse.move(0, 0);
   await page.clock.fastForward(20_000);
   await expect(failed).toContainText("Decent shot upload failed: Couldn't update the plugin. Try again.");
   managed.failUpdatesOf("shot-upload.reaplugin", null);
@@ -408,6 +410,7 @@ test("an action no Tablet answers in time is not confirmed, and a Tablet whose p
   }
   await expect(status).toHaveText("Not confirmedChecked for Decaid's update. Check the lists before trying again.");
   // Not confirmed, it stays until dismissed.
+  await page.mouse.move(0, 0);
   await page.clock.fastForward(20_000);
   await expect(status).toHaveText("Not confirmedChecked for Decaid's update. Check the lists before trying again.");
   await expect(status.getByRole("button", { name: "Dismiss" })).toBeVisible();
