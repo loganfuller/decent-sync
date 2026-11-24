@@ -1,12 +1,12 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useState } from "react";
-import { useIsAdmin } from "@/auth";
+import { useIsAdmin, useMayChange } from "@/auth";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
-import { FormError, failure } from "@/components/library-forms";
+import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { ConfirmButton, formatTime } from "@/components/machines";
 import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { SettingsEditStatus, SettingsForm } from "@/components/settings-edits";
-import { SoftwareActionStatus, SoftwareActionsCard, decaidUpdateText, sourceText } from "@/components/software-actions";
+import { SoftwareActionStatus, SoftwareActionsCard, decaidUpdateText, skinSourceText, sourceText } from "@/components/software-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader } from "@/co
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field as FormField, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -24,23 +25,27 @@ import {
   type PluginSetting,
   type PluginSource,
   type SettingsEdit,
+  type SkinSource,
   type SoftwareAction,
   type SoftwareUpdates,
   type TabletPlugin,
+  type TabletShowing,
   type TabletSkin,
   type TabletSoftware,
   api,
 } from "@/lib/api";
 import { valueText } from "@/lib/settings-text";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
-import { type EditableSettingsField, isEditable, isPluginRepo, sameValue, settingsField } from "@decent-sync/protocol";
+import { type EditableSettingsField, isEditable, isPluginRepo, isSkinUrl, namesCommit, sameValue, settingsField } from "@decent-sync/protocol";
 
-// A Machine's Software tab (#660, ADR-0034): its Tablet Software, Decaid,
-// the plugins and the Skins, each with its version and how it updates, and
-// for an Admin the Software Actions that change them, each made once, while
-// the Tablet is connected, and followed in place until it has an outcome,
-// with the log of them all. Staff and Viewers read the lists and the log and
-// are offered nothing.
+// A Machine's Software tab (#660, #661, ADR-0034): its Tablet Software,
+// Decaid, the plugins and the Skins, each with its version and how it
+// updates, what the Tablet shows, and for an Admin the Software Actions that
+// change them, each made once, while the Tablet is connected, and followed
+// in place until it has an outcome, with the log of them all. Staff at the
+// Machine's Location may reload the Skin and restart the Skin view, and are
+// offered nothing else; other Staff and Viewers read the lists and the log
+// and are offered nothing.
 
 /** The notes the automatic update checks' edit shows (#657). */
 const AUTOMATIC_UPDATE_CHECK_NOTES = [
@@ -61,7 +66,10 @@ type NewAction =
   | { kind: "enablePlugin" | "disablePlugin" | "removePlugin"; pluginId: string }
   | { kind: "approvePluginUpdate"; pluginId: string; version: string; addedPermissions: string[] }
   | { kind: "changePluginSettings"; pluginId: string; values: Record<string, unknown>; expected: Record<string, unknown> }
-  | { kind: "checkPluginUpdates" | "checkDecaidUpdate" };
+  | { kind: "installSkin"; repo: string; branch?: string }
+  | { kind: "installSkin"; url: string }
+  | { kind: "chooseDefaultSkin" | "removeSkin"; skinId: string }
+  | { kind: "checkPluginUpdates" | "checkDecaidUpdate" | "startDecaidUpdate" | "checkSkinUpdates" | "reloadSkin" | "restartSkinView" };
 
 /** Makes a Software Action, answered with its outcome pending; a refusal at once throws with the server's words. */
 async function makeAction(machineId: string, action: NewAction): Promise<SoftwareAction> {
@@ -84,9 +92,12 @@ interface Acting {
   machine: Machine;
   /** Whether actions are offered: to an Admin, while the Tablet's plugin takes them. */
   offered: boolean;
+  /** Whether Reload and the restart of the Skin view are offered: to an Admin, and to Staff at the Machine's Location, while the Tablet's plugin takes them. */
+  skinViewOffered: boolean;
   /** Why they can't be made now, or null. */
   blocked: string | null;
   plugins: readonly TabletPlugin[] | null;
+  skins: readonly TabletSkin[] | null;
   /** Reloads the lists and the log once an action made here is answered. */
   onAnswered(): Promise<void>;
 }
@@ -119,7 +130,9 @@ function MadeStatus({ acting, made, error }: { acting: Acting; made: SoftwareAct
   return (
     <>
       {error && <FormError error={error} />}
-      {made && !error && <SoftwareActionStatus key={made.id} machineId={acting.machine.id} action={made} plugins={acting.plugins} onAnswered={acting.onAnswered} />}
+      {made && !error && (
+        <SoftwareActionStatus key={made.id} machineId={acting.machine.id} action={made} plugins={acting.plugins} skins={acting.skins} onAnswered={acting.onAnswered} />
+      )}
     </>
   );
 }
@@ -133,6 +146,8 @@ function MadeStatus({ acting, made, error }: { acting: Acting; made: SoftwareAct
  */
 export function SoftwareTab({ machine, changed }: { machine: Machine; changed: number }) {
   const isAdmin = useIsAdmin();
+  const mayChange = useMayChange();
+  const mayChangeAt = useMayChangeAt();
   const path = `/machines/${encodeURIComponent(machine.id)}`;
   const load = useCallback(async () => (await api<{ tabletSoftware: TabletSoftware }>("GET", `${path}/tablet-software`)).tabletSoftware, [path]);
   const { data: software, error, reload } = usePolled(load, DETAILS_POLL_MS);
@@ -145,8 +160,10 @@ export function SoftwareTab({ machine, changed }: { machine: Machine; changed: n
   }, [reload]);
 
   const offered = isAdmin && software?.pluginMustUpdate === false;
+  // Staff only at the Machine's Location, as the server judges by it.
+  const skinViewOffered = mayChange && mayChangeAt(machine.location?.id ?? null) && software?.pluginMustUpdate === false;
   const blocked = actionBlocked(machine);
-  const acting: Acting = { machine, offered, blocked, plugins: software?.plugins ?? null, onAnswered };
+  const acting: Acting = { machine, offered, skinViewOffered, blocked, plugins: software?.plugins ?? null, skins: software?.skins ?? null, onAnswered };
   return (
     <>
       {error && (
@@ -169,13 +186,13 @@ export function SoftwareTab({ machine, changed }: { machine: Machine; changed: n
               <AlertDescription>Nothing on the Tablet updates by itself, Decent Sync's plugin included, until they are turned on again.</AlertDescription>
             </Alert>
           )}
-          {offered && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
+          {(offered || skinViewOffered) && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
           <DecaidCard software={software} acting={acting} />
           <PluginsCard plugins={software.plugins} acting={acting} />
-          <SkinsCard skins={software.skins} />
+          <SkinsCard skins={software.skins} showing={software.showing ?? null} acting={acting} />
         </>
       )}
-      <SoftwareActionsCard machineId={machine.id} plugins={software?.plugins} answered={answered} />
+      <SoftwareActionsCard machineId={machine.id} plugins={software?.plugins} skins={software?.skins} answered={answered} />
     </>
   );
 }
@@ -191,12 +208,17 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<SettingsEdit>();
   const version = decaid.version ? (decaid.build ? `${decaid.version} · build ${decaid.build}` : decaid.version) : "Not reported";
+  // The version Decaid offers to install, while it is not already downloading or installing one.
+  const update =
+    decaid.update?.installable && decaid.update.latestVersion && !decaid.update.error && decaid.update.phase !== "downloading" && decaid.update.phase !== "installing"
+      ? decaid.update.latestVersion
+      : null;
   return (
     <Card role="region" aria-label="Decaid">
       <CardHeader>
         <CardTitleWithInfo title="Decaid">
           <p>The app the Tablet runs, which runs its plugins and serves its Skins, as its Tablet last reported it.</p>
-          <p>Decaid's own update is installed by someone at the Tablet, who confirms it there.</p>
+          <p>Decaid's own update can be started from here. Someone at the Tablet then taps Open in Android's installer, as Decaid does not reopen by itself.</p>
         </CardTitleWithInfo>
         {acting.offered && (
           <CardAction>
@@ -216,7 +238,7 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
                 {decaidUpdateText(decaid.update)}
                 <InfoTip label="About Update">
                   <p>As the Tablet reported at {formatTime(decaid.update.reportedAt)}.</p>
-                  {decaid.update.installable && <p>Someone at the Tablet confirms its install there.</p>}
+                  {decaid.update.installable && <p>Someone at the Tablet taps Open once it is installed, as Decaid does not reopen by itself.</p>}
                 </InfoTip>
               </span>
             ) : (
@@ -237,6 +259,26 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
             </span>
           </Field>
         </Fields>
+        {acting.offered && update && (
+          <Item variant="outline" role="group" aria-label="Decaid's update" className="bg-muted/40">
+            <ItemContent className="min-w-48">
+              <ItemDescription className="line-clamp-none text-foreground">
+                Decaid {update} can be installed. Someone at the Tablet taps Open once it is, as Decaid does not reopen by itself.
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions className="flex-wrap">
+              <ConfirmButton
+                label="Start the update on the Tablet"
+                title="Start Decaid's update on the Tablet?"
+                description={`Decaid downloads ${update} and installs it through Android's installer. Someone at the Tablet must then tap Open in the installer: Decaid does not reopen by itself, and the Machine is offline until it does.`}
+                confirmLabel="Start the update"
+                size="sm"
+                disabled={making || acting.blocked !== null}
+                onConfirm={() => void make({ kind: "startDecaidUpdate" })}
+              />
+            </ItemActions>
+          </Item>
+        )}
         {edit && <SettingsEditStatus key={edit.id} machineId={acting.machine.id} edit={edit} onAnswered={acting.onAnswered} />}
         {editing && acting.offered && decaid.automaticUpdateCheck !== null && (
           <SettingsForm
@@ -430,18 +472,45 @@ function PluginState({ plugin }: { plugin: TabletPlugin }) {
   );
 }
 
-/** The Skins on the Tablet, each with its version and how it updates, the default one marked. Read-only for now (#661). */
-function SkinsCard({ skins }: { skins: TabletSkin[] | null }) {
+/** A Skin by the name it reports, or its id where it reports none. */
+function skinLabel(skin: { id: string; name: string | null }): string {
+  return skin.name ?? skin.id;
+}
+
+/**
+ * The Skins on the Tablet, each with its version and how it updates, the
+ * default one and the one showing marked, under a strip saying what the
+ * Tablet shows; for an Admin, a check for updates, an install, and on each
+ * row making it the default and, for one neither the default nor one that
+ * comes with Decaid, removing it behind a confirmation.
+ */
+function SkinsCard({ skins, showing, acting }: { skins: TabletSkin[] | null; showing: TabletShowing | null; acting: Acting }) {
+  const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
+  const disabled = making || acting.blocked !== null;
+  const shown = (action: SoftwareAction) => {
+    setError(undefined);
+    setMade(action);
+  };
   return (
     <Card role="region" aria-label="Skins">
       <CardHeader>
         <CardTitleWithInfo title="Skins">
-          <p>The Skins Decaid can serve on the Tablet, as its Tablet last reported them. The default one is what Decaid shows as it starts.</p>
+          <p>The Skins Decaid can serve on the Tablet, as its Tablet last reported them. The default one is what Decaid shows as it starts and once its Skin view restarts.</p>
         </CardTitleWithInfo>
         {!skins && <CardDescription>Its Tablet has not reported its Skins yet.</CardDescription>}
+        {acting.offered && skins && (
+          <CardAction className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" aria-label="Check Skins for updates" disabled={disabled} onClick={() => void make({ kind: "checkSkinUpdates" })}>
+              Check for updates
+            </Button>
+            <InstallSkinDialog machine={acting.machine} disabled={disabled} onMade={shown} />
+          </CardAction>
+        )}
       </CardHeader>
       {skins && (
         <CardContent className="grid gap-3">
+          <MadeStatus acting={acting} made={made} error={error} />
+          {showing && <ShowingStrip skins={skins} showing={showing} acting={acting} disabled={disabled} make={make} />}
           {skins.length === 0 ? (
             <p className="text-sm text-muted-foreground">No Skin is installed.</p>
           ) : (
@@ -453,6 +522,11 @@ function SkinsCard({ skins }: { skins: TabletSkin[] | null }) {
                     <TableHead>Skin</TableHead>
                     <TableHead>Version</TableHead>
                     <TableHead>Updates</TableHead>
+                    {acting.offered && (
+                      <TableHead>
+                        <span className="sr-only">Actions</span>
+                      </TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -460,7 +534,7 @@ function SkinsCard({ skins }: { skins: TabletSkin[] | null }) {
                     <TableRow key={skin.id}>
                       <TableCell className="align-top font-medium whitespace-normal">
                         <span className="inline-flex flex-wrap items-center gap-2">
-                          {skin.name ?? skin.id}
+                          {skinLabel(skin)}
                           {skin.default && <Badge variant="secondary">Default</Badge>}
                           {skin.served && (
                             <Badge variant="outline" className="text-muted-foreground">
@@ -473,6 +547,40 @@ function SkinsCard({ skins }: { skins: TabletSkin[] | null }) {
                       <TableCell className="min-w-48 align-top whitespace-normal">
                         <UpdatesText updates={skin.updates} />
                       </TableCell>
+                      {acting.offered && (
+                        <TableCell className="align-top">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {!skin.default && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={`Make ${skinLabel(skin)} the default`}
+                                disabled={disabled}
+                                onClick={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}
+                              >
+                                Make default
+                              </Button>
+                            )}
+                            {skin.removable && (
+                              <ConfirmButton
+                                label="Remove"
+                                ariaLabel={`Remove ${skinLabel(skin)}`}
+                                title={`Remove ${skinLabel(skin)}?`}
+                                description={
+                                  skin.served
+                                    ? "Decaid deletes it from the Tablet. The Tablet shows it until the Skin view restarts onto the default Skin."
+                                    : "Decaid deletes it from the Tablet. It can be installed again from here."
+                                }
+                                confirmLabel="Remove"
+                                variant="destructive"
+                                size="sm"
+                                disabled={disabled}
+                                onConfirm={() => void make({ kind: "removeSkin", skinId: skin.id })}
+                              />
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -485,6 +593,97 @@ function SkinsCard({ skins }: { skins: TabletSkin[] | null }) {
   );
 }
 
+/**
+ * What the Tablet shows, above the Skins: the build its Skin reported and
+ * since when, that a newer build is installed, and that a new default shows
+ * after a restart; or the Skin served, where it does not report its page, or
+ * that none is. To an Admin, and to Staff at the Machine's Location, Reload
+ * where the Skin served reported its page, and always the restart of the
+ * Skin view, behind a confirmation.
+ */
+function ShowingStrip({
+  skins,
+  showing,
+  acting,
+  disabled,
+  make,
+}: {
+  skins: readonly TabletSkin[];
+  showing: TabletShowing;
+  acting: Acting;
+  disabled: boolean;
+  make(action: NewAction): Promise<void>;
+}) {
+  const served = showing.skin;
+  const reported = served !== null && skins.some((skin) => skin.id === served.id && skin.pageReported);
+  const defaultSkin = skins.find((skin) => skin.default);
+  const title = !served
+    ? "The Tablet shows no Skin now."
+    : reported && showing.page
+      ? `The Tablet is showing ${skinLabel(served)}${showing.page.version ? ` ${showing.page.version}` : ""}, loaded at ${formatTime(showing.page.loadedAt)}.`
+      : reported
+        ? `The Tablet is showing ${skinLabel(served)}.`
+        : `The Tablet is serving ${skinLabel(served)}.`;
+  return (
+    <Item variant="outline" role="group" aria-label="What the Tablet shows" className="bg-muted/40">
+      <ItemContent className="min-w-48">
+        <ItemTitle className="line-clamp-none w-auto">
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span>{title}</span>
+            {served && reported && showing.page && (
+              <InfoTip label="About what the Tablet shows">
+                <p>As the Skin last reported, at {formatTime(showing.page.reportedAt)}, by the Tablet's clock.</p>
+              </InfoTip>
+            )}
+            {served && !reported && (
+              <InfoTip label="About what the Tablet shows">
+                <p>A Skin that reports its page says which build it loaded and can be asked to reload. This one can be loaded again only by restarting the Skin view.</p>
+              </InfoTip>
+            )}
+            {!served && (
+              <InfoTip label="About what the Tablet shows">
+                <p>Decaid's Skin server is stopped. Restarting the Skin view starts it on the default Skin.</p>
+              </InfoTip>
+            )}
+          </span>
+        </ItemTitle>
+        {served && !reported && <ItemDescription className="line-clamp-none">This Skin doesn't report which build it has loaded.</ItemDescription>}
+        {served && reported && showing.newerInstalled && served.version && (
+          <ItemDescription className="line-clamp-none font-medium text-amber-700 dark:text-amber-500">{served.version} is installed and shows after a reload.</ItemDescription>
+        )}
+        {showing.nextDefault && (
+          <ItemDescription className="line-clamp-none font-medium text-amber-700 dark:text-amber-500">
+            {skinLabel(showing.nextDefault)} is the default now, and shows after a restart of the Skin view.
+          </ItemDescription>
+        )}
+      </ItemContent>
+      {acting.skinViewOffered && (
+        <ItemActions className="flex-wrap">
+          {reported && (
+            <Button size="sm" disabled={disabled} onClick={() => void make({ kind: "reloadSkin" })}>
+              Reload
+            </Button>
+          )}
+          <ConfirmButton
+            label="Restart the Skin view"
+            title="Restart the Skin view?"
+            description={
+              <>
+                The Tablet's screen goes blank for a moment, then loads the default Skin{defaultSkin ? `, ${skinLabel(defaultSkin)}` : ""}. Anything a barista was typing is
+                lost. A Skin that hung is loaded again this way.
+              </>
+            }
+            confirmLabel="Restart"
+            size="sm"
+            disabled={disabled}
+            onConfirm={() => void make({ kind: "restartSkinView" })}
+          />
+        </ItemActions>
+      )}
+    </Item>
+  );
+}
+
 /** How a suggested source updates, as its suggestion says it. */
 function howShort(updates: SoftwareUpdates): string {
   switch (updates.how) {
@@ -494,6 +693,8 @@ function howShort(updates: SoftwareUpdates): string {
       return "follows a branch";
     case "followsReleases":
       return "follows releases";
+    case "followsUrl":
+      return "follows its URL";
     default:
       return "not updated";
   }
@@ -639,6 +840,200 @@ function InstallPluginForm({ machine, onCancel, onMade }: { machine: Machine; on
         )}
       </FieldGroup>
       <p className="text-sm text-muted-foreground">A plugin newly installed is not enabled: its row then offers Enable.</p>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={saving}>
+          Install
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+/**
+ * Installing a Skin on the Tablet: from a GitHub repository's latest
+ * release, or a branch, which it then follows, or from the URL of a zip,
+ * such as a commit's archive, which pins it. The sources the account's other
+ * Machines' Skins came from are suggested, and picking one fills the form.
+ * Made, the dialog closes and the Skins card follows the action; refused at
+ * once, the dialog says why.
+ */
+function InstallSkinDialog({ machine, disabled, onMade }: { machine: Machine; disabled: boolean; onMade(action: SoftwareAction): void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" disabled={disabled}>
+          Install Skin
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Install Skin</DialogTitle>
+          <DialogDescription>On {machine.name}</DialogDescription>
+        </DialogHeader>
+        {/* Mounted only while open, so it starts over each time. */}
+        {open && (
+          <InstallSkinForm
+            machine={machine}
+            onCancel={() => setOpen(false)}
+            onMade={(action) => {
+              setOpen(false);
+              onMade(action);
+            }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type SkinFrom = "release" | "branch" | "url";
+
+function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCancel(): void; onMade(action: SoftwareAction): void }) {
+  const id = useId();
+  const [sources, setSources] = useState<SkinSource[]>();
+  const [which, setWhich] = useState<SkinFrom>("release");
+  const [repo, setRepo] = useState("");
+  const [branch, setBranch] = useState("");
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let stopped = false;
+    api<{ skinSources: SkinSource[] }>("GET", `/machines/${encodeURIComponent(machine.id)}/skin-sources`).then(
+      ({ skinSources }) => !stopped && setSources(skinSources),
+      // The suggestions only help: without them the form still installs.
+      () => !stopped && setSources([]),
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [machine.id]);
+
+  function pick(source: SkinSource) {
+    if (source.url) {
+      setWhich("url");
+      setUrl(source.url);
+    } else {
+      setWhich(source.branch ? "branch" : "release");
+      setRepo(source.repo ?? "");
+      setBranch(source.branch ?? "");
+    }
+    setError(undefined);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const named = repo.trim();
+    const typed = branch.trim();
+    const problems =
+      which === "url"
+        ? isSkinUrl(url.trim())
+          ? []
+          : ["Give the URL of a zip to install the Skin from, such as https://github.com/owner/name/archive/<commit>.zip"]
+        : [
+            ...(isPluginRepo(named) ? [] : ["Give the GitHub repository as owner/name, such as decentespresso/streamline-js"]),
+            ...(which === "release" || (typed !== "" && !/\s/.test(typed)) ? [] : ["Give a branch"]),
+            // Decaid installs no Skin from a commit named as its branch (#659): its archive's URL pins it.
+            ...(which === "branch" && namesCommit(typed) && isPluginRepo(named) ? [`Decaid installs a Skin from a commit only by its archive's URL: https://github.com/${named}/archive/${typed}.zip`] : []),
+          ];
+    if (problems.length > 0) return setError(problems.join(". "));
+    setError(undefined);
+    setSaving(true);
+    try {
+      const action: NewAction = which === "url" ? { kind: "installSkin", url: url.trim() } : { kind: "installSkin", repo: named, ...(which === "branch" ? { branch: typed } : {}) };
+      onMade(await makeAction(machine.id, action));
+    } catch (caught) {
+      setError(failure(caught, "The Skin could not be installed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form aria-label="Install Skin" className="grid min-w-0 gap-5" noValidate onSubmit={(event) => void submit(event)}>
+      {error && <FormError error={error} />}
+      {sources && sources.length > 0 && (
+        <section aria-label="In use on your other Machines" className="grid gap-2">
+          <h3 className="text-sm font-medium">In use on your other Machines</h3>
+          <ul className="grid gap-2">
+            {sources.map((source) => (
+              <li key={`${source.skinId} ${source.repo ?? ""} ${source.branch ?? ""} ${source.url ?? ""}`}>
+                <Button type="button" variant="outline" className="h-auto w-full justify-start py-2 text-left whitespace-normal" onClick={() => pick(source)}>
+                  <span className="grid min-w-0 gap-0.5">
+                    <span className="font-medium">
+                      {source.name ?? source.skinId}
+                      {source.version ? ` ${source.version}` : ""} · {howShort(source.updates)}
+                    </span>
+                    <span className="text-xs font-normal wrap-anywhere text-muted-foreground">
+                      {skinSourceText(source)} · on {source.machines} {source.machines === 1 ? "Machine" : "Machines"}
+                    </span>
+                  </span>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <FieldGroup className="gap-4">
+        <div className="grid gap-2">
+          <Label id={`${id}-which`}>Install from</Label>
+          <RadioGroup
+            aria-labelledby={`${id}-which`}
+            value={which}
+            onValueChange={(value) => setWhich(value === "branch" || value === "url" ? value : "release")}
+            className="flex flex-wrap gap-4"
+          >
+            {(
+              [
+                ["release", "Latest release"],
+                ["branch", "Branch"],
+                ["url", "URL"],
+              ] as const
+            ).map(([value, label]) => (
+              <div key={value} className="flex items-center gap-2">
+                <RadioGroupItem id={`${id}-${value}`} value={value} />
+                <Label htmlFor={`${id}-${value}`} className="font-normal">
+                  {label}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        </div>
+        {which !== "url" && (
+          <FormField>
+            <FieldLabel htmlFor={`${id}-repo`}>GitHub repository</FieldLabel>
+            <Input id={`${id}-repo`} placeholder="owner/name" autoComplete="off" spellCheck={false} value={repo} onChange={(event) => setRepo(event.target.value)} />
+          </FormField>
+        )}
+        {which === "branch" && (
+          <FormField>
+            <FieldLabel htmlFor={`${id}-branch-name`}>Branch</FieldLabel>
+            <Input id={`${id}-branch-name`} autoComplete="off" spellCheck={false} value={branch} onChange={(event) => setBranch(event.target.value)} />
+            <FieldDescription>It follows the branch's newest commit. To pin a commit, install its archive's URL.</FieldDescription>
+          </FormField>
+        )}
+        {which === "url" && (
+          <FormField>
+            <FieldLabel htmlFor={`${id}-url-address`}>URL</FieldLabel>
+            <Input
+              id={`${id}-url-address`}
+              type="url"
+              placeholder="https://github.com/owner/name/archive/<commit>.zip"
+              autoComplete="off"
+              spellCheck={false}
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+            />
+            <FieldDescription>A zip of the Skin. A commit's archive stays pinned.</FieldDescription>
+          </FormField>
+        )}
+      </FieldGroup>
+      <p className="text-sm text-muted-foreground">A Skin newly installed is not the default: its row then offers Make default.</p>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
