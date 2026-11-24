@@ -536,10 +536,9 @@ What each release added. See [all releases](https://github.com/loganfuller/decen
 | [v1.9.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.9.0) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) |
 | [v1.10.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.10.0) | A Location's Shots and each Recipe's Reference Shot on its tablets, for any Skin to show; a Reference Shot chosen on a tablet; a Shot's rating and note edited from another tablet, the management interface or an assistant; and nine Recipe Slots. | [#503](https://github.com/loganfuller/decent-sync/issues/503) |
 | [v1.12.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.12.0) | Each Profile read on a graph of how it runs, simulated on a standard puck with any Shot laid over it; Drafts written on the graph, published as a new Profile Version or a separate Profile, and tried on a Machine at a Location marked for it, its Shots Trial Shots; and each Profile held to what its Machines' models can run. | [#574](https://github.com/loganfuller/decent-sync/issues/574) |
+| [v1.13.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.13.0) | Each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins and Skins managed there, on a Machine's Software tab; its Skin reloaded from anywhere and Decaid's own update started; and a notice on the Tablet saying why its plugin stopped syncing. | [#657](https://github.com/loganfuller/decent-sync/issues/657) |
 
-In progress, in v1.13.0 ([#657](https://github.com/loganfuller/decent-sync/issues/657)): each Tablet's plugins, Skins and Decaid seen from the management interface, and its plugins and Skins managed there, on a Machine's Software tab, its Skin reloaded from anywhere and Decaid's own update started, and a notice on the Tablet saying why its plugin stopped syncing.
-
-Planned after that, in no fixed order:
+Planned next, in no fixed order:
 
 - **Monitoring**: noticing lost Shots, low water and dropped scale or Machine connections, with alerts.
 - **Calibration**: checks of stop-at-weight, flow and temperature.
