@@ -2,8 +2,8 @@ name: CI
 
 # Pull requests run on their merge result; main runs again after each merge,
 # docs-only merges included. Branches without a pull request get no CI. A pull
-# request that changes only docs skips every job but `changes` and `ci` (see
-# `changes`). A newer push to a pull request cancels its older run. The release
+# request that changes only docs skips every job but `changes`, `site` and `ci`
+# (see `changes`). A newer push to a pull request cancels its older run. The release
 # workflow publishes only a commit this workflow has passed on.
 #
 # Branch protection on main requires the `ci` job, which passes only once every
@@ -38,9 +38,10 @@ jobs:
   # Markdown file but UPGRADING.md, which scripts/release-notes.mjs reads at
   # release time, and those in decent-sync.reaplugin/, which the plugin ZIP
   # packs whole. It reads the pull request's whole diff, so once it touches
-  # anything else, every later push runs CI. Every other job skips on
-  # docs-only, which `ci` passes; a workflow-level `paths` filter would leave
-  # the required check pending instead. A push to main is never docs-only.
+  # anything else, every later push runs CI. Every other job but `site` skips
+  # on docs-only, which `ci` passes; a workflow-level `paths` filter would
+  # leave the required check pending instead. A push to main is never
+  # docs-only.
   changes:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -459,6 +460,29 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
 
+  # Builds the documentation site (site/) and fails on a broken internal link,
+  # which the build's own link check finds, then runs the site's tests in a
+  # browser. Docs are what it checks, so it runs on a docs-only pull request
+  # too. It deploys nothing: the release workflow publishes the site.
+  site:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+
+    steps:
+      - *checkout
+      - *setup-node
+      - *restore-modules
+      - *install
+
+      - name: Build the site and check its links
+        run: npm run build -w site
+
+      - name: Install Playwright browser
+        run: npx playwright install --only-shell --no-progress chromium
+
+      - name: Test the site
+        run: npm test -w site
+
   # The one check branch protection on main requires. It passes once every job
   # above has passed, or skipped on a docs-only pull request, so the required
   # check never waits on a job that skipped and never changes with the shard
@@ -466,19 +490,20 @@ jobs:
   # a superseded run's included, fails it rather than leaving it skipped, which
   # branch protection would count as passing.
   ci:
-    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package, image]
+    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package, image, site]
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 5
 
     steps:
+      # The site job never skips, so a skipped one has not passed.
       - name: Check every job passed, or skipped on docs only
         env:
           NEEDS: ${{ toJSON(needs) }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs-only }}
         run: |
           failed=$(echo "$NEEDS" | jq -r --arg docs "$DOCS_ONLY" \
-            'to_entries[] | select(.value.result != "success" and (.value.result != "skipped" or $docs != "true")) | "\(.key): \(.value.result)"')
+            'to_entries[] | select(.value.result != "success" and (.value.result != "skipped" or $docs != "true" or .key == "site")) | "\(.key): \(.value.result)"')
           if [ -n "$failed" ]; then
             echo "::error title=CI failed::$(echo $failed)"
             exit 1

@@ -13,6 +13,7 @@ COPY plugin/package.json /app/plugin/
 COPY decent-sync.reaplugin/package.json /app/decent-sync.reaplugin/
 COPY server/package.json /app/server/
 COPY web/package.json /app/web/
+COPY site/package.json /app/site/
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 # Prisma's schema engine, which applies migrations, links against OpenSSL.

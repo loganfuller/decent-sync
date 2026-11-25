@@ -1,0 +1,77 @@
+/* The management interface's identity on Starlight: Geist, its neutral palette
+   in light and dark (web/src/index.css), and the logo's caramel as the accent. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+:root {
+    --sl-font: "Geist Variable";
+    --sl-font-mono: "Geist Mono Variable";
+    --sl-line-height: 1.65;
+
+    /* Dark theme. Starlight names its greys from the text's end: white is the strongest text. */
+    --sl-color-white: #fafafa;
+    --sl-color-gray-1: #ededed;
+    --sl-color-gray-2: #d4d4d4;
+    --sl-color-gray-3: #a3a3a3;
+    --sl-color-gray-4: #737373;
+    --sl-color-gray-5: #404040;
+    --sl-color-gray-6: #262626;
+    --sl-color-black: #0a0a0a;
+    --sl-color-bg-nav: #0a0a0a;
+    --sl-color-bg-sidebar: #0a0a0a;
+    --sl-color-hairline: #262626;
+    --sl-color-accent-low: #3d2413;
+    --sl-color-accent: #c57b45;
+    --sl-color-accent-high: #ecc9a9;
+
+    /* The home page's own colours (src/components/Home.astro). */
+    --ds-text: #fafafa;
+    --ds-body: #d4d4d4;
+    --ds-muted: #a3a3a3;
+    --ds-border: #2e2e2e;
+    --ds-border-strong: #525252;
+    --ds-band: #171717;
+    --ds-card: #171717;
+    --ds-primary: #e5e5e5;
+    --ds-primary-text: #171717;
+    --ds-accent-bar: #c57b45;
+    --ds-accent-text: #e0a877;
+    --ds-inverse: #171717;
+    --ds-inverse-card: #262626;
+    --ds-inverse-border: #404040;
+}
+
+:root[data-theme="light"] {
+    --sl-color-white: #171717;
+    --sl-color-gray-1: #262626;
+    --sl-color-gray-2: #404040;
+    --sl-color-gray-3: #525252;
+    --sl-color-gray-4: #737373;
+    --sl-color-gray-5: #d4d4d4;
+    --sl-color-gray-6: #f5f5f5;
+    --sl-color-gray-7: #fafafa;
+    --sl-color-black: #ffffff;
+    --sl-color-bg-nav: #ffffff;
+    --sl-color-bg-sidebar: #ffffff;
+    --sl-color-hairline: #e5e5e5;
+    --sl-color-hairline-light: #e5e5e5;
+    --sl-color-accent-low: #f6e7da;
+    --sl-color-accent: #8a4b1c;
+    --sl-color-accent-high: #6b3a15;
+
+    --ds-text: #171717;
+    --ds-body: #404040;
+    --ds-muted: #525252;
+    --ds-border: #e5e5e5;
+    --ds-border-strong: #d4d4d4;
+    --ds-band: #fafafa;
+    --ds-card: #ffffff;
+    --ds-primary: #171717;
+    --ds-primary-text: #fafafa;
+    --ds-accent-text: #8a4b1c;
+}
+
+/* The home page is wider than a page of prose. */
+html[data-has-hero] {
+    --sl-content-width: 75rem;
+}

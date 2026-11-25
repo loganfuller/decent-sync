@@ -1,0 +1,629 @@
+---
+// The home page below its first screen (HomeHero.astro): the pitch, what you
+// get, who it is for, how it works, the quick start and the block for
+// developers. A phone gets a shorter page: the `narrow` copy, and without the
+// sections marked `wide`.
+import { Image } from "astro:assets";
+
+import overviewDark from "../../../docs/images/overview-dark.png";
+import overviewLight from "../../../docs/images/overview-light.png";
+import phoneDark from "../../../docs/images/phone-dark.png";
+import phoneLight from "../../../docs/images/phone-light.png";
+import { page } from "../links.mjs";
+
+const benefits = [
+    {
+        title: "One Library, and Recipes that follow the dial-in",
+        text: "Beans, batches, grinders and profiles entered on any tablet reach every machine at that Location. A change on one machine reaches every machine with that Recipe loaded.",
+        short: "Enter it on one tablet, and every machine there has it.",
+        label: "Library and Recipes",
+        href: page("guide/library-and-recipes"),
+    },
+    {
+        title: "Every shot, traceable",
+        text: "Each shot is kept with its curves and linked to its bean batch, grinder, profile and recipe. Give a Recipe a Reference Shot, and what runs out of spec is marked.",
+        short: "Kept with its curves, linked to what made it, and marked when out of spec.",
+        label: "Shots and out of spec",
+        href: page("guide/shots"),
+    },
+    {
+        title: "Profiles on a graph",
+        text: "Read how a profile runs, simulated. Edit it by dragging its steps, and try a draft on a machine before publishing it.",
+        short: "Read, edit and try a profile before publishing it.",
+        label: "Profiles and Drafts",
+        href: page("guide/profiles-and-drafts"),
+    },
+    {
+        title: "Machines, from anywhere",
+        text: "Watch a shot live, see how each machine was used, change its settings and manage its tablet's plugins and skins, from your phone.",
+        short: "Live shots, settings and a tablet's software, from your phone.",
+        label: "Machines",
+        href: page("guide/machines"),
+    },
+    {
+        title: "Ask about your coffee",
+        text: "Connect Claude, ChatGPT or another MCP app. It acts as you, within what your account may do, and each change it makes is recorded.",
+        short: "Connect Claude, ChatGPT or another MCP app.",
+        label: "Assistants",
+        href: page("guide/assistants"),
+    },
+    {
+        title: "Runs on your terms",
+        text: "One Docker image and PostgreSQL. Machines keep working when the server is down, and upgrades take nothing offline.",
+        short: "One Docker image and PostgreSQL, on your own computer.",
+        label: "Self-hosting",
+        href: page("self-hosting/docker-compose"),
+    },
+];
+
+const owners = [
+    {
+        title: "A home with two machines",
+        text: "One bean shelf, shared. A bag entered on either tablet appears on both, with one remaining weight, and every shot from both machines is in one history.",
+        short: "One bean shelf, shared, and every shot in one history.",
+    },
+    {
+        title: "A cafe",
+        text: "Several DE1s work like the groups of one commercial machine: the same Recipes on the same buttons, and a dial-in change on one group reaching every group with that Recipe loaded.",
+        short: "Several DE1s working like the groups of one commercial machine.",
+    },
+    {
+        title: "A roastery with cafes",
+        text: "Develop Profiles and Recipes in the lab, then roll them out. Trace every shot at every site back to its roast batch, and give each person the access they need.",
+        short: "Develop in the lab, roll out to each cafe, and trace every shot to its roast batch.",
+    },
+];
+
+const questions = [
+    "How many shots did the cafe pull yesterday, and with which beans?",
+    "Have shots of the new Kenya batch been running faster than last week's?",
+    "How was the left machine dialed in this morning, and how did its shots run?",
+    "Put the new espresso recipe in slot 2.",
+];
+
+const connections = [
+    { title: "Tablets", text: "Decaid and the plugin", over: "WebSocket" },
+    { title: "Management interface", text: "In a browser or on a phone", over: "REST API" },
+    { title: "AI assistants", text: "Each approved as a Connected App", over: "MCP" },
+];
+
+const technical = [
+    { title: "Architecture", text: "What syncs where, the protocol in outline, and the design decisions.", href: page("technical/architecture") },
+    { title: "Internals", text: "The behaviour spec for each area and every ADR, on GitHub.", href: page("technical/internals") },
+    { title: "Assistant tools", text: "Each MCP tool an assistant can call, generated from the server.", href: page("reference/assistant-tools") },
+    { title: "For a Skin's author", text: "What the plugin answers a Skin on its tablet.", href: page("technical/skin-authors") },
+];
+
+const overviewAlt =
+    "The Overview for a Location: a status card for each Machine and a row for each Recipe pulled today, with what is out of spec marked";
+const phoneAlt = "A Machine's Live View on a phone, mid-shot";
+---
+
+<div class="home not-content">
+    <section class="band split">
+        <h2>A Decent tablet keeps everything to itself.</h2>
+        <div class="prose wide">
+            <p>
+                Its shots, its beans, its profiles and its settings. With two machines, you enter every bag of beans twice, dial in twice, and
+                compare shots by walking between tablets. With several cafes, nobody can see across them at all.
+            </p>
+            <p>
+                Decent Sync makes them one system. Baristas keep using Decaid, DYE2 and Streamline exactly as before. The plugin keeps the
+                tablets in step and sends everything they record to your server.
+            </p>
+        </div>
+        <p class="prose narrow" data-pagefind-ignore>
+            With two machines, you enter every bag of beans twice, dial in twice, and compare shots by walking between tablets. Decent Sync
+            makes them one system, and baristas keep using Decaid, DYE2 and Streamline exactly as before.
+        </p>
+    </section>
+
+    <section>
+        <h2>What you get</h2>
+        <div class="grid">
+            {
+                benefits.map(({ title, text, short, label, href }) => (
+                    <a class="card benefit" href={href}>
+                        <span class="bar wide" />
+                        <h3>{title}</h3>
+                        <p class="wide">{text}</p>
+                        <p class="narrow" data-pagefind-ignore>
+                            {short}
+                        </p>
+                        <span class="label wide">{label}</span>
+                    </a>
+                ))
+            }
+        </div>
+    </section>
+
+    <section class="band wide">
+        <div class="lead">
+            <h2>See which machine is off, before the customer does.</h2>
+            <p>
+                The Overview shows each Location: what every machine is doing, and how each Recipe is pulling on each of them against its
+                Reference Shot.
+            </p>
+        </div>
+        <Image class="shot dark:sl-hidden" src={overviewLight} alt={overviewAlt} widths={[720, 1200, overviewLight.width]} sizes="(min-width: 80rem) 75rem, 100vw" loading="lazy" />
+        <Image class="shot light:sl-hidden" src={overviewDark} alt={overviewAlt} widths={[720, 1200, overviewDark.width]} sizes="(min-width: 80rem) 75rem, 100vw" loading="lazy" />
+    </section>
+
+    <section class="band narrow centred">
+        <h2>Watch a shot from the other room.</h2>
+        <Image class="phone dark:sl-hidden" src={phoneLight} alt={phoneAlt} width={520} loading="lazy" />
+        <Image class="phone light:sl-hidden" src={phoneDark} alt={phoneAlt} width={520} loading="lazy" />
+    </section>
+
+    <section>
+        <h2>Who it's for</h2>
+        <div class="grid owners">
+            {
+                owners.map(({ title, text, short }) => (
+                    <div class="owner">
+                        <h3>{title}</h3>
+                        <p class="wide">{text}</p>
+                        <p class="narrow" data-pagefind-ignore>
+                            {short}
+                        </p>
+                    </div>
+                ))
+            }
+        </div>
+    </section>
+
+    <section class="band inverse split wide">
+        <div class="ask">
+            <h2>Ask about your coffee.</h2>
+            <p>Connect Claude, ChatGPT or another MCP app, and ask in plain words. Approve it to read only, or to read and change.</p>
+            <a class="button" href={page("guide/assistants")}>Connect an assistant</a>
+        </div>
+        <div class="questions">
+            {questions.map((question) => <p>"{question}"</p>)}
+        </div>
+    </section>
+
+    <section class="wide">
+        <h2>How it works</h2>
+        <div class="diagram">
+            <div class="connections">
+                {
+                    connections.map(({ title, text, over }) => (
+                        <div class="connection">
+                            <div class="box">
+                                {title}
+                                <span>{text}</span>
+                            </div>
+                            <span class="over">{over}</span>
+                        </div>
+                    ))
+                }
+            </div>
+            <div class="box server">
+                Server
+                <span>One Docker image, one or more instances</span>
+            </div>
+            <div class="arrow">
+                <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14M13 6l6 6-6 6"></path>
+                </svg>
+            </div>
+            <div class="box database">
+                PostgreSQL
+                <span>Everything is kept here</span>
+            </div>
+        </div>
+        <div class="grid rules">
+            <p><strong>A Machine is its hardware.</strong> Replacing its tablet doesn't make it a new Machine.</p>
+            <p><strong>Machines are adopted by hand.</strong> An Admin adds each one, which issues a token for its plugin.</p>
+            <p><strong>Machines don't depend on it.</strong> If the server goes down, they keep working, and the plugin catches up after.</p>
+        </div>
+    </section>
+
+    <section class="band split start">
+        <div class="ask">
+            <h2>Running in a few minutes.</h2>
+            <p>You need Docker on a computer your tablets can reach, and Decaid v0.9.3 or newer on each tablet.</p>
+            <a class="button primary wide" href={page("get-started/quick-start")}>Full quick start</a>
+        </div>
+        <pre tabindex="0"><code>curl -O https://raw.githubusercontent.com/loganfuller/decent-sync/main/docker-compose.yml
+echo 'PUBLIC_URL=http://192.168.1.20:3000' > .env
+docker compose up -d</code></pre>
+        <a class="button primary narrow" href={page("get-started/quick-start")}>Full quick start</a>
+    </section>
+
+    <section>
+        <div class="lead">
+            <h2>For developers</h2>
+            <p class="wide">Everything is open: how it syncs, why it was built that way, and the full spec of each area.</p>
+        </div>
+        <div class="grid technical">
+            {
+                technical.map(({ title, text, href }) => (
+                    <a class="card" href={href}>
+                        <strong>{title}</strong>
+                        <span class="wide">{text}</span>
+                    </a>
+                ))
+            }
+        </div>
+    </section>
+</div>
+
+<style>
+    .home {
+        color: var(--ds-text);
+        line-height: 1.5;
+    }
+    section {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+        padding-block: 4.5rem;
+    }
+    /* A band's ground and rules run the width of the window, without the page
+       scrolling sideways: a border image is painted outside the box it frames
+       and takes no room. */
+    .band {
+        border-image: linear-gradient(var(--ds-border), var(--ds-border) 1px, var(--ds-band) 1px, var(--ds-band) calc(100% - 1px), var(--ds-border) calc(100% - 1px)) fill 0 / 0 / 0 100vmax;
+    }
+    .band.inverse {
+        border-image-source: linear-gradient(var(--ds-inverse-border), var(--ds-inverse-border) 1px, var(--ds-inverse) 1px, var(--ds-inverse) calc(100% - 1px), var(--ds-inverse-border) calc(100% - 1px));
+        color: #fafafa;
+    }
+    .split {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 2rem 3.5rem;
+    }
+    .split.start {
+        align-items: center;
+    }
+    .split > h2 {
+        flex: 1 1 20rem;
+        align-self: flex-start;
+    }
+    .split > .prose {
+        flex: 2 1 30rem;
+    }
+    h2 {
+        min-width: 0;
+        font-size: clamp(1.625rem, 1.4rem + 1vw, 2rem);
+        line-height: 1.15;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: inherit;
+    }
+    h3 {
+        font-size: 1.1875rem;
+        line-height: 1.3;
+        font-weight: 600;
+        color: inherit;
+    }
+    .prose {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        font-size: 1.125rem;
+        line-height: 1.6;
+        color: var(--ds-body);
+    }
+    .lead {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        max-width: 45rem;
+    }
+    .lead p,
+    .ask p {
+        font-size: 1.125rem;
+        color: var(--ds-body);
+    }
+    .inverse .ask p {
+        color: #d4d4d4;
+    }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(18.75rem, 100%), 1fr));
+        gap: 1.25rem;
+    }
+    .grid.owners,
+    .grid.rules {
+        gap: 2rem;
+    }
+    .grid.technical {
+        grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+        gap: 1rem;
+    }
+    .card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 1.5rem;
+        border: 1px solid var(--ds-border);
+        border-radius: 0.875rem;
+        background: var(--ds-card);
+        color: inherit;
+        text-decoration: none;
+    }
+    .card:hover {
+        border-color: var(--ds-border-strong);
+    }
+    .card p,
+    .card > span:not(.bar, .label),
+    .owner p,
+    .rules p {
+        color: var(--ds-muted);
+    }
+    .technical .card {
+        gap: 0.375rem;
+        padding: 1.25rem;
+    }
+    .technical .card strong {
+        font-weight: 600;
+    }
+    .technical .card span {
+        font-size: 0.9375rem;
+    }
+    .bar {
+        display: block;
+        width: 1.75rem;
+        height: 0.25rem;
+        border-radius: 0.125rem;
+        background: var(--ds-accent-bar);
+    }
+    .label {
+        margin-top: auto;
+        padding-top: 0.375rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--ds-accent-text);
+    }
+    .owner {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding-top: 1.25rem;
+        border-top: 2px solid var(--ds-text);
+    }
+    .rules strong {
+        font-weight: 600;
+        color: var(--ds-text);
+    }
+    .shot {
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--ds-border);
+        border-radius: 0.875rem;
+    }
+    .phone {
+        width: 16.25rem;
+        max-width: 100%;
+        height: auto;
+        border: 1px solid var(--ds-border);
+        border-radius: 1.125rem;
+    }
+    .centred {
+        align-items: center;
+    }
+    .centred h2 {
+        align-self: stretch;
+    }
+    .ask {
+        flex: 1 1 21rem;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 3rem;
+        padding: 0 1.375rem;
+        border-radius: 0.625rem;
+        background: #fafafa;
+        color: #171717;
+        font-weight: 500;
+        text-decoration: none;
+    }
+    .button.primary {
+        background: var(--ds-primary);
+        color: var(--ds-primary-text);
+    }
+    .button:hover {
+        opacity: 0.85;
+    }
+    .questions {
+        flex: 1 1 30rem;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        font-size: 1.0625rem;
+    }
+    .questions p {
+        padding: 0.875rem 1.125rem;
+        border: 1px solid var(--ds-inverse-border);
+        border-radius: 0.875rem;
+        background: var(--ds-inverse-card);
+    }
+    .diagram {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 1rem;
+        font-size: 0.9375rem;
+    }
+    .connections {
+        flex: 2 1 26rem;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .connection {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .box {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 0.875rem 1rem;
+        border: 1px solid var(--ds-border-strong);
+        border-radius: 0.625rem;
+        font-weight: 500;
+    }
+    .box span {
+        display: block;
+        font-size: 0.8125rem;
+        font-weight: 400;
+        color: var(--ds-muted);
+    }
+    .over {
+        flex: 0 0 6rem;
+        padding-bottom: 0.25rem;
+        border-bottom: 1px solid var(--ds-border-strong);
+        font-family: var(--__sl-font-mono);
+        font-size: 0.78rem;
+        text-align: center;
+        color: var(--ds-muted);
+    }
+    .box.server,
+    .box.database {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 1.25rem;
+        font-size: 1.0625rem;
+    }
+    .box.server {
+        flex: 1 1 12.5rem;
+        border-color: var(--ds-primary);
+        background: var(--ds-primary);
+        color: var(--ds-primary-text);
+    }
+    .box.server span {
+        color: inherit;
+        opacity: 0.8;
+    }
+    .box.database {
+        flex: 1 1 11.25rem;
+    }
+    .arrow {
+        flex: 0 0 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ds-muted);
+    }
+    pre {
+        flex: 2 1 30rem;
+        min-width: 0;
+        max-width: 100%;
+        padding: 1.375rem 1.5rem;
+        border: 1px solid var(--ds-border);
+        border-radius: 0.875rem;
+        background: var(--ds-card);
+        font-family: var(--__sl-font-mono);
+        font-size: 0.84rem;
+        line-height: 1.7;
+        overflow-x: auto;
+        white-space: pre;
+    }
+    pre code {
+        font: inherit;
+        background: none;
+        padding: 0;
+    }
+    .narrow {
+        display: none;
+    }
+
+    @media (max-width: 40rem) {
+        .wide {
+            display: none;
+        }
+        .narrow {
+            display: revert;
+        }
+        section.narrow {
+            display: flex;
+        }
+        a.narrow {
+            display: flex;
+            align-self: stretch;
+        }
+        section {
+            gap: 1rem;
+            padding-block: 2.5rem;
+        }
+        .split {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .split > *,
+        .split > h2,
+        .split > .prose,
+        pre {
+            flex: none;
+        }
+        .prose,
+        .ask p {
+            font-size: 1rem;
+            line-height: 1.5;
+        }
+        .grid,
+        .grid.technical {
+            gap: 0.625rem;
+        }
+        .grid.owners {
+            gap: 1.25rem;
+        }
+        .card {
+            gap: 0.25rem;
+            padding: 1rem;
+            border-radius: 0.75rem;
+        }
+        h3 {
+            font-size: 1.0625rem;
+        }
+        .card p,
+        .owner p {
+            font-size: 0.9375rem;
+        }
+        .owner {
+            gap: 0.375rem;
+            padding-top: 0.875rem;
+        }
+        pre {
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-size: 0.78rem;
+        }
+        /* The block for developers is a list of links on a phone. */
+        .grid.technical {
+            gap: 0;
+        }
+        .technical .card {
+            justify-content: center;
+            min-height: 3rem;
+            padding: 0;
+            border: 0;
+            border-bottom: 1px solid var(--ds-border);
+            border-radius: 0;
+            background: none;
+        }
+        .technical .card:last-child {
+            border-bottom: 0;
+        }
+        .technical .card strong {
+            font-weight: 500;
+        }
+    }
+</style>

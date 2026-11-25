@@ -117,6 +117,15 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/lib/`: pure modules, tested in `test/`; `api.ts` calls the REST API, `build.ts` follows the server's build.
 - `src/assets/`, `public/`: the logo drawings and the browser icons.
 
+### `site/`
+
+- `astro.config.mjs`, `site.config.mjs`: the documentation site's Astro Starlight config with its sidebar, which settles every page's address; where it is published.
+- `src/content/docs/`: the site's pages in Markdown, a folder per section; `index.mdx` is the home page.
+- `src/components/`, `src/styles/theme.css`: the home page, the footer naming the release, and the management interface's font and palette on Starlight.
+- `src/route-data.ts`: the canonical address of a minor release's page.
+- `check-links.mjs`: the check of the built site's internal links, run by its build.
+- `test/`: the built site's tests, in a browser (`npm test -w site`).
+
 ### Tests, scripts and CI
 
 - `e2e/`: Playwright specs (Seam 2); `e2e/support/` holds their seeding and helpers.
@@ -124,8 +133,9 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `scripts/readme-images/`: the generator of the README's images in `docs/images/` (`npm run readme-images`), with its sample of recorded Shots.
 - `scripts/simulation/`: the simulation's scorecard (`npm run simulation-scorecard`), the read-only puller of an instance's Shots and the scrubber that makes corpus Shots of them.
 - `scripts/simulation/corpus/`: scrubbed real Shots the scorecard's test runs on, and the levels its test holds the simulation at on them (`levels.json`).
-- `.github/workflows/ci.yml`: CI on pull requests and `main`.
-- `.github/workflows/release.yml`: the release on a `vX.Y.Z` tag.
+- `scripts/deploy-site.mjs`: places a build of the documentation site in a checkout of the `gh-pages` branch, a path for each minor release.
+- `.github/workflows/ci.yml`: CI on pull requests and `main`, with the documentation site's build on docs-only ones too.
+- `.github/workflows/release.yml`: the release on a `vX.Y.Z` tag, then the documentation site's deploy to GitHub Pages, which also runs by hand.
 
 ## Task routing
 
@@ -158,7 +168,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `SELF-HOSTING.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |
 | What the plugin serves a Skin on its tablet | ADR-0030, ADR-0031; `AI_PROTOCOL_NOTES.md`, Requests for a Skin; `PLUGIN.md`, For a Skin's author; `AI_RUNTIME_NOTES.md`, Skins; milestone 8's spec |
 | The management interface's pages and components | ADR-0011; `AI_WEB_NOTES.md`; the topic doc of the data a page shows; `docs/agents/pull-requests.md`, Screenshots |
-| Docs people read to run and use Decent Sync | `README.md`; `SELF-HOSTING.md`; `PLUGIN.md`; `DEVELOPMENT.md`; `UPGRADING.md`; for the README's images, `scripts/readme-images/README.md` |
+| Docs people read to run and use Decent Sync | `README.md`; `SELF-HOSTING.md`; `PLUGIN.md`; `DEVELOPMENT.md`; `UPGRADING.md`; for the README's images, `scripts/readme-images/README.md`; for the documentation site, `site/src/content/docs/` and `DEVELOPMENT.md`, The documentation site; its spec (#680) |
 
 For upstream paths and checkout conventions, see `AGENTS.md`, External sources.
 
