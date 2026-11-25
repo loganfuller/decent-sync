@@ -851,7 +851,7 @@ the tablet no longer holds the Shot (When two edits cross, below).
 Ticket [#515](https://github.com/loganfuller/decent-sync/issues/515) has a
 Skin edit a Shot's rating and note from its tablet, whichever tablet holds
 the Shot: a PUT to the plugin's `shot` endpoint with a `rating`, a `note`
-or both (`editShot` in `plugin/src/skin-api.ts`; `PLUGIN.md`, Editing a
+or both (`editShot` in `plugin/src/skin-api.ts`; `site/src/content/docs/technical/skin-authors.md`, Editing a
 Shot's rating and note). It is one call for any Shot, and two paths.
 
 - **The values** are those the REST route takes (`isShotRating`,
@@ -1629,7 +1629,7 @@ data and with step names and grind settings of 3,000 characters.
 A Skin on a tablet lists the Shots at its Machine's Location and reads any
 of them whole, through the plugin's `shots` and `shot` endpoints (ticket
 [#509](https://github.com/loganfuller/decent-sync/issues/509), ADR-0030;
-`PLUGIN.md`, For a Skin's author, has the endpoints, a row's fields and the
+`site/src/content/docs/technical/skin-authors.md` has the endpoints, a row's fields and the
 refusals). The plugin asks the server with a `request` over its connection
 (`AI_PROTOCOL_NOTES.md`, Requests for a Skin), and the server reads the
 answer in `server/src/shots/location-shots.ts`. Neither is a REST route or a

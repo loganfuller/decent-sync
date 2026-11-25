@@ -765,8 +765,8 @@ too, for the actions on them (#661).
 `skinPage` is the page a Skin last reported it shows, as `{ skinId, version,
 loadedAt, reportedAt }` (`SkinPage` in `protocol/src/software-actions.ts`):
 what a Skin's author has it PUT to the plugin's `page` endpoint each time
-its page loads and each time its socket on `changes` opens (`PLUGIN.md`,
-Reporting the page), `loadedAt` as the Skin gave it and `reportedAt` when
+its page loads and each time its socket on `changes` opens (`site/src/content/docs/technical/skin-authors.md`,
+Reporting the page, and reloading), `loadedAt` as the Skin gave it and `reportedAt` when
 the plugin heard it, both by the tablet's clock. The plugin holds it for its
 load, reports it as each arrives and on each full read, and reports it
 unavailable until a Skin reports one in that load, so the server keeps the

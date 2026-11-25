@@ -437,8 +437,8 @@ To invite other people, go to **Accounts**.
 
 Over plain `http://`, traffic is unencrypted, each Machine's token included.
 Use it only on a network you trust.
-[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) covers every setting, running on
-the internet, fly.io, and upgrading.
+[Self-hosting](https://loganfuller.github.io/decent-sync/self-hosting/docker-compose/) on the documentation site
+covers every setting, running on the internet, fly.io, and upgrading.
 
 > [!IMPORTANT]
 > Tablets install each new plugin release within 12 hours, unless it asks for
@@ -465,8 +465,9 @@ Decaid's bell. Decaid keeps the plugin up to date. An update that asks for a new
 someone approves it: at the tablet, or, once its plugin takes Software
 Actions, an Admin on the Machine's Software tab.
 
-[docs/PLUGIN.md](docs/PLUGIN.md) covers installing from a computer, updates and
-approvals, the plugin's settings, and what it does on the tablet.
+[Install the plugin](https://loganfuller.github.io/decent-sync/get-started/install-the-plugin/) covers installing
+from a computer, and [The tablet plugin](https://loganfuller.github.io/decent-sync/reference/tablet-plugin/) updates
+and approvals, the plugin's settings, and what it does on the tablet.
 
 ## Connecting an assistant
 
@@ -523,7 +524,7 @@ To see or disconnect your apps, open **Connected Apps** in the account menu.
 
 Claude and ChatGPT connect from their own clouds, so for them the server must
 be on the internet at an `https://` address. See
-[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#assistants) for the details, and
+[Assistants](https://loganfuller.github.io/decent-sync/self-hosting/internet/#assistants) for the details, and
 for how to turn assistants off.
 
 ## Status
@@ -554,8 +555,9 @@ Planned next, in no fixed order:
 
 | Guide | What it covers |
 |---|---|
-| [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) | Configuration, accounts, local networks and the internet, reverse proxies, assistants, fly.io, upgrading |
-| [docs/PLUGIN.md](docs/PLUGIN.md) | Installing, updating and configuring the tablet plugin, and what it does on the tablet |
+| [Self-hosting](https://loganfuller.github.io/decent-sync/self-hosting/docker-compose/) | Docker Compose, local networks and the internet, reverse proxies, assistants, fly.io, upgrading, and [every setting](https://loganfuller.github.io/decent-sync/self-hosting/configuration/) |
+| [Invite people](https://loganfuller.github.io/decent-sync/get-started/invite-people/) | Accounts, and what an Admin, Staff and a Viewer may each do |
+| [The tablet plugin](https://loganfuller.github.io/decent-sync/reference/tablet-plugin/) | [Installing](https://loganfuller.github.io/decent-sync/get-started/install-the-plugin/), updating and configuring the tablet plugin, what it does on the tablet, and [what it answers a Skin](https://loganfuller.github.io/decent-sync/technical/skin-authors/) |
 | [UPGRADING.md](UPGRADING.md) | What each release needs beyond its new image |
 | [GLOSSARY.md](GLOSSARY.md) | What each term means |
 | [docs/adr/](docs/adr/) | Design decisions and why they were made |

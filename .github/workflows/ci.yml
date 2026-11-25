@@ -513,10 +513,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
 
-  # Builds the documentation site (site/) and fails on a broken internal link,
-  # which the build's own link check finds, then runs the site's tests in a
-  # browser. Docs are what it checks, so it runs on a docs-only pull request
-  # too. It deploys nothing: the release workflow publishes the site.
+  # Fails on a relative link in the repository's Markdown that does not
+  # resolve (scripts/check-docs.mjs). Then builds the documentation site
+  # (site/) and fails on a broken internal link, which the build's own link
+  # check finds, and runs the site's tests in a browser. Docs are what it
+  # checks, so it runs on a docs-only pull request too. It deploys nothing: the release workflow publishes the site.
   site:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -526,6 +527,9 @@ jobs:
       - *setup-node
       - *restore-modules
       - *install
+
+      - name: Check the Markdown's relative links
+        run: npm run check:docs
 
       - name: Build the site and check its links
         run: npm run build -w site

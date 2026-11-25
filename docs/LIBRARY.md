@@ -934,7 +934,7 @@ Lost Edit names is kept, still refused, so history goes on naming it
   (#511, ADR-0030, amending ADR-0029, which left choosing to the management
   interface and the MCP endpoint). A Skin sends the plugin's `reference`
   endpoint a PUT naming the Recipe by its DYE2 record on the tablet and a
-  Shot's id (`PLUGIN.md`, Choosing a Recipe's Reference Shot), which the
+  Shot's id (`site/src/content/docs/technical/skin-authors.md`, Choosing a Recipe's Reference Shot), which the
   plugin asks the server for as a request (`chooseReference`,
   `AI_PROTOCOL_NOTES.md`, Requests for a Skin).
   - **One service, the same locks.** `SkinRequestsService` finds the
@@ -990,7 +990,7 @@ Lost Edit names is kept, still refused, so history goes on naming it
   of each Recipe in a slot at its Location, whole, with its measurements,
   whichever Machine or Location pulled it, in any of the nine slots, so a
   Skin draws it through the plugin's `reference` endpoint while the server
-  can't be reached (`PLUGIN.md`, A Recipe's Reference Shot). It is a copy in
+  can't be reached (`site/src/content/docs/technical/skin-authors.md`, A Recipe's Reference Shot). It is a copy in
   the plugin's own storage, not a field of DYE2's recipe record or a Shot in
   Decaid.
   - **Kept current.** A tablet's copy is sent again, or the slot emptied,
