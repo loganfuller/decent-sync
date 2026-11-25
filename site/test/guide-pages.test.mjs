@@ -10,6 +10,7 @@ import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repository = fileURLToPath(new URL("../..", import.meta.url));
+// Add a Guide page here as it is written, so it is held to the same.
 const WRITTEN = ["library-and-recipes", "profiles-and-drafts"];
 const source = (page) => readFileSync(join(repository, "site/src/content/docs/guide", `${page}.mdx`), "utf8");
 
@@ -34,7 +35,7 @@ describe("a written Guide page", () => {
         test(`${page} is written, by task, with steps`, () => {
             assert.doesNotMatch(text, /This page is not written yet/);
             assert.ok((text.match(/^## /gm) ?? []).length >= 5, "it has a heading for each task");
-            assert.match(text, /^1\. .+\n2\. /m, "it has numbered steps");
+            assert.match(text, /^1\. .+\r?\n2\. /m, "it has numbered steps");
         });
 
         test(`${page} links the Glossary`, () => {

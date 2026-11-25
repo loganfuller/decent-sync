@@ -86,7 +86,7 @@ The six shapes are **Classic 9 bar**, **Declining lever**, **Steady flow**, **Bl
 
 **Import a file** takes a profile saved as JSON from Decaid or from another Decent Sync. Values the machine does not accept are held to what it does, and the Draft's page says which.
 
-A Draft is saved as it changes, with nothing to press. The **Profiles** tab lists your Drafts in its **Drafts** card, above the Profiles, each with what it will publish as and who saved it last. **Open** returns to one, and **Discard** deletes it.
+A Draft is saved as it changes, with nothing to press. The **Profiles** tab lists every Draft, yours and other people's, in its **Drafts** card, above the Profiles, each with what it will publish as and who saved it last. **Open** returns to one, and **Discard** deletes it.
 
 ## Edit a Draft on its graph
 
@@ -100,7 +100,7 @@ A Draft's page is the Profile's page with the graph made editable. The graph sim
 2. Drag its handles on the graph. A step has up to three: its **target**, in the lane of the pump that controls it; its **exit**, in the lane it watches; and its **maximum time**.
 3. Or use the keyboard: focus a handle and press the arrow keys, with Shift to move ten times as far.
 
-The **Inspector** beside the graph has the same step as fields, on its **Step** tab:
+The **Inspector** beside the graph has the same step as fields, on its first tab, which is named for the step, such as "Step 1":
 
 - **The pump controls** **Pressure** or **Flow**, to a **Target**, **For at most** so many seconds.
 - **Gets there** **At once** or **Over the whole step**.
@@ -119,7 +119,7 @@ Each number is held to what the machine accepts as you type it.
 - **Duplicate the step** and **Delete the step**, at the foot of the Inspector.
 - The up and down arrows on a step's row move it. Where preinfusion ends stays with the step it ends after.
 
-**Undo** and **Redo**, beside **Publish**, step through every change made in this sitting.
+The undo and redo arrows, beside **Publish**, step through every change made in this sitting.
 
 ### Read the checks
 
@@ -151,7 +151,7 @@ The card then says **The Machine has these steps**, and since when, or that it i
 
 Every save of the Draft reaches the Machine by itself. Following stops when:
 
-- someone at the Machine changes its Profile or applies a Recipe;
+- the Machine's Profile changes, whatever changes it: a barista, a Recipe being applied, or Streamline's wake profile;
 - you turn **Follow on** off, or have the Draft follow another Machine;
 - the Machine moves to another Location, its sharing is turned off, or its Location stops trying Drafts;
 - the Draft is published or discarded.
@@ -170,8 +170,8 @@ A Shot pulled on the following Machine with the Draft's steps is a Trial Shot. N
 
 1. On the Draft's page press **Publish**. It is offered once the Draft changes something and nothing in its checks stops it.
 2. Read **What changed**, the steps that differ from what it started from.
-3. Under **Show it at**, tick the Locations to show it at. At least one is needed.
-4. For a new version, tick the Recipes to move to it. Each is listed under its Location as **Move**, with its slot and whether a Machine has it loaded now.
+3. Under **Show it at**, choose the Locations to show it at. For a new version, those showing the old one start ticked. At least one is needed.
+4. For a new version, choose the Recipes to move to it. Each is listed under its Location as **Move**, with its slot and whether a Machine has it loaded now, and starts ticked: untick any that should stay on the old version.
 5. Press **Publish**.
 
 A Draft that changes only the title, author or notes of the Profile it edits skips steps 3 and 4. The dialog offers no Locations or Recipes, as the Profile stays shown where it is, with the Recipes that name it.

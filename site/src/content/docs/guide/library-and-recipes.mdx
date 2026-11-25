@@ -25,7 +25,12 @@ Machines share by Location. What a barista enters on one tablet joins the Librar
 
 A Capture-only Machine, one with no Location or with its sharing turned off, takes no part: its Shots are kept, and nothing of the Library is written to its tablet.
 
-Sync never deletes anything from a tablet on its own. What a Location stops offering is archived or hidden on its tablets, so their past Shots still find it. The one exception is an Admin deleting an item for good ([Archive or delete](#archive-or-delete)).
+Sync never deletes a Bean, Bean Batch, Grinder or Profile from a tablet on its own. What a Location stops offering of these is archived or hidden on its tablets, so their past Shots still find it. The one exception is an Admin deleting an item for good ([Archive or delete](#archive-or-delete)).
+
+DYE2's lists on a tablet, its recipes, baskets and tools, are different, because they hold only what the Location offers now:
+
+- An Archived Recipe, Basket or Tool is removed from them, and so is a Tool the Location hides. A Basket it hides is archived there. Each stays in the Library, and is written back when it is restored or shown again.
+- A tablet joining a Location that already has Recipes drops the recipes of its own that are not the Location's, and the same goes for its baskets and tools. They are not kept. A Location with none of a kind yet takes the joining tablet's in.
 
 ## Choose what a Location offers
 
@@ -47,7 +52,9 @@ A Bean has no setting of its own for this. It is offered wherever one of its bat
 1. Open the Profile, Basket or Tool from its tab of the **Library**.
 2. In its **Locations** card, turn the **Shown** switch on or off in the Location's row.
 
-Showing it writes it to that Location's tablets. Hiding it hides it on them without deleting it, and changes no other Location. The Machines at a Location use the Baskets and Tools it shows.
+Showing it writes it to that Location's tablets. Hiding a Profile hides it on them without deleting it, a Basket is archived in DYE2's list, and a Tool is removed from it. None of this changes another Location. The Machines at a Location use the Baskets and Tools it shows.
+
+A Profile reaches only Machines that can run it: showing one at a Location with a Machine whose model cannot run it is refused, naming the Machine.
 
 A Grinder is not shown or hidden. It belongs to one Location, chosen when it is created, and is written to that Location's tablets only.
 
@@ -194,12 +201,15 @@ Archive is the ordinary way to retire something. Delete is for a mistake.
 | Undone by | **Restore** | Nothing |
 | Allowed for | Any item | Only an item no Shot names |
 
+On a tablet, an Archived Bean, Bean Batch, Grinder or Profile is archived or hidden, and an Archived Recipe, Basket or Tool is removed from DYE2's lists until it is restored.
+
 To archive an item, open it and press **Archive**. For a Recipe, open **More** and choose **Archive**. The Recipes tab hides archived Recipes until you tick **Show archived**.
 
 To delete an item, open it and press **Delete**, or choose **Delete** under **More** on a Recipe. The rules that keep a delete safe:
 
 - An item a Shot names cannot be deleted. Archive it instead.
 - A Basket or Tool cannot be deleted while a Recipe names it either.
+- A Profile, Grinder or Bean Batch that a Recipe names can be deleted while no Shot names it. The Recipe is left naming something the Library no longer has, so check its Recipes first.
 - Deleting a Bean deletes its batches with it.
 - A Profile bundled with Decaid is never deleted, as every tablet has it. Hide it at a Location or archive it.
 
