@@ -1136,8 +1136,10 @@ How each is made, carried out and answered:
     again"), so a pin worked out from a build a check has since moved on
     from, at the same version, rolls nothing back; or no such item; with
     400 for Decent Sync's own plugin to any source but the latest release of
-    its own repository or one of its commits, and for a Skin that comes
-    with Decaid. The action's `params` keep it as `expected`.
+    its own repository or one of its commits, for a Skin that comes with
+    Decaid, and for a Skin to the branch or URL it was installed from, which
+    Decaid installs nothing from while it serves the same build. The
+    action's `params` keep it as `expected`.
   - **Pinning it where it is now.** `GET
     /api/machines/:id/pinned-source?pluginId=` or `?skinId=`, an Admin's,
     answers `{ pinnedSource: { source, tag, commit, unavailable, build } }`:
@@ -1148,7 +1150,10 @@ How each is made, carried out and answered:
     the two are the same. The server asks GitHub
     (`server/src/software-actions/github.ts`), without credentials: for a
     plugin following releases, the commit its `releaseTag` points at, given
-    as the branch; for a Skin following releases, its installed tag's
+    as the branch, where that commit's root holds `manifest.json` and
+    `plugin.js` of the same plugin at the installed version, as Decaid
+    installs a plugin from a commit's archive only then
+    (`resolvePluginPackage`); for a Skin following releases, its installed tag's
     download, the asset Decaid's own install picks (the first `.zip`, or
     its `releaseAssetName`), which then reads as Pinned at that tag; for a
     Skin following a branch, whose commit Decaid does not record, the one

@@ -203,6 +203,10 @@ describe("Changing how an installed plugin or Skin updates", () => {
     expect(await done(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: seen(released), repo: FLIGHT_REPO, branch: "dist" })).toMatchObject({ outcome: "done", result: { version: "0.2.33-dev.4", previousVersion: "0.2.31-flight.2" } });
     const following = await skin(machine, FLIGHT);
     expect(following.updates).toEqual({ how: "followsBranch", repo: FLIGHT_REPO, branch: "dist" });
+    // To the branch it follows, from which Decaid installs nothing while the build is the same: said at once.
+    expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: seen(following), repo: FLIGHT_REPO, branch: "dist" }, 400)).toContain(
+      "Tasting Flight already updates from there: choose another source, or check the Skins for updates to install its newest build",
+    );
     expect(await done(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: seen(following), url: FLIGHT_ASSET })).toMatchObject({ outcome: "done", params: { url: FLIGHT_ASSET }, result: { version: "0.2.31-flight.2", previousVersion: "0.2.33-dev.4" } });
     expect((await skin(machine, FLIGHT)).updates).toMatchObject({ how: "pinned", tag: "v0.2.31-flight.2" });
 
@@ -394,6 +398,7 @@ describe("Changing how an installed plugin or Skin updates", () => {
     skins.install(exampleSkin(recordedSkin("streamline-cafe.js-dist"), { id: "elsewhere.js", name: "Elsewhere", version: "1.0.0", sourceUrl: "https://skins.example/elsewhere.zip" }));
     const { machine } = await connected("Sources pinned", { plugins: new SimulatedPlugins({ plugins: [recipes, timers, held, ...bundledPlugins()] }), skins });
     github.tag("example/recipes", "v0.1.42", tagCommit);
+    github.root("example/recipes", tagCommit, { "manifest.json": JSON.stringify({ id: RECIPES, name: "Recipes", version: "0.1.42" }), "plugin.js": "export default {};" }, ["docs"]);
     github.release(FLIGHT_REPO, "v0.2.31-flight.2", ["notes.txt", "tasting-flight.js-v0.2.31-flight.2.zip", "another.zip"]);
     github.branch("example/night-shift", "dev", [
       { commit: head, etag: "etag-of-a-later-commit" },
@@ -425,6 +430,15 @@ describe("Changing how an installed plugin or Skin updates", () => {
     github.branch("example/night-shift", "dev", [{ commit: head, etag: "etag-of-a-later-commit" }]);
     expect(await pinned(machine, `skinId=${FLIGHT}`)).toEqual(nowhere);
     expect(await pinned(machine, "skinId=night-shift.js")).toEqual(nowhere);
+    // A tag whose commit's root is no package of this plugin at this version, which Decaid would refuse to install from its archive: its source in folders below, as Decent Sync's and DYE2's are; another version; another plugin.
+    github.root("example/recipes", tagCommit, { "package.json": "{}", "README.md": "" }, ["recipes.reaplugin", "plugin"]);
+    expect(await pinned(machine, `pluginId=${RECIPES}`)).toEqual(nowhere);
+    github.root("example/recipes", tagCommit, { "manifest.json": JSON.stringify({ id: RECIPES, version: "0.1.42-dev" }), "plugin.js": "" });
+    expect(await pinned(machine, `pluginId=${RECIPES}`)).toEqual(nowhere);
+    github.root("example/recipes", tagCommit, { "manifest.json": JSON.stringify({ id: "timers.reaplugin", version: "0.1.42" }), "plugin.js": "" });
+    expect(await pinned(machine, `pluginId=${RECIPES}`)).toEqual(nowhere);
+    github.root("example/recipes", tagCommit, { "manifest.json": JSON.stringify({ id: RECIPES, version: "0.1.42" }) });
+    expect(await pinned(machine, `pluginId=${RECIPES}`)).toEqual(nowhere);
     const untagged = await connected("Sources untagged", { plugins: new SimulatedPlugins({ plugins: [{ ...recipes, source: { ...(recipes.source as Record<string, unknown>), releaseTag: "v0.1.41" } }] }) });
     expect(await pinned(untagged.machine, `pluginId=${RECIPES}`)).toEqual(nowhere);
 

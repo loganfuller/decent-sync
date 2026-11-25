@@ -90,6 +90,7 @@ test("each row keeps its buttons with the rest in its menu, and the dialog opens
   plugins = new SimulatedPlugins({ plugins: [uploader, ...bundledPlugins()] });
   // The Uploader's installed release, by its tag's commit; a branch whose build adds a permission; and one with an older build.
   github.tag("example/uploader", "v0.4.1", UPLOADER_COMMIT);
+  github.root("example/uploader", UPLOADER_COMMIT, { "manifest.json": JSON.stringify({ id: uploader.id, name: uploader.name, version: uploader.version }), "plugin.js": "export default {};" });
   plugins.offer("example/uploader", { branch: UPLOADER_COMMIT, commit: UPLOADER_COMMIT, manifest: uploader });
   plugins.offer("example/uploader", { branch: "next", commit: "a".repeat(40), manifest: { ...uploader, version: "0.5.0", permissions: [...uploader.permissions, "events.workflow"] } });
   plugins.offer("example/uploader", { branch: "old", commit: "b".repeat(40), manifest: { ...uploader, version: "0.4.0" } });
@@ -177,14 +178,14 @@ test("each row keeps its buttons with the rest in its menu, and the dialog opens
   await expect(dialog.getByLabel("GitHub repository")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
-  // Decent Sync's own plugin follows only its own repository's releases or is pinned to one of its commits, and says why.
+  // Decent Sync's own plugin follows only its own repository's releases, whose commits Decaid can't install it from, and says why.
   dialog = await openChange(page, pluginRow(page, "Decent Sync"), "Decent Sync");
-  await expect(dialog.getByRole("radio")).toHaveCount(2);
-  for (const choice of ["Follow releases", "Pin to a commit"]) await expect(dialog.getByRole("radio", { name: choice, exact: true })).toBeVisible();
+  await expect(dialog.getByRole("radio")).toHaveCount(1);
+  await expect(dialog.getByRole("radio", { name: "Follow releases", exact: true })).toBeChecked();
   await expect(dialog.getByLabel("GitHub repository")).toHaveCount(0);
   await expect(dialog).toContainText("Of loganfuller/decent-sync.");
   await expect(dialog).toContainText(
-    "Decent Sync's own plugin only follows the releases of loganfuller/decent-sync or is pinned to one of its commits: a build from anywhere else could cut the Tablet off from the server, with no way back from here.",
+    "Decent Sync's own plugin only follows the releases of loganfuller/decent-sync: a build from anywhere else could cut the Tablet off from the server, with no way back from here. Nor can it be pinned to a commit, as Decaid installs a plugin from a commit only where the repository's root is the plugin, which this one's is not.",
   );
   await dialog.getByRole("button", { name: "Cancel" }).click();
 });

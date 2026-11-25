@@ -5,8 +5,8 @@ import type { Config } from "../config.js";
 
 // What the server asks GitHub, to find the build a plugin or Skin is at so
 // that it can be pinned there (ADR-0035, #678): the commit a tag points at,
-// a release's download, a branch's latest commits and the ETag GitHub serves
-// a commit's archive with. Read-only, without credentials, so only of public
+// the plugin package at a commit's root, a release's download, a branch's
+// latest commits and the ETag GitHub serves a commit's archive with. Read-only, without credentials, so only of public
 // repositories and within GitHub's limit for requests without them, 60 an
 // hour from one address. Nothing is kept: each instance asks afresh.
 
@@ -74,6 +74,35 @@ export class GitHub {
     if (path === null) return [];
     const commits = await this.json(`${this.api}/repos/${path}?sha=${encodeURIComponent(branch)}&per_page=${BRANCH_COMMITS_TRIED}`);
     return Array.isArray(commits) ? commits.flatMap((commit) => (isRecord(commit) && typeof commit.sha === "string" && /^[0-9a-f]{40}$/i.test(commit.sha) ? [commit.sha] : [])) : [];
+  }
+
+  /**
+   * The plugin package at the root of a commit, by its manifest's id and
+   * version: what Decaid installs from the commit's archive, whose one
+   * folder it looks into for `manifest.json` beside `plugin.js`
+   * (`resolvePluginPackage`, Decaid v0.9.3). Null where the root holds no
+   * package, as where a repository's releases ship a built one and its
+   * source lies in folders below; then no commit of it installs.
+   */
+  async packageAt(repo: string, commit: string): Promise<{ id: string | null; version: string | null } | null> {
+    if (!/^[0-9a-f]{40}$/i.test(commit)) return null;
+    const path = this.repoPath(repo, "contents");
+    if (path === null) return null;
+    const listing = await this.json(`${this.api}/repos/${path}?ref=${commit}`);
+    const files = Array.isArray(listing) ? listing.filter(isRecord).filter((entry) => entry.type === "file").map((entry) => entry.name) : [];
+    if (!files.includes("manifest.json") || !files.includes("plugin.js")) return null;
+    const response = await this.ask(`${this.api}/repos/${path}/manifest.json?ref=${commit}`, { headers: { accept: "application/vnd.github.raw+json" } });
+    if (response === null) return null;
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(await this.text(response));
+    } catch (error) {
+      if (error instanceof GitHubUnavailable) throw error;
+      // Decaid refuses a manifest it can't read as invalid: no package.
+      return null;
+    }
+    if (!isRecord(manifest)) return null;
+    return { id: typeof manifest.id === "string" ? manifest.id : null, version: typeof manifest.version === "string" ? manifest.version : null };
   }
 
   /**

@@ -1355,7 +1355,7 @@ type SourceChoice = "releases" | "branch" | "pinHere" | "commit" | "url";
 /** A commit's archive on GitHub, as a Skin pinned to a commit is installed from: its repository and the commit. */
 const COMMIT_ARCHIVE = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/archive\/([0-9a-f]{40})\.zip$/i;
 
-/** What the form opens filled in with: the choice that is how the item updates now, with its fields. Decent Sync's own plugin is only ever of its own repository. */
+/** What the form opens filled in with: the choice that is how the item updates now, with its fields. Decent Sync's own plugin only ever follows its own repository's releases. */
 function currentSource(updates: SoftwareUpdates, own: boolean): { which: SourceChoice; repo: string; branch: string; commit: string; url: string } {
   const blank = { which: "releases" as SourceChoice, repo: own ? DECENT_SYNC_REPO : "", branch: "", commit: "", url: "" };
   const repo = (named: string | null) => (own ? DECENT_SYNC_REPO : (named ?? ""));
@@ -1365,6 +1365,7 @@ function currentSource(updates: SoftwareUpdates, own: boolean): { which: SourceC
     case "followsBranch":
       return own ? blank : { ...blank, which: "branch", repo: repo(updates.repo), branch: updates.branch };
     case "pinned": {
+      if (own) return blank;
       const archive = updates.url ? COMMIT_ARCHIVE.exec(updates.url) : null;
       if (archive) return { ...blank, which: "commit", repo: archive[1]!, commit: archive[2]! };
       if (updates.url) return { ...blank, which: "url", repo: updates.repo ?? "", url: updates.url };
@@ -1389,8 +1390,9 @@ function pinText(pin: PinnedSource, skin: boolean): string {
  * opened from its row's menu: following a repository's releases or a
  * branch, pinning it where it is now, which the server finds through
  * GitHub, or to a commit, or, for a Skin, a URL. Decent Sync's own plugin
- * only follows its own repository's releases or is pinned to one of its
- * commits. Made, the dialog closes and the card follows the action; refused
+ * only follows its own repository's releases: Decaid installs a plugin from
+ * a commit's archive only where the repository's root is the plugin
+ * (ADR-0035), which Decent Sync's is not. Made, the dialog closes and the card follows the action; refused
  * at once, the dialog says why.
  */
 function ChangeSourceDialog({
@@ -1493,7 +1495,7 @@ function ChangeSourceForm({
     ["releases", "Follow releases"],
     ...(own ? [] : ([["branch", "Follow a branch"]] satisfies [SourceChoice, string][])),
     ...(pin?.source ? ([["pinHere", "Pin where it is now"]] satisfies [SourceChoice, string][]) : []),
-    ["commit", "Pin to a commit"],
+    ...(own ? [] : ([["commit", "Pin to a commit"]] satisfies [SourceChoice, string][])),
     ...(skin ? ([["url", "From a URL"]] satisfies [SourceChoice, string][]) : []),
   ];
   // One release's download never changes (#677), which an Admin pasting a release's link may not mean.
@@ -1589,6 +1591,9 @@ function ChangeSourceForm({
           </FormField>
         )}
         {which === "pinHere" && pin?.source && <p className="text-sm text-muted-foreground">{pinText(pin, skin)}</p>}
+        {!skin && (which === "pinHere" || which === "commit") && (
+          <p className="text-sm text-muted-foreground">A Decaid update still installs its own build over a plugin Decaid comes with, such as DYE2.</p>
+        )}
         {which === "url" && (
           <FormField>
             <FieldLabel htmlFor={`${id}-url-address`}>URL</FieldLabel>
@@ -1621,8 +1626,8 @@ function ChangeSourceForm({
       </FieldGroup>
       {own && (
         <p className="text-sm text-muted-foreground">
-          Decent Sync's own plugin only follows the releases of {DECENT_SYNC_REPO} or is pinned to one of its commits: a build from anywhere else could cut the Tablet off from the
-          server, with no way back from here.
+          Decent Sync's own plugin only follows the releases of {DECENT_SYNC_REPO}: a build from anywhere else could cut the Tablet off from the server, with no way back from
+          here. Nor can it be pinned to a commit, as Decaid installs a plugin from a commit only where the repository's root is the plugin, which this one's is not.
         </p>
       )}
       <p className="text-sm text-muted-foreground">

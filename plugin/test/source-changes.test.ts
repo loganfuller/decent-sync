@@ -69,6 +69,8 @@ class StubDecaid {
   readonly skinSources = new Map<string, Json>();
   /** What `host.localApi` does in place of answering, for a route, once: reject, having carried the request out or not. */
   failing: { route: RegExp; error: string; carriedOut: boolean } | undefined;
+  /** A Skin Decaid installs again beside an install, as its own update check may meanwhile. */
+  alsoReinstalled: string | undefined;
   /** What removing an item answers in place of removing it. */
   removalRefused: { status: number; error: string } | undefined;
   private installs = 0;
@@ -110,7 +112,8 @@ class StubDecaid {
       const key = route.endsWith("/url") ? String(body.url) : route.endsWith("branch") ? `${String(body.repo)}@${String(body.branch)}` : String(body.repo);
       const skin = this.skinSources.get(key);
       if (!skin) return { status: 500, body: { error: "Couldn't install the skin. The repository, release, or download was not found. Check the address and try again." } };
-      this.skins = [...this.skins.filter((entry) => entry.id !== skin.id), { ...skin, reaMetadata: { ...(skin.reaMetadata as Json), installedAt: now } }];
+      const again = (entry: Json): Json => (entry.id === this.alsoReinstalled ? { ...entry, reaMetadata: { ...(entry.reaMetadata as Json), installedAt: now } } : entry);
+      this.skins = [...this.skins.filter((entry) => entry.id !== skin.id).map(again), { ...skin, reaMetadata: { ...(skin.reaMetadata as Json), installedAt: now } }];
       return { status: 200, body: { success: true, message: "Skin installed successfully" } };
     }
     const skin = /^\/webui\/skins\/([^/]+)$/.exec(route);
@@ -265,6 +268,15 @@ describe("A change of how a plugin or Skin updates, carried out by the plugin", 
     decaid.removalRefused = { status: 500, error: "Couldn't remove the plugin." };
     await actions.apply(pluginChange(decaid, { repo: "example/timers" }), () => true);
     expect(answers[2]).toMatchObject({ reason: "differentItem", message: "That source holds another plugin, Timers, not Recipes. Decaid installed it beside it, and it could not be removed again (Couldn't remove the plugin.): remove it from its row. Recipes is unchanged" });
+  });
+
+  it("takes the Skin it named for the one installed where Decaid installed another again meanwhile", async () => {
+    decaid.skinSources.set("example/tasting-flight", { ...flight(), version: "0.2.32-flight.1", reaMetadata: { skinId: FLIGHT, sourceUrl: "github_release:example/tasting-flight@v0.2.32-flight.1" } });
+    decaid.alsoReinstalled = "streamline.js";
+    const { actions, answers } = loaded(decaid);
+    await actions.apply(skinChange(decaid, { repo: "example/tasting-flight" }), () => true);
+    expect(answers).toEqual([{ type: "softwareActed", id, outcome: "done", result: { skinId: FLIGHT, name: "Tasting Flight", version: "0.2.32-flight.1", previousVersion: "0.2.31-flight.2" } }]);
+    expect(decaid.managed).toEqual(["POST /webui/skins/install/github-release"]);
   });
 
   it("refuses as differentItem where the source holds another Skin, removing it again unless the Tablet held it before", async () => {

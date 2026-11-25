@@ -5826,7 +5826,7 @@ var __decentSync = (() => {
       const after = await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
       if (answer === void 0) return refusedByDecaid2(action.id, null, `Decaid did not answer: ${failure}`);
       if (!answer.ok) return refusedByDecaid2(action.id, answer.status, decaidMessage2(answer));
-      if (action.kind === "changeSkinSource") return this.skinSourceChanged(action, before, after === void 0 ? void 0 : installedSkin(before, after));
+      if (action.kind === "changeSkinSource") return this.skinSourceChanged(action, before, after === void 0 ? void 0 : installedSkin(before, after, action.skinId));
       return { type: "softwareActed", id: action.id, outcome: "done", result: skinResultOf(action, answer, before, after) };
     }
     async watchSkinInstall(action, before, until, found) {
@@ -6261,10 +6261,10 @@ var __decentSync = (() => {
       })
     );
   }
-  function installedSkin(before, after) {
+  function installedSkin(before, after, named) {
     const earlier = skinInstalls(before);
-    const now2 = skinInstalls(after);
-    const id = [...now2].find(([skinId, installed]) => earlier.get(skinId) !== installed)?.[0];
+    const changed = [...skinInstalls(after)].filter(([skinId, installed]) => earlier.get(skinId) !== installed).map(([skinId]) => skinId);
+    const id = named !== void 0 && changed.includes(named) ? named : changed[0];
     return id === void 0 ? void 0 : skinsIn(after).find((skin) => skin.id === id);
   }
   function skinResultOf(action, answer, before, after) {

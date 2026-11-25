@@ -378,7 +378,7 @@ export class SoftwareActions {
     const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
     if (answer === undefined) return refusedByDecaid(action.id, null, `Decaid did not answer: ${failure}`);
     if (!answer.ok) return refusedByDecaid(action.id, answer.status, decaidMessage(answer));
-    if (action.kind === "changeSkinSource") return this.skinSourceChanged(action, before, after === undefined ? undefined : installedSkin(before, after));
+    if (action.kind === "changeSkinSource") return this.skinSourceChanged(action, before, after === undefined ? undefined : installedSkin(before, after, action.skinId));
     return { type: "softwareActed", id: action.id, outcome: "done", result: skinResultOf(action, answer, before, after) };
   }
 
@@ -887,11 +887,16 @@ function skinInstalls(report: Record<string, unknown>): Map<string, string> {
   );
 }
 
-/** The Skin an install put on the Tablet: one new since `before`, or installed again since. */
-function installedSkin(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> | undefined {
+/**
+ * The Skin an install put on the Tablet: one new since `before`, or
+ * installed again since. The one an action named, where it is, so that
+ * another Decaid installed again meanwhile, as at its own update check, is
+ * not taken for it.
+ */
+function installedSkin(before: Record<string, unknown>, after: Record<string, unknown>, named?: string): Record<string, unknown> | undefined {
   const earlier = skinInstalls(before);
-  const now = skinInstalls(after);
-  const id = [...now].find(([skinId, installed]) => earlier.get(skinId) !== installed)?.[0];
+  const changed = [...skinInstalls(after)].filter(([skinId, installed]) => earlier.get(skinId) !== installed).map(([skinId]) => skinId);
+  const id = named !== undefined && changed.includes(named) ? named : changed[0];
   return id === undefined ? undefined : skinsIn(after).find((skin) => skin.id === id);
 }
 

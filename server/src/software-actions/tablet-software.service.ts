@@ -89,12 +89,17 @@ export class TabletSoftwareService {
   private async pinnedPlugin(plugin: Record<string, unknown>): Promise<Pinned> {
     const updates = pluginUpdates(plugin.source);
     const source = isRecord(plugin.source) ? plugin.source : {};
+    // Decaid installed it from that commit's archive, so the commit's root is this plugin.
     if (updates.how === "followsBranch" && updates.repo !== null && typeof source.commit === "string" && /^[0-9a-f]{40}$/i.test(source.commit)) {
       return { ...NOWHERE, source: { repo: updates.repo, branch: source.commit }, commit: source.commit };
     }
     if (updates.how === "followsReleases" && updates.repo !== null && typeof source.releaseTag === "string" && source.releaseTag !== "") {
       const commit = await this.github.tagCommit(updates.repo, source.releaseTag);
-      return commit === null ? NOWHERE : { ...NOWHERE, source: { repo: updates.repo, branch: commit }, tag: source.releaseTag, commit };
+      if (commit === null) return NOWHERE;
+      // A release's download may be a built package its commit's archive is not, which Decaid then refuses to install: only one whose root is this plugin at this version.
+      const held = await this.github.packageAt(updates.repo, commit);
+      if (held === null || held.id !== plugin.id || held.version !== plugin.version) return NOWHERE;
+      return { ...NOWHERE, source: { repo: updates.repo, branch: commit }, tag: source.releaseTag, commit };
     }
     return NOWHERE;
   }

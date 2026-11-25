@@ -12,6 +12,10 @@ import type { AddressInfo } from "node:net";
 //   the commit's id as text, or 422 for a tag it does not know;
 // - `GET /repos/<repo>/releases/tags/<tag>`: `{ tag_name, assets: [{ name, browser_download_url }] }`, or 404;
 // - `GET /repos/<repo>/commits?sha=<branch>&per_page=<n>`: `[{ sha }]`, newest first, or 404;
+// - `GET /repos/<repo>/contents?ref=<commit>`: the files and folders at the
+//   commit's root, `[{ name, type }]`, or 404;
+// - `GET /repos/<repo>/contents/<file>?ref=<commit>` with
+//   `Accept: application/vnd.github.raw+json`: the file's content, or 404;
 // - `HEAD /<repo>/archive/<commit>.zip`: 200 with the archive's `ETag`, which
 //   GitHub serves alike for a branch's archive while that commit is its head, or 404.
 //
@@ -32,6 +36,8 @@ export interface FakeGitHub {
   release(repo: string, tag: string, assets: string[]): void;
   /** Has a repository's branch hold these commits, newest first, each with the ETag its archive is served with. */
   branch(repo: string, branch: string, commits: { commit: string; etag: string }[]): void;
+  /** Has a repository's commit hold these files at its root, by name, with their content, and these folders. */
+  root(repo: string, commit: string, files: Record<string, string>, folders?: string[]): void;
   /** Answers every request with this status from now on, as past GitHub's rate limit (403), or as usual again (null). */
   answerAll(status: number | null): void;
   close(): Promise<void>;
@@ -41,6 +47,7 @@ export async function startFakeGitHub(): Promise<FakeGitHub> {
   const tags = new Map<string, string>();
   const releases = new Map<string, string[]>();
   const branches = new Map<string, { commit: string; etag: string }[]>();
+  const roots = new Map<string, { files: Record<string, string>; folders: string[] }>();
   const requests: string[] = [];
   let always: number | null = null;
   const key = (repo: string, name: string) => `${repo.toLowerCase()} ${name}`;
@@ -71,6 +78,15 @@ export async function startFakeGitHub(): Promise<FakeGitHub> {
       if (held === undefined) return void json(404, { message: "Not Found" });
       return void json(200, held.slice(0, Number(url.searchParams.get("per_page") ?? 30)).map(({ commit }) => ({ sha: commit })));
     }
+    const contents = /^\/repos\/([^/]+\/[^/]+)\/contents(?:\/([^/]+))?$/.exec(route);
+    if (request.method === "GET" && contents) {
+      const held = roots.get(key(contents[1]!, url.searchParams.get("ref") ?? ""));
+      if (held === undefined) return void json(404, { message: "Not Found" });
+      if (contents[2] === undefined) return void json(200, [...Object.keys(held.files).map((name) => ({ name, type: "file" })), ...held.folders.map((name) => ({ name, type: "dir" }))]);
+      const file = held.files[contents[2]];
+      if (file === undefined) return void json(404, { message: "Not Found" });
+      return void response.writeHead(200, { "Content-Type": "application/vnd.github.raw+json" }).end(file);
+    }
     const archive = /^\/([^/]+\/[^/]+)\/archive\/([0-9a-f]{40})\.zip$/.exec(route);
     if (request.method === "HEAD" && archive) {
       const repo = archive[1]!.toLowerCase();
@@ -87,6 +103,7 @@ export async function startFakeGitHub(): Promise<FakeGitHub> {
     tag: (repo, tag, commit) => void tags.set(key(repo, tag), commit),
     release: (repo, tag, assets) => void releases.set(key(repo, tag), assets),
     branch: (repo, branch, commits) => void branches.set(key(repo, branch), commits),
+    root: (repo, commit, files, folders = []) => void roots.set(key(repo, commit), { files, folders }),
     answerAll: (status) => void (always = status),
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
