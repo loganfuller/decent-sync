@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
 import { SimulatedPlugins, bundledPlugins } from "./support/decaid-plugins.js";
-import { SimulatedSkins } from "./support/decaid-skins.js";
+import { SimulatedSkins, recordedSkin } from "./support/decaid-skins.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -45,7 +45,12 @@ describe("Tablet Software through an assistant", () => {
 
   it("reads a Machine's Tablet Software and its Software Actions as the REST API gives them, a setting's value to Admins only, and offers no tool that makes one", async () => {
     machine = await api.createMachine("Assistant software bar", cafe.id);
-    syncingTablet(machine, server, { api: emptyLibrary(68_001), plugins: new SimulatedPlugins({ plugins: bundledPlugins() }) });
+    // A Skin installed from the URL of one release's download (#677), derived: a recorded Skin with a made-up source.
+    const cafeUrl = "https://github.com/loganfuller/streamline-cafe-js/releases/download/v0.2.31-cafe.2/streamline-cafe.js-v0.2.31-cafe.2.zip";
+    const recorded = recordedSkin("streamline-cafe.js-dist");
+    const skins = new SimulatedSkins();
+    skins.install({ ...recorded, id: "assistant-pinned.js", reaMetadata: { ...(recorded.reaMetadata as Record_), sourceUrl: cafeUrl } });
+    syncingTablet(machine, server, { api: emptyLibrary(68_001), plugins: new SimulatedPlugins({ plugins: bundledPlugins() }), skins });
     await api.waitForOnline(machine);
     await expect.poll(async () => (await software()).plugins?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(1);
     await expect.poll(async () => (await software()).decaid.update).not.toBeNull();
@@ -68,6 +73,8 @@ describe("Tablet Software through an assistant", () => {
       decaid: { ...rest.decaid, update: { ...rest.decaid.update, reportedAt: instant(rest.decaid.update!.reportedAt) } },
     });
     expect(String(read.decaid.update!.reportedAt)).toMatch(/-0[56]:00$/);
+    // Pinned at the release's tag, with its repository and no commit.
+    expect((read.skins as { id: string; updates: Record_ }[]).find((skin) => skin.id === "assistant-pinned.js")!.updates).toEqual({ how: "pinned", repo: "loganfuller/streamline-cafe-js", commit: null, tag: "v0.2.31-cafe.2", url: cafeUrl });
     const visualizer = read.plugins!.find((plugin) => plugin.id === VISUALIZER)!;
     expect(visualizer).toMatchObject({ state: "disabled", updates: { how: "notUpdated" } });
     expect(visualizer.settings.find((setting) => setting.name === "Username")).toMatchObject({ value: "sam" });

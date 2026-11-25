@@ -452,13 +452,13 @@ export interface SettingsHistoryEntryPage {
 /**
  * How a plugin or Skin updates, shown and never switched: from a GitHub
  * repository's latest release, a branch's head, a commit or a URL naming a
- * commit's archive (Pinned), any other URL, as one that comes with Decaid,
- * or not at all.
+ * commit's archive or one release's download, with its `tag` (Pinned), any
+ * other URL, as one that comes with Decaid, or not at all.
  */
 export type SoftwareUpdates =
   | { how: "followsReleases"; repo: string | null }
   | { how: "followsBranch"; repo: string | null; branch: string }
-  | { how: "pinned"; repo: string | null; commit: string | null; url: string | null }
+  | { how: "pinned"; repo: string | null; commit: string | null; tag?: string; url: string | null }
   | { how: "followsUrl"; url: string }
   | { how: "comesWithDecaid"; repo: string | null }
   | { how: "notUpdated" };

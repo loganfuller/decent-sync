@@ -138,6 +138,33 @@ export function isSkinUrl(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAX_SKIN_URL_LENGTH && /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:[/?#]\S*)?$/i.test(value);
 }
 
+/** One release's download on GitHub, as a URL names it: the repository, as owner/name, and the release's tag. */
+export interface ReleaseAsset {
+  repo: string;
+  tag: string;
+}
+
+/**
+ * The release a URL downloads a file of, where it is a GitHub release
+ * asset's: `https://github.com/<owner>/<name>/releases/download/<tag>/<file>`.
+ * What such a URL serves never changes, so a Skin installed from one stays
+ * at that tag. Null for any other URL: another host's, or a repository's
+ * `releases/latest/download/<file>`, which moves with each release.
+ */
+export function releaseAssetOf(url: unknown): ReleaseAsset | null {
+  if (!isSkinUrl(url)) return null;
+  // No URL class is assumed here either: GitHub's host, a repository, then the tag as one path segment and the file as the last.
+  const found = /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+)\/releases\/download\/([^/?#]+)\/[^/?#]+(?:[?#].*)?$/i.exec(url);
+  if (!found) return null;
+  let tag = found[2]!;
+  try {
+    tag = decodeURIComponent(tag);
+  } catch {
+    // A tag that is no valid encoding is shown as written.
+  }
+  return { repo: found[1]!, tag };
+}
+
 /** How long Reload waits for the Skin's fresh page to report in before it is not confirmed. */
 export const SKIN_RELOAD_MS = 15_000;
 
