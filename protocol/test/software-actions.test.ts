@@ -146,6 +146,8 @@ describe("a Software Action on the wire", () => {
     expect(releaseAssetOf("HTTPS://WWW.GitHub.com/example/skin/releases/download/2026.11/skin.zip?download=1")).toEqual({ repo: "example/skin", tag: "2026.11" });
     expect(releaseAssetOf("https://github.com/example/skin/releases/download/v1.0.0%2Bbuild.5/skin.zip")).toEqual({ repo: "example/skin", tag: "v1.0.0+build.5" });
     expect(releaseAssetOf("https://github.com/example/skin/releases/download/100%/skin.zip")).toEqual({ repo: "example/skin", tag: "100%" });
+    // A tag with a slash, written encoded, is one path segment; written as a slash it is not, below.
+    expect(releaseAssetOf("https://github.com/example/skin/releases/download/release%2F1.0/skin.zip")).toEqual({ repo: "example/skin", tag: "release/1.0" });
     for (const other of [
       // Another host, however alike its path or name.
       "https://gitlab.com/example/skin/releases/download/v1.0.0/skin.zip",
@@ -155,7 +157,8 @@ describe("a Software Action on the wire", () => {
       "https://objects.githubusercontent.com/example/skin/releases/download/v1.0.0/skin.zip",
       // The latest release's download moves with each release.
       "https://github.com/example/skin/releases/latest/download/skin.zip",
-      // A commit's or a branch's archive, a release's page, and a download with no file.
+      // A tag with a slash written as one, a commit's or a branch's archive, a release's page, and a download with no file.
+      "https://github.com/example/skin/releases/download/release/1.0/skin.zip",
       "https://github.com/example/skin/archive/97da8f8a1b2c3d4e5f60718293a4b5c6d7e8f901.zip",
       "https://github.com/example/skin/archive/refs/heads/main.zip",
       "https://github.com/example/skin/releases/tag/v1.0.0",
