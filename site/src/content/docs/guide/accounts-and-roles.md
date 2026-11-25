@@ -26,7 +26,7 @@ Admin, Staff, Viewer and Barista are defined in the [Glossary](../../reference/g
 | Install, update or remove what a Tablet runs | Yes | No | No |
 | Add a Machine, issue its Token, or turn its sharing on or off | Yes | No | No |
 | Add or edit a Location | Yes | No | No |
-| Delete something for good | Yes | No | No |
+| Delete something for good | Yes | Only a Draft, by discarding it | No |
 | Invite people and manage accounts | Yes | No | No |
 | Connect an assistant | Yes | Yes | To read only |
 

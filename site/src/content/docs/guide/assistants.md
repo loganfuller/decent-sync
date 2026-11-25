@@ -80,7 +80,7 @@ The page that asks whether to connect the app offers two choices:
 | Choice | What the app may do |
 |---|---|
 | **Read** | See what you can see in Decent Sync. |
-| **Read and change** | Also change what you can change, but never accounts, and never delete anything for good. |
+| **Read and change** | Also change what you can change, but never accounts, and never delete anything for good but a Draft. |
 
 - **Read** is chosen until you choose otherwise.
 - An app that asked only to read is offered only **Read**.
@@ -95,7 +95,7 @@ A Connected App acts as the account that approved it, so your role limits it exa
 | Your role | What your assistant may do |
 |---|---|
 | Admin | Read everything, and make every change on this page, anywhere. Only an Admin's assistant can turn a Machine's sharing on or off, create and edit Locations, and make the Settings Edits marked for Admins. |
-| Staff | Read everything an Admin's can, except the name of the account behind each recorded change, and the values of plugins' settings, of which it reads only which are set. Change the Library's shared content anywhere. At the Locations you work at: manage Recipes and Grinders, add Bean Batches, change what the Location offers, publish Drafts, move Machines between them, have a Machine follow a Draft, make the Settings Edits open to Staff, edit Shots, and reload a Skin. |
+| Staff | Read everything an Admin's can, except the name of the account behind each recorded change, and the values of plugins' settings, of which it reads only which are set. Change the Library's shared content anywhere, and start, edit and discard any Draft. At the Locations you work at: manage Recipes and Grinders, add Bean Batches, change what the Location offers, publish Drafts, move Machines between them, have a Machine follow a Draft, make the Settings Edits open to Staff, edit Shots, and reload a Skin. |
 | Viewer | Read what a Viewer sees, which leaves out Drafts. Change nothing, whatever the app asked for. |
 
 A change to your role or your Locations applies to your apps from their next request. An app approved to read and change by someone who is then made a Viewer only reads while they are a Viewer.
