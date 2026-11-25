@@ -9,7 +9,7 @@ The Library is the Beans, Bean Batches, Grinders, Profiles, Baskets, Tools and R
 
 Profiles have a page of their own: [Profiles and Drafts](../profiles-and-drafts/). The terms in capitals are defined in the [Glossary](../../reference/glossary/).
 
-An Admin or Staff can change the Library. A Viewer sees all of it and changes nothing.
+An Admin can change all of the Library. Staff edit its shared content anywhere, and change what belongs to a Location only at the Locations they work at: its Recipes and Grinders, the Bean Batches there, and what it shows. A Viewer sees all of it and changes nothing.
 
 ## What is shared with which Machines
 
@@ -17,7 +17,7 @@ Machines share by Location. What a barista enters on one tablet joins the Librar
 
 | Item | Which Machines get it |
 |---|---|
-| Bean | Those at each Location where one of its Bean Batches is. |
+| Bean | Those at each Location where one of its Bean Batches is. Until a batch is added there, also those where a tablet entered the Bean. |
 | Bean Batch | Those at each Location it was added at, with its own remaining weight at each. |
 | Grinder | Those at the one Location it belongs to. |
 | Profile, Basket, Tool | Those at each Location that shows it. |
@@ -40,7 +40,7 @@ A Bean Batch is at a Location from when it is added there until it is finished t
 
 <Still name="bean-batches" alt="The Library's Bean Batches, each with the Locations it is at and its remaining weight at each" />
 
-A Bean has no setting of its own for this. It is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there.
+A Bean has no setting of its own for this. It is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there. A Bean a barista has just entered on a tablet, with no batch there yet, is offered at that tablet's Location until one is added.
 
 ### Show or hide a Profile, Basket or Tool
 
@@ -189,7 +189,7 @@ Archive is the ordinary way to retire something. Delete is for a mistake.
 
 | | Archive | Delete |
 |---|---|---|
-| Who | An Admin or Staff | An Admin |
+| Who | An Admin, or Staff: a Recipe or Grinder only at a Location they work at | An Admin |
 | What happens | The item is offered nowhere, and kept, so past Shots still name it. | The item is gone from the Library, with its history, and from every tablet that holds it, now or once it connects. |
 | Undone by | **Restore** | Nothing |
 | Allowed for | Any item | Only an item no Shot names |
