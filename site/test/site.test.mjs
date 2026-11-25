@@ -6,7 +6,7 @@
 //   npm test -w site
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -17,6 +17,8 @@ import { chromium } from "@playwright/test";
 import { brokenLinks } from "../check-links.mjs";
 import { ROOT_BASE, SITE } from "../site.config.mjs";
 import { canonicalAtRoot } from "../src/canonical.mjs";
+import { pageBody, ROOT_PAGES } from "../src/root-pages.mjs";
+import { minorOf } from "../src/versions.mjs";
 import { serve } from "./support/serve.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -34,7 +36,25 @@ const SECTIONS = [
 ];
 const PAGES = SECTIONS.flatMap(([, pages]) => pages);
 
-const base = `${ROOT_BASE}/v9.8`;
+// The pages #683 wrote from the README, the self-hosting document and the
+// plugin document, and the two rendered from a file at the repository's root.
+const WRITTEN = [...SECTIONS[0][1], ...SECTIONS[2][1], "reference/glossary", "reference/tablet-plugin", "reference/upgrade-notes", "technical/skin-authors"];
+
+const repository = join(root, "..");
+const repositoryFile = (path) => readFileSync(join(repository, path), "utf8");
+/** A built page's text as a reader sees it: no tags, and entities as their characters. */
+const text = (html) =>
+    html
+        .replace(/<[^>]+>/g, "")
+        .replace(/&#x27;|&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
+
+// The minor this checkout documents, built at its own path as the deploy builds it.
+const current = minorOf(version);
+const base = `${ROOT_BASE}/${current}`;
 let dist;
 
 before(() => {
@@ -49,6 +69,42 @@ const read = (path) => readFileSync(join(dist, path, "index.html"), "utf8");
 describe("the built site", () => {
     test("has every page at its address", () => {
         for (const page of PAGES) assert.ok(existsSync(join(dist, page, "index.html")), `${page} is missing`);
+    });
+
+    // The Guide pages written so far (#685), by what a reader would miss, never by their wording: the page itself, its
+    // images, its steps, and its way to the Glossary.
+    const GUIDE_STILLS = {
+        "guide/shots": ["shots", "shot", "overview", "recipe"],
+        "guide/machines": ["machines", "live-view", "phone", "machine-activity", "machine-settings", "machine-software"],
+    };
+    const content = (path) => {
+        const html = read(path);
+        return html.slice(html.indexOf("<main"), html.indexOf("</main>"));
+    };
+
+    for (const [path, stills] of Object.entries(GUIDE_STILLS)) {
+        test(`${path} is written, with its images, its steps and a link to the Glossary`, () => {
+            const main = content(path);
+            assert.ok(!main.includes("This page is not written yet"), `${path} is still a placeholder`);
+            for (const still of stills) assert.ok(main.includes(`data-still="${still}"`), `${path} lacks the image ${still}`);
+            assert.ok(main.includes("<ol"), `${path} has no steps`);
+            assert.ok(main.includes('href="../../reference/glossary/"'), `${path} does not link to the Glossary`);
+        });
+    }
+
+    test("states the out-of-spec margins in one table, with the least Shots a group needs", () => {
+        const main = content("guide/shots");
+        const from = main.indexOf('id="what-out-of-spec-means"');
+        assert.ok(from > 0, "guide/shots has no section on what out of spec means");
+        const section = main.slice(from, main.indexOf("<h2", from + 1));
+        const tables = section.match(/<table[\s\S]*?<\/table>/g) ?? [];
+        assert.equal(tables.length, 1, "the section states its margins in one table");
+        const headings = [...tables[0].matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)].map(([, heading]) => heading.trim());
+        assert.ok(headings.includes("Least Shots"), `the margins table has no column for the least Shots: ${headings.join(", ")}`);
+        for (const margin of ["10%", "5%", "90%"]) assert.ok(tables[0].includes(margin), `the margins table lacks ${margin}`);
+        // Stated once: no other table of the page gives a margin.
+        const others = (main.match(/<table[\s\S]*?<\/table>/g) ?? []).filter((table) => table !== tables[0]);
+        for (const table of others) assert.ok(!/\b(10|5|90)%/.test(table), "a margin is stated in a second table");
     });
 
     test("lists the six sections and every page in its sidebar, in order", () => {
@@ -78,6 +134,94 @@ describe("the built site", () => {
 
     test("has no broken internal link", () => {
         assert.deepEqual(brokenLinks(dist, base), []);
+    });
+
+    test("has each Get started, Self-hosting and plugin page written", () => {
+        for (const page of WRITTEN) {
+            const html = read(page);
+            assert.ok(!html.includes("This page is not written yet"), `${page} is not written`);
+            assert.match(html, /<h2 /, `${page} has no section`);
+        }
+    });
+
+    test("has every setting the server and the Compose file read on the Configuration page", () => {
+        const page = text(read("self-hosting/configuration"));
+        const server = [...repositoryFile("server/src/config.ts").matchAll(/\benv\.([A-Z][A-Z0-9_]+)/g)].map(([, name]) => name);
+        const compose = [...repositoryFile("docker-compose.yml").matchAll(/\$\{([A-Z][A-Z0-9_]+)/g)].map(([, name]) => name);
+        // What only the server's own tests set.
+        const settings = [...new Set([...server, ...compose])].filter((name) => !name.startsWith("TEST_"));
+        assert.ok(settings.includes("DATABASE_URL") && settings.includes("POSTGRES_PASSWORD"), "the settings were not read from the code");
+        for (const setting of settings) assert.ok(page.includes(setting), `the Configuration page lacks ${setting}`);
+    });
+
+    test("lists each notice the tablet shows on the tablet plugin's page", () => {
+        const page = text(read("reference/tablet-plugin"));
+        assert.ok(page.includes("Decent Sync has not reached its server for 10 minutes."));
+    });
+
+    test("renders the Glossary and the Upgrade notes from the files at the repository's root, with no copy", () => {
+        for (const { id, file, title } of ROOT_PAGES) {
+            for (const extension of ["md", "mdx"]) assert.ok(!existsSync(join(root, "src", "content", "docs", `${id}.${extension}`)), `${id} has a copy of ${file}`);
+            const html = read(id);
+            assert.match(html, new RegExp(`<h1[^>]*>${title}</h1>`));
+            const headings = [...repositoryFile(file).matchAll(/^## (.+)$/gm)].map(([, heading]) => heading);
+            assert.ok(headings.length > 3, `${file} has no sections`);
+            const shown = [...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map(([, heading]) => text(heading));
+            for (const heading of headings) assert.ok(shown.includes(heading), `${id} lacks ${file}'s section ${heading}`);
+        }
+        // The root file's own links, made to work from the page.
+        const notes = read("reference/upgrade-notes");
+        assert.ok(notes.includes('href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md"'));
+        assert.ok(notes.includes('href="../../self-hosting/upgrading/#if-you-skipped-a-release"'));
+    });
+});
+
+describe("a root file's page", () => {
+    test("drops the file's own first heading, which the page's title replaces", () => {
+        assert.equal(pageBody("# Upgrading\n\nWhat to do.\n\n## 1.2.0\n\n# Not a title\n"), "What to do.\n\n## 1.2.0\n\n# Not a title\n");
+    });
+
+    test("changes with the root file", () => {
+        assert.notEqual(pageBody("# Glossary\n\n**Machine**:\nA machine.\n"), pageBody("# Glossary\n\n**Machine**:\nA Decent espresso machine.\n"));
+    });
+
+    test("links to a page of the site by its address, and to anything else in the repository on GitHub", () => {
+        const body = pageBody(
+            [
+                "# Upgrading",
+                "[Upgrading](site/src/content/docs/self-hosting/upgrading.md#if-you-skipped-a-release), [the plugin](site/src/content/docs/reference/tablet-plugin.md),",
+                "[ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md), [a site](https://example.com/x.md) and [below](#120).",
+            ].join("\n"),
+        );
+        assert.equal(
+            body,
+            [
+                "[Upgrading](../../self-hosting/upgrading/#if-you-skipped-a-release), [the plugin](../../reference/tablet-plugin/),",
+                "[ADR-0025](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md), [a site](https://example.com/x.md) and [below](#120).",
+            ].join("\n"),
+        );
+    });
+
+    test("leaves a code block as it is written", () => {
+        const block = "```md\n# A heading\n[A link](docs/x.md)\n```\n";
+        assert.equal(pageBody(`# Title\n\n${block}`), block);
+    });
+});
+
+describe("the documents that moved to the site", () => {
+    const address = new RegExp(`\\]\\(${SITE}${ROOT_BASE}/([a-z-]+/[a-z-]+)/\\)`, "g");
+    const linked = (file) => [...repositoryFile(file).matchAll(address)].map(([, page]) => page);
+
+    test("leave a stub at the self-hosting document's path, linking to each Self-hosting page", () => {
+        const pages = linked("docs/SELF-HOSTING.md");
+        for (const page of [...SECTIONS[2][1], "get-started/invite-people"]) assert.ok(pages.includes(page), `the stub lacks ${page}`);
+        for (const page of pages) assert.ok(PAGES.includes(page), `${page} is no page of the site`);
+        assert.ok(repositoryFile("docs/SELF-HOSTING.md").split("\n").length < 25, "the stub holds more than its links");
+    });
+
+    test("leave a stub at the plugin document's path, linking to its three pages", () => {
+        assert.deepEqual(linked("docs/PLUGIN.md"), ["get-started/install-the-plugin", "reference/tablet-plugin", "technical/skin-authors"]);
+        assert.ok(repositoryFile("docs/PLUGIN.md").split("\n").length < 25, "the stub holds more than its links");
     });
 });
 
@@ -249,6 +393,110 @@ describe("the site in a browser", () => {
         await page.getByRole("button", { name: "Menu" }).click();
         await sidebar.getByRole("link", { name: "Glossary" }).click();
         await page.getByRole("heading", { level: 1, name: "Glossary" }).waitFor();
+        await page.close();
+    });
+});
+
+// The deploy's gh-pages branch in small: this build at its minor's path and,
+// standing for a newer minor, at the root; an older minor with only a home
+// page; and versions.json naming the three.
+describe("the version selector", () => {
+    const NEWER = "v99.0";
+    const OLDER = "v0.1";
+    let pages;
+    let site;
+    let browser;
+
+    const listing = (...versions) => writeFileSync(join(pages, "versions.json"), JSON.stringify({ latest: versions[0], versions }));
+
+    before(async () => {
+        pages = mkdtempSync(join(tmpdir(), "decent-sync-pages-"));
+        cpSync(dist, pages, { recursive: true });
+        symlinkSync(dist, join(pages, current));
+        mkdirSync(join(pages, OLDER));
+        writeFileSync(join(pages, OLDER, "index.html"), `<!doctype html><title>${OLDER}</title><h1>The home page of ${OLDER}</h1>`);
+        listing(NEWER, current, OLDER);
+        site = await serve(pages, ROOT_BASE);
+        browser = await chromium.launch();
+    });
+
+    after(async () => {
+        await browser?.close();
+        await site?.close();
+        rmSync(pages, { recursive: true, force: true });
+    });
+
+    async function open(path, width = 1360) {
+        const page = await browser.newPage({ viewport: { width, height: 844 } });
+        await page.goto(site.url + path);
+        return page;
+    }
+
+    /** The header's selector, once it lists what versions.json holds. */
+    async function selector(page, count) {
+        const select = page.locator("header ds-version-select select");
+        await page.waitForFunction((n) => document.querySelector("header ds-version-select select")?.options.length === n, count);
+        return select;
+    }
+
+    test("lists the minors deployed, the latest first, and shows the one being read", async () => {
+        const page = await open(`${current}/guide/shots/`);
+        const select = await selector(page, 3);
+        assert.ok(await select.isVisible());
+        assert.deepEqual(await select.locator("option").allTextContents(), [NEWER, current, OLDER]);
+        assert.equal(await select.inputValue(), current);
+        await page.close();
+    });
+
+    test("opens the same page in the minor chosen, the latest at the root", async () => {
+        const page = await open(`${current}/guide/shots/`);
+        await (await selector(page, 3)).selectOption(NEWER);
+        await page.waitForURL(`${site.url}guide/shots/`);
+        await page.getByRole("heading", { level: 1, name: "Shots and out of spec" }).waitFor();
+        await page.close();
+    });
+
+    test("opens the minor's home page where it has no such page", async () => {
+        const page = await open(`${current}/guide/shots/`);
+        await (await selector(page, 3)).selectOption(OLDER);
+        await page.waitForURL(`${site.url}${OLDER}/`);
+        await page.getByRole("heading", { level: 1, name: `The home page of ${OLDER}` }).waitFor();
+        await page.close();
+    });
+
+    test("says on a page of an older minor that it is not the latest, and links to the latest", async () => {
+        const page = await open(`${current}/guide/machines/`);
+        const notice = page.locator("ds-older-release");
+        await notice.waitFor();
+        assert.match(await notice.innerText(), new RegExp(`documentation for ${current.replace(".", "\\.")}, which is not the latest release`));
+        await notice.getByRole("link", { name: `Read this page for ${NEWER}` }).click();
+        await page.waitForURL(`${site.url}guide/machines/`);
+        await page.close();
+    });
+
+    test("says nothing of the latest on the latest minor's pages", async () => {
+        listing(current, OLDER);
+        try {
+            const page = await open(`${current}/guide/shots/`);
+            await selector(page, 2);
+            assert.equal(await page.locator("ds-older-release").isVisible(), false);
+            await page.close();
+        } finally {
+            listing(NEWER, current, OLDER);
+        }
+    });
+
+    test("works from the menu at phone width", async () => {
+        const page = await open(`${current}/guide/shots/`, 390);
+        await selector(page, 3);
+        assert.equal(await page.locator("header ds-version-select select").isVisible(), false);
+        await page.getByRole("button", { name: "Menu" }).click();
+        const select = page.locator("ds-version-select select:visible");
+        assert.equal(await select.inputValue(), current);
+        const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
+        assert.ok(scrollWidth <= clientWidth, `the page is ${scrollWidth} wide in a window of ${clientWidth}`);
+        await select.selectOption(NEWER);
+        await page.waitForURL(`${site.url}guide/shots/`);
         await page.close();
     });
 });

@@ -1,0 +1,191 @@
+---
+title: Shots and out of spec
+description: Finding a Shot, reading one, Shot Summaries, and what out of spec means.
+---
+
+import Still from "../../../components/Still.astro";
+
+Decent Sync keeps every Shot and Steam Record from every Machine, with its curves, and links each Shot to what made it. This page covers finding a Shot, reading one, how a Shot is judged out of spec, and where those marks show.
+
+The words in capitals, such as Shot, Recipe and Reference Shot, are defined in the [Glossary](../../reference/glossary/).
+
+## What is kept
+
+- **Every Shot and Steam Record.** When a Tablet's plugin first connects, the server collects every Shot and Steam Record already on the Tablet, newest first, so the history from before Decent Sync is here too.
+- **Credited to the Machine that pulled it.** A Shot is credited by the hardware it recorded. It goes to the Machine that pulled it, even where the Tablet has since moved to another machine, and to the Location that Machine was at then. A Shot from hardware no Machine has yet waits under a Pending Machine until an Admin creates a Machine for it or dismisses it.
+- **Linked to what made it.** Each Shot names its Bean Batch, Grinder, Profile, Recipe and Basket. The page of each of those in the Library counts its Shots and opens them in the Shots list.
+
+## Find a Shot
+
+Open **Shots**. The list is newest first, under a heading for each day.
+
+<Still name="shots" alt="The Shots list: the Dates presets and the Filters button, the Summary card, the Trend card, closed, and the first Shots of today, one of them with its duration marked out of spec" />
+
+1. **Choose the dates.** Today, Yesterday, 7 days or 30 days, or Custom for any dates, with From and To. A day is each Shot's Location's own, in its time zone, so Today at a cafe is that cafe's today.
+2. **Open Filters to narrow it.** Filter by Location, Machine, Recipe, Bean, Bean Batch, Grinder, Basket, Barista, Profile and Rating. On a phone the filters open in a sheet.
+3. **Read what is set above the list.** Each filter you set is a chip that names it. Remove a filter from its chip.
+
+Two of the filters do more than their names say:
+
+- **Barista** treats names that differ only in case or the spaces around them as one. A Barista typed "jules" and "Jules" is one choice, and it finds both.
+- **Rating** takes Rated, Not rated, 5 stars, or a least number of stars, such as 4 stars or more.
+
+The dates and filters are kept in the page's address, so you can bookmark a filtered list or send it to someone.
+
+### Read a row
+
+| Column | What it gives |
+|---|---|
+| Recipe | The Shot's Recipe, with its Profile, Bean and Location under it. No Recipe where none was loaded. |
+| Grind, Dose | The grind setting and the dose. |
+| Yield | The yield, with its difference from the Shot's own target. |
+| Duration | The duration, with its difference from its Recipe's Reference Shot's, where the Recipe has one. |
+| Rating | The rating in stars. |
+
+A yield or a duration that is [out of spec](#what-out-of-spec-means) is marked. Where a Shot did not stop at its target, the row says how it stopped. A Shot may also carry a badge: Reference for a Recipe's Reference Shot, Cleaning or calibration, or Unfinished.
+
+On a phone each Shot is two lines, and nothing scrolls sideways.
+
+## Read a Shot
+
+Choose a Shot in the list to open its page.
+
+<Still name="shot" alt="A Shot's page: the How it went card, with its duration against its Reference Shot's, its yield against its target, its dose, how it stopped and its rating in stars, then the Curves card, drawn over its Recipe's Reference Shot's" />
+
+- **How it went** comes first: the Shot's Duration, Yield, Dose and how it Stopped, with its duration and yield marked where either is out of spec.
+- **Curves** draws its pressure, flow, weight and temperature. Under **Compare with**, choose what they are drawn over: Reference Shot, which is its Recipe's, Previous Shot on this Machine, or Nothing.
+- Everything else the Shot recorded is under them, once, each card closed until you open it: Details, Measurements, Rating and note edits, and Record as sent.
+
+## What out of spec means
+
+The server judges each Shot, and each Machine's Shots of a Recipe over a period, against these margins. A group is judged on its medians.
+
+| Measure | Measured against | Out of spec when | Least Shots |
+|---|---|---|---|
+| Duration | The Recipe's Reference Shot's duration | More than 10% from it, either way | 3 in a group. One Shot is judged alone. |
+| Yield | The Shot's own target | More than 5% from it, either way | 3 in a group. One Shot is judged alone. |
+| Stopped at target | Decaid stopping the Shot at its target weight or, with no scale, its target volume | Under 90% of a group's Shots stopped at target | 3 |
+| Between Machines | The median durations of a Recipe's fastest and slowest Machines | They are more than 10% of the slower one's apart | 3 on each of two Machines or more. A Machine with fewer is left out. |
+
+- A group with fewer than 3 Shots is not judged. Its numbers are still shown.
+- A Recipe with no Reference Shot has no duration to be judged against. See [Choose a Reference Shot](#choose-a-reference-shot).
+- A cleaning or calibration Shot and an Unfinished Shot are judged against no margin.
+- The margins are the server's own, the same for every Location and Recipe.
+
+What is out of spec is marked with a triangle and bold text beside the colour, so the mark does not rest on colour alone. The Shots list, a Shot's page, a Shot Summary, the Overview, a Recipe's page and a Machine's page all use the same margins and the same mark. The REST API and an assistant read the same judgements: a Shot Summary gives each group's, and a Shot's read its own.
+
+## Choose a Reference Shot
+
+A Recipe's Reference Shot is the one Shot chosen to show how its Shots should go. Any Shot can be one: from any Machine or Location, on the Recipe's Profile or another. The choice stays until someone chooses another or clears it.
+
+To choose one from a Shot:
+
+1. Open the Shot the Recipe's Shots should go like.
+2. Choose **Make it a Reference Shot**.
+3. Choose the Recipe, then **Make it the Reference Shot**. It replaces any the Recipe has.
+
+To start from the Recipe instead:
+
+1. Open **Library**, which opens on its Recipes: a table for each Location, in Recipe Slot order with those in no slot after. Each row gives the Recipe's Bean Batch, Profile, dose and yield, Grinder and setting, and its Reference Shot's duration. Archived Recipes show on asking. A Location's page lists its own Recipes the same way.
+2. Choose the Reference Shot's duration to open that Shot, or **No reference** to open the Recipe's rated Shots and choose one from them.
+
+On the Recipe's page, the Reference Shot card has **Open**, **Choose another**, which opens the Recipe's rated Shots, and **Clear**.
+
+## Sum up the Shots you filtered
+
+Above the Shots list, the **Summary** card is a Shot Summary of the Shots the filters find.
+
+- It gives how many Shots there are, their median Yield against target and Duration, each with the range the middle half of them fall in, and the share that Stopped at target.
+- Each is marked where it is out of spec. The duration is judged only where the filters name one Recipe, against that Recipe's Reference Shot.
+- Choose **Numbers** to show others too: Ratio, Peak pressure, Peak flow, Rating, Grind setting, TDS, Extraction yield, Time to first drip and Last step, which is the Profile steps the Shots ended in. A rating reads in stars, such as "4 stars (3.5–4.5)".
+- Cleaning and calibration Shots are left out of the numbers and counted beside them. So are Unfinished Shots, in which nothing poured: the Machine never reached pouring and the scale never showed a gram in the cup, as when a Shot is stopped at once.
+
+### See a trend
+
+Under the Summary is the **Trend** card, closed until you choose **Show**. It charts one of the summary's numbers, to see a coffee drift or a change take effect.
+
+1. Choose **Show**.
+2. Choose the number to chart, and **By day** or **By week**.
+
+- Each day's or week's median is a line, with a band for the range the middle half of its Shots fall in. The share that stopped at target is a line alone. A rating is charted in stars, from 0 to 5.
+- Filtered to one Recipe, the chart draws a line for each Machine that pulled it. Charting duration, it draws the Recipe's Reference Shot's as a dashed line.
+- A day is each Shot's Location's own, in its time zone, or UTC's for a Shot with no Location. A week starts on Monday.
+- Whether the card is open, the number, and the day or week chosen are kept in the page's address, with the filters.
+
+## See each Location at a glance
+
+The **Overview** is the home page and the first item of the navigation. It has a block for each Location, headed by how many Shots the period's numbers cover. Choose the period: Today, Yesterday or 7 days.
+
+<Still name="overview" alt="The Overview's block for a Location: a status card for each of its two Machines, with whether it is online, its last Shot and its Loaded Recipe, and a row for each Recipe pulled today, each cell giving the count of Shots and their median duration, with what is out of spec marked, and a last column for how far apart the Machines are" />
+
+**A status card for each Machine** at the Location says:
+
+- whether it is online, and what it is doing;
+- how long ago its last Shot was pulled, with that Shot's Recipe and duration, and a mark for what of it is out of spec;
+- its Loaded Recipe, with its Recipe Slot.
+
+A Machine that went offline is marked, unless it went offline asleep, as one left for the night.
+
+**A row for each Recipe** pulled in the period is under the cards, in Recipe Slot order, with its Reference Shot's duration. Each Machine has a column. A cell:
+
+- counts that Machine's Shots of that Recipe, with their median duration;
+- says how far that is from the Reference Shot's, marked when out of spec;
+- gives their yield against target, and how many stopped at target, only when those are out of spec;
+- says how many were unfinished;
+- opens those Shots in the Shots list.
+
+A last column, Between Machines, says how far apart the Recipe's Machines are.
+
+On a phone the cards stack and the cells shorten, so two Machines fit the screen. With more, the Recipe column stays in place while the cells scroll.
+
+Each Location's page shows its own block, with the period chosen in its heading.
+
+## See how one Recipe is pulling
+
+A Recipe's page shows how it is pulling before how it is set up. Open it from the Library, or from the Recipe's name anywhere it is a link.
+
+<Still name="recipe" alt="A Recipe's page: its name with Edit, Move to a slot and More beside it, then How it is pulling, with the Reference Shot card beside the By Machine card, where one Machine's duration against the reference is marked out of spec" />
+
+1. **How it is pulling.** Choose Today, Yesterday or 7 days, which are its Location's days.
+   - **Reference Shot** shows the Recipe's Reference Shot.
+   - **By Machine** has a row for each Machine that pulled it: the count of Shots, their median duration with the range the middle half fall in and how far it is from the Reference Shot's, their yield against target and the share stopped at target, each marked where out of spec. A last row, Between Machines, says how far apart the Machines are, so the Machine that is off stands out.
+2. **Trend.** The last 30 days by day, a line for each Machine with its middle-half band. Choose one number at a time: its duration, with the Reference Shot's as a dashed line, its yield against target, or its grind setting. A coffee ageing or a grinder drifting shows here. A grind setting is charted where it is a number, so a Recipe whose setting is text has no grind trend.
+3. **Recipe.** The fields the Recipe has set, with the rest shown on asking.
+4. **Shots.** How many Shots it has in the period.
+5. **History.** Closed until you open it.
+
+A Machine's count, and its name under the chart, open those Shots in the Shots list.
+
+**Edit** stays in view beside the Recipe's name. Moving it to a slot, copying it, Archiving it and deleting it are in the **More** menu beside it. On a phone the cards stack, and each Machine's numbers are a block of a few lines.
+
+## Rate a Shot away from its Tablet
+
+A Shot's rating, up to five stars as DYE2 shows it, and its note can be edited away from the Tablet that holds it. An Admin can edit any Shot, and Staff the Shots at the Locations they work at.
+
+1. Open the Shot.
+2. In its Rating and note, choose **Edit**.
+3. Press a star to rate the Shot that many. Press the star chosen again to leave it unrated. Type a Note if you want one.
+4. Choose **Save**.
+
+The Shot shows the edit at once. The plugin then writes it into the Shot on the Tablet that holds it, now or when that Tablet next connects, so its Skin and DYE2 show the same.
+
+| The page says | What it means |
+|---|---|
+| Awaiting its tablet | The edit is not written to the Tablet yet. |
+| No tablet to reach | The Tablet no longer holds the Shot, so the edit is kept here and written to no Tablet. |
+
+Where the rating or the note was changed on that Tablet later than the edit, the Tablet's stands. The edit is kept, marked as dropped.
+
+The **Rating and note edits** card lists each edit, with who made it and any Connected App it was made through, or the Machine whose Tablet it was made on.
+
+An edit can also be made by an assistant, as the person who connected it, and by a Skin on any Tablet at the Shot's Location.
+
+## Find a Steam Record
+
+Open **Steam Records**. The list has the same Dates presets, Filters button and chips as the Shots list, and filters by Location and Machine.
+
+A Steam Record's page shows the milk's temperature: its peak and its final milk temperature, with its duration, its steam settings and its curves.
+
+## For developers
+
+An assistant reads and changes the same through `find_shots`, `get_shot`, `summarise_shots`, `set_reference_shot`, `edit_shot` and `find_steam_records`. See [Assistant tools](../../reference/assistant-tools/). The full behaviour is in the [implementer spec for Shots](https://github.com/loganfuller/decent-sync/blob/main/docs/SHOTS.md).

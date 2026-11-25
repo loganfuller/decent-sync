@@ -1,6 +1,6 @@
 # Images
 
-One generator makes the images of the management interface that `README.md` and the documentation site show, each in light and dark: the Live View GIF, and stills of the Overview, a Location's page, a Shot's page, a Profile's page, the Shots list, the Library's Bean Batches, a Recipe's page, the New Profile page, a Draft's page and a Machine's Live View on a phone. `stills.ts` names each one.
+One generator makes the images of the management interface that `README.md` and the documentation site show, each in light and dark: the Live View GIF, and stills of the Overview, a Location's page, a Shot's page, a Profile's page, the Shots list, the Library's Bean Batches, a Recipe's page, the New Profile page, a Draft's page, the Machines list, a Machine's Activity, Settings and Software tabs, and a Machine's Live View on a phone. `stills.ts` names each one.
 
 ## Committed and built
 
@@ -36,7 +36,7 @@ The spec reads these from the environment:
 
 | Variable | Effect |
 |---|---|
-| `STILLS=overview,location` | Captures only the page stills named, of `overview`, `location`, `bean-batches`, `shots`, `shot`, `profile`, `recipe`, `recipe-details`, `new-profile` and `draft`. Unset, every one. |
+| `STILLS=overview,location` | Captures only the page stills named, of `overview`, `location`, `bean-batches`, `shots`, `shot`, `profile`, `recipe`, `machines`, `machine-activity`, `machine-settings`, `machine-software`, `recipe-details`, `new-profile` and `draft`. Unset, every one. |
 | `SKIP_STILLS=1` | Captures no page stills: only the Live View GIF and the phone. |
 | `SKIP_LIVE=1` | Captures only the page stills. With `STILLS`, a run takes under 20 seconds. |
 | `LIVE_CHECK=1` | Checks the Live View GIF and the phone instead of capturing them: in the light theme only, the shot replayed at 20 times its speed, the same assertions, the GIF's clip measured against `GIF_HEIGHT`, and one screenshot of each (`live-view-check-light.png`, `phone-light.png`). It adds about 15 seconds to a run of the page stills, needs no ffmpeg, and misses only what real-time recording and encoding would show, such as too few frames before the shot turns Idle. |
@@ -95,19 +95,26 @@ A Guide page shows only an image the generator makes, by its name. To add one:
 - A Basket's name is unique in the Library: the spec creates one at Downtown and shows it at the other Locations.
 - A Shot's Recipe is the one it names only where its Machine had it loaded as it was pulled, so the spec backdates each bar's Loaded Recipes in PostgreSQL. Without that every Shot falls under "No Recipe loaded" and no Reference Shot is offered.
 - Each tablet reports an idle Machine State, or the Overview says "State not reported".
-- `page.screenshot({ clip })` is cut at the viewport's edge, so the `location` capture uses a 1600 px tall viewport, the `shot` capture 2600 px, the `profile` capture 2000 px, the `recipe` capture 1600 px, `recipe-details` 3000 px, `new-profile` 1400 px, `draft` 2600 px and the Live View 1400 px.
+- `page.screenshot({ clip })` is cut at the viewport's edge, so the `location` capture uses a 1600 px tall viewport, the `shot` capture 2600 px, the `profile` capture 2000 px, `recipe-details` 3000 px, `new-profile` 1400 px, `draft` 2600 px and the Live View 1400 px.
 - The `overview` still runs to the bottom of Downtown's block.
 - The `location` still runs to the bottom of the page's Recipes card.
 - The captures wait, after every reload, for each Overview block's table and its two status cards.
 - The `shot` still is Shot bl-1's "How it went" card and Curves card together: a clip from the top of one to the bottom of the other.
 - The `profile` still is the page of Gentle and sweet, House Espresso's Profile: its "How it runs" card and Steps card together, as the page opens, on the standard puck.
 - It compares bl-1 with its Recipe's Reference Shot, bl-4, whose "Reference Shot" radio is chosen already.
-- The `recipe` still is House Espresso's page down to its Reference Shot card, beside today's By Machine; `recipe-details` is the same page's Recipe card alone.
+- The `recipe-details` still is the Recipe card of House Espresso's page alone.
 - The `new-profile` still is the New Profile page, down to its Import a file card.
 - The `draft` still is a Draft of Gentle and sweet as a new version, its last pressure step a bar lower, down to the bottom of its graph: followed on the Lab's Machine, with one Trial Shot laid over the run.
 - The Draft, the Lab being marked for trying Drafts, the following and the Trial Shot are made as the `draft` still's address is asked for, and it is the last still, so no other still shows them: the Shots list would gain a Shot, and the Lab's Machine lose what it has loaded.
 - The Trial Shot is `lb-trial`, a Gentle and sweet recording pulled now with the profile the tablet's Workflow holds and no recipe, as a Shot must be to count as one (`docs/LIBRARY.md`, Following a Draft, and Trial Shots).
 - bl-1 is rated 8 and bl-4 10 (Decaid's 0 to 10), so its Rating row reads in stars.
+- The `recipe` still is House Espresso's page down to its By Machine card, where Bar Right's duration is marked.
+- The `machines` still is the Machines list, to the bottom of its table.
+- The `machine-activity`, `machine-settings` and `machine-software` stills are Bar Left's tabs, each opened by its address (`?tab=`).
+- The `machine-activity` still stops under the dial-in trail's fourth entry: the one after it lists the whole Workflow in effect as the day began.
+- The dial-in trail's "Recipe unloaded" entries at one time are the Loaded Recipes the spec backdates in PostgreSQL.
+- The `machine-settings` still stops where the Tablet Settings start, so it shows the Machine Settings alone.
+- The `machine-software` still runs to the bottom of the Skins card, and shows what the simulated tablet reports: Decaid's bundled Skins, DYE2 and the plugin.
 
 ## Downtown's today
 

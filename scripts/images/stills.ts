@@ -11,11 +11,15 @@ export const STILLS = {
   shots: { readme: false, file: "png", about: "The Shots list" },
   shot: { readme: true, file: "png", about: "A Shot's page: How it went and its Curves" },
   profile: { readme: true, file: "png", about: "A Profile's page: How it runs and its Steps" },
-  recipe: { readme: false, file: "png", about: "A Recipe's page, down to its Reference Shot" },
   "recipe-details": { readme: false, file: "png", about: "A Recipe's page: its Recipe card, what it holds" },
   "new-profile": { readme: false, file: "png", about: "The New Profile page: the six starting shapes" },
   draft: { readme: false, file: "png", about: "A Draft's page, followed on the Lab's Machine, with a Trial Shot over its graph" },
   phone: { readme: true, file: "png", about: "A Machine's Live View on a phone, mid-pour" },
+  recipe: { readme: false, file: "png", about: "A Recipe's page, down to its numbers by Machine" },
+  machines: { readme: false, file: "png", about: "The Machines list" },
+  "machine-activity": { readme: false, file: "png", about: "A Machine's Activity tab: its Use card and the latest of its day's dial-in trail" },
+  "machine-settings": { readme: false, file: "png", about: "A Machine's Settings tab: its Machine Settings" },
+  "machine-software": { readme: false, file: "png", about: "A Machine's Software tab: Decaid, its plugins and its Skins" },
 } as const;
 
 export type StillName = keyof typeof STILLS;

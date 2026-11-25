@@ -20,7 +20,7 @@ const MANAGER = "Someone who manages Decent Sync";
 /**
  * What each notice says, in plain English and with no link: that nothing is
  * lost, why the plugin stopped, then who can fix it. Each fits Decaid's limit
- * of 600 characters (docs/PLUGIN.md, When the plugin stops syncing, lists them).
+ * of 600 characters (site/src/content/docs/reference/tablet-plugin.md, When the plugin stops syncing, lists them).
  */
 export const NOTICES: Readonly<Record<NoticeReason, string>> = {
   decaidTooOld: `${SAVED} Decent Sync stopped syncing because this tablet's Decaid is older than the Decent Sync server supports. ${MANAGER} can update Decaid on this tablet.`,

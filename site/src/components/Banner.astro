@@ -1,0 +1,58 @@
+---
+// Above every page: a notice on a page of an older minor release that it is
+// not the latest, linking to the same page in the latest. Whether it is the
+// latest is known only once a newer minor is deployed, so the deploy's
+// versions.json decides it when the page loads (src/deployed.mjs). Then
+// Starlight's own banner, which no page sets today.
+import Default from "@astrojs/starlight/components/Banner.astro";
+
+import manifest from "../../../package.json";
+import { minorOf } from "../versions.mjs";
+
+const current = minorOf(manifest.version);
+---
+
+<ds-older-release class="not-content" data-current={current} data-pagefind-ignore hidden>
+    <p>You are reading the documentation for {current}, which is not the latest release.{" "}<a>Read this page for <span data-latest></span></a>.</p>
+</ds-older-release>
+<Default />
+
+<script>
+    import { deployed, openIn, samePageIn } from "../deployed.mjs";
+
+    class OlderRelease extends HTMLElement {
+        connectedCallback() {
+            const current = this.dataset.current;
+            const link = this.querySelector("a");
+            const name = this.querySelector("[data-latest]");
+            if (!current || !link || !name) return;
+            deployed(current).then(({ latest }) => {
+                if (latest === current) return;
+                name.textContent = latest;
+                link.href = samePageIn(latest, latest);
+                link.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    openIn(latest, latest);
+                });
+                this.hidden = false;
+            });
+        }
+    }
+    customElements.define("ds-older-release", OlderRelease);
+</script>
+
+<style>
+    ds-older-release:not([hidden]) {
+        display: block;
+        padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+        background-color: var(--sl-color-accent-low);
+        color: var(--sl-color-white);
+        line-height: var(--sl-line-height-headings);
+        text-align: center;
+        text-wrap: balance;
+    }
+    a {
+        color: var(--sl-color-text-accent);
+        font-weight: 600;
+    }
+</style>

@@ -43,7 +43,7 @@ npm start                    # build everything, migrate, serve http://localhost
 
 The server reads its configuration only from environment variables.
 `npm start` and `npm run dev:server` also load `.env` if it is there.
-[SELF-HOSTING.md](SELF-HOSTING.md#configuration-reference) lists every
+The site's [Configuration page](../site/src/content/docs/self-hosting/configuration.md) lists every
 variable, and the paths the server serves.
 
 ## Commands
@@ -64,6 +64,7 @@ variable, and the paths the server serves.
 | `npm run test:latest-release-suite` | Run the latest release's Vitest suite on this checkout's schema, on a throwaway PostgreSQL in Docker. Run `npm run build:latest-release` first. |
 | `npm run check:plugin-build` | Fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | Write the release ZIP of the committed plugin to `dist/` |
+| `npm run check:docs` | Fail if a relative link in the repository's Markdown does not resolve ([The documentation site](#the-documentation-site)) |
 | `npm run build:site` | Build the documentation site into `site/dist` and check its links ([The documentation site](#the-documentation-site)) |
 | `npm test -w site` | Build the documentation site and test it in a browser |
 | `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([Images of the management interface](#images-of-the-management-interface)) |
@@ -118,7 +119,7 @@ each image shows, how it is made, and how a Guide page adds one of its own.
 <https://loganfuller.github.io/decent-sync/>: [Astro Starlight](https://starlight.astro.build)
 over the Markdown in `site/src/content/docs/`, in the management interface's
 logo, font and palette (`site/src/styles/theme.css`). Starlight's version is
-pinned exactly, since the site overrides two of its components.
+pinned exactly, since the site overrides four of its components.
 
 - `npm run dev -w site` serves it locally, rebuilding on change.
 - `npm run build:site` builds it into `site/dist`, then checks every internal
@@ -134,6 +135,23 @@ another page of the site with a relative path ending in a slash, such as
 `../../guide/shots/`, because the site is served at more than one path. A page
 not yet written is a short page saying what it will hold.
 
+The Glossary and the Upgrade notes are the two pages with no file there. Each
+is rendered from its file at the repository's root, `GLOSSARY.md` and
+`UPGRADING.md`, where agents and the release script read them
+(`site/src/root-pages.mjs`): the page takes its title in place of the file's
+own first heading, a link to a page's source under `site/src/content/docs/`
+becomes a link to that page, and any other relative link goes to the file on
+GitHub. Edit the root file to change its page.
+
+The self-hosting and plugin documents became pages of the site.
+`docs/SELF-HOSTING.md` and `docs/PLUGIN.md` are stubs that link to them, since
+published release notes link to those paths.
+
+`npm run check:docs` (`scripts/check-docs.mjs`) fails on a relative link in
+the repository's Markdown that names no file or folder, or a heading its file
+doesn't have. It reads every Markdown file but the site's own pages, whose
+links the site's build checks.
+
 The home page is `site/src/content/docs/index.mdx`, drawn by
 `site/src/components/HomeHero.astro` and `Home.astro`. A page shows an image of
 the management interface by its name with `site/src/components/Still.astro`,
@@ -141,8 +159,8 @@ in the site's theme, light or dark. The deploy builds the site with the images
 it generates; any other build shows the README's copy in `docs/images/` in
 their place ([Images of the management interface](#images-of-the-management-interface)).
 
-CI builds and tests the site on every pull request, docs-only ones included,
-and deploys nothing. The release workflow deploys it
+CI runs the docs check, and builds and tests the site, on every pull request,
+docs-only ones included, and deploys nothing. The release workflow deploys it
 ([What the release workflow does](#what-the-release-workflow-does)). GitHub
 Pages serves the `gh-pages` branch, which holds only built sites and which
 `scripts/deploy-site.mjs` fills: each minor release's build at a path of its
@@ -151,6 +169,17 @@ A patch release replaces its minor's build. Each page of a minor's own build
 names the root's page as its canonical address. The site says which release it
 documents in its footer: the version in the root `package.json` of the commit
 it was built from.
+
+`versions.json` at the root of `gh-pages`, which the deploy rewrites each
+time, lists the minors deployed, newest first, and names the latest. The
+header's version selector (`site/src/components/VersionSelect.astro`, beside
+the GitHub link, and in the menu at phone width) reads it when a page loads,
+so a minor's build lists the minors deployed after it and nothing is edited
+at a release. Choosing a minor opens the same page there, the latest's at the
+root, or that minor's home page where it has no such page. A page of an older
+minor says so above its title, linking to the same page in the latest
+(`site/src/components/Banner.astro`). A build with no `versions.json` beside
+it, such as `npm run dev -w site`, lists only its own minor.
 
 To deploy the site without a release, run the Release workflow by hand
 (`gh workflow run release.yml -f ref=vX.Y.Z`) with the tag, branch or commit to
@@ -352,7 +381,7 @@ of step come before the deploy, and the release's notes name them:
   extension management" is on in Decaid's Security settings), a token made on
   the tablet in Decaid, on its Decent Account page under API access tokens, with
   "Manage plugins and skins" turned on, and shown once. It needs no Decent
-  Account sign-in ([PLUGIN.md](PLUGIN.md#a-token-for-managing-plugins)).
+  Account sign-in ([The tablet plugin](../site/src/content/docs/reference/tablet-plugin.md#a-token-for-managing-plugins)).
 
 ### Breaking releases
 

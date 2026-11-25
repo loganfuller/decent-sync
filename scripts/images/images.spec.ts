@@ -459,6 +459,7 @@ test("README and site images", async ({ page }) => {
     labMachine.tablet.pullShot(trial);
     return draft.id;
   };
+  const machineRows = page.getByRole("table", { name: "Machines" }).getByRole("row").filter({ has: page.getByRole("cell") });
 
   // The page stills, by their names in stills.ts. A still for a Guide page is one more entry here.
   const captures: Record<Exclude<StillName, "live-view" | "phone">, Capture> = {
@@ -516,18 +517,59 @@ test("README and site images", async ({ page }) => {
       clip: spanning(region("How it runs"), region("Steps")),
       settle: 1500,
     },
-    // House Espresso's page (#684): how it is pulling today, then its Reference Shot.
+    // The Guide's stills (#685). House Espresso's page: its Reference Shot beside its numbers by Machine.
     recipe: {
-      height: 1600,
+      height: 1400,
       url: () => `/library/recipes/${houseRecipe.id}`,
       ready: async () => {
-        await expect(page.getByRole("heading", { name: "How it is pulling" })).toBeVisible();
+        await expect(region("By Machine").getByRole("row").filter({ hasText: "Bar Right" })).toBeVisible();
         await expect(region("Reference Shot").getByRole("link", { name: "Open its Reference Shot" })).toBeVisible();
-        await expect(page.getByText("Loading", { exact: true })).toHaveCount(0);
       },
-      clip: toBottomOf(region("Reference Shot")),
+      clip: toBottomOf(region("By Machine")),
     },
-    // The same page's Recipe card: what the Recipe holds.
+    machines: {
+      url: () => "/machines",
+      ready: async () => {
+        await expect(machineRows).toHaveCount(4);
+        await expect(machineRows.filter({ hasText: "Bar Left" }).getByRole("link", { name: "House Espresso", exact: true })).toBeVisible();
+      },
+      clip: toBottomOf(page.getByRole("table", { name: "Machines" })),
+    },
+    // Bar Left's tabs, each as a link to it opens it.
+    "machine-activity": {
+      height: 1800,
+      url: () => `/machines/${barLeft.id}?tab=activity`,
+      ready: async () => {
+        await expect(region("Use").getByRole("figure").first()).toBeVisible();
+        await expect(page.getByRole("table", { name: "Dial-in trail" }).getByRole("row").nth(1)).toBeVisible();
+      },
+      // Down to the trail's fourth entry: the one under it lists the whole Workflow in effect as the day began.
+      clip: async () => {
+        const { y, height } = await box(page.getByRole("table", { name: "Dial-in trail" }).getByRole("row").nth(4));
+        return { x: 0, y: 0, width: 1280, height: Math.floor(y + height) };
+      },
+    },
+    "machine-settings": {
+      height: 1400,
+      url: () => `/machines/${barLeft.id}?tab=settings`,
+      ready: async () => {
+        await expect(region("Settings").getByRole("heading", { name: "Machine Settings" })).toBeVisible();
+        await expect(region("Settings").getByText("Fan threshold")).toBeVisible();
+        await expect(region("Settings").getByRole("heading", { name: "Tablet Settings" })).toBeVisible();
+      },
+      // The Machine Settings, down to where the Tablet Settings start.
+      clip: async () => ({ x: 0, y: 0, width: 1280, height: Math.floor((await box(region("Settings").getByRole("heading", { name: "Tablet Settings" }))).y) - 16 }),
+    },
+    "machine-software": {
+      height: 3000,
+      url: () => `/machines/${barLeft.id}?tab=software`,
+      ready: async () => {
+        await expect(page.getByRole("table", { name: "Plugins" }).getByRole("row").nth(1)).toBeVisible();
+        await expect(page.getByRole("table", { name: "Skins" }).getByRole("row").nth(1)).toBeVisible();
+      },
+      clip: toBottomOf(region("Skins")),
+    },
+    // House Espresso's Recipe card (#684): what the Recipe holds.
     "recipe-details": {
       height: 3000,
       url: () => `/library/recipes/${houseRecipe.id}`,

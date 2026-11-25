@@ -464,7 +464,7 @@ export interface SoftwareActionResult {
  * The page a Skin on the Tablet reported it shows, kept by the plugin and
  * reported as the `skinPage` collection: what a Skin's author has it send
  * the plugin's `page` endpoint each time its page loads and each time its
- * connection to the plugin opens (docs/PLUGIN.md), with when the plugin
+ * connection to the plugin opens (site/src/content/docs/technical/skin-authors.md), with when the plugin
  * heard it. Unavailable until a Skin reports one in this load of the
  * plugin, so the server keeps the page an earlier load heard of.
  */

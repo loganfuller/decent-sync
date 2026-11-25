@@ -149,6 +149,8 @@ A Recipe is the whole Shot. A Machine that loads one takes everything it names, 
 
 Steam, hot water and flush settings are the exception. A Machine takes each one the Recipe holds and keeps its own for each one the Recipe leaves empty. In the Recipe's form these are under **Steam**, **Hot water** and **Flush**.
 
+The Profile is the other exception: a Recipe that names none leaves the Machine with the Profile it has.
+
 Steam is turned on or off as the Recipe loads:
 
 - A Recipe that holds a **Steam temperature** turns the Machine's steam on at that temperature.
@@ -171,11 +173,13 @@ The Recipe's **Reference Shot** card shows the Shot's pressure, flow and weight 
 - Each tablet at the Recipe's Location keeps a copy for a Skin to draw, while the Recipe is in a Recipe Slot.
 - The Shots list marks the Shot **Reference**.
 
-The Recipe's other Shots are read against it in four places:
+The Recipe's other Shots are read against it in these places:
 
 - A Shot's page draws the Reference Shot's curves behind the Shot's own.
 - The Overview says how far each Machine's median duration is from the Reference Shot's.
 - The Recipe's page does the same beside each Machine's numbers, in **By Machine**, and draws the Reference Shot's duration across the **Trend**.
+- A Machine's page does the same for each Recipe it pulled, in its **Shots** card.
+- Each row of the Shots list gives the Shot's duration against the Reference Shot's.
 - A Shot Summary grouped by Recipe, through the REST API or an assistant, gives the Reference Shot's numbers beside the Recipe's.
 
 A Shot's duration, or a group's median duration, more than 10% from the Reference Shot's is out of spec. [Shots and out of spec](../shots/) covers what that means.

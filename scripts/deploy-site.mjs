@@ -5,7 +5,8 @@
 // build is at the root as well. So a patch release replaces its minor's build,
 // a deploy of one minor leaves every other minor's path as it was, and a
 // deploy of an older minor leaves the root alone. `versions.json` at the root
-// lists the minors, newest first, and names the latest.
+// lists the minors, newest first, and names the latest, for the site's version
+// selector (site/src/versions.mjs).
 //
 // Usage: node scripts/deploy-site.mjs <checkout of gh-pages>
 
@@ -14,23 +15,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { minorOf, newestFirst } from "../site/src/versions.mjs";
+
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const MINOR = /^v(\d+)\.(\d+)$/;
 
-/** The path a version's minor release is kept at: `v1.13` for `1.13.2`. */
-export function minorOf(version) {
-  const match = /^(\d+)\.(\d+)\.\d+$/.exec(version);
-  if (!match) throw new Error(`"${version}" is not a version X.Y.Z`);
-  return `v${match[1]}.${match[2]}`;
-}
-
-/** Orders minors newest first. */
-function newestFirst(a, b) {
-  const [, majorA, minorA] = MINOR.exec(a);
-  const [, majorB, minorB] = MINOR.exec(b);
-  return Number(majorB) - Number(majorA) || Number(minorB) - Number(minorA);
-}
+// The site's version selector reads versions.json with the same names and order.
+export { minorOf };
 
 /** The minors a checkout of gh-pages holds a build of, newest first. */
 export function deployedMinors(pagesDir) {
