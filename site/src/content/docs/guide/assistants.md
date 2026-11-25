@@ -108,12 +108,14 @@ Whatever your role, no assistant can:
 
 ## See what an assistant changed
 
-Each change an assistant makes is recorded as yours, through the app, and shows as "*account*, through *app*":
+These changes an assistant makes are recorded as yours, through the app, and show as "*account*, through *app*":
 
 - a Library change, in the item's history;
 - a Settings Edit, in the Machine's Settings Edits;
 - an edit of a Shot's rating or note, in the Shot's edits;
 - a reload of a Skin, in the Machine's Software Actions.
+
+Other changes, such as creating or editing a Location, keep no record of who made them, whether an assistant or a person made them.
 
 A change you make yourself in the management interface shows as "*account*, here" in an item's history, so the two are told apart.
 
