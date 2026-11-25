@@ -28,6 +28,8 @@ export default defineConfig({
             components: {
                 Hero: "./src/components/HomeHero.astro",
                 Footer: "./src/components/Footer.astro",
+                SocialIcons: "./src/components/SocialIcons.astro",
+                Banner: "./src/components/Banner.astro",
             },
             routeMiddleware: "./src/route-data.ts",
             credits: false,
