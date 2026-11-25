@@ -45,6 +45,12 @@ export interface Config {
    * as a test app serves it, rather than only over HTTPS from public ones.
    */
   loopbackClientMetadata: boolean;
+  /**
+   * For tests only (TEST_GITHUB_URL): the origin of a test's stand-in for
+   * GitHub, over plain HTTP on a loopback address, which the server asks in
+   * place of GitHub's API and its archives; null to ask GitHub.
+   */
+  testGithubUrl: string | null;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -91,6 +97,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const mcpEnabled = parseBoolean("MCP_ENABLED", env.MCP_ENABLED, true, problems);
   const loopbackClientMetadata = parseBoolean("TEST_LOOPBACK_CLIENT_METADATA", env.TEST_LOOPBACK_CLIENT_METADATA, false, problems);
 
+  const testGithubUrl = env.TEST_GITHUB_URL?.trim() || null;
+  if (testGithubUrl !== null && !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(testGithubUrl)) {
+    problems.push("TEST_GITHUB_URL is for tests only: a stand-in for GitHub on a loopback address, such as http://127.0.0.1:4010");
+  }
+
   if (problems.length > 0) throw new ConfigError(problems);
 
   return {
@@ -106,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     liveViewKeepAliveMs,
     mcpEnabled,
     loopbackClientMetadata,
+    testGithubUrl,
   };
 }
 

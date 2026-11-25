@@ -810,13 +810,17 @@ in `server/test/tablet-software.test.ts` on the recorded lists):
   one showing (`newerInstalled`: both versions known and different); and
   the default Skin where it is not the one served (`nextDefault`), which
   shows once the Skin view restarts.
-- **Whether its plugin must update**: its plugin's wire revision, as its
-  latest `hello` gave it, is from before Software Actions.
+- **Whether its plugin takes a change of how an item updates**
+  (`takesSourceChanges`): its plugin's wire revision, as its latest `hello`
+  gave it, is at `SOURCE_CHANGES_WIRE_REVISION`. `pluginMustUpdate` stays,
+  always false, for the previous release's pages (ADR-0025): every plugin the
+  server accepts takes the other Software Actions.
 
 How a plugin or Skin updates is worked out from where Decaid says it was
-installed from, with no list of Decaid's ids, and is shown, never switched:
-Decaid has one setting for update checks, Tablet-wide, and nothing per item
-(ADR-0034).
+installed from, with no list of Decaid's ids. Decaid has one setting for
+update checks, Tablet-wide, and nothing per item (ADR-0034), so an item's is
+changed by installing it again from another source (ADR-0035, Changing how
+an item updates, below).
 
 | Decaid reports | Shown as (`how`) |
 |---|---|
@@ -824,7 +828,7 @@ Decaid has one setting for update checks, Tablet-wide, and nothing per item
 | A plugin from `github_branch` whose `branch` names a commit, 7 to 40 hexadecimal digits (`namesCommit`), as Decaid records an install of a commit, with the commit as both `branch` and `commit` | Pinned (`pinned`), with its `repo` and commit |
 | A plugin from any other `github_branch` | Follows a branch (`followsBranch`), with its `repo` and `branch` |
 | A plugin with no `source`, as a plugin Decaid bundles is until its first update check, or one from a zip or folder | Not updated (`notUpdated`) |
-| A Skin Decaid flags `isBundled` | Comes with Decaid (`comesWithDecaid`): Decaid may put its latest release back as it starts |
+| A Skin Decaid flags `isBundled` | Comes with Decaid (`comesWithDecaid`): Decaid restores it from its own repository's latest release each time it starts and at each update check, so how it updates can't be changed |
 | A Skin whose `reaMetadata.sourceUrl` is `github_release:<repo>@…` | Follows releases |
 | A Skin whose `sourceUrl` is `github_branch:<repo>@<branch>` | Follows a branch |
 | A Skin from a GitHub release asset's URL, `https://github.com/<owner>/<name>/releases/download/<tag>/<file>` (`releaseAssetOf`): one release's download, which never changes, so Decaid's check of the URL's ETag or Last-Modified never moves it | Pinned, with its URL, its `repo` and the release's `tag`, and no commit |
@@ -909,6 +913,23 @@ the kinds that act on Skins, on the Skin view and on Decaid's own update:
   nothing), found no update, did not open the installer, failed, or does
   not install itself, as on Linux.
 
+Ticket [#678](https://github.com/loganfuller/decent-sync/issues/678) adds
+the kinds that change how an installed plugin or Skin updates (ADR-0035,
+`SOURCE_CHANGE_KINDS`), each by installing the item again from another
+source, which is the one way Decaid records where an item came from:
+
+- `changePluginSource`: installs an installed plugin again from a GitHub
+  repository's latest release, the head of a `branch`, or a commit given as
+  the branch, which pins it. The plugin keeps its settings and whether it is
+  enabled. Decent Sync's own plugin goes only to the latest release of
+  `loganfuller/decent-sync` (`DECENT_SYNC_REPO`) or one of its commits;
+- `changeSkinSource`: installs an installed Skin again from a repository's
+  latest release or the head of a `branch`, or from a `url`: a commit's
+  archive or one release's download pins it. The Skin stays the default
+  where it was. No Skin that comes with Decaid is changed.
+
+Changing how an item updates, below, says what is particular to them.
+
 How each is made, carried out and answered:
 
 - **Made through REST.** `POST /api/machines/:id/software-actions` takes `{
@@ -929,9 +950,10 @@ How each is made, carried out and answered:
   of the setting's type, or disabling, removing or changing any but the poll
   interval of Decent Sync's own plugin, which the plugin refuses too; 409
   while the Machine is offline, as its status judges it, while its
-  connection's Tablet reports another machine's hardware, while its plugin
-  is from before `SOFTWARE_ACTIONS_WIRE_REVISION` ("The Tablet's plugin must
-  update before it takes a Software Action", ADR-0025), for a plugin the
+  connection's Tablet reports another machine's hardware, for a change of
+  how an item updates while its plugin is from before
+  `SOURCE_CHANGES_WIRE_REVISION` ("The Tablet's plugin must update before it
+  can change how a plugin or Skin updates", ADR-0025), for a plugin the
   Tablet's latest list does not hold, or for an approval of an update other
   than the one that waits now; 400 for removing the default Skin, the one
   served, or one Decaid comes with; 409 for a Skin the Tablet's latest list does not hold,
@@ -957,11 +979,12 @@ How each is made, carried out and answered:
   Machine's row locked, which also judges it online, naming the connection
   and tablet holding it then, with its time (`softwareActionMs`): 2 minutes
   for an install, an update check, of the plugins, the Skins or Decaid, an
-  approval, which installs, and the start of Decaid's update, which
-  downloads it, and 1 minute for the rest. It is announced with `NOTIFY
+  approval, which installs, a change of how an item updates, which installs
+  it again, and the start of Decaid's update, which downloads it, and 1
+  minute for the rest. It is announced with `NOTIFY
   software_actions` in the same transaction. The instance holding that
   connection claims it with the row locked again, while the connection still
-  holds the Machine and its plugin is at the revision, by setting when it was
+  holds the Machine, by setting when it was
   sent, and sends it as `softwareAction` with the time it has left by
   PostgreSQL's clock; one with none left is never sent. A connection looks for
   its actions once welcomed, and every connection after its instance listens
@@ -990,10 +1013,12 @@ How each is made, carried out and answered:
   turn as the plugin unloads is dropped unanswered. For each action the
   plugin:
   1. refuses as `notAllowed`, whatever it is sent, what its own protections
-     forbid: disabling or removing itself, and changing any of its own
+     forbid: disabling or removing itself, changing any of its own
      settings but `PollSeconds`, as its server address and Token are its
-     connection to the server; and, once it has read the Skins (step 3),
-     removing the default Skin or the one served;
+     connection to the server, and installing itself again from anywhere
+     but its own repository's latest release or one of its commits; and,
+     once it has read the Skins (step 3), removing the default Skin or the
+     one served, and changing how a Skin that comes with Decaid updates;
   2. reads `GET /machine/state`, going ahead only in a state a Settings Edit
      goes ahead in (`SETTINGS_EDIT_STATES`), or where no machine is connected
      to the Tablet, and otherwise refusing it as `machineBusy`, naming the
@@ -1006,9 +1031,12 @@ How each is made, carried out and answered:
      it was made over no longer holds: the plugin it names is gone, another
      update waits than the one shown, or none, or a setting it changes holds
      another value than the form showed, a secret compared by whether it is
-     set; for an action on the Skins, it reads them instead, and refuses as
-     `changedSince` where the Skin it names is gone, or, for Reload, where
-     the Skin served is not the one whose page it last heard;
+     set, or the plugin whose source it changes is at another source or
+     build than the Admin saw; for an action on the Skins, it reads them
+     instead, and refuses as `changedSince` where the Skin it names is gone,
+     where the Skin whose source it changes is at another source or build,
+     or, for Reload, where the Skin served is not the one whose page it last
+     heard;
   4. asks Decaid through `host.localApi` (`manage` in `plugin/src/decaid.ts`):
      `POST /plugins/install/github-release` or `/install/github-branch`,
      `POST /plugins/{id}/enable` or `/disable`, `POST /plugins/{id}/settings`
@@ -1035,9 +1063,12 @@ How each is made, carried out and answered:
   removed, the Skin by `skinId`, name and version, and for the restart the
   one served afterwards; for `checkSkinUpdates`, a result for each Skin; for
   Reload, the fresh `page`; for `startDecaidUpdate`, Decaid's update state.
+  For a change of how an item updates, the item with its version afterwards
+  and before (`previousVersion`), and for a plugin the permissions its new
+  build adds (`addedPermissions`).
   Or `refused`, with a reason: `machineBusy`, with the state;
-  `changedSince`, `notAllowed`, `installNotPermitted` or `noSkinServed`,
-  with the plugin's or Decaid's words; `expired`; or `decaid`, with
+  `changedSince`, `notAllowed`, `differentItem`, `installNotPermitted` or
+  `noSkinServed`, with the plugin's or Decaid's words; `expired`; or `decaid`, with
   Decaid's HTTP status, null where it did not answer or was not asked, and
   its words. Or not confirmed: unanswered in its time (below), or answered
   so by the plugin, `outcome: "notConfirmed"` with its words as `note`, as
@@ -1045,8 +1076,8 @@ How each is made, carried out and answered:
 - **When Decaid loads the plugin again.** Decaid unloads a plugin to install
   its update or save its settings, and the call that asked is never answered
   to it. So before an action that may do that to the plugin itself, any
-  install or update check, an approval of its own update and a change of its
-  own poll interval, the plugin keeps it in Decaid's plugin storage (key
+  install, change of a plugin's source or update check, an approval of its
+  own update and a change of its own poll interval, the plugin keeps it in Decaid's plugin storage (key
   `softwareAction`: its id, kind, what it named, and each plugin's version,
   build and install time before, never a setting's value). A plugin's build
   is its version with the commit or release it came from, as a branch's new
@@ -1057,7 +1088,9 @@ How each is made, carried out and answered:
   notification permission (`resume`, `watch` and `settled`): an approval of
   its own update is done once no update waits and its build changed; an
   install, once a plugin from the repository and branch asked for was
-  installed since; an update check, once its own build changed and Decaid
+  installed since, and a change of a plugin's source the same, done where
+  that plugin is the one it named and refused as `differentItem` where it is
+  another; an update check, once its own build changed and Decaid
   gives the check's results, asked for again with `POST /plugins/update`,
   which Decaid answers with the check still under way (it goes on to the
   plugins after this one) or, where it ended, with a new one's, each plugin
@@ -1083,10 +1116,69 @@ How each is made, carried out and answered:
   was sent on or a later one, records it for that Machine's action still
   unanswered and acknowledges it. An answer arriving once the action was not
   confirmed replaces the mark, marked `late`, but for an `expired` refusal,
-  which leaves it not confirmed. The plugin drops an answer that would go to
-  a server from before `SOFTWARE_ACTIONS_WIRE_REVISION`, as that server
-  closes the connection on a message it does not know, and the action stays
-  not confirmed.
+  which leaves it not confirmed. A `differentItem` refusal that would go to
+  a server from before `SOURCE_CHANGES_WIRE_REVISION`, which closes the
+  connection on a reason it does not know, goes as `decaid` with no status
+  and the same words.
+- **Changing how an item updates** (ADR-0035, #678).
+  - **Made.** `POST /api/machines/:id/software-actions` takes, for
+    `changePluginSource`, the `pluginId`, `repo` and `branch`, null or
+    absent for the latest release; for `changeSkinSource`, the `skinId` and
+    a `repo` and `branch` or a `url`, checked as an install's are; and for
+    both `seen`, the item's source and build as the page showed them: the
+    `build` of its row in `GET /api/machines/:id/tablet-software`
+    (`pluginSourceSeen`, `skinSourceSeen` in
+    `protocol/src/software-actions.ts`): its version, and for a plugin its
+    `source`'s kind, repository, branch, commit and release tag, for a Skin
+    its `sourceUrl` and the ETag of what that served. It is refused with
+    409 where the Tablet's latest report holds another for the item ("...
+    is at another version or source now than the page showed: load the page
+    again"), so a pin worked out from a build a check has since moved on
+    from, at the same version, rolls nothing back; or no such item; with
+    400 for Decent Sync's own plugin to any source but the latest release of
+    its own repository or one of its commits, for a Skin that comes with
+    Decaid, and for a Skin to the branch or URL it was installed from: from
+    the branch Decaid installs nothing while it serves the same build, and
+    from the URL it installs the same build again, which changes nothing. The
+    action's `params` keep it as `expected`.
+  - **Pinning it where it is now.** `GET
+    /api/machines/:id/pinned-source?pluginId=` or `?skinId=`, an Admin's,
+    answers `{ pinnedSource: { source, tag, commit, unavailable, build } }`:
+    what an install names to hold the item at the build installed, which the
+    form then sends as any other source, or `source: null` where nothing
+    matches (`TabletSoftwareService.pinnedSource`), and `build`, the build it
+    was worked out from, as its row's: the form offers the pin only while
+    the two are the same. The server asks GitHub
+    (`server/src/software-actions/github.ts`), without credentials: for a
+    plugin following releases, the commit its `releaseTag` points at, given
+    as the branch, where that commit's root holds `manifest.json` and
+    `plugin.js` of the same plugin at the installed version, as Decaid
+    installs a plugin from a commit's archive only then
+    (`resolvePluginPackage`); for a Skin following releases, its installed tag's
+    download, the asset Decaid's own install picks (the first `.zip`, or
+    its `releaseAssetName`), which then reads as Pinned at that tag; for a
+    Skin following a branch, whose commit Decaid does not record, the one
+    of the branch's latest five commits whose archive GitHub serves with
+    the ETag Decaid recorded, as its archive's URL. A plugin following a
+    branch is pinned to the commit Decaid recorded, with GitHub not asked.
+    An item already Pinned, one with no source on GitHub and a build GitHub
+    no longer has give none. Where GitHub does not answer, or takes no more
+    requests, `unavailable` says so, and none is offered.
+  - **Carried out.** After the steps above, the plugin installs through the
+    route an install of that source uses, then reads the list back and
+    finds what Decaid installed: a plugin by the id in Decaid's answer, a
+    Skin by the one whose `installedAt` moved. Where that is the item the
+    action named, it is done. Where the source held another id, Decaid
+    installed that item beside it: the plugin removes it again (`DELETE
+    /plugins/{id}` or `/webui/skins/{id}`), unless the Tablet held it before
+    the action or it is the plugin itself, reads the list back once more,
+    and refuses the action as `differentItem`, saying which item, what
+    became of it, and that the item named is unchanged. Decaid answers 409
+    for a plugin build older than the one installed ("Plugin ... is
+    installed; remove it before installing ..."), which is the action's
+    refusal, as `decaid`: nothing is removed to make room, as that would
+    delete the plugin's settings. A Skin install Decaid took that shows no
+    Skin installed is answered as not confirmed.
 - **Settings History.** The read-back's changes are tied to the action: as
   it follows a read of the same lists just before Decaid was asked, every
   field it changes is the action's (Settings History, below).
@@ -1098,7 +1190,9 @@ How each is made, carried out and answered:
   `reload` or `restart`, made through the same service as the REST route,
   so with the same limits, Staff's Location among them, and recorded as the
   account's through its Connected App. No other: installing code on a
-  Tablet is no assistant's to do (ADR-0034).
+  Tablet is no assistant's to do (ADR-0034), and changing how an item
+  updates installs it again (ADR-0035), so `list_software_actions`
+  describes those kinds and no tool makes one.
 - **The Software tab.** The Machine page's fifth tab, between Settings and
   Setup, shows the Machine's Tablet Software: a Decaid card, with its
   version, the update it offers, Check now, and the automatic update checks,
@@ -1106,14 +1200,34 @@ How each is made, carried out and answered:
   that Decaid follows a change when it next starts and that nothing on the
   Tablet updates by itself while they are off, and, where Decaid offers an
   update it can install, Start the update on the Tablet; a Plugins table; a
-  Skins table, with the strip of what the Tablet shows above it, Reload
+  Skins table, each row with its menu (below), with the strip of what the
+  Tablet shows above it, Reload
   where the Skin served reported its page and Restart the Skin view behind a
   confirmation always; and a Software Actions log, which starts collapsed.
   Staff at the Machine's Location are offered Reload and the restart, and
   nothing else. With
   the automatic update checks off, the tab says so above the lists. Where
-  the Tablet's plugin is from before Software Actions, it says the plugin
+  the Tablet's plugin is from before Software Actions, as the previous
+  release's server may say during a deploy, it says the plugin
   must update. The Setup tab keeps the firmware version and links to it.
+- **A row's buttons and its menu** (#678). On every screen width a plugin's
+  row keeps Approve and Settings as buttons and has Change how it updates,
+  Disable or Enable, and Remove, set apart, in a menu at its end; a Skin's
+  keeps Make default and has Change how it updates, Follow releases instead,
+  for one Pinned at one release's download, which makes that change in one
+  step, and Remove. A row with nothing for the menu has none, as a Skin
+  that comes with Decaid, whose tooltip says Decaid restores it from its own
+  repository each time it starts. Change how it updates opens a dialog
+  filled in with the item's version and how it updates now, offering Follow
+  releases, Follow a branch, Pin where it is now, where the server found
+  one, Pin to a commit and, for a Skin, From a URL, only the chosen one
+  showing its fields; for Decent Sync's own plugin, Follow releases and the
+  two pins, of its own repository, saying why. It says that Decaid installs
+  what the chosen source serves now, which may be another version, and what
+  stays. The outcome gives the version before and after ("0.2.31-cafe.2 →
+  0.2.32-cafe.1") and any permissions a plugin's new build adds, and words
+  each refusal for the Admin. Where the Tablet's plugin is of the previous
+  release, the dialog says it must update first.
 
 `server/test/software-actions.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL and a simulated Decaid
@@ -1125,6 +1239,11 @@ it loads again, `server/test/skin-actions.test.ts` the Skin kinds, Reload,
 the restart and Decaid's update with a simulated Decaid managing its Skins
 as v0.9.3 does (`server/test/support/decaid-skins.ts`),
 `server/test/assistant-software.test.ts` the three tools,
+`server/test/source-changes.test.ts` a change of how an item updates and
+where one can be pinned, against a stand-in for GitHub
+(`server/test/support/fake-github.ts`), `plugin/test/source-changes.test.ts`
+the plugin's handling of each of its outcomes against a stubbed Decaid,
+`e2e/source-changes.spec.ts` the menus, the dialog and its results,
 `protocol/test/software-actions.test.ts` the messages, and
 `server/test/latest-release/mixed-versions.test.ts` the previous release's
 plugin beside this server.

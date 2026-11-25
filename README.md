@@ -323,7 +323,9 @@ Each server has one owner: a household, or a business with all of its sites.
   configures and removes one, checks the plugins for updates and approves
   one that waits on new permissions, installs a Skin from a release, a branch
   or a URL, chooses the default Skin, checks the Skins for updates and
-  removes one, asks Decaid to check for its own update and starts it, with
+  removes one, changes how an installed plugin or Skin updates from its
+  row's menu, to follow releases or a branch or to pin it where it is now
+  or to a commit, asks Decaid to check for its own update and starts it, with
   someone at the tablet confirming it in Android's installer, and turns the automatic update checks
   on or off. The tab shows which Skin build the tablet is showing and since
   when, for a Skin that reports its page, and says when a newer one is

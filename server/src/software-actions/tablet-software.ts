@@ -5,12 +5,14 @@
 // updates is worked out from where Decaid says it was installed from, with
 // no list of Decaid's ids.
 
-import { DECENT_SYNC_PLUGIN_ID, isSecretState, namesCommit, releaseAssetOf } from "@decent-sync/protocol";
+import { DECENT_SYNC_PLUGIN_ID, type SourceSeen, isSecretState, namesCommit, pluginSourceSeen, releaseAssetOf, skinSourceSeen } from "@decent-sync/protocol";
 import type { Report } from "../collections/paired-devices.js";
 
 /**
- * How a plugin or Skin updates, which is shown and never switched: Decaid
- * has one setting for update checks, tablet-wide, and nothing per item.
+ * How a plugin or Skin updates, worked out from where Decaid says it was
+ * installed from: Decaid has one setting for update checks, tablet-wide, and
+ * nothing per item, so an item's is changed by installing it again from
+ * another source (`changePluginSource`, `changeSkinSource`, ADR-0035).
  *
  * - `followsReleases`: from a GitHub repository's latest release, so the
  *   next check installs a newer one;
@@ -20,8 +22,9 @@ import type { Report } from "../collections/paired-devices.js";
  *   release's `tag` and its repository in place of a commit;
  * - `followsUrl`: a Skin from any other URL, installed again once what the
  *   URL serves changes;
- * - `comesWithDecaid`: a Skin Decaid flags as built in, whose latest
- *   release Decaid may put back as it starts;
+ * - `comesWithDecaid`: a Skin Decaid flags as built in, which Decaid
+ *   restores from its own repository's latest release each time it starts
+ *   and at each update check, so that its source can't be changed;
  * - `notUpdated`: no recorded source, or a zip or folder.
  */
 export type UpdatesView =
@@ -62,6 +65,8 @@ export interface PluginView {
   /** `enabled`: loaded, and loaded as Decaid starts; `disabled`: neither; `notLoaded`: to load as Decaid starts, but not loaded now, as while it updates or where it failed to load. */
   state: "enabled" | "disabled" | "notLoaded";
   updates: UpdatesView;
+  /** Where Decaid says it came from and the build it is at (`pluginSourceSeen`): what a change of how it updates is made over, as `seen`. */
+  build: SourceSeen;
   /** What the latest update check said went wrong, in Decaid's words, if it failed. */
   lastError: string | null;
   /** An update that waits for someone to approve the permissions it adds. */
@@ -81,6 +86,8 @@ export interface SkinView {
   /** Whether Decaid's Skin server is serving this Skin now. */
   served: boolean;
   updates: UpdatesView;
+  /** Where Decaid says it came from and the build it is at (`skinSourceSeen`): what a change of how it updates is made over, as `seen`. */
+  build: SourceSeen;
   /** Whether it may be removed: it is neither the default, nor the one served, nor one that comes with Decaid. */
   removable: boolean;
   /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
@@ -132,10 +139,48 @@ export interface TabletSoftwareView {
   /** Null until the Tablet reports its Skins. */
   showing: ShowingView | null;
   /**
-   * Whether the Tablet's plugin is from before Software Actions, so that
-   * none is sent to it until it updates (ADR-0025).
+   * Always false: every plugin the server accepts takes Software Actions.
+   * Kept for the previous release's pages, which offer none while it is
+   * true (ADR-0025).
    */
   pluginMustUpdate: boolean;
+  /**
+   * Whether the Tablet's plugin carries out a change of how a plugin or
+   * Skin updates: false for one from before it (ADR-0035), which must
+   * update first, and for a Machine whose plugin has not connected since
+   * its revision was kept.
+   */
+  takesSourceChanges: boolean;
+}
+
+/**
+ * Where an item is now, for pinning it there (ADR-0035): what an install
+ * names to hold it at the build installed, found through GitHub.
+ *
+ * - a plugin following releases: its repository, with the commit its
+ *   installed release's tag points at as the branch;
+ * - a plugin following a branch: its repository, with the commit Decaid
+ *   says it is at as the branch;
+ * - a Skin following releases: the URL of its installed release's download,
+ *   the one Decaid's install picks, which shows as Pinned at that tag: a
+ *   release may be a built bundle, which its commit's archive is not;
+ * - a Skin following a branch: the URL of the archive of the commit whose
+ *   archive GitHub serves with the ETag Decaid recorded as it installed.
+ *
+ * `source` is null where nothing matches, as for an item already pinned,
+ * one with no source on GitHub, or a build GitHub no longer has; and where
+ * GitHub could not be asked, which `unavailable` then says.
+ */
+export interface PinnedSourceView {
+  source: { repo: string; branch: string } | { url: string } | null;
+  /** The release tag it would be pinned at, for one following releases. */
+  tag: string | null;
+  /** The commit it would be pinned at, where one is known. */
+  commit: string | null;
+  /** Why GitHub could not be asked, in words; null where it answered or was not needed. */
+  unavailable: string | null;
+  /** The item's source and build this was worked out from, as its view's `build` gives them: the page offers the pin only over the build it shows. */
+  build: SourceSeen;
 }
 
 type Record_ = Record<string, unknown>;
@@ -187,6 +232,7 @@ export function pluginView(plugin: Record_, reported: unknown, admin: boolean): 
     version: text(plugin.version),
     state: plugin.loaded === true ? "enabled" : plugin.autoLoad === false ? "disabled" : "notLoaded",
     updates: pluginUpdates(source),
+    build: pluginSourceSeen(plugin),
     lastError: text(source?.lastError),
     pendingUpdate: pending && { version: text(pending.version), addedPermissions: strings(pending.addedPermissions) },
     permissions: strings(plugin.permissions),
@@ -232,7 +278,7 @@ export function settingViews(declared: unknown, own: boolean, held?: Record_, or
 /** A Machine's Tablet Software from its Tablet's latest reports; `admin` says whether the plugins' settings are given with their values. */
 export function tabletSoftwareView(
   reports: { plugins: Report | null; pluginSettings: Report | null; skins: Report | null; skinPage: Report | null; decaidUpdate: Report | null; appSettings: Report | null },
-  machine: { decaidVersion: string | null; pluginMustUpdate: boolean },
+  machine: { decaidVersion: string | null; takesSourceChanges: boolean },
   admin: boolean,
 ): TabletSoftwareView {
   const plugins = latestValue(reports.plugins);
@@ -262,7 +308,8 @@ export function tabletSoftwareView(
     plugins: Array.isArray(plugins) ? plugins.filter(isRecord).flatMap((plugin) => pluginView(plugin, isRecord(held) ? held[String(plugin.id)] : undefined, admin) ?? []) : null,
     skins: skinList,
     showing: skinList === null ? null : showingView(skinList, page),
-    pluginMustUpdate: machine.pluginMustUpdate,
+    pluginMustUpdate: false,
+    takesSourceChanges: machine.takesSourceChanges,
   };
 }
 
@@ -283,7 +330,7 @@ export function skinViews(skins: unknown, page?: unknown): SkinView[] | null {
     const updates = skinUpdates(skin);
     const isDefault = id === defaultId;
     const served = servedPath !== null && skin.path === servedPath;
-    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, removable: !isDefault && !served && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
+    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, build: skinSourceSeen(skin), removable: !isDefault && !served && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
   });
 }
 

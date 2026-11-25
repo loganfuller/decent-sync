@@ -7,7 +7,7 @@ import {
   PROTOCOL_VERSION,
   type PluginMessage,
   Reassembly,
-  SOFTWARE_ACTIONS_WIRE_REVISION,
+  SOURCE_CHANGES_WIRE_REVISION,
   type ServerMessage,
   WIRE_REVISION,
   acceptsWireRevision,
@@ -543,15 +543,14 @@ export class SyncConnection {
         this.machineEvents.welcome();
         const serverRevision = wireRevisionOf(message);
         this.outbox.welcome(async (delivery) => {
-          // The previous release's server closes the connection on a message it does not know: an action's answer
-          // that reaches one, as where the connection that sent the action dropped and the next is to such an
-          // instance, is dropped, and the action stays not confirmed.
-          if (delivery.type === "softwareActed" && !peerHasWireRevision(serverRevision, SOFTWARE_ACTIONS_WIRE_REVISION)) {
-            this.log("The server is from before Software Actions: dropping one's answer.");
-            this.outbox.acknowledge(delivery.id);
-            return;
-          }
-          try { await this.send(handle, delivery); }
+          // The previous release's server closes the connection on a refusal it does not know: an answer that a
+          // source held another item, reaching one, as where the connection that sent the action dropped and the
+          // next is to such an instance, goes as a refusal of Decaid's with no status, which reads the same there.
+          const sent =
+            delivery.type === "softwareActed" && delivery.reason === "differentItem" && !peerHasWireRevision(serverRevision, SOURCE_CHANGES_WIRE_REVISION)
+              ? { ...delivery, reason: "decaid" as const, status: null, message: delivery.message ?? "Its source held another plugin or Skin" }
+              : delivery;
+          try { await this.send(handle, sent); }
           catch (error) {
             this.sendFailed(handle, "could not send a delivery");
             throw error;

@@ -468,3 +468,14 @@ problem.
 | `/sync` | The plugin's WebSocket. |
 | `/.well-known/` | The authorization server's metadata. |
 | Everything else | The management interface. |
+
+### What the server asks for
+
+The server makes requests of its own to two places, both over HTTPS:
+
+- an assistant app's Client ID Metadata Document, as the app connects
+  ([Assistants](#assistants));
+- GitHub (`api.github.com` and `github.com`), without credentials, when an
+  Admin opens the form that changes how a plugin or Skin updates, to find
+  the build it is at so that it can be pinned there. Without it the form
+  offers the other choices.

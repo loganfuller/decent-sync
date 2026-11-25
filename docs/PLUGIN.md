@@ -237,6 +237,17 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
 - check the plugins for updates, with a result for each, and approve an
   update that waits on new permissions;
 - remove a plugin with its settings;
+- change how an installed plugin or Skin updates, from its row's menu: to
+  follow a repository's releases or a branch, or to pin it, where it is now
+  or to a commit, or for a Skin to a URL. Decaid records where an item came
+  from only as it installs it, so the plugin installs it again from the
+  source chosen, which may bring another version: a plugin keeps its
+  settings and whether it is enabled, and a Skin stays the default. Nothing
+  is changed where that source holds another plugin or Skin, which the
+  plugin removes again, or a plugin build older than the one installed,
+  which Decaid refuses. A Skin that comes with Decaid is not changed, as
+  Decaid restores it from its own repository each time it starts
+  ([ADR-0035](adr/0035-how-an-installed-plugin-or-skin-updates-is-changed-by-installing-it-again.md));
 - install a Skin from a GitHub repository's latest release, a branch, or a
   URL serving a zip, such as a commit's archive
   (`https://github.com/<owner>/<name>/archive/<commit>.zip`), which pins it:
@@ -261,12 +272,16 @@ out one at a time, refuses one while the Machine is busy, and reads the
 plugins back afterwards, so the Machine's Settings History ties what changed
 to the action. Whatever it is sent, it never disables or removes itself, of
 its own settings changes only the poll interval, as its server address and
-Token are set on the tablet, and never removes the default Skin or the one on screen. An install from a repository whose plugin is
+Token are set on the tablet, changes how it updates itself only to follow
+the releases of its own repository or to pin one of its commits (of which
+Decaid installs none, the repository's root not being the plugin), and never
+removes the default Skin or the one on screen. An install from a repository whose plugin is
 `decent-sync.reaplugin` replaces this plugin with that build, as Decaid
 installs it: like every Software Action, it is an Admin's, trusted with the
 tablet. A tablet still running the plugin of the
-release before Software Actions is sent none until its plugin updates, and
-its Software tab says so. [COLLECTIONS.md](COLLECTIONS.md#software-actions)
+release before this is sent no change of how a plugin or Skin updates until
+its plugin updates, which the form says; it takes every other Software
+Action meanwhile. [COLLECTIONS.md](COLLECTIONS.md#software-actions)
 has the detail.
 
 ### Reloading the Skin

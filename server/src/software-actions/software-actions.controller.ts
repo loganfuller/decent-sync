@@ -4,10 +4,10 @@ import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
-import { readSoftwareAction, readSoftwareActionId } from "./input.js";
+import { readPinnedItem, readSoftwareAction, readSoftwareActionId } from "./input.js";
 import { type SoftwareActionView, SoftwareActionsService } from "./software-actions.service.js";
 import { TabletSoftwareService } from "./tablet-software.service.js";
-import type { PluginSourceView, SkinSourceView, TabletSoftwareView } from "./tablet-software.js";
+import type { PinnedSourceView, PluginSourceView, SkinSourceView, TabletSoftwareView } from "./tablet-software.js";
 
 /**
  * A Machine's Tablet Software and its Software Actions (ADR-0034). Staff
@@ -40,6 +40,12 @@ export class SoftwareActionsController {
   @Get(":id/skin-sources")
   async skinSources(@Param("id") id: string): Promise<{ skinSources: SkinSourceView[] }> {
     return { skinSources: await this.software.skinSources(readMachineId(id)) };
+  }
+
+  /** Where a plugin (`pluginId`) or a Skin (`skinId`) on the Tablet can be pinned to hold it at the build installed now, found through GitHub, for the form that changes how it updates. */
+  @Get(":id/pinned-source")
+  async pinnedSource(@Param("id") id: string, @Query("pluginId") pluginId?: string, @Query("skinId") skinId?: string): Promise<{ pinnedSource: PinnedSourceView }> {
+    return { pinnedSource: await this.software.pinnedSource(readMachineId(id), readPinnedItem(pluginId, skinId)) };
   }
 
   /** Makes an action, answered with its outcome pending, or refuses it at once with nothing kept: Staff only reload the Skin or restart the Skin view, at their Locations. */

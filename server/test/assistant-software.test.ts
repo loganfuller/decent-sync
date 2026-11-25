@@ -113,6 +113,10 @@ describe("Tablet Software through an assistant", () => {
     const about = tools.filter((tool) => /software|plugin|skin|decaid/i.test(tool.name));
     expect(about.map((tool) => tool.name).sort()).toEqual(["get_machine_software", "list_software_actions", "reload_skin"]);
     for (const tool of about) expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: tool.name !== "reload_skin" });
+    // A change of how a plugin or Skin updates (#678) is described where the actions are listed, and made by no tool.
+    const listing = about.find((tool) => tool.name === "list_software_actions")!;
+    for (const said of ["changePluginSource", "changeSkinSource", "differentItem", "previousVersion", "addedPermissions"]) expect(listing.description, said).toContain(said);
+    expect(tools.filter((tool) => /source|updates/i.test(tool.name))).toEqual([]);
     for (const term of ["Plugin:", "Tablet Software:", "Pinned:", "Software Action", "reload_skin"]) expect(assistant.client.getInstructions()).toContain(term);
   });
 

@@ -7,15 +7,20 @@
 // own routes, and the server, which makes, sends and records them.
 
 /**
- * The wire revision Software Actions arrived in: the server sends a
- * `softwareAction` only to a plugin at it, and a plugin sends a
- * `softwareActed` only to a server at it, as the previous release's server
- * closes the connection on a message it does not know.
+ * The wire revision a change of how a plugin or Skin updates arrived in
+ * (ADR-0035, #678): the server sends a `changePluginSource` or a
+ * `changeSkinSource` only to a plugin at it, as the previous release's
+ * plugin refuses a kind it does not know as a protocol error, and a plugin
+ * names the `differentItem` refusal only to a server at it, as the previous
+ * release's server closes the connection on a reason it does not know.
  */
-export const SOFTWARE_ACTIONS_WIRE_REVISION = 5;
+export const SOURCE_CHANGES_WIRE_REVISION = 6;
 
 /** The plugin's own id in Decaid's plugin list, as its manifest declares it. */
 export const DECENT_SYNC_PLUGIN_ID = "decent-sync.reaplugin";
+
+/** The repository Decent Sync's own plugin is released from, which alone a change of how it updates may name. */
+export const DECENT_SYNC_REPO = "loganfuller/decent-sync";
 
 /** The one setting of its own the plugin lets a Software Action change: the others are its connection to the server. */
 export const OWN_CHANGEABLE_SETTING = "PollSeconds";
@@ -35,6 +40,13 @@ export const OWN_CHANGEABLE_SETTING = "PollSeconds";
  *   permission the plugin does not hold, which waits for approval;
  * - `approvePluginUpdate`: installs a plugin's update that waits;
  * - `removePlugin`: removes a plugin with its settings;
+ * - `changePluginSource`: changes how an installed plugin updates, by
+ *   installing it again from another source, a repository's latest release,
+ *   the head of a branch, or a commit: Decaid records where an install came
+ *   from and has no other way to change it. The plugin keeps its settings
+ *   and whether it is enabled. The action names the plugin's id and the
+ *   source the Admin saw, and changes nothing where the new source holds
+ *   another plugin (`differentItem`);
  * - `installSkin`: installs a Skin from a GitHub repository, its latest
  *   release or the head of a branch, or from a URL serving a zip, such as a
  *   commit's archive, which never moves. Decaid installs no Skin from a
@@ -45,6 +57,11 @@ export const OWN_CHANGEABLE_SETTING = "PollSeconds";
  *   build now, installing each it finds;
  * - `removeSkin`: removes a Skin that is neither the default, nor the one
  *   served, nor one that comes with Decaid;
+ * - `changeSkinSource`: changes how an installed Skin updates, as
+ *   `changePluginSource` does a plugin's, from a repository's latest
+ *   release, the head of a branch, or a URL. The Skin stays the default
+ *   where it was. No Skin that comes with Decaid is changed, as Decaid
+ *   restores it from its own repository each time it starts;
  * - `reloadSkin`: asks the Skin on screen to load its page again, which a
  *   Skin that reports its page does (`SkinPage`);
  * - `restartSkinView`: stops and starts Decaid's Skin server, which has
@@ -61,10 +78,12 @@ export const SOFTWARE_ACTION_KINDS = [
   "checkPluginUpdates",
   "approvePluginUpdate",
   "removePlugin",
+  "changePluginSource",
   "installSkin",
   "chooseDefaultSkin",
   "checkSkinUpdates",
   "removeSkin",
+  "changeSkinSource",
   "reloadSkin",
   "restartSkinView",
   "checkDecaidUpdate",
@@ -80,10 +99,28 @@ export function isSoftwareActionKind(kind: unknown): kind is SoftwareActionKind 
 /**
  * The kinds that have Decaid download something, which get the longer time
  * (`softwareActionMs`): an install, an update check, the approval of an
- * update that waits, which installs it, and the start of Decaid's own
- * update, which downloads it.
+ * update that waits, which installs it, a change of how a plugin or Skin
+ * updates, which installs it again, and the start of Decaid's own update,
+ * which downloads it.
  */
-const DOWNLOADING_KINDS: readonly string[] = ["installPlugin", "checkPluginUpdates", "approvePluginUpdate", "installSkin", "checkSkinUpdates", "checkDecaidUpdate", "startDecaidUpdate"];
+const DOWNLOADING_KINDS: readonly string[] = [
+  "installPlugin",
+  "checkPluginUpdates",
+  "approvePluginUpdate",
+  "changePluginSource",
+  "installSkin",
+  "checkSkinUpdates",
+  "changeSkinSource",
+  "checkDecaidUpdate",
+  "startDecaidUpdate",
+];
+
+/** The kinds that change how an installed plugin or Skin updates (ADR-0035), which only a plugin at SOURCE_CHANGES_WIRE_REVISION carries out. */
+export const SOURCE_CHANGE_KINDS = ["changePluginSource", "changeSkinSource"] as const satisfies readonly SoftwareActionKind[];
+
+export function isSourceChangeKind(kind: unknown): kind is (typeof SOURCE_CHANGE_KINDS)[number] {
+  return typeof kind === "string" && (SOURCE_CHANGE_KINDS as readonly string[]).includes(kind);
+}
 
 /**
  * The kinds Staff at the Machine's Location may make besides Admins, and
@@ -178,6 +215,63 @@ export function namesCommit(branch: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(branch);
 }
 
+/** The URL of a commit's archive on GitHub, which a Skin is pinned to that commit by: Decaid installs no Skin from a commit given as its branch. */
+export function commitArchiveUrl(repo: string, commit: string): string {
+  return `https://github.com/${repo}/archive/${commit}.zip`;
+}
+
+/**
+ * Where Decaid says a plugin or a Skin was installed from and the build it
+ * is at, as a change of how it updates carries what the Admin saw
+ * (`expected`): compared whole with what the Tablet reports as the action
+ * runs, so that one made over an item that has since moved, to another
+ * source or another build, changes nothing. Each is a string as Decaid
+ * gives it, or null where it gives none.
+ */
+export type SourceSeen = Record<string, string | null>;
+
+const seen = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+
+/**
+ * A plugin's source and build as its entry in Decaid's plugin list gives
+ * them: its version, and of its `source` the kind, repository, branch,
+ * commit and release tag.
+ */
+export function pluginSourceSeen(plugin: unknown): SourceSeen {
+  const entry = isRecord(plugin) ? plugin : {};
+  const source = isRecord(entry.source) ? entry.source : {};
+  return {
+    version: seen(entry.version),
+    kind: seen(source.kind),
+    repo: seen(source.repo),
+    branch: seen(source.branch),
+    commit: seen(source.commit),
+    releaseTag: seen(source.releaseTag),
+  };
+}
+
+/**
+ * A Skin's source and build as its entry in Decaid's Skins list gives them:
+ * its version, and of its `reaMetadata` where it was installed from
+ * (`sourceUrl`) and the ETag of what that served, which moves with each
+ * build a branch or a URL serves.
+ */
+export function skinSourceSeen(skin: unknown): SourceSeen {
+  const entry = isRecord(skin) ? skin : {};
+  const metadata = isRecord(entry.reaMetadata) ? entry.reaMetadata : {};
+  return { version: seen(entry.version), sourceUrl: seen(metadata.sourceUrl), etag: seen(metadata.etag) };
+}
+
+/** Whether two sources seen are the same, field by field. */
+export function sameSourceSeen(a: SourceSeen, b: SourceSeen): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((key) => (a[key] ?? null) === (b[key] ?? null));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * How Decaid reports a secret setting, in place of its value: whether one
  * is set. A changed secret is sent as its new text, and its `expected` as
@@ -193,14 +287,17 @@ export function isSecretState(value: unknown): value is SecretState {
 
 /**
  * Asks the plugin to carry out a Software Action (ADR-0034), sent only on
- * the connection that held the Machine as it was made, and only to a plugin
- * at SOFTWARE_ACTIONS_WIRE_REVISION. The plugin carries them out one at a
+ * the connection that held the Machine as it was made, and a change of how
+ * an item updates only to a plugin at SOURCE_CHANGES_WIRE_REVISION. The
+ * plugin carries them out one at a
  * time, in the order they arrive, in the queue its Settings Edits share.
  * For each, it refuses it as `expired` once the connection that sent it has
  * closed, or with less than SOFTWARE_ACTION_START_MARGIN_MS of `timeLeftMs`
  * left; refuses what its own protections forbid as `notAllowed`: disabling
  * or removing itself, changing any of its own settings but the poll
- * interval, and removing the default Skin or the one on screen; reads the machine's state, but for `checkDecaidUpdate`, and
+ * interval, installing itself again from anywhere but its own repository's
+ * latest release or one of its commits, and removing the default Skin or
+ * the one on screen; reads the machine's state, but for `checkDecaidUpdate`, and
  * goes ahead only while the machine is running nothing
  * (SETTINGS_EDIT_STATES) or none is connected to the tablet; reads the
  * lists and reports them; makes Decaid's request through `host.localApi`;
@@ -227,6 +324,16 @@ export type SoftwareAction = {
       branch?: string;
     }
   | { kind: "enablePlugin" | "disablePlugin" | "removePlugin"; pluginId: string }
+  | {
+      kind: "changePluginSource";
+      pluginId: string;
+      /** The plugin's source and build as the Admin saw them (`pluginSourceSeen`). The plugin installs only while the Tablet still reports them. */
+      expected: SourceSeen;
+      /** The GitHub repository to install it again from, `owner/name`. */
+      repo: string;
+      /** The branch whose head to install, or a commit, which pins it; absent for the repository's latest release. */
+      branch?: string;
+    }
   | {
       kind: "approvePluginUpdate";
       pluginId: string;
@@ -259,6 +366,18 @@ export type SoftwareAction = {
       kind: "chooseDefaultSkin" | "removeSkin";
       skinId: string;
     }
+  | {
+      kind: "changeSkinSource";
+      skinId: string;
+      /** The Skin's source and build as the Admin saw them (`skinSourceSeen`). The plugin installs only while the Tablet still reports them. */
+      expected: SourceSeen;
+      /** The GitHub repository to install it again from, `owner/name`; absent for an install from a URL. */
+      repo?: string;
+      /** The branch whose head to install; absent for the repository's latest release. */
+      branch?: string;
+      /** The URL of a zip to install, in place of a repository: a commit's archive or one release's download pins it. */
+      url?: string;
+    }
   | { kind: "checkSkinUpdates" | "reloadSkin" | "restartSkinView" }
   | { kind: "checkPluginUpdates" | "checkDecaidUpdate" | "startDecaidUpdate" }
 );
@@ -268,13 +387,22 @@ export type SoftwareAction = {
  *
  * - `machineBusy`: the machine was running something, named by its state;
  * - `changedSince`: what the action was made over no longer holds on the
- *   Tablet: a setting's value, or the update that waited;
+ *   Tablet: a setting's value, the update that waited, or the source or
+ *   build of an item whose source it changes;
  * - `expired`: the plugin got it too late to start it. Nothing was asked of
  *   Decaid. Answered after the action was marked not confirmed, it leaves
  *   that mark;
  * - `notAllowed`: the plugin's own protections forbid it: disabling or
- *   removing itself, changing its own server address or Token, or removing
- *   the default Skin or the one on screen;
+ *   removing itself, changing its own server address or Token, installing
+ *   itself again from anywhere but its own repository's latest release or
+ *   one of its commits, changing the source of a Skin that comes with
+ *   Decaid, or removing the default Skin or the one on screen;
+ * - `differentItem`: the source a change of how an item updates named held
+ *   another plugin or Skin than the one it was to change, by its id, which
+ *   Decaid installed beside it. The plugin removed that one again, unless
+ *   the Tablet held it before, and the item it was to change is as it was.
+ *   Sent to a server before SOURCE_CHANGES_WIRE_REVISION as `decaid` with
+ *   no status, which reads the same there;
  * - `installNotPermitted`: Decaid may not install its own update, as
  *   Android's permission for it to install apps has not been granted at the
  *   Tablet;
@@ -283,7 +411,7 @@ export type SoftwareAction = {
  * - `decaid`: Decaid refused it, or did not answer, or was not asked, as for
  *   a kind this plugin does not carry out.
  */
-export const SOFTWARE_ACTED_REFUSALS = ["machineBusy", "changedSince", "expired", "notAllowed", "installNotPermitted", "noSkinServed", "decaid"] as const;
+export const SOFTWARE_ACTED_REFUSALS = ["machineBusy", "changedSince", "expired", "notAllowed", "differentItem", "installNotPermitted", "noSkinServed", "decaid"] as const;
 
 export type SoftwareActedRefusal = (typeof SOFTWARE_ACTED_REFUSALS)[number];
 
@@ -318,6 +446,10 @@ export interface SoftwareActionResult {
   name?: string;
   /** Its version as installed afterwards. */
   version?: string;
+  /** For a change of how it updates: its version before, where the list held one. */
+  previousVersion?: string;
+  /** For a change of how a plugin updates: the permissions its new build declares that the one before did not, which Decaid's install takes with no approval asked. */
+  addedPermissions?: string[];
   /** Whether it was loaded afterwards. */
   loaded?: boolean;
   /** An update check's result for each plugin or Skin Decaid checked. */
@@ -351,9 +483,7 @@ export interface SkinPage {
  * The plugin's answer to a `softwareAction`, sent through its outbox behind
  * the reports of the lists read after it, so the server takes in the
  * read-back first. Acknowledged with `ack` once recorded, by whichever
- * server instance it reaches, on this connection or a later one. Sent only
- * to a server at SOFTWARE_ACTIONS_WIRE_REVISION: one that would go to an
- * earlier server is dropped, and its action stays not confirmed.
+ * server instance it reaches, on this connection or a later one.
  */
 export interface SoftwareActed {
   type: "softwareActed";

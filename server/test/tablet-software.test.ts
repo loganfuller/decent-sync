@@ -185,14 +185,15 @@ describe("a Machine's Tablet Software", () => {
   it("reads Decaid's version and build, its update state and its automatic update checks, each absent until reported", () => {
     const view = tabletSoftwareView(
       { plugins: report(bundledPlugins()), pluginSettings: null, skins: null, skinPage: null, decaidUpdate: report(decaidUpdateState()), appSettings: report({ automaticUpdateCheck: false }) },
-      { decaidVersion: "0.9.3+3265", pluginMustUpdate: false },
+      { decaidVersion: "0.9.3+3265", takesSourceChanges: true },
       true,
     );
     expect(view.decaid).toEqual({ version: "0.9.3", build: "3265", update: { phase: "idle", latestVersion: null, installable: false, error: null, reportedAt: at.toISOString() }, automaticUpdateCheck: false });
     expect(view.skins).toBeNull();
     expect(view.plugins!.map((plugin) => plugin.id)).toEqual(bundledPlugins().map((plugin) => plugin.id));
-    const nothing = tabletSoftwareView({ plugins: null, pluginSettings: null, skins: null, skinPage: null, decaidUpdate: null, appSettings: null }, { decaidVersion: null, pluginMustUpdate: true }, false);
-    expect(nothing).toEqual({ decaid: { version: null, build: null, update: null, automaticUpdateCheck: null }, plugins: null, skins: null, showing: null, pluginMustUpdate: true });
+    const nothing = tabletSoftwareView({ plugins: null, pluginSettings: null, skins: null, skinPage: null, decaidUpdate: null, appSettings: null }, { decaidVersion: null, takesSourceChanges: false }, false);
+    // No plugin the server accepts is from before Software Actions, so none is said to need an update for them.
+    expect(nothing).toEqual({ decaid: { version: null, build: null, update: null, automaticUpdateCheck: null }, plugins: null, skins: null, showing: null, pluginMustUpdate: false, takesSourceChanges: false });
   });
 
   it("suggests each distinct source once, with how many Machines use it and the highest version there", () => {

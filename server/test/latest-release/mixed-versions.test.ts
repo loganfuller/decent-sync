@@ -10,6 +10,8 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
+import { SimulatedPlugins, bundledPlugins, recordedPlugin } from "../support/decaid-plugins.js";
+import { SimulatedSkins, recordedSkin } from "../support/decaid-skins.js";
 import { CURVES_REVISION } from "../../src/shots/extraction.js";
 import { latestReleaseDir, latestReleaseTag, releaseCurvesRevision, releaseWireRevision } from "../support/latest-release.mjs";
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
@@ -113,13 +115,15 @@ describe("the latest release beside the change", () => {
     name: string,
     plugin: Release,
     server: Release,
-    options: { location?: LocationView; steams?: Record<string, unknown>[]; timeScale?: number } = {},
+    options: { location?: LocationView; steams?: Record<string, unknown>[]; timeScale?: number; plugins?: SimulatedPlugins; skins?: SimulatedSkins } = {},
   ): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet }> {
     const machine = await apis.change.createMachine(name, options.location?.id);
     const tablet = syncingTablet(machine, servers[server], {
       latestRelease: plugin === "latest release",
       api: withSteams(emptyLibrary(serial++), options.steams ?? []),
       timeScale: options.timeScale,
+      ...(options.plugins ? { plugins: options.plugins } : {}),
+      ...(options.skins ? { skins: options.skins } : {}),
     });
     loaded.push(tablet);
     expect(tablet.pluginDir).toBe(pluginDirs()[plugin]);
@@ -258,6 +262,88 @@ describe("the latest release beside the change", () => {
     const sent = (tablet.sent as Frame[]).find((frame) => frame.type === "collection" && frame.name === "skinPage")!;
     await expect.poll(() => (tablet.received as Frame[]).some((frame) => frame.type === "ack" && frame.id === sent.id)).toBe(true);
     expect(tablet.logs.some((line) => /protocol error/.test(line))).toBe(false);
+    await apis.change.waitForOnline(machine);
+  });
+
+  // A change of how a plugin or Skin updates came with the wire revision
+  // after the latest release's (ADR-0035, #678): its plugin is sent none,
+  // which it would refuse as a protocol error, and is told to update, while
+  // it takes every other Software Action. Once Decaid has installed the
+  // change's plugin, the change goes ahead.
+  it("sends the latest release's plugin no change of how a Skin updates, saying its plugin must update, takes another Software Action from it, and makes the change once the tablet runs the change's plugin", async () => {
+    const asset = "https://github.com/example/tasting-flight/releases/download/v0.2.31-flight.2/tasting-flight.js-v0.2.31-flight.2.zip";
+    const flight = (base: Record<string, unknown>, version: string, sourceUrl: string) => ({
+      ...base,
+      id: "tasting-flight.js",
+      name: "Tasting Flight",
+      version,
+      path: "/root/.local/share/decaid/web-ui/tasting-flight.js",
+      reaMetadata: { ...(base.reaMetadata as Record<string, unknown>), skinId: "tasting-flight.js", sourceUrl },
+    });
+    const skins = new SimulatedSkins();
+    skins.install(flight(recordedSkin("streamline-cafe.js-dist"), "0.2.31-flight.2", asset));
+    skins.offer({ repo: "example/tasting-flight" }, flight(recordedSkin("streamline-cafe.js", "releaseInstalled"), "0.2.32-flight.1", "github_release:example/tasting-flight@v0.2.32-flight.1"));
+    const { machine, tablet } = await connected("mixed-source-changes", "latest release", "change", { skins, plugins: new SimulatedPlugins({ plugins: bundledPlugins() }) });
+    type Software = { takesSourceChanges: boolean; pluginMustUpdate: boolean; skins: { id: string; version: string | null; updates: Record<string, unknown>; build: Record<string, string | null> }[] | null };
+    const software = async () => (await apis.change.get<{ tabletSoftware: Software }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware;
+    const shown = async () => (await software()).skins?.find((skin) => skin.id === "tasting-flight.js");
+    const actions = `/machines/${machine.machine.id}/software-actions`;
+    const outcome = async (id: string) => (await apis.change.get<{ softwareAction: { outcome: string | null } }>(`${actions}/${id}`)).softwareAction.outcome;
+    await expect.poll(shown, { timeout: 15_000 }).toMatchObject({ version: "0.2.31-flight.2" });
+    expect(await software()).toMatchObject({ takesSourceChanges: false, pluginMustUpdate: false });
+    const change = async () => {
+      const skin = (await shown())!;
+      return apis.change.call("POST", actions, { kind: "changeSkinSource", skinId: skin.id, seen: skin.build, repo: "example/tasting-flight" });
+    };
+    const refused = await change();
+    expect(refused.status).toBe(409);
+    expect(await refused.text()).toMatch(/The Tablet's plugin must update before it can change how a plugin or Skin updates/);
+    // Every other Software Action is sent to it, and answered.
+    const checked = (await apis.change.send<{ softwareAction: { id: string } }>("POST", actions, { kind: "checkSkinUpdates" }, 201)).softwareAction;
+    await expect.poll(() => outcome(checked.id), { timeout: 20_000 }).toBe("done");
+    expect((tablet.received as { type?: string; kind?: string }[]).filter((frame) => frame.type === "softwareAction").map((frame) => frame.kind)).toEqual(["checkSkinUpdates"]);
+
+    const updated = await tablet.reload({ latestRelease: false });
+    loaded.push(updated);
+    await apis.change.waitForOnline(machine);
+    await expect.poll(async () => (await software()).takesSourceChanges).toBe(true);
+    const made = await change();
+    expect(made.status, await made.clone().text()).toBe(201);
+    const { softwareAction } = (await made.json()) as { softwareAction: { id: string } };
+    await expect.poll(() => outcome(softwareAction.id), { timeout: 20_000 }).toBe("done");
+    expect(await shown()).toMatchObject({ version: "0.2.32-flight.1", updates: { how: "followsReleases", repo: "example/tasting-flight" } });
+  });
+
+  // The latest release's server closes the connection on a refusal it does
+  // not know. One for a source that held another plugin, answered by the
+  // load Decaid starts under the install and reaching that server, as where
+  // a deploy moved the tablet meanwhile, goes as a refusal of Decaid's with
+  // no status and the same words, which that server records.
+  it("answers the latest release's server that a source held another plugin as a refusal it knows, with the same words, and keeps its connection", async () => {
+    const from = recordedPlugin("dye2.reaplugin", "releaseInstalled");
+    const recipes = { ...from, id: "recipes.reaplugin", name: "Recipes", version: "0.1.42", source: { ...(from.source as Record<string, unknown>), repo: "example/recipes", releaseTag: "v0.1.42" } };
+    const plugins = new SimulatedPlugins({ plugins: [recipes, ...bundledPlugins()] });
+    plugins.offer("example/timers", { tag: "v2.0.0", manifest: { ...from, id: "timers.reaplugin", name: "Timers", version: "2.0.0" } });
+    // Slow enough for the tablet to be moved under the install.
+    plugins.installMs = 2_000;
+    const { machine, tablet } = await connected("mixed-different-item", "change", "change", { plugins });
+    type Plugin = { id: string; version: string | null; updates: Record<string, unknown>; build: Record<string, string | null> };
+    const listed = async () => (await apis.change.get<{ tabletSoftware: { plugins: Plugin[] | null } }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware.plugins?.find((plugin) => plugin.id === "recipes.reaplugin");
+    await expect.poll(listed, { timeout: 15_000 }).toBeDefined();
+    const shown = (await listed())!;
+    const actions = `/machines/${machine.machine.id}/software-actions`;
+    const made = (await apis.change.send<{ softwareAction: { id: string } }>("POST", actions, { kind: "changePluginSource", pluginId: shown.id, seen: shown.build, repo: "example/timers" }, 201)).softwareAction;
+    await expect.poll(() => (tablet.received as { type?: string; id?: string }[]).some((frame) => frame.type === "softwareAction" && frame.id === made.id), { timeout: 15_000 }).toBe(true);
+    // The install is under way, the action kept for the next load: the tablet moves to the latest release's instance.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const moved = await tablet.reload({ settings: { ...settingsFor({ token: machine.token, serverUrl: servers["latest release"].url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    type Answered = { softwareAction: { outcome: string | null; refusal: { reason: string; status?: number | null; message?: string | null } | null } };
+    const read = async () => (await apis.change.get<Answered>(`${actions}/${made.id}`)).softwareAction;
+    await expect.poll(async () => (await read()).outcome, { timeout: 30_000 }).toBe("refused");
+    expect((await read()).refusal).toEqual({ reason: "decaid", status: null, message: "That source holds another plugin, Timers, not Recipes. Decaid installed it beside it, and the plugin removed it again. Recipes is unchanged" });
+    expect((moved.sent as { type?: string; id?: string; reason?: string }[]).find((frame) => frame.type === "softwareActed" && frame.id === made.id)?.reason).toBe("decaid");
+    expect(plugins.listed().some((plugin) => plugin.id === "timers.reaplugin")).toBe(false);
     await apis.change.waitForOnline(machine);
   });
 

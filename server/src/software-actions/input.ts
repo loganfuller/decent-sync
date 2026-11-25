@@ -5,6 +5,8 @@ import {
   MAX_SOFTWARE_NAME_LENGTH,
   SOFTWARE_ACTION_KINDS,
   type SoftwareActionKind,
+  type SourceSeen,
+  commitArchiveUrl,
   isPluginRepo,
   isSecretState,
   isSkinUrl,
@@ -23,6 +25,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type NewSoftwareAction =
   | { kind: "installPlugin"; repo: string; branch: string | null }
   | { kind: "enablePlugin" | "disablePlugin" | "removePlugin"; pluginId: string }
+  /** To a repository's latest release, a branch or a commit, over the plugin as the page showed it. */
+  | { kind: "changePluginSource"; pluginId: string; seen: SourceSeen; repo: string; branch: string | null }
+  /** To a repository's latest release or a branch, or to a URL, over the Skin as the page showed it. */
+  | { kind: "changeSkinSource"; skinId: string; seen: SourceSeen; repo: string; branch: string | null }
+  | { kind: "changeSkinSource"; skinId: string; seen: SourceSeen; url: string }
   /** The update that waits, as the page showed it. */
   | { kind: "approvePluginUpdate"; pluginId: string; version: string; addedPermissions: string[] }
   /** Each setting's new value, and what the page showed for it: a value, null for one not set, or `{ isSet }` for a secret. */
@@ -34,21 +41,73 @@ export type NewSoftwareAction =
   | { kind: "reloadSkin" }
   | { kind: "checkPluginUpdates" | "checkSkinUpdates" | "restartSkinView" | "checkDecaidUpdate" | "startDecaidUpdate" };
 
+/** The most fields, and the longest value, a source seen may hold: those of `pluginSourceSeen` and `skinSourceSeen`, a Skin's URL the longest. */
+const MAX_SEEN_FIELDS = 8;
+const MAX_SEEN_LENGTH = 2048;
+
+/** A plugin or Skin as the page showed it when a change of how it updates was asked for: its row's `build`, where Decaid said it came from and the build it was at. */
+function readSeen(value: unknown): SourceSeen {
+  const entries = isObject(value) ? Object.entries(value) : null;
+  const valid =
+    entries !== null &&
+    entries.length > 0 &&
+    entries.length <= MAX_SEEN_FIELDS &&
+    entries.every(([key, field]) => key.length <= 32 && (field === null || (typeof field === "string" && field.length <= MAX_SEEN_LENGTH)));
+  if (!valid) throw new BadRequestException(["Give the item's build as shown, as seen"]);
+  return Object.fromEntries(entries) as SourceSeen;
+}
+
+/** The repository, and branch or commit, a plugin is installed from, with what is wrong with them. */
+function readPluginSource(fields: Record<string, unknown>): { repo: string; branch: string | null; problems: string[] } {
+  const repo = typeof fields.repo === "string" ? fields.repo.trim() : "";
+  const branch = fields.branch === undefined || fields.branch === null ? null : typeof fields.branch === "string" ? fields.branch.trim() : "";
+  const problems = [
+    ...(isPluginRepo(repo) ? [] : ["Give the GitHub repository as owner/name, such as decentespresso/dye2"]),
+    ...(branch === null || (branch !== "" && branch.length <= MAX_SOFTWARE_NAME_LENGTH && !/\s/.test(branch)) ? [] : ["Give a branch or commit, or leave it out for the latest release"]),
+  ];
+  return { repo, branch, problems };
+}
+
+/** The URL, or the repository and branch, a Skin is installed from: a URL and no repository, or a repository. Throws with what is wrong with them. */
+function readSkinSource(fields: Record<string, unknown>): { repo: string; branch: string | null } | { url: string } {
+  if (fields.url !== undefined && fields.url !== null) {
+    const url = typeof fields.url === "string" ? fields.url.trim() : "";
+    if (!isSkinUrl(url) || fields.repo !== undefined || fields.branch !== undefined) {
+      throw new BadRequestException(["Give the URL of a zip to install the Skin from, such as https://github.com/owner/name/archive/<commit>.zip, and no repository"]);
+    }
+    return { url };
+  }
+  const repo = typeof fields.repo === "string" ? fields.repo.trim() : "";
+  const branch = fields.branch === undefined || fields.branch === null ? null : typeof fields.branch === "string" ? fields.branch.trim() : "";
+  const problems = [
+    ...(isPluginRepo(repo) ? [] : ["Give the GitHub repository as owner/name, such as decentespresso/streamline-js, or a URL"]),
+    ...(branch === null || (branch !== "" && branch.length <= MAX_SOFTWARE_NAME_LENGTH && !/\s/.test(branch)) ? [] : ["Give a branch, or leave it out for the latest release"]),
+    // Decaid fails to install a Skin from a commit named as its branch (#659): its archive's URL pins it.
+    ...(branch !== null && namesCommit(branch) && isPluginRepo(repo) ? [`Decaid installs a Skin from a commit only by its archive's URL: ${commitArchiveUrl(repo, branch)}`] : []),
+  ];
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return { repo, branch };
+}
+
 export function readSoftwareAction(body: unknown): NewSoftwareAction {
   const fields = isObject(body) ? body : {};
   const kind = fields.kind;
   if (!isSoftwareActionKind(kind)) throw new BadRequestException([`Say what to do: one of ${SOFTWARE_ACTION_KINDS.join(", ")}`]);
   switch (kind) {
     case "installPlugin": {
-      const repo = typeof fields.repo === "string" ? fields.repo.trim() : "";
-      const branch = fields.branch === undefined || fields.branch === null ? null : typeof fields.branch === "string" ? fields.branch.trim() : "";
-      const problems = [
-        ...(isPluginRepo(repo) ? [] : ["Give the GitHub repository as owner/name, such as decentespresso/dye2"]),
-        ...(branch === null || (branch !== "" && branch.length <= MAX_SOFTWARE_NAME_LENGTH && !/\s/.test(branch)) ? [] : ["Give a branch or commit, or leave it out for the latest release"]),
-      ];
+      const { repo, branch, problems } = readPluginSource(fields);
       if (problems.length > 0) throw new BadRequestException(problems);
       return { kind, repo, branch };
     }
+    case "changePluginSource": {
+      const pluginId = readPluginId(fields.pluginId);
+      const seen = readSeen(fields.seen);
+      const { repo, branch, problems } = readPluginSource(fields);
+      if (problems.length > 0) throw new BadRequestException(problems);
+      return { kind, pluginId, seen, repo, branch };
+    }
+    case "changeSkinSource":
+      return { kind, skinId: readSkinId(fields.skinId), seen: readSeen(fields.seen), ...readSkinSource(fields) };
     case "enablePlugin":
     case "disablePlugin":
     case "removePlugin":
@@ -83,25 +142,8 @@ export function readSoftwareAction(body: unknown): NewSoftwareAction {
       if (problems.length > 0) throw new BadRequestException(problems);
       return { kind, pluginId, values, expected };
     }
-    case "installSkin": {
-      if (fields.url !== undefined && fields.url !== null) {
-        const url = typeof fields.url === "string" ? fields.url.trim() : "";
-        if (!isSkinUrl(url) || fields.repo !== undefined || fields.branch !== undefined) {
-          throw new BadRequestException(["Give the URL of a zip to install the Skin from, such as https://github.com/owner/name/archive/<commit>.zip, and no repository"]);
-        }
-        return { kind, url };
-      }
-      const repo = typeof fields.repo === "string" ? fields.repo.trim() : "";
-      const branch = fields.branch === undefined || fields.branch === null ? null : typeof fields.branch === "string" ? fields.branch.trim() : "";
-      const problems = [
-        ...(isPluginRepo(repo) ? [] : ["Give the GitHub repository as owner/name, such as decentespresso/streamline-js, or a URL"]),
-        ...(branch === null || (branch !== "" && branch.length <= MAX_SOFTWARE_NAME_LENGTH && !/\s/.test(branch)) ? [] : ["Give a branch, or leave it out for the latest release"]),
-        // Decaid fails to install a Skin from a commit named as its branch (#659): its archive's URL pins it.
-        ...(branch !== null && namesCommit(branch) && isPluginRepo(repo) ? [`Decaid installs a Skin from a commit only by its archive's URL: https://github.com/${repo}/archive/${branch}.zip`] : []),
-      ];
-      if (problems.length > 0) throw new BadRequestException(problems);
-      return { kind, repo, branch };
-    }
+    case "installSkin":
+      return { kind, ...readSkinSource(fields) };
     case "chooseDefaultSkin":
     case "removeSkin":
       return { kind, skinId: readSkinId(fields.skinId) };
@@ -110,6 +152,12 @@ export function readSoftwareAction(body: unknown): NewSoftwareAction {
     default:
       return { kind: kind as Extract<SoftwareActionKind, "checkPluginUpdates" | "checkSkinUpdates" | "restartSkinView" | "checkDecaidUpdate" | "startDecaidUpdate"> };
   }
+}
+
+/** Which item a read of where it can be pinned names: a plugin or a Skin, by its id, and never both. */
+export function readPinnedItem(pluginId: unknown, skinId: unknown): { pluginId: string } | { skinId: string } {
+  if ((pluginId === undefined) === (skinId === undefined)) throw new BadRequestException(["Name a plugin by pluginId, or a Skin by skinId"]);
+  return pluginId === undefined ? { skinId: readSkinId(skinId) } : { pluginId: readPluginId(pluginId) };
 }
 
 function readSkinId(value: unknown): string {

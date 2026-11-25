@@ -4,7 +4,7 @@ import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { RawConnection, type SimulatedTablet, derivedDe1Pro, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { boxes } from "./support/layout.js";
-import { field, openCard, openMachineTab, rows } from "./support/locators.js";
+import { field, openCard, openMachineTab, openRowMenu, rows } from "./support/locators.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 import { expectTip } from "./support/tooltips.js";
@@ -16,8 +16,10 @@ import { expectTip } from "./support/tooltips.js";
 // repository, enabling and disabling one, changing its settings, a secret
 // among them, removing one behind a confirmation, and the automatic update
 // checks' Settings Edit, with the log of them all, which starts closed. An
-// action is refused while the Machine is busy, at once while it is offline,
-// and not at all where the Tablet's plugin is from before Software Actions.
+// action is refused while the Machine is busy, and at once while it is
+// offline. A row keeps approving its update and its settings as buttons,
+// with the rest in its menu (#678); changing how one updates is
+// e2e/source-changes.spec.ts's.
 // Staff read the lists and the log and are offered only the restart of the
 // Skin view; Viewers are e2e/viewers.spec.ts's, and the Skins' actions
 // e2e/software-skins.spec.ts's. The simulated tablets run the built plugin, their
@@ -116,18 +118,22 @@ test("an Admin reads the Tablet's Decaid, plugins and Skins with how each update
   }
   await expect(cell(pluginRow(page, "Time To Ready"), 1)).toHaveText("1.0.5");
   await expectTip(pluginRow(page, "Settings Viewer"), "how it updates", "Installed from one fixed build, which no update check moves.");
-  // Decent Sync's own plugin has its settings and nothing that would cut the Tablet off.
-  await expect(pluginRow(page, "Decent Sync").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Settings"]);
-  await expect(pluginRow(page, "Visualizer upload").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Settings", "Disable", "Remove"]);
+  // A row's settings are a button, and the rest is in its menu. Decent Sync's own plugin's has nothing that would cut the Tablet off.
+  await expect(pluginRow(page, "Decent Sync").getByRole("button", { name: "Decent Sync settings" })).toBeVisible();
+  await expect((await openRowMenu(page, pluginRow(page, "Decent Sync"), "Decent Sync")).getByRole("menuitem")).toHaveText(["Change how it updates…"]);
+  await page.keyboard.press("Escape");
+  await expect(pluginRow(page, "Visualizer upload").getByRole("button", { name: "Visualizer upload settings" })).toBeVisible();
+  await expect((await openRowMenu(page, pluginRow(page, "Visualizer upload"), "Visualizer upload")).getByRole("menuitem")).toHaveText(["Change how it updates…", "Disable", "Remove"]);
+  await page.keyboard.press("Escape");
 
-  // The Skins: the default one marked, each one that comes with Decaid saying what Decaid may do as it starts.
+  // The Skins: the default one marked, each one that comes with Decaid saying what Decaid does as it starts.
   const skins = page.getByRole("table", { name: "Skins" });
   await expect(skins.getByRole("columnheader")).toHaveText(["Skin", "Version", "Updates", "Actions"]);
   const defaultSkin = rows(skins).filter({ has: page.getByText("Default", { exact: true }) });
   await expect(defaultSkin).toHaveCount(1);
   await expect(cell(defaultSkin, 0)).toHaveText(/^Streamline\.js\s*Default\s*Showing now$/);
   await expect(cell(defaultSkin, 2)).toHaveText("Comes with Decaid");
-  await expectTip(defaultSkin, "how it updates", "Decaid may put its latest release back when it starts.");
+  await expectTip(defaultSkin, "how it updates", "Decaid restores it from its own repository each time it starts, so how it updates can't be changed.");
   // Neither made the default again nor removed.
   await expect(defaultSkin.getByRole("button", { name: /^(?!About )/ })).toHaveCount(0);
 
@@ -182,7 +188,7 @@ test("an Admin installs a plugin from a suggestion, enables it, changes another'
   const uploaderRow = pluginRow(page, "Uploader");
   await expect(cell(uploaderRow, 2)).toHaveText("Pinned · example/uploader at 41ae8cf");
   await expect(cell(uploaderRow, 3)).toHaveText("Disabled");
-  await uploaderRow.getByRole("button", { name: "Enable Uploader" }).click();
+  await (await openRowMenu(page, uploaderRow, "Uploader")).getByRole("menuitem", { name: "Enable Uploader" }).click();
   await expect(status).toHaveText("DoneEnabled Uploader. Done.");
   await expect(cell(uploaderRow, 3)).toHaveText("Enabled");
 
@@ -229,12 +235,12 @@ test("an Admin installs a plugin from a suggestion, enables it, changes another'
   await expect(own.getByLabel("Poll interval (seconds)", { exact: true })).toHaveValue("5");
   await own.getByRole("button", { name: "Cancel" }).click();
 
-  await pluginRow(page, "Visualizer upload").getByRole("button", { name: "Disable Visualizer upload" }).click();
+  await (await openRowMenu(page, pluginRow(page, "Visualizer upload"), "Visualizer upload")).getByRole("menuitem", { name: "Disable Visualizer upload" }).click();
   await expect(status).toHaveText("DoneDisabled Visualizer upload. Done.");
   await expect(cell(pluginRow(page, "Visualizer upload"), 3)).toHaveText("Disabled");
 
   // Removed only once confirmed.
-  await pluginRow(page, "dcamp").getByRole("button", { name: "Remove dcamp" }).click();
+  await (await openRowMenu(page, pluginRow(page, "dcamp"), "dcamp")).getByRole("menuitem", { name: "Remove dcamp" }).click();
   const confirm = page.getByRole("alertdialog", { name: "Remove dcamp?" });
   await expect(confirm).toContainText("Its settings on this Tablet are deleted. What it stored stays on the Tablet.");
   await confirm.getByRole("button", { name: "Remove" }).click();
@@ -297,7 +303,7 @@ test("an action is refused while the Machine is busy, its message staying until 
   await page.goto(`/machines/${frontId}?tab=software`);
   front.reportState("espresso", "pouring");
   const plugins = region(page, "Plugins");
-  await pluginRow(page, "Time To Ready").getByRole("button", { name: "Disable Time To Ready" }).click();
+  await (await openRowMenu(page, pluginRow(page, "Time To Ready"), "Time To Ready")).getByRole("menuitem", { name: "Disable Time To Ready" }).click();
   const refused = plugins.getByRole("status");
   await expect(refused).toHaveText("RefusedDisabled Time To Ready. Refused: the Machine was pulling a shot.");
   await expect(cell(pluginRow(page, "Time To Ready"), 3)).toHaveText("Enabled");
@@ -386,7 +392,7 @@ test("an action is refused while the Machine is busy, its message staying until 
   managed.failUpdatesOf("shot-upload.reaplugin", null);
 });
 
-test("an action no Tablet answers in time is not confirmed, and a Tablet whose plugin is from before Software Actions is offered none", async ({ page }) => {
+test("an action no Tablet answers in time is not confirmed, and stays until dismissed", async ({ page }) => {
   // A connection that takes Software Actions and answers none.
   const raw = await createMachine(page, "Raw bar", mainStreet.id);
   await RawConnection.welcomed(server.url(), helloWith(raw.token), 300);
@@ -417,15 +423,6 @@ test("an action no Tablet answers in time is not confirmed, and a Tablet whose p
   await expectTip(status, "this outcome", "The Tablet didn't answer in time, or its connection closed first. Check the lists before trying again: it may have been done all the same.");
   const log = await openCard(page, "Software Actions");
   await expect(rows(log.getByRole("table")).first().getByRole("cell").nth(3)).toHaveText("Not confirmed");
-
-  // The previous release's plugin, at wire revision 4.
-  const old = await createMachine(page, "Old bar", mainStreet.id);
-  await RawConnection.welcomed(server.url(), helloWith(old.token, { wireRevision: 4 }), 300);
-  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${old.machine.id}`)).json()) as { machine: { online: boolean } }).machine.online).toBe(true);
-  await page.goto(`/machines/${old.machine.id}?tab=software`);
-  await expect(page.getByRole("alert").filter({ hasText: "The Tablet's plugin must update before it can take a Software Action" })).toBeVisible();
-  await expect(region(page, "Decaid")).toBeVisible();
-  expect(await offeredButtons(page)).toEqual([]);
 });
 
 test("while the Machine is offline its actions are disabled with the reason, and one made as it went offline is refused at once with the server's words", async ({ page }) => {
@@ -442,9 +439,14 @@ test("while the Machine is offline its actions are disabled with the reason, and
 
   await page.clock.runFor(6_000);
   await expect(page.getByText("Software Actions are made only while the Machine is online and its Tablet connected.")).toBeVisible();
-  for (const name of ["Check now", "Check for updates", "Install plugin", "Edit automatic update checks", "Disable Time To Ready", "Visualizer upload settings", "Remove Uploader"]) {
+  for (const name of ["Check now", "Check for updates", "Install plugin", "Edit automatic update checks", "Visualizer upload settings"]) {
     await expect(page.getByRole("main").getByRole("button", { name, exact: true })).toBeDisabled();
   }
+  // A row's menu opens, with nothing in it to choose.
+  const menu = await openRowMenu(page, pluginRow(page, "Uploader"), "Uploader");
+  await expect(menu.getByRole("menuitem")).toHaveText(["Change how it updates…", "Disable", "Remove"]);
+  for (const item of await menu.getByRole("menuitem").all()) await expect(item).toBeDisabled();
+  await page.keyboard.press("Escape");
   // Its lists stay as last reported.
   await expect(cell(pluginRow(page, "Uploader"), 3)).toHaveText("Enabled");
 });

@@ -70,6 +70,22 @@ export function skinSourceText(source: { repo?: string | null; branch?: string |
 }
 
 /**
+ * The source a change of how an item updates named, as the log says how it
+ * updates from then on: "follows releases of decentespresso/dye2", "follows
+ * decentespresso/dye2, dist", "pinned to decentespresso/dye2 at 717fa95".
+ */
+function newSourceText(source: { repo?: string | null; branch?: string | null; url?: string | null }): string {
+  if (source.url) {
+    const from = skinSourceText(source);
+    // A commit's archive or one release's download holds it there; any other URL is followed.
+    return from === source.url ? `follows ${from}` : `pinned to ${from}`;
+  }
+  if (!source.repo) return "";
+  if (!source.branch) return `follows releases of ${source.repo}`;
+  return namesCommit(source.branch) ? `pinned to ${sourceText(source.repo, source.branch)}` : `follows ${sourceText(source.repo, source.branch)}`;
+}
+
+/**
  * What an action did, as the log says it, in the past tense whatever came of
  * it: "Installed the plugin DYE2 · decentespresso/dye2 at 717fa95",
  * "Changed Visualizer's settings · Username, Password", "Made Streamline
@@ -106,6 +122,10 @@ export function actionText(action: SoftwareAction, plugins?: Plugins, skins?: Sk
     }
     case "checkPluginUpdates":
       return "Checked plugins for updates";
+    case "changePluginSource":
+      return `Changed how ${plugin} updates${params.repo ? ` · ${newSourceText(params)}` : ""}`;
+    case "changeSkinSource":
+      return `Changed how ${skin ?? "a Skin"} updates${params.repo || params.url ? ` · ${newSourceText(params)}` : ""}`;
     case "installSkin": {
       const installed = action.result?.skinId ? skinName(action.result.skinId, action.result.name, skins) : null;
       const what = installed ? `Installed the Skin ${installed}` : "Installed a Skin";
@@ -202,6 +222,12 @@ export function outcomeText(action: SoftwareAction, plugins?: Plugins, skins?: S
       if (action.kind === "checkSkinUpdates" && result?.results) return `Done${late} · ${updateCheckText(result.results, skinCheckedName(skins), "No Skin to check")}`;
       if ((action.kind === "checkDecaidUpdate" || action.kind === "startDecaidUpdate") && result?.decaid) return `Done${late} · ${decaidUpdateText(result.decaid)}`;
       if ((action.kind === "installPlugin" || action.kind === "approvePluginUpdate" || action.kind === "installSkin") && result?.version) return `Done${late} · ${result.version}`;
+      if ((action.kind === "changePluginSource" || action.kind === "changeSkinSource") && result?.version) {
+        // Its version before and after, as the new source may serve another; and the permissions a plugin's new build adds.
+        const versions = result.previousVersion && result.previousVersion !== result.version ? `${result.previousVersion} → ${result.version}` : result.version;
+        const added = result.addedPermissions?.length ? ` · adds ${result.addedPermissions.length === 1 ? "the permission" : "the permissions"} ${result.addedPermissions.join(", ")}` : "";
+        return `Done${late} · ${versions}${added}`;
+      }
       if (action.kind === "reloadSkin" && (result?.page?.version ?? result?.version)) return `Done${late} · showing ${result?.page?.version ?? result?.version}`;
       if (action.kind === "restartSkinView" && (result?.name ?? result?.skinId)) {
         return `Done${late} · showing ${result?.name ?? result?.skinId}${result?.version ? ` ${result.version}` : ""}`;
@@ -223,6 +249,7 @@ function refusalText(action: SoftwareAction): string {
       return "Refused: expired";
     case "changedSince":
     case "notAllowed":
+    case "differentItem":
       return refusal.message ? `Refused: ${refusal.message}` : "Refused";
     case "installNotPermitted":
       return (
@@ -268,6 +295,13 @@ function afterword(action: SoftwareAction): string | null {
     return "Someone at the Tablet must now confirm the update in Android's installer, then tap Open: Decaid does not reopen by itself.";
   }
   if (action.outcome === "notConfirmed" && action.kind === "reloadSkin") return "Restart the Skin view to load it again.";
+  if (action.outcome === "done" && action.kind === "changePluginSource" && action.result?.addedPermissions?.length) {
+    return "Its new build holds what it adds with no approval asked, as Decaid asks for none when a plugin is installed again.";
+  }
+  // Decaid's 409 for a plugin's install is its refusal of a build older than the one installed.
+  if (action.outcome === "refused" && action.kind === "changePluginSource" && action.refusal?.reason === "decaid" && action.refusal.status === 409) {
+    return "Decaid installs no build older than the one installed. Removing the plugin first would delete its settings, so nothing was changed.";
+  }
   return null;
 }
 

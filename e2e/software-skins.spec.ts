@@ -4,7 +4,7 @@ import { SimulatedSkins, recordedSkin } from "../server/test/support/decaid-skin
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { type SimulatedTablet, derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { field, openCard, rows } from "./support/locators.js";
+import { field, openCard, openRowMenu, rows } from "./support/locators.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 import { expectTip } from "./support/tooltips.js";
@@ -125,7 +125,11 @@ test("an Admin reads the Skins with how each updates, installs one from a sugges
   // The default is neither made the default again nor removed; one Decaid comes with is never removed.
   await expect(skinRow(page, "Streamline.js").getByRole("button", { name: /^(?!About )/ })).toHaveCount(0);
   await expect(skinRow(page, "Passione").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Make default"]);
-  await expect(skinRow(page, "Night Shift").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Make default", "Remove"]);
+  await expect(skinRow(page, "Passione").getByRole("button", { name: /^Actions for / })).toHaveCount(0);
+  // Another's is made the default by its button, with the rest in its menu.
+  await expect(skinRow(page, "Night Shift").getByRole("button", { name: "Make Night Shift the default" })).toBeVisible();
+  await expect((await openRowMenu(page, skinRow(page, "Night Shift"), "Night Shift")).getByRole("menuitem")).toHaveText(["Change how it updates…", "Remove"]);
+  await page.keyboard.press("Escape");
 
   // Streamline doesn't report its page: the strip names it and offers only the restart.
   await expect(strip(page)).toContainText("The Tablet is serving Streamline.js.This Skin doesn't report which build it has loaded.");
@@ -185,7 +189,7 @@ test("an Admin reads the Skins with how each updates, installs one from a sugges
   await expect(cell(skinRow(page, "Corner Cafe"), 1)).toHaveText("1.4.1");
 
   // Removed only once confirmed.
-  await skinRow(page, "Menu Board").getByRole("button", { name: "Remove Menu Board" }).click();
+  await (await openRowMenu(page, skinRow(page, "Menu Board"), "Menu Board")).getByRole("menuitem", { name: "Remove Menu Board" }).click();
   const remove = page.getByRole("alertdialog", { name: "Remove Menu Board?" });
   await expect(remove).toContainText("Decaid deletes it from the Tablet. It can be installed again from here.");
   await remove.getByRole("button", { name: "Remove" }).click();

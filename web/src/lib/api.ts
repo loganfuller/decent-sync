@@ -1,4 +1,4 @@
-import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileText, ProfileTextField } from "@decent-sync/protocol";
+import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileText, ProfileTextField, SourceSeen } from "@decent-sync/protocol";
 import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
@@ -486,6 +486,8 @@ export interface TabletPlugin {
   /** `notLoaded`: to load as Decaid starts, but not loaded now. */
   state: "enabled" | "disabled" | "notLoaded";
   updates: SoftwareUpdates;
+  /** Where Decaid says it came from and the build it is at: what a change of how it updates is made over. */
+  build: SourceSeen;
   /** What the latest update check said went wrong, in Decaid's words. */
   lastError: string | null;
   /** An update that waits for someone to approve the permissions it adds. */
@@ -504,6 +506,8 @@ export interface TabletSkin {
   /** Whether Decaid's Skin server is serving it now. */
   served: boolean;
   updates: SoftwareUpdates;
+  /** Where Decaid says it came from and the build it is at: what a change of how it updates is made over. */
+  build: SourceSeen;
   /** Whether it may be removed: it is neither the default, nor the one served, nor one that comes with Decaid. */
   removable: boolean;
   /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
@@ -541,8 +545,29 @@ export interface TabletSoftware {
   skins: TabletSkin[] | null;
   /** Null until the Tablet reports its Skins; absent from the previous release's answer during a deploy (ADR-0025). */
   showing?: TabletShowing | null;
-  /** The Tablet's plugin is from before Software Actions, and is sent none until it updates. */
+  /** Always false from this release's server; true from the previous release's for a plugin from before Software Actions. */
   pluginMustUpdate: boolean;
+  /**
+   * Whether the Tablet's plugin carries out a change of how a plugin or Skin
+   * updates: false for one of the previous release, which must update first.
+   * Absent from the previous release's answer during a deploy (ADR-0025).
+   */
+  takesSourceChanges?: boolean;
+}
+
+/**
+ * Where a plugin or Skin can be pinned to hold it at the build installed
+ * now, found through GitHub: what an install names for it, null where
+ * nothing matches, with the release tag or commit it would be held at, and
+ * why GitHub could not be asked where it could not.
+ */
+export interface PinnedSource {
+  source: { repo: string; branch: string } | { url: string } | null;
+  tag: string | null;
+  commit: string | null;
+  unavailable: string | null;
+  /** The item's source and build this was worked out from, as its row's `build`. */
+  build: SourceSeen;
 }
 
 /** A source the account's other Machines' plugins were installed from, for the install form. */
@@ -581,6 +606,8 @@ export type SoftwareActionRefusal =
   | { reason: "changedSince"; message: string | null }
   | { reason: "expired" }
   | { reason: "notAllowed"; message: string | null }
+  /** The source a change of how an item updates named held another plugin or Skin, in the plugin's words. */
+  | { reason: "differentItem"; message: string | null }
   /** Android's permission for Decaid to install apps is not granted at the Tablet, with Decaid's words. */
   | { reason: "installNotPermitted"; message: string | null }
   /** The Skin view was stopped and did not start again, so the Tablet shows no Skin, with why. */
@@ -594,10 +621,10 @@ export interface SoftwareAction {
   machineId: string;
   /**
    * installPlugin, enablePlugin, disablePlugin, changePluginSettings,
-   * checkPluginUpdates, approvePluginUpdate, removePlugin, installSkin,
-   * chooseDefaultSkin, checkSkinUpdates, removeSkin, reloadSkin,
-   * restartSkinView, checkDecaidUpdate or startDecaidUpdate; another for a
-   * later release's.
+   * checkPluginUpdates, approvePluginUpdate, removePlugin,
+   * changePluginSource, installSkin, chooseDefaultSkin, checkSkinUpdates,
+   * removeSkin, changeSkinSource, reloadSkin, restartSkinView,
+   * checkDecaidUpdate or startDecaidUpdate; another for a later release's.
    */
   kind: string;
   /** What it names: never a setting's value. */
@@ -609,6 +636,8 @@ export interface SoftwareAction {
     branch?: string | null;
     /** The URL a Skin is installed from. */
     url?: string;
+    /** For a change of how an item updates: its version and source as its Tablet reported them when it was made. */
+    expected?: Record<string, string | null>;
     version?: string;
     addedPermissions?: string[];
     settings?: string[];
@@ -633,6 +662,10 @@ export interface SoftwareAction {
     /** The plugin's or Skin's name, as its Tablet listed it. */
     name?: string;
     version?: string;
+    /** For a change of how an item updates: its version before. */
+    previousVersion?: string;
+    /** For a change of how a plugin updates: the permissions its new build adds, held with no approval asked. */
+    addedPermissions?: string[];
     loaded?: boolean;
     /**
      * An update check's result for each plugin or Skin: updated,

@@ -1,18 +1,24 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import {
   DECENT_SYNC_PLUGIN_ID,
+  DECENT_SYNC_REPO,
   MAX_SOFTWARE_ACTION_MS,
   MISSED_HEARTBEATS,
   OWN_CHANGEABLE_SETTING,
-  SOFTWARE_ACTIONS_WIRE_REVISION,
+  SOURCE_CHANGES_WIRE_REVISION,
   type SoftwareActed,
   type SoftwareActedRefusal,
   type SoftwareAction,
   type SoftwareActionKind,
   type SoftwareActionResult,
+  type SourceSeen,
   isSkinViewKind,
   isSoftwareActionKind,
+  isSourceChangeKind,
+  namesCommit,
   peerHasWireRevision,
+  pluginSourceSeen,
+  sameSourceSeen,
   sameValue,
   softwareActionMs,
 } from "@decent-sync/protocol";
@@ -36,6 +42,8 @@ export type SoftwareActionRefusalView =
   | { reason: "expired" }
   /** What the plugin would not do to itself or the default Skin, in its words. */
   | { reason: "notAllowed"; message: string | null }
+  /** The source a change of how an item updates named held another plugin or Skin, in the plugin's words: which, and what became of it. */
+  | { reason: "differentItem"; message: string | null }
   /** Android's permission for Decaid to install apps is not granted at the Tablet, with Decaid's words. */
   | { reason: "installNotPermitted"; message: string | null }
   /** The Skin view was stopped and did not start again, with Decaid's words. */
@@ -65,6 +73,8 @@ export interface SoftwareActionParams {
   branch?: string | null;
   /** The URL a Skin is installed from. */
   url?: string;
+  /** For a change of how an item updates: its source and build as its Tablet reported them when it was made, which the plugin installs over only while they still hold. */
+  expected?: SourceSeen;
   version?: string;
   addedPermissions?: string[];
   settings?: string[];
@@ -176,8 +186,9 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
    * (`SKIN_VIEW_KINDS`); 400 for one that names what the
    * Tablet does not report, or that Decent Sync's own plugin refuses; 409
    * while the Machine is offline, its connection's Tablet reports another
-   * machine's hardware, its plugin is from before Software Actions, or what
-   * the page showed is no longer what the Tablet reports.
+   * machine's hardware, its plugin is from before a change of how an item
+   * updates and is asked for one, or what the page showed is no longer what
+   * the Tablet reports.
    */
   async make(machineId: string, action: NewSoftwareAction, maker: SoftwareActionMaker): Promise<SoftwareActionView> {
     const admin = maker.role === AccountRole.ADMIN;
@@ -203,7 +214,9 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         throw new ConflictException("The Machine is offline: a Software Action is made only while its Tablet is connected, and is never kept for later");
       }
       if (holder.mismatched) throw new ConflictException("Its Tablet reports another machine's hardware than this Machine's, so nothing is asked of it");
-      if (!takesSoftwareActions(holder.wireRevision)) throw new ConflictException("The Tablet's plugin must update before it takes a Software Action");
+      if (isSourceChangeKind(action.kind) && !takesSourceChanges(holder.wireRevision)) {
+        throw new ConflictException("The Tablet's plugin must update before it can change how a plugin or Skin updates: check its plugins for updates first");
+      }
       const { params, held } = await this.checked(tx, machineId, action);
       const row = await tx.softwareAction.create({
         data: {
@@ -236,7 +249,9 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
   private async checked(tx: Prisma.TransactionClient, machineId: string, action: NewSoftwareAction): Promise<{ params: SoftwareActionParams; held: Held | null }> {
     if (action.kind === "installPlugin") return { params: { repo: action.repo, branch: action.branch }, held: null };
     if (action.kind === "installSkin") return { params: "url" in action ? { url: action.url } : { repo: action.repo, branch: action.branch }, held: null };
-    if (action.kind === "chooseDefaultSkin" || action.kind === "removeSkin" || action.kind === "reloadSkin") return { params: await this.checkedOnSkins(tx, machineId, action), held: null };
+    if (action.kind === "chooseDefaultSkin" || action.kind === "removeSkin" || action.kind === "reloadSkin" || action.kind === "changeSkinSource") {
+      return { params: await this.checkedOnSkins(tx, machineId, action), held: null };
+    }
     if (action.kind === "startDecaidUpdate") {
       const report = await tx.reportedCollection.findUnique({ where: { machineId_name: { machineId, name: "decaidUpdate" } }, select: { value: true, receivedAt: true } });
       const state = report?.receivedAt && isRecord(report.value) ? report.value : {};
@@ -260,6 +275,18 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         // The plugin refuses these itself, whatever it is sent: said here first, with nothing kept.
         if (own) throw new BadRequestException(`Decent Sync's own plugin can't be ${action.kind === "disablePlugin" ? "disabled" : "removed"} from here: that would cut the Tablet off from the server`);
         return { params: { plugin: named }, held: null };
+      case "changePluginSource": {
+        const expected = pluginSourceSeen(plugin);
+        // Its build too, not only how it updates: one a check moved since, at the same version, is not the one a pin from the page holds.
+        if (!sameSourceSeen(action.seen, expected)) {
+          throw new ConflictException(`${named.name ?? named.id} is at another version or source now than the page showed: load the page again`);
+        }
+        // The plugin refuses this itself, whatever it is sent: said here first, with nothing kept.
+        if (own && (action.repo.toLowerCase() !== DECENT_SYNC_REPO || (action.branch !== null && !namesCommit(action.branch)))) {
+          throw new BadRequestException(`Decent Sync's own plugin follows the releases of ${DECENT_SYNC_REPO} or is pinned to one of its commits: a build from anywhere else could cut the Tablet off from the server`);
+        }
+        return { params: { plugin: named, repo: action.repo, branch: action.branch, expected }, held: null };
+      }
       case "approvePluginUpdate": {
         const waiting = isRecord(plugin.pendingUpdate) ? plugin.pendingUpdate : null;
         if (waiting === null) throw new ConflictException("No update of this plugin waits for approval any more");
@@ -287,16 +314,18 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
   /**
    * What an action on a Skin names, checked against the Skins the Tablet
    * last reported: the Skin is there; one removed is neither the default, nor
-   * the one served, nor one that comes with Decaid, which keeps it; and for Reload, the Skin
-   * served now has reported its page.
+   * the one served, nor one that comes with Decaid, which keeps it; for Reload, the Skin
+   * served now has reported its page; and one whose source changes does not
+   * come with Decaid, and is at the version and source the page showed.
    */
   private async checkedOnSkins(
     tx: Prisma.TransactionClient,
     machineId: string,
-    action: Extract<NewSoftwareAction, { kind: "chooseDefaultSkin" | "removeSkin" | "reloadSkin" }>,
+    action: Extract<NewSoftwareAction, { kind: "chooseDefaultSkin" | "removeSkin" | "reloadSkin" | "changeSkinSource" }>,
   ): Promise<SoftwareActionParams> {
     const reports = await tx.reportedCollection.findMany({ where: { machineId, name: { in: ["skins", "skinPage"] }, receivedAt: { not: null } }, select: { name: true, value: true } });
-    const skins = skinViews(reports.find((report) => report.name === "skins")?.value, reports.find((report) => report.name === "skinPage")?.value) ?? [];
+    const reported = reports.find((report) => report.name === "skins")?.value;
+    const skins = skinViews(reported, reports.find((report) => report.name === "skinPage")?.value) ?? [];
     if (action.kind === "reloadSkin") {
       const served = skins.find((skin) => skin.served);
       if (!served) throw new ConflictException("Decaid serves no Skin on this Tablet now: restart the Skin view instead");
@@ -311,6 +340,22 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
       // Decaid would go on serving its deleted folder, which answers 404 once the page loads again (`defaultRemoved`).
       if (skin.served) throw new BadRequestException(`${skin.name ?? skin.id} is on screen now, so it can't be removed: restart the Skin view onto the default first`);
       if (skin.updates.how === "comesWithDecaid") throw new BadRequestException(`${skin.name ?? skin.id} comes with Decaid, which keeps it: it can't be removed`);
+    }
+    if (action.kind === "changeSkinSource") {
+      // Decaid installs its own repository's latest release again as it starts and at each update check, whatever it was installed from since.
+      if (skin.updates.how === "comesWithDecaid") {
+        throw new BadRequestException(`${skin.name ?? skin.id} comes with Decaid, which restores it from its own repository each time it starts: how it updates can't be changed`);
+      }
+      if (!sameSourceSeen(action.seen, skin.build)) {
+        throw new ConflictException(`${skin.name ?? skin.id} is at another version or source now than the page showed: load the page again`);
+      }
+      // From the branch a Skin was installed from Decaid installs nothing while it serves the same build, answering that it is current; from the same URL it installs the same build again, which changes nothing.
+      const source = "url" in action ? action.url : action.branch === null ? null : `github_branch:${action.repo}@${action.branch}`;
+      if (source !== null && source === skin.build.sourceUrl) {
+        throw new BadRequestException(`${skin.name ?? skin.id} already updates from there: choose another source, or check the Skins for updates to install its newest build`);
+      }
+      const to = "url" in action ? { url: action.url } : { repo: action.repo, branch: action.branch };
+      return { skin: { id: skin.id, name: skin.name }, ...to, expected: skin.build };
     }
     return { skin: { id: skin.id, name: skin.name } };
   }
@@ -418,13 +463,12 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
    * The actions made for a connection that it has not sent yet, oldest
    * first, claimed by setting when they were sent, while the connection
    * still holds its Machine, judged under the Machine's row lock; none once
-   * it does not, and none for a plugin from before Software Actions. Each
-   * carries the time it has left, by PostgreSQL's clock; one with none left
-   * is not sent. The statement that claims an action takes the values held
+   * it does not. Each carries the time it has left, by PostgreSQL's clock;
+   * one with none left is not sent, nor is a change of how an item updates
+   * to a plugin from before it, which `make` refuses first. The statement that claims an action takes the values held
    * for the plugin out of its row.
    */
   async claim(connection: { sessionId: string; machineId: string; wireRevision: number }): Promise<SoftwareAction[]> {
-    if (!takesSoftwareActions(connection.wireRevision)) return [];
     return this.prisma.$transaction(async (tx) => {
       const holds = await tx.$queryRaw<unknown[]>`
         SELECT 1 FROM machines WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid FOR NO KEY UPDATE`;
@@ -443,7 +487,7 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         SELECT claimed.id, claimed.kind, claimed.params, due.held,
           GREATEST(0, claimed.time_ms - FLOOR(EXTRACT(EPOCH FROM claimed.sent_at - claimed.made_at) * 1000))::integer AS "timeLeftMs"
         FROM claimed JOIN due ON due.id = claimed.id ORDER BY claimed.made_at, claimed.id`;
-      return claimed.flatMap((row) => messageOf(row) ?? []);
+      return claimed.flatMap((row) => (isSourceChangeKind(row.kind) && !takesSourceChanges(connection.wireRevision) ? [] : (messageOf(row) ?? [])));
     });
   }
 
@@ -476,9 +520,9 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-/** Whether a plugin at the wire revision takes Software Actions; one whose revision is not known does not yet. */
-export function takesSoftwareActions(wireRevision: number | null): boolean {
-  return wireRevision !== null && peerHasWireRevision(wireRevision, SOFTWARE_ACTIONS_WIRE_REVISION);
+/** Whether a plugin at the wire revision carries out a change of how a plugin or Skin updates (ADR-0035); one whose revision is not known does not yet. */
+export function takesSourceChanges(wireRevision: number | null): boolean {
+  return wireRevision !== null && peerHasWireRevision(wireRevision, SOURCE_CHANGES_WIRE_REVISION);
 }
 
 /** What is wrong with a value for a setting, by what its manifest declares, or null: never the value itself. */
@@ -510,6 +554,8 @@ function messageOf(row: { id: string; kind: string; params: SoftwareActionParams
     case "disablePlugin":
     case "removePlugin":
       return { ...base, kind, pluginId };
+    case "changePluginSource":
+      return { ...base, kind, pluginId, expected: row.params.expected ?? {}, repo: row.params.repo ?? "", ...(row.params.branch ? { branch: row.params.branch } : {}) };
     case "approvePluginUpdate":
       return { ...base, kind, pluginId, version: row.params.version ?? "", addedPermissions: row.params.addedPermissions ?? [] };
     case "changePluginSettings":
@@ -520,6 +566,10 @@ function messageOf(row: { id: string; kind: string; params: SoftwareActionParams
     case "chooseDefaultSkin":
     case "removeSkin":
       return { ...base, kind, skinId: row.params.skin?.id ?? "" };
+    case "changeSkinSource": {
+      const changed = { ...base, kind, skinId: row.params.skin?.id ?? "", expected: row.params.expected ?? {} };
+      return row.params.url ? { ...changed, url: row.params.url } : { ...changed, repo: row.params.repo ?? "", ...(row.params.branch ? { branch: row.params.branch } : {}) };
+    }
     case "checkSkinUpdates":
     case "reloadSkin":
     case "restartSkinView":
@@ -562,6 +612,7 @@ function refusalView(action: StoredAction): SoftwareActionRefusalView {
       return { reason, state: action.machineState };
     case "changedSince":
     case "notAllowed":
+    case "differentItem":
     case "installNotPermitted":
     case "noSkinServed":
       return { reason, message: action.message };
@@ -570,6 +621,10 @@ function refusalView(action: StoredAction): SoftwareActionRefusalView {
     default:
       return { reason: "decaid", status: action.decaidStatus, message: action.message };
   }
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
