@@ -1,7 +1,8 @@
 // The README's and the documentation site's images, captured raw into SCREENSHOT_DIR: run it through
 // `npm run readme-images` or `npm run site-images`, which also encode them (README.md beside this file). It is not one
-// of the e2e specs: CI runs it through `npm run site-images`, on a pull request that changes the management interface
-// and when the site is deployed. stills.ts names every image; each is captured here.
+// of the e2e specs: on a pull request that changes the management interface, CI captures the page stills alone, raw
+// (`SKIP_LIVE=1 node scripts/images/run.mjs --raw`), and the site's deploy runs `npm run site-images`. stills.ts names
+// every image; each is captured here.
 // Seeds a fresh test server with made-up Locations, Machines, Library and Shots through simulated tablets running the
 // built plugin. Each Shot's curves are a real recording, anonymized: Shots from real Machines reduced to their physics
 // (sample-shots.json, written by sample.mjs) and the repo's de1pro-v0.9.0/shot-preheat fixture. Names, serials, times
