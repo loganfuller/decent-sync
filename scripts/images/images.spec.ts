@@ -434,6 +434,8 @@ test("README and site images", async ({ page }) => {
   };
   const shotRows = page.getByRole("table", { name: "Shots" }).getByRole("row").filter({ has: page.getByRole("cell") });
 
+  const machineRows = page.getByRole("table", { name: "Machines" }).getByRole("row").filter({ has: page.getByRole("cell") });
+
   // The page stills, by their names in stills.ts. A still for a Guide page is one more entry here.
   const captures: Record<Exclude<StillName, "live-view" | "phone">, Capture> = {
     overview: {
@@ -489,6 +491,58 @@ test("README and site images", async ({ page }) => {
       },
       clip: spanning(region("How it runs"), region("Steps")),
       settle: 1500,
+    },
+    // The Guide's stills (#685). House Espresso's page: its Reference Shot beside its numbers by Machine.
+    recipe: {
+      height: 1400,
+      url: () => `/library/recipes/${houseRecipe.id}`,
+      ready: async () => {
+        await expect(region("By Machine").getByRole("row").filter({ hasText: "Bar Right" })).toBeVisible();
+        await expect(region("Reference Shot").getByRole("link", { name: "Open its Reference Shot" })).toBeVisible();
+      },
+      clip: toBottomOf(region("By Machine")),
+    },
+    machines: {
+      url: () => "/machines",
+      ready: async () => {
+        await expect(machineRows).toHaveCount(4);
+        await expect(machineRows.filter({ hasText: "Bar Left" }).getByRole("link", { name: "House Espresso", exact: true })).toBeVisible();
+      },
+      clip: toBottomOf(page.getByRole("table", { name: "Machines" })),
+    },
+    // Bar Left's tabs, each as a link to it opens it.
+    "machine-activity": {
+      height: 1800,
+      url: () => `/machines/${barLeft.id}?tab=activity`,
+      ready: async () => {
+        await expect(region("Use").getByRole("figure").first()).toBeVisible();
+        await expect(page.getByRole("table", { name: "Dial-in trail" }).getByRole("row").nth(1)).toBeVisible();
+      },
+      // Down to the trail's fourth entry: the one under it lists the whole Workflow in effect as the day began.
+      clip: async () => {
+        const { y, height } = await box(page.getByRole("table", { name: "Dial-in trail" }).getByRole("row").nth(4));
+        return { x: 0, y: 0, width: 1280, height: Math.floor(y + height) };
+      },
+    },
+    "machine-settings": {
+      height: 1400,
+      url: () => `/machines/${barLeft.id}?tab=settings`,
+      ready: async () => {
+        await expect(region("Settings").getByRole("heading", { name: "Machine Settings" })).toBeVisible();
+        await expect(region("Settings").getByText("Fan threshold")).toBeVisible();
+        await expect(region("Settings").getByRole("heading", { name: "Tablet Settings" })).toBeVisible();
+      },
+      // The Machine Settings, down to where the Tablet Settings start.
+      clip: async () => ({ x: 0, y: 0, width: 1280, height: Math.floor((await box(region("Settings").getByRole("heading", { name: "Tablet Settings" }))).y) - 16 }),
+    },
+    "machine-software": {
+      height: 3000,
+      url: () => `/machines/${barLeft.id}?tab=software`,
+      ready: async () => {
+        await expect(page.getByRole("table", { name: "Plugins" }).getByRole("row").nth(1)).toBeVisible();
+        await expect(page.getByRole("table", { name: "Skins" }).getByRole("row").nth(1)).toBeVisible();
+      },
+      clip: toBottomOf(region("Skins")),
     },
   };
 

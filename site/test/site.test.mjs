@@ -51,6 +51,42 @@ describe("the built site", () => {
         for (const page of PAGES) assert.ok(existsSync(join(dist, page, "index.html")), `${page} is missing`);
     });
 
+    // The Guide pages written so far (#685), by what a reader would miss, never by their wording: the page itself, its
+    // images, its steps, and its way to the Glossary.
+    const WRITTEN = {
+        "guide/shots": ["shots", "shot", "overview", "recipe"],
+        "guide/machines": ["machines", "live-view", "phone", "machine-activity", "machine-settings", "machine-software"],
+    };
+    const content = (path) => {
+        const html = read(path);
+        return html.slice(html.indexOf("<main"), html.indexOf("</main>"));
+    };
+
+    for (const [path, stills] of Object.entries(WRITTEN)) {
+        test(`${path} is written, with its images, its steps and a link to the Glossary`, () => {
+            const main = content(path);
+            assert.ok(!main.includes("This page is not written yet"), `${path} is still a placeholder`);
+            for (const still of stills) assert.ok(main.includes(`data-still="${still}"`), `${path} lacks the image ${still}`);
+            assert.ok(main.includes("<ol"), `${path} has no steps`);
+            assert.ok(main.includes('href="../../reference/glossary/"'), `${path} does not link to the Glossary`);
+        });
+    }
+
+    test("states the out-of-spec margins in one table, with the least Shots a group needs", () => {
+        const main = content("guide/shots");
+        const from = main.indexOf('id="what-out-of-spec-means"');
+        assert.ok(from > 0, "guide/shots has no section on what out of spec means");
+        const section = main.slice(from, main.indexOf("<h2", from + 1));
+        const tables = section.match(/<table[\s\S]*?<\/table>/g) ?? [];
+        assert.equal(tables.length, 1, "the section states its margins in one table");
+        const headings = [...tables[0].matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)].map(([, heading]) => heading.trim());
+        assert.ok(headings.includes("Least Shots"), `the margins table has no column for the least Shots: ${headings.join(", ")}`);
+        for (const margin of ["10%", "5%", "90%"]) assert.ok(tables[0].includes(margin), `the margins table lacks ${margin}`);
+        // Stated once: no other table of the page gives a margin.
+        const others = (main.match(/<table[\s\S]*?<\/table>/g) ?? []).filter((table) => table !== tables[0]);
+        for (const table of others) assert.ok(!/\b(10|5|90)%/.test(table), "a margin is stated in a second table");
+    });
+
     test("lists the six sections and every page in its sidebar, in order", () => {
         const html = read("guide/shots");
         const sidebar = html.slice(html.search(/<nav[^>]*aria-label="Main"/));
