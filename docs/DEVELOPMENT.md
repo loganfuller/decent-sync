@@ -142,6 +142,13 @@ To deploy the site without a release, run the Release workflow by hand
 (`gh workflow run release.yml -f ref=vX.Y.Z`) with the tag, branch or commit to
 build. It deploys the site alone, as that commit's version.
 
+GitHub Pages is turned on once, after the first deploy has made the
+`gh-pages` branch, by an owner of the repository:
+
+```sh
+gh api -X POST repos/loganfuller/decent-sync/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'
+```
+
 ## The simulation's scorecard
 
 `npm run simulation-scorecard` prints how close the simulation on a Profile's
