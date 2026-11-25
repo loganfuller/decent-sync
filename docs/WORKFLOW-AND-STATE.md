@@ -731,7 +731,7 @@ parts to the Recipe's content both ways.
   other Machines that have it loaded.
 - **A Skin's write of the record.** A record a Skin writes before the
   Workflow is taken in as any edit of the record is (`LIBRARY.md`, Taking
-  in a tablet's recipes; `PLUGIN.md`, Writing DYE2's recipes), the plugin
+  in a tablet's recipes; `site/src/content/docs/technical/skin-authors.md`, Writing DYE2's recipes), the plugin
   reading it as the Workflow change moves the bean or the profile (Reading
   a Skin's record write, above), so the record's edit comes first. Where
   the Workflow comes first, as from the previous release's plugin, the

@@ -22,6 +22,7 @@
     "test:e2e": "playwright test",
     "test:latest-release-suite": "node scripts/latest-release-suite.mjs",
     "check:plugin-build": "node scripts/check-plugin-build.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "package:plugin": "node scripts/package-plugin.mjs",
     "db:up": "docker compose up -d --wait db",
     "db:test": "node scripts/db-test.mjs",

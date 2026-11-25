@@ -9,4 +9,4 @@ This page is not written yet. It will hold:
 - What an Admin, Staff and a Viewer may each do, in a table.
 - Changing a person's role or Locations, and removing an account.
 
-Until then, see [Accounts in the self-hosting document](https://github.com/loganfuller/decent-sync/blob/main/docs/SELF-HOSTING.md#accounts).
+Until then, see [Invite people](../../get-started/invite-people/).

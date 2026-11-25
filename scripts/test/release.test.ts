@@ -65,6 +65,24 @@ describe("a release's upgrade notes", () => {
     "",
   ].join("\n");
 
+  it("are read from UPGRADING.md at the repository's root when no file is named, as the release workflow runs it", () => {
+    const root = fs.readFileSync(path.join(repo, "UPGRADING.md"), "utf8");
+    const workflow = fs.readFileSync(path.join(repo, ".github", "workflows", "release.yml"), "utf8");
+    expect(workflow).toContain('node scripts/release-notes.mjs "$GITHUB_REF_NAME" >');
+
+    const [, newest, body] = /^## (\d+\.\d+\.\d+)\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(root) ?? [];
+    expect(newest).toBeDefined();
+    const result = run("release-notes.mjs", `v${newest}`);
+    // Notes waiting under Unreleased stop any release, and name the file.
+    if (/^## Unreleased\n+(?!## )\S/m.test(root)) {
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("UPGRADING.md has notes under Unreleased");
+    } else {
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(`${body!.trim()}\n`);
+    }
+  });
+
   it("are the section headed with the tag's version, without its heading", () => {
     const result = notesFor("v0.3.0", upgrading);
     expect(result.stderr).toBe("");
