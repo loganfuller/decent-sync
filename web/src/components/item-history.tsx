@@ -171,8 +171,9 @@ export function ItemHistoryCard({ kind, id, names, closed = false, version = 0 }
         {`Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
       </p>
       <p>
-        A Lost Edit is a change that did not apply: it lost to another change of the same field made without seeing it, or a tablet joined
-        holding another value. It is shown with the change it lost to. To bring its value back, edit the {kindName(kind)}.
+        A Lost Edit is a change that did not apply: it lost to another change of the same field made without seeing it, or it was entered on a
+        tablet for something the Library already had, with another value. A tablet joining a Location keeps none: the Location&apos;s values are
+        written over its own. It is shown with the change it lost to. To bring its value back, edit the {kindName(kind)}.
       </p>
     </>
   );

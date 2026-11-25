@@ -1682,8 +1682,8 @@ export interface ItemVersion {
 
 /**
  * A Lost Edit: an edit to a field of a Library item that did not apply, because it lost to another edit of the same
- * field made without seeing it, or because a joining tablet's value differed from the Library's. Kept in the item's
- * history, to be read.
+ * field made without seeing it, or because a record entered on a tablet, of an item the Library already had, held another value. Kept in the
+ * item's history, to be read. A tablet joining a Location keeps none.
  */
 export interface LostEdit {
   id: string;

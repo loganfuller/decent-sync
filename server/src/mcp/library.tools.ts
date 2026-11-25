@@ -253,7 +253,7 @@ const historyEntry = version.extend({
   lost: z
     .boolean()
     .describe(
-      "Whether this is a Lost Edit: an edit that did not apply, because it lost to another edit of the same field made without seeing it, or because a joining tablet's value differed from the Library's. Its fields hold the one field with the value that lost, and receivedAt is when it lost. It is kept to be read: to bring its value back, edit the item.",
+      "Whether this is a Lost Edit: an edit that did not apply, because it lost to another edit of the same field made without seeing it, or because a record entered on a tablet, of an item the Library already had, held another value; a tablet joining a Location keeps none, as the Location's values are written over its own. Its fields hold the one field with the value that lost, and receivedAt is when it lost. It is kept to be read: to bring its value back, edit the item.",
     ),
   lostTo: z
     .object({

@@ -1,0 +1,199 @@
+---
+title: Profiles and Drafts
+description: Reading a Profile, editing one as a Draft, trying it on a Machine and publishing it.
+---
+
+import Still from "../../../components/Still.astro";
+
+A Profile is the program a Machine follows while pulling a Shot, such as a pressure or flow curve. Its page draws how it runs before you pull anything. To change one you edit a Draft, which is kept by the server and offered on no tablet until you publish it, so you can shape it, try it on one Machine and only then put it in front of baristas.
+
+This page covers reading a Profile, its Profile Versions, editing a Draft on its graph, trying it with Trial Shots, and publishing. The terms in capitals are defined in the [Glossary](../../reference/glossary/). Which Locations show a Profile is covered in [Library and Recipes](../library-and-recipes/#show-or-hide-a-profile-basket-or-tool).
+
+An Admin can do everything here. Staff can too, with two limits: they follow a Draft only on a Machine at a Location they work at, and show a Profile they publish, or a version they return to, only at such Locations. Marking a Location for trying Drafts is an Admin's alone. A Viewer reads Profiles and sees no Drafts.
+
+## Read a Profile
+
+Open **Library**, then **Profiles**, and open a Profile. Its page opens on **How it runs, simulated**: a simulation of the Profile on a standard puck.
+
+<Still name="profile" alt="A Profile's page: How it runs, simulated, with its dose, stop-at weight, Machine model and a finer to coarser Puck control; its time, first drip, peak pressure and flow at the stop; a graph with pressure, flow and temperature lanes, each step a named band, the plan dashed, and the first drip and the weight in the cup marked; then its Steps in plain words" />
+
+### The figures and the graph
+
+Four figures head the card: **Time**, **First drip**, **Peak pressure** and **Flow at the stop**.
+
+Under them the graph puts pressure, flow and temperature each in a lane of its own, on one time axis:
+
+- The solid line is the simulated run. The dashed line behind it is the plan, what the Profile asks for.
+- Each step is a band named at the top, with how long it ran and why it ended.
+- A step's exit, the threshold that moves it on, is a dotted line in the lane it watches. A limit is a shaded band in the lane it caps.
+- A row under the lanes marks the first drip and each 10 g in the cup, and a line marks where the Shot stops.
+
+Point at the graph, or focus it and use the arrow keys, to read the values at a moment.
+
+### Change what is simulated
+
+The simulation starts at 18 g in, stopping at the Profile's own stop-at weight. Change it with the controls above the figures:
+
+- **Dose** and **Stop at**, in grams.
+- **Use a Recipe's** takes the dose and yield of a Recipe on this Profile.
+- **Machine** switches between a **DE1** and a **Bengle**.
+- **Puck** runs from **Finer** to **Coarser**, to see how the Profile behaves when the grind is off.
+
+It is a simulation on a standard puck, not a measurement: it shows the shape of the run and how it shifts, not the exact numbers of your next Shot.
+
+### The steps in plain words
+
+The **Steps** card lists each step: **What the Machine does**, when it **Moves on**, and what the simulation did with it under **Simulated**. Under the steps are the Profile's brew temperature, where it stops, where preinfusion ends and its water tank, each with what a Recipe replaces: a Recipe's yield replaces the stop-at weight, for example.
+
+### What else is on the page
+
+- **Locations**: where it is shown.
+- **Recipes on this version**: the Recipes that name it, with their slots and the Machines that have each loaded.
+- **Title, author and notes**, with **Edit**. Changing these makes no new version.
+- **Shots** on it and its earlier versions, and its **History**.
+- **Export** saves it as Decaid's profile JSON, in a file named by its title.
+
+## Lay a Shot over it
+
+A real Shot over the simulation shows how close the two are.
+
+1. On the Profile's page press **Lay a Shot over it**.
+2. Choose a Shot. The list gives the Shots **On this Profile and its earlier versions** first, then **Any Shot**, which you can narrow to one Machine.
+3. Press **Choose**.
+
+The Shot's curves are drawn over the run. The simulation is set, once, to match it: the Shot's dose, the weight it stopped at, its Machine's model, and the grind that best imitates it. From there, moving **Puck** finer or coarser shows how that Shot would likely shift.
+
+Each control can still be changed after. **Lay another Shot over it** swaps the Shot, and **Remove the Shot** takes it off.
+
+## Profile Versions
+
+A change to a Profile's steps makes a new Profile Version: a new Profile saved from the one before. The **Versions** card lists the chain, the latest saved first, each with when and by whom it was saved, where it is shown and how many Shots it has. Decaid's bundled Profiles are named by their titles, and say **Bundled with Decaid**.
+
+- **Compare** opens two versions side by side: **What differs** lists the rows where their steps differ, and **How each runs, simulated** draws both on the same puck in one graph.
+- **Return to it** shows an earlier version again in place of the current one ([Return to an earlier version](#return-to-an-earlier-version)).
+
+## Start a Draft
+
+Every change to a Profile's steps starts as a Draft. There are three ways to start one.
+
+- **Edit**, on a Profile's page. The Draft publishes as a new version of that Profile. A Profile bundled with Decaid offers no **Edit**.
+- **Duplicate**, on a Profile's page, bundled ones included. The Draft publishes as a separate Profile, with " copy" after its title.
+- **New Profile**, on the **Profiles** tab. Start from one of six shapes, duplicate a Profile from the Library, or import a profile file.
+
+<Still name="new-profile" alt="The New Profile page: six starting shapes, Classic 9 bar, Declining lever, Steady flow, Blooming, Long and gentle and Blank, each drawn with a line on what it is for; then Duplicate one from the Library and Import a file" />
+
+The six shapes are **Classic 9 bar**, **Declining lever**, **Steady flow**, **Blooming**, **Long and gentle** and **Blank**. Each opens as a Draft of plain steps to change freely.
+
+**Import a file** takes a profile saved as JSON from Decaid or from another Decent Sync. Values the machine does not accept are held to what it does, and the Draft's page says which.
+
+A Draft is saved as it changes, with nothing to press. The **Profiles** tab lists every Draft, yours and other people's, in its **Drafts** card, above the Profiles, each with what it will publish as and who saved it last. **Open** returns to one, and **Discard** deletes it.
+
+## Edit a Draft on its graph
+
+A Draft's page is the Profile's page with the graph made editable. The graph simulates again on every change, with what the Draft started from drawn faint behind it, and each headline figure says how it differs from that.
+
+<Still name="draft" alt="A Draft's page: its checks, Undo, Redo, Publish and Discard the Draft; the card for following it on a Machine, here the Lab's; the graph, with the first step's target, exit and maximum time as handles, the version it started from faint behind the run and a Trial Shot's curves over it; and the Inspector beside it, on Step 1" />
+
+### Shape a step
+
+1. Select a step, in the **Steps** card or by its band on the graph.
+2. Drag its handles on the graph. A step has up to three: its **target**, in the lane of the pump that controls it; its **exit**, in the lane it watches; and its **maximum time**.
+3. Or use the keyboard: focus a handle and press the arrow keys, with Shift to move ten times as far.
+
+The **Inspector** beside the graph has the same step as fields, on its first tab, which is named for the step, such as "Step 1":
+
+- **The pump controls** **Pressure** or **Flow**, to a **Target**, **For at most** so many seconds.
+- **Gets there** **At once** or **Over the whole step**.
+- A limit on the other of pressure and flow.
+- **Moves on when** its time is up, or pressure or flow goes over or falls under a value.
+- **Temperature**, **Measured at** the **Coffee** or the **Water**.
+- **Or after pumping** a volume, **Or at a weight of** so many grams, which needs a scale.
+
+Its **Whole Profile** tab has what the Profile states once: **Title**, **Author**, **Notes**, **Brew temperature**, **Stop at weight**, **Stop at volume**, **Preinfusion ends**, **Tank temperature** and **Drink**.
+
+Each number is held to what the machine accepts as you type it.
+
+### Add, remove and reorder steps
+
+- **Add a step**, in the **Steps** card.
+- **Duplicate the step** and **Delete the step**, at the foot of the Inspector.
+- The up and down arrows on a step's row move it. Where preinfusion ends stays with the step it ends after.
+
+The undo and redo arrows, beside **Publish**, step through every change made in this sitting.
+
+### Read the checks
+
+The button beside the title says what the checks found, such as "Nothing stops publishing · 1 piece of advice". Open it for the list, in two parts:
+
+- **Stops it publishing**: what must be fixed first, such as steps a Profile in the Library already has.
+- **Advice**: what the machine accepts but you may not have meant, such as a target the run never reaches.
+
+## Try a Draft on a Machine
+
+Before publishing, a Machine can follow a Draft: the Draft's steps become what the Machine does next, and again on each save, without the Draft joining any tablet's Profiles.
+
+### Mark a Location for trying Drafts
+
+This is an Admin's to do, once, and is meant for a lab or a training bar, not a cafe in service.
+
+1. Open **Locations** and press **Edit** on the Location.
+2. Turn on **Drafts may be tried here** and press **Save**.
+
+Only Machines at a Location marked this way are offered to follow a Draft. Turning it off ends the following of every Machine there.
+
+### Follow the Draft
+
+1. On the Draft's page, in the card under its title, choose the Machine.
+2. Turn on **Follow on**.
+3. Read the notice and press **Follow**. The Machine's Loaded Recipe ends. Its dose, yield, Bean Batch, Grinder and Basket stay as they are.
+
+The card then says **The Machine has these steps**, and since when, or that it is waiting for the Machine: a tablet takes the steps once it is on and not pulling a Shot. On the tablet the Profile is named with "(Draft)" after its title.
+
+Every save of the Draft reaches the Machine by itself. Following stops when:
+
+- the Machine's Profile changes, whatever changes it: a barista, a Recipe being applied, or Streamline's wake profile;
+- you turn **Follow on** off, or have the Draft follow another Machine;
+- the Machine moves to another Location, its sharing is turned off, or its Location stops trying Drafts;
+- the Draft is published or discarded.
+
+The card says when it stopped and why, with **Follow again** to take it up.
+
+### Pull Trial Shots
+
+A Shot pulled on the following Machine with the Draft's steps is a Trial Shot. Nothing needs doing here: it appears in the **Trial Shots** card as soon as the server has it.
+
+- The latest Trial Shot on the current steps is laid over the Draft's graph as it arrives, with the simulation set to match it, as for any Shot laid over a Profile. What was simulated and what happened sit side by side.
+- Each Trial Shot says whether it ran **On these steps** or **On earlier steps**, pulled before your last change.
+- Open one on earlier steps to see it against the steps it ran.
+
+## Publish a Draft
+
+1. On the Draft's page press **Publish**. It is offered once the Draft changes something and nothing in its checks stops it.
+2. Read **What changed**, the steps that differ from what it started from.
+3. Under **Show it at**, choose the Locations to show it at. For a new version, those showing the old one start ticked. At least one is needed.
+4. For a new version, choose the Recipes to move to it. Each is listed under its Location as **Move**, with its slot and whether a Machine has it loaded now, and starts ticked: untick any that should stay on the old version.
+5. Press **Publish**.
+
+A Draft that changes only the title, author or notes of the Profile it edits skips steps 3 and 4. The dialog offers no Locations or Recipes, as the Profile stays shown where it is, with the Recipes that name it.
+
+Publishing needs no tablet online: each tablet at those Locations gets the Profile as it gets any other, now or when it next connects. What it becomes depends on how the Draft began.
+
+| The Draft began with | Publishing makes |
+|---|---|
+| **Edit**, and its steps changed | A new version, in the old one's place at the Locations you chose. The Recipes you chose move to it, keeping their Reference Shots, and the change reaches the Machines that have them loaded. The old version is hidden there, unless a Recipe you did not move, and not Archived, still names it. Locations you did not choose are left as they are. |
+| **Edit**, and only its title, author or notes changed | An edit of the Profile itself. No new version is made. |
+| **Duplicate**, a shape or a file | A separate Profile. It moves no Recipes and hides nothing. |
+
+The dialog also warns when a newer version was saved since the Draft began, on a tablet for example. Publishing a new version then saves the Draft from the version it started from all the same, so the versions fork. An edit of only the title, author or notes edits the version the Draft started from, and makes nothing new.
+
+A Draft is gone once published. To drop one without publishing, press **Discard the Draft**.
+
+After a Profile is published, its page warns where a tablet refused it, naming each Machine and why, such as a model that cannot run it.
+
+## Return to an earlier version
+
+1. Open the Profile and find the earlier version in its **Versions** card.
+2. Press **Return to it**.
+3. Choose the Locations and Recipes, as for publishing, and press **Return to this version**.
+
+The earlier version is shown again at those Locations in place of the current one, and the Recipes you chose move to it. Nothing new is created, and the version you returned from stays in the chain.

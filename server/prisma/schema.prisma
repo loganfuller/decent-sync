@@ -2134,8 +2134,9 @@ enum LostEditState {
 
 /// A Lost Edit (ADR-0033): an edit to a field of a Library item that did not
 /// apply, because it lost to another edit of the same field made without
-/// seeing it (ADR-0020), or because a joining tablet's value differed from
-/// the Library's (ADR-0018), kept in the item's history: the item, the
+/// seeing it (ADR-0020), or because a record entered on a tablet taking part,
+/// linked to an item the Library already had, held another value (ADR-0018;
+/// none is kept for a tablet joining a Location), kept in the item's history: the item, the
 /// field, the losing value, where it came from, when it was made, and the
 /// edit it lost to. Like `ItemVersion`, it names its item by kind and id,
 /// and a field of a Location's state names that Location. Its table is the

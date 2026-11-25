@@ -227,5 +227,5 @@ A library item retired everywhere: kept so that past shots still name it, but of
 _Avoid_: Deleted, hidden (a profile is hidden at one location)
 
 **Lost Edit**:
-An edit to a field of a library item that did not apply, because it lost to another edit of the same field made without seeing it, or because a joining tablet's value differed from the library's. It is kept in the item's history. A tablet whose record held a value has seen it, so a value a barista changed on the tablet is never kept as a Lost Edit against their own change.
+An edit to a field of a library item that did not apply, because it lost to another edit of the same field made without seeing it, or because a record a barista entered on a tablet, of an item the library already had, held another value. It is kept in the item's history. A tablet joining a location keeps none: the location's values are written over its own. A tablet whose record held a value has seen it, so a value a barista changed on the tablet is never kept as a Lost Edit against their own change.
 _Avoid_: Conflict, clash, collision
