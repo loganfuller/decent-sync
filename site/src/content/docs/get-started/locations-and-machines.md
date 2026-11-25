@@ -39,7 +39,8 @@ records, and nothing is shared with it
 ([Capture-only Machines](../../reference/tablet-plugin/#capture-only-machines)). A Machine is at one
 Location at a time, and takes on a Location's Library as it is added or moved
 there ([When a Machine joins a Location](../../reference/tablet-plugin/#when-a-machine-joins-a-location)).
-An Admin moves any Machine, and Staff move Machines at their own Locations.
+An Admin moves any Machine, and Staff move a Machine between their own
+Locations.
 
 ## Pending Machines
 

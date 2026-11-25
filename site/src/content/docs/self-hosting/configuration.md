@@ -26,7 +26,7 @@ problem.
 ## Docker Compose's settings
 
 With [Docker Compose](../../self-hosting/docker-compose/), set these in
-`.env`. Compose passes them to the server and to PostgreSQL:
+`.env`, next to the Compose file, which reads them:
 
 | Variable | Default | What it does |
 |---|---|---|
