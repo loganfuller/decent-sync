@@ -153,7 +153,11 @@ describe("Software Actions", () => {
     const password = "a made-up password for the test 4711";
     rememberSecret(password);
     // As reported: nothing set but the defaults Decaid holds none of, the secret not set.
-    const before = (await plugin(machine, VISUALIZER))!.settings;
+    // The plugin reports its plugins' settings after the plugin list `connected` waits for,
+    // and until then each setting is shown without a value (#692).
+    const settings = async () => (await plugin(machine, VISUALIZER))!.settings;
+    await expect.poll(async () => (await settings()).every((setting) => "value" in setting), { timeout: 15_000 }).toBe(true);
+    const before = await settings();
     expect(before.find((setting) => setting.name === "Password")).toMatchObject({ kind: "text", secret: true, value: { isSet: false }, changeable: true });
     expect(before.find((setting) => setting.name === "Username")).toMatchObject({ kind: "text", secret: false, value: null });
     expect(before.find((setting) => setting.name === "AutoUpload")).toMatchObject({ kind: "switch" });
