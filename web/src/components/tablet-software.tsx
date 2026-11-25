@@ -38,7 +38,7 @@ import {
 import { valueText } from "@/lib/settings-text";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { useNarrowScreen } from "@/lib/use-screen";
-import { type EditableSettingsField, isEditable, isPluginRepo, isSkinUrl, namesCommit, sameValue, settingsField } from "@decent-sync/protocol";
+import { type EditableSettingsField, isEditable, isPluginRepo, isSkinUrl, namesCommit, releaseAssetOf, sameValue, settingsField } from "@decent-sync/protocol";
 
 // A Machine's Software tab (#660, #661, ADR-0034): its Tablet Software,
 // Decaid, the plugins and the Skins, each with its version and how it
@@ -324,8 +324,11 @@ function updatesText(updates: SoftwareUpdates): [text: string, about?: string] {
     case "followsBranch":
       return [updates.repo ? `Follows a branch · ${updates.repo}, ${updates.branch}` : `Follows a branch · ${updates.branch}`, "An update check installs the branch's newest commit."];
     case "pinned": {
-      const commit = updates.commit ? ` at ${updates.commit.slice(0, 7)}` : "";
+      // A release's tag is shown whole, a commit abbreviated.
+      const held = updates.tag ?? updates.commit?.slice(0, 7);
+      const commit = held ? ` at ${held}` : "";
       const text = updates.repo ? `Pinned · ${updates.repo}${commit}` : `Pinned${commit}`;
+      if (updates.tag && updates.url) return [text, `Installed from ${updates.url}, one release's download, which no update check moves.`];
       return [text, updates.url ? `Installed from ${updates.url}, which no update check moves.` : "Installed from one fixed build, which no update check moves."];
     }
     case "followsUrl":
@@ -1100,7 +1103,9 @@ function InstallPluginForm({ machine, onCancel, onMade }: { machine: Machine; on
 /**
  * Installing a Skin on the Tablet: from a GitHub repository's latest
  * release, or a branch, which it then follows, or from the URL of a zip,
- * such as a commit's archive, which pins it. The sources the account's other
+ * such as a commit's archive, which pins it. The URL of one release's
+ * download pins it too, at that release's tag, which the form warns of as it
+ * is entered, offering to follow the repository's releases instead. The sources the account's other
  * Machines' Skins came from are suggested, and picking one fills the form.
  * Made, the dialog closes and the Skins card follows the action; refused at
  * once, the dialog says why.
@@ -1168,6 +1173,16 @@ function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCa
       setRepo(source.repo ?? "");
       setBranch(source.branch ?? "");
     }
+    setError(undefined);
+  }
+
+  // One release's download never changes (#677), which an Admin pasting a release's link may not mean.
+  const asset = which === "url" ? releaseAssetOf(url.trim()) : null;
+
+  function followReleases(named: string) {
+    setWhich("release");
+    setRepo(named);
+    setBranch("");
     setError(undefined);
   }
 
@@ -1276,6 +1291,18 @@ function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCa
             />
             <FieldDescription>A zip of the Skin. A commit's archive stays pinned.</FieldDescription>
           </FormField>
+        )}
+        {asset && (
+          // A notice, not an error: it shows as the URL is typed.
+          <Alert role="status">
+            <AlertTitle>This Skin will be Pinned at {asset.tag}</AlertTitle>
+            <AlertDescription>
+              <p>This URL is one release's download, which never changes, so no update check will move the Skin to a newer release.</p>
+              <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 whitespace-normal" onClick={() => followReleases(asset.repo)}>
+                Follow releases of {asset.repo} instead
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
       </FieldGroup>
       <p className="text-sm text-muted-foreground">A Skin newly installed is not the default: its row then offers Make default.</p>

@@ -827,7 +827,8 @@ Decaid has one setting for update checks, Tablet-wide, and nothing per item
 | A Skin Decaid flags `isBundled` | Comes with Decaid (`comesWithDecaid`): Decaid may put its latest release back as it starts |
 | A Skin whose `reaMetadata.sourceUrl` is `github_release:<repo>@…` | Follows releases |
 | A Skin whose `sourceUrl` is `github_branch:<repo>@<branch>` | Follows a branch |
-| A Skin from an `http` or `https` URL with a segment of 40 hexadecimal digits, a commit's archive | Pinned, with its URL and commit |
+| A Skin from a GitHub release asset's URL, `https://github.com/<owner>/<name>/releases/download/<tag>/<file>` (`releaseAssetOf`): one release's download, which never changes, so Decaid's check of the URL's ETag or Last-Modified never moves it | Pinned, with its URL, its `repo` and the release's `tag`, and no commit |
+| A Skin from any other `http` or `https` URL with a segment of 40 hexadecimal digits, a commit's archive | Pinned, with its URL and commit |
 | A Skin from any other URL | Follows its URL (`followsUrl`) |
 | A Skin with no `sourceUrl` | Not updated |
 

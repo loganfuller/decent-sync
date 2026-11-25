@@ -5,7 +5,7 @@
 // updates is worked out from where Decaid says it was installed from, with
 // no list of Decaid's ids.
 
-import { DECENT_SYNC_PLUGIN_ID, isSecretState, namesCommit } from "@decent-sync/protocol";
+import { DECENT_SYNC_PLUGIN_ID, isSecretState, namesCommit, releaseAssetOf } from "@decent-sync/protocol";
 import type { Report } from "../collections/paired-devices.js";
 
 /**
@@ -15,8 +15,9 @@ import type { Report } from "../collections/paired-devices.js";
  * - `followsReleases`: from a GitHub repository's latest release, so the
  *   next check installs a newer one;
  * - `followsBranch`: from a branch, so the next check installs its head;
- * - `pinned`: from a commit, or a URL naming a commit's archive, which
- *   never moves;
+ * - `pinned`: from a commit, or a URL naming a commit's archive or one
+ *   GitHub release's download, which never moves; the last carries the
+ *   release's `tag` and its repository in place of a commit;
  * - `followsUrl`: a Skin from any other URL, installed again once what the
  *   URL serves changes;
  * - `comesWithDecaid`: a Skin Decaid flags as built in, whose latest
@@ -26,7 +27,7 @@ import type { Report } from "../collections/paired-devices.js";
 export type UpdatesView =
   | { how: "followsReleases"; repo: string | null }
   | { how: "followsBranch"; repo: string | null; branch: string }
-  | { how: "pinned"; repo: string | null; commit: string | null; url: string | null }
+  | { how: "pinned"; repo: string | null; commit: string | null; tag?: string; url: string | null }
   | { how: "followsUrl"; url: string }
   | { how: "comesWithDecaid"; repo: string | null }
   | { how: "notUpdated" };
@@ -166,6 +167,9 @@ export function skinUpdates(skin: unknown): UpdatesView {
   if (source === null) return { how: "notUpdated" };
   if (github) return github[1] === "release" ? { how: "followsReleases", repo: github[2]! } : { how: "followsBranch", repo: github[2]!, branch: github[3]! };
   if (!/^https?:\/\//i.test(source)) return { how: "notUpdated" };
+  // One release's download (#677): Decaid's check of the URL's ETag or Last-Modified never moves it.
+  const asset = releaseAssetOf(source);
+  if (asset) return { how: "pinned", repo: asset.repo, commit: null, tag: asset.tag, url: source };
   const commit = source.match(COMMIT_IN_URL)?.[1] ?? null;
   return commit === null ? { how: "followsUrl", url: source } : { how: "pinned", repo: null, commit, url: source };
 }

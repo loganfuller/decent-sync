@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { pluginSources, pluginUpdates, pluginView, showingView, skinUpdates, skinViews, tabletSoftwareView } from "../src/software-actions/tablet-software.js";
+import { pluginSources, pluginUpdates, pluginView, showingView, skinSources, skinUpdates, skinViews, tabletSoftwareView } from "../src/software-actions/tablet-software.js";
 import { bundledPlugins, decaidUpdateState, recordedPlugin, skinsOn093 } from "./support/decaid-plugins.js";
 import { recordedSkin } from "./support/decaid-skins.js";
 import { pluginsAndSkinsAt } from "./support/simulated-tablet.js";
@@ -66,6 +66,28 @@ describe("how a Skin updates", () => {
     expect(skinUpdates(from(`https://github.com/decentespresso/streamline-js/archive/${commit}.zip`))).toEqual({ how: "pinned", repo: null, commit, url: `https://github.com/decentespresso/streamline-js/archive/${commit}.zip` });
     expect(skinUpdates(from("https://skins.example/streamline-latest.zip"))).toEqual({ how: "followsUrl", url: "https://skins.example/streamline-latest.zip" });
     expect(skinUpdates(from(null))).toEqual({ how: "notUpdated" });
+  });
+
+  it("is Pinned at its tag, with its repository, from the URL of one GitHub release's download, and follows that URL on any other host", () => {
+    // Derived, as above: the URL the Lab DE1Pro's Streamline Cafe was installed from (#676).
+    const [, recorded] = skins093[0]!;
+    const from = (sourceUrl: string) => ({ ...recorded, isBundled: false, reaMetadata: { ...(recorded.reaMetadata as Record<string, unknown>), sourceUrl } });
+    const cafe = "https://github.com/loganfuller/streamline-cafe-js/releases/download/v0.2.31-cafe.2/streamline-cafe.js-v0.2.31-cafe.2.zip";
+    expect(skinUpdates(from(cafe))).toEqual({ how: "pinned", repo: "loganfuller/streamline-cafe-js", commit: null, tag: "v0.2.31-cafe.2", url: cafe });
+    const plain = "https://github.com/decentespresso/streamline-js/releases/download/v0.2.31/streamline.zip";
+    expect(skinUpdates(from(plain))).toEqual({ how: "pinned", repo: "decentespresso/streamline-js", commit: null, tag: "v0.2.31", url: plain });
+    // A tag that reads as a commit is still the release's tag.
+    const hex = "https://github.com/example/skin/releases/download/97da8f8a1b2c3d4e5f60718293a4b5c6d7e8f901/skin.zip";
+    expect(skinUpdates(from(hex))).toEqual({ how: "pinned", repo: "example/skin", commit: null, tag: "97da8f8a1b2c3d4e5f60718293a4b5c6d7e8f901", url: hex });
+    // Another host's, and the latest release's download, which moves, follow their URL.
+    for (const url of ["https://gitlab.com/example/skin/releases/download/v1.0.0/skin.zip", "https://skins.example/releases/download/v0.2.31-cafe.2/skin.zip", "https://github.com/example/skin/releases/latest/download/skin.zip"])
+      expect(skinUpdates(from(url)), url).toEqual({ how: "followsUrl", url });
+    // One Decaid comes with is that first, whatever its source.
+    expect(skinUpdates({ ...from(cafe), isBundled: true })).toEqual({ how: "comesWithDecaid", repo: null });
+    // Suggested to other Machines by its URL, as an install takes it, with how it updates.
+    expect(skinSources([{ skins: [{ ...from(cafe), id: "streamline-cafe.js" }] }])).toEqual([
+      expect.objectContaining({ skinId: "streamline-cafe.js", repo: null, branch: null, url: cafe, machines: 1, updates: { how: "pinned", repo: "loganfuller/streamline-cafe-js", commit: null, tag: "v0.2.31-cafe.2", url: cafe } }),
+    ]);
   });
 
   it("is Pinned where it was installed from a commit's archive, as recorded, and follows releases or a branch where installed from one", () => {

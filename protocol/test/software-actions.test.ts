@@ -18,6 +18,7 @@ import {
   namesCommit,
   pluginSettingKey,
   pluginSettingOf,
+  releaseAssetOf,
   settingsHistoryChanges,
   settingsHistoryFields,
   softwareActionMs,
@@ -135,6 +136,40 @@ describe("a Software Action on the wire", () => {
     expect(decodePluginMessage(frame(readBack))).toEqual({ ok: true, message: readBack });
     expect(decodePluginMessage(frame({ ...readBack, softwareActionId: "action-1" }))).toMatchObject({ ok: false, problem: "collection.softwareActionId must be a UUID" });
     expect(decodePluginMessage(frame({ ...readBack, settingsEditId: id }))).toMatchObject({ ok: false, problem: "collection.settingsEditId must be absent" });
+  });
+
+  it("knows one GitHub release's download by its URL, with its repository and tag, and no other URL as one", () => {
+    const cafe = "https://github.com/loganfuller/streamline-cafe-js/releases/download/v0.2.31-cafe.2/streamline-cafe.js-v0.2.31-cafe.2.zip";
+    expect(releaseAssetOf(cafe)).toEqual({ repo: "loganfuller/streamline-cafe-js", tag: "v0.2.31-cafe.2" });
+    expect(releaseAssetOf("https://github.com/decentespresso/streamline-js/releases/download/v0.2.31/streamline.zip")).toEqual({ repo: "decentespresso/streamline-js", tag: "v0.2.31" });
+    // The host in any case or with www, a query after the file, and a tag written encoded.
+    expect(releaseAssetOf("HTTPS://WWW.GitHub.com/example/skin/releases/download/2026.11/skin.zip?download=1")).toEqual({ repo: "example/skin", tag: "2026.11" });
+    expect(releaseAssetOf("https://github.com/example/skin/releases/download/v1.0.0%2Bbuild.5/skin.zip")).toEqual({ repo: "example/skin", tag: "v1.0.0+build.5" });
+    expect(releaseAssetOf("https://github.com/example/skin/releases/download/100%/skin.zip")).toEqual({ repo: "example/skin", tag: "100%" });
+    // A tag with a slash, written encoded, is one path segment; written as a slash it is not, below.
+    expect(releaseAssetOf("https://github.com/example/skin/releases/download/release%2F1.0/skin.zip")).toEqual({ repo: "example/skin", tag: "release/1.0" });
+    for (const other of [
+      // Another host, however alike its path or name.
+      "https://gitlab.com/example/skin/releases/download/v1.0.0/skin.zip",
+      "https://skins.example/example/skin/releases/download/v1.0.0/skin.zip",
+      "https://github.com.skins.example/example/skin/releases/download/v1.0.0/skin.zip",
+      "https://notgithub.com/example/skin/releases/download/v1.0.0/skin.zip",
+      "https://objects.githubusercontent.com/example/skin/releases/download/v1.0.0/skin.zip",
+      // The latest release's download moves with each release.
+      "https://github.com/example/skin/releases/latest/download/skin.zip",
+      // A tag with a slash written as one, a commit's or a branch's archive, a release's page, and a download with no file.
+      "https://github.com/example/skin/releases/download/release/1.0/skin.zip",
+      "https://github.com/example/skin/archive/97da8f8a1b2c3d4e5f60718293a4b5c6d7e8f901.zip",
+      "https://github.com/example/skin/archive/refs/heads/main.zip",
+      "https://github.com/example/skin/releases/tag/v1.0.0",
+      "https://github.com/example/skin/releases/download/v1.0.0/",
+      "https://github.com/example/skin/releases/download/v1.0.0",
+      "github_release:example/skin@v1.0.0",
+      "",
+      null,
+      3,
+    ])
+      expect(releaseAssetOf(other), String(other)).toBeNull();
   });
 
   it("knows a repository, a commit and a secret's state", () => {

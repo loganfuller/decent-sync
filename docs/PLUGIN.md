@@ -240,7 +240,10 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
 - install a Skin from a GitHub repository's latest release, a branch, or a
   URL serving a zip, such as a commit's archive
   (`https://github.com/<owner>/<name>/archive/<commit>.zip`), which pins it:
-  Decaid installs no Skin from a commit given as a branch;
+  Decaid installs no Skin from a commit given as a branch. The URL of one
+  release's download (`…/releases/download/<tag>/<file>`) pins it at that
+  tag too, which the form warns of, offering to follow the repository's
+  releases instead;
 - choose the default Skin, which shows the next time the Skin view
   restarts, and check the Skins for updates;
 - remove a Skin that is neither the default, nor the one on screen, nor one that comes with Decaid;

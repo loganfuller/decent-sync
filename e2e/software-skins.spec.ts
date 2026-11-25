@@ -21,7 +21,9 @@ import { expectTip } from "./support/tooltips.js";
 // tablets run the built plugin, their Decaid managing its Skins as Decaid
 // v0.9.3 does (decaid-skins.ts); a Skin that reports its page is played by
 // the test through the plugin's `page` endpoint. The Skins are recorded
-// entries renamed to made-up repositories; serials are made up.
+// entries renamed to made-up repositories; serials are made up. One is given
+// the URL of one release's download as its source (#677), which reads as
+// Pinned at that release's tag and which the install form warns of.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const MENU_COMMIT = "5b0c8e7d2f4a6b1c3e9d8f7a6b5c4d3e2f1a0b9c";
@@ -40,6 +42,8 @@ const menuBoard = exampleSkin(recordedSkin("streamline-cafe.js-dist"), {
   version: "2.0.1",
   sourceUrl: `https://github.com/example/menu-board/archive/${MENU_COMMIT}.zip`,
 });
+const FLIGHT_URL = "https://github.com/example/tasting-flight/releases/download/v0.2.31-flight.2/tasting-flight.js-v0.2.31-flight.2.zip";
+const tastingFlight = exampleSkin(recordedSkin("streamline-cafe.js-dist"), { id: "tasting-flight.js", name: "Tasting Flight", version: "0.2.31", sourceUrl: FLIGHT_URL });
 
 let corners: { id: string; name: string };
 let frontId: string;
@@ -84,21 +88,23 @@ async function restart(page: Page) {
 
 test("an Admin reads the Skins with how each updates, installs one from a suggestion, makes it the default and restarts the Skin view onto it, checks for updates and removes one", async ({ page }) => {
   corners = await createLocation(page, "Corners");
-  // Another Machine, whose Corner Cafe and Menu Board the install form suggests.
+  // Another Machine, whose Corner Cafe, Menu Board and Tasting Flight the install form suggests.
   const backSkins = new SimulatedSkins();
   backSkins.install(corner);
   backSkins.install(menuBoard);
+  backSkins.install(tastingFlight);
   await tabletAt(page, server, "Back bar", corners, "27002", {}, { skins: backSkins });
   const { machine, token } = await createMachine(page, "Front bar", corners.id);
   frontId = machine.id;
   skins = new SimulatedSkins();
   skins.install(nightShift);
   skins.install(menuBoard);
+  skins.install(tastingFlight);
   skins.offer({ repo: "example/corner-cafe" }, corner);
   plugins = new SimulatedPlugins({ plugins: bundledPlugins() });
   front = server.keep(() => syncingTablet({ token }, { url: server.url() }, { api: derivedDe1Pro({ serial: "27001" }), plugins, skins }));
   await front.waitForLog(/^Connected to /);
-  await expect.poll(async () => (await software(page, frontId)).skins?.length ?? 0, { timeout: 15_000 }).toBe(9);
+  await expect.poll(async () => (await software(page, frontId)).skins?.length ?? 0, { timeout: 15_000 }).toBe(10);
 
   await page.goto(`/machines/${frontId}?tab=software`);
   const card = region(page, "Skins");
@@ -109,6 +115,7 @@ test("an Admin reads the Skins with how each updates, installs one from a sugges
     ["Streamline.js", "Comes with Decaid"],
     ["Night Shift", "Follows a branch · example/night-shift, dev"],
     ["Menu Board", "Pinned at 5b0c8e7"],
+    ["Tasting Flight", "Pinned · example/tasting-flight at v0.2.31-flight.2"],
     ["Passione", "Comes with Decaid"],
   ]) {
     await expect(cell(skinRow(page, name!), 2)).toHaveText(updates!);
@@ -136,7 +143,9 @@ test("an Admin reads the Skins with how each updates, installs one from a sugges
 
   // The Back bar's Skins are suggested with how each updates, and picking one fills the form.
   const suggestions = install.getByRole("region", { name: "In use on your other Machines" });
-  await expect(suggestions.getByRole("button")).toHaveText(["Corner Cafe 1.4.0 · follows releasesexample/corner-cafe · on 1 Machine", "Menu Board 2.0.1 · pinnedexample/menu-board at 5b0c8e7 · on 1 Machine"]);
+  await expect(suggestions.getByRole("button")).toHaveText(["Corner Cafe 1.4.0 · follows releasesexample/corner-cafe · on 1 Machine", "Menu Board 2.0.1 · pinnedexample/menu-board at 5b0c8e7 · on 1 Machine",
+    "Tasting Flight 0.2.31 · pinnedexample/tasting-flight at v0.2.31-flight.2 · on 1 Machine",
+  ]);
   await suggestions.getByRole("button", { name: /^Menu Board/ }).click();
   await expect(install.getByRole("radio", { name: "URL" })).toBeChecked();
   await expect(install.getByLabel("URL").and(install.getByRole("textbox"))).toHaveValue(`https://github.com/example/menu-board/archive/${MENU_COMMIT}.zip`);
@@ -172,7 +181,7 @@ test("an Admin reads the Skins with how each updates, installs one from a sugges
   // A newer release of Corner Cafe.
   skins.offerNewer("corner-cafe.js", "1.4.1");
   await card.getByRole("button", { name: "Check Skins for updates" }).click();
-  await expect(status).toHaveText("DoneChecked Skins for updates. Done · Corner Cafe updated to 1.4.1, 9 already current.");
+  await expect(status).toHaveText("DoneChecked Skins for updates. Done · Corner Cafe updated to 1.4.1, 10 already current.");
   await expect(cell(skinRow(page, "Corner Cafe"), 1)).toHaveText("1.4.1");
 
   // Removed only once confirmed.
@@ -182,6 +191,62 @@ test("an Admin reads the Skins with how each updates, installs one from a sugges
   await remove.getByRole("button", { name: "Remove" }).click();
   await expect(status).toHaveText("DoneRemoved the Skin Menu Board. Done.");
   await expect(skinRow(page, "Menu Board")).toHaveCount(0);
+});
+
+test("a Skin from the URL of one release's download reads as Pinned at its tag, and Install Skin warns of such a URL, offering to follow the repository's releases instead", async ({ page }) => {
+  await page.goto(`/machines/${frontId}?tab=software`);
+  await expect(cell(skinRow(page, "Tasting Flight"), 2)).toHaveText("Pinned · example/tasting-flight at v0.2.31-flight.2");
+  await expectTip(skinRow(page, "Tasting Flight"), "how it updates", `Installed from ${FLIGHT_URL}, one release's download, which no update check moves.`);
+
+  await region(page, "Skins").getByRole("button", { name: "Install Skin" }).click();
+  const install = page.getByRole("dialog", { name: "Install Skin" });
+  const url = install.getByLabel("URL").and(install.getByRole("textbox"));
+  const warning = install.getByRole("status");
+  const follow = install.getByRole("button", { name: "Follow releases of example/corner-cafe instead" });
+  await install.getByRole("radio", { name: "URL" }).click();
+  // Neither a commit's archive nor the latest release's download, which moves, is warned of.
+  await url.fill(`https://github.com/example/menu-board/archive/${MENU_COMMIT}.zip`);
+  await expect(warning).toHaveCount(0);
+  await url.fill("https://github.com/example/corner-cafe/releases/latest/download/corner-cafe.zip");
+  await expect(warning).toHaveCount(0);
+  // One release's download is, as it is entered, a pre-release's tag whole.
+  await url.fill("https://github.com/example/corner-cafe/releases/download/v1.4.0-rc.1/corner-cafe.js-v1.4.0-rc.1.zip");
+  await expect(warning).toHaveText(/^This Skin will be Pinned at v1\.4\.0-rc\.1\s*This URL is one release's download, which never changes, so no update check will move the Skin to a newer release\.\s*Follow releases of example\/corner-cafe instead$/);
+  // The warning is gone on another way to install, and back with the URL.
+  await install.getByRole("radio", { name: "Branch" }).click();
+  await expect(warning).toHaveCount(0);
+  await install.getByRole("radio", { name: "URL" }).click();
+  await follow.click();
+  await expect(install.getByRole("radio", { name: "Latest release" })).toBeChecked();
+  await expect(install.getByLabel("GitHub repository")).toHaveValue("example/corner-cafe");
+  await expect(warning).toHaveCount(0);
+
+  // A suggestion that is one release's download fills its URL, and is warned of the same.
+  await install.getByRole("region", { name: "In use on your other Machines" }).getByRole("button", { name: /^Tasting Flight/ }).click();
+  await expect(url).toHaveValue(FLIGHT_URL);
+  await expect(warning).toContainText("This Skin will be Pinned at v0.2.31-flight.2");
+  await install.getByRole("button", { name: "Follow releases of example/tasting-flight instead" }).click();
+  await expect(install.getByLabel("GitHub repository")).toHaveValue("example/tasting-flight");
+  await install.getByRole("button", { name: "Cancel" }).click();
+  await expect(install).toHaveCount(0);
+});
+
+test("an update check names a Skin that comes with Decaid by its repository, not another Skin Pinned at one of that repository's releases", async ({ page }) => {
+  // Derived: Streamline Pinned at a release's tag, listed before the Streamline Decaid comes with, whose newer build the check installs.
+  const own = new SimulatedSkins();
+  const bundled = own.listed().find((skin) => skin.id === "streamline.js")!;
+  own.install(exampleSkin(recordedSkin("streamline-cafe.js-dist"), { id: "streamline-held.js", name: "Streamline held", version: "0.2.30", sourceUrl: "https://github.com/decentespresso/streamline-js/releases/download/v0.2.30/streamline.zip" }));
+  own.install(bundled);
+  own.offerNewer("streamline.js", "0.2.33");
+  const { machine, token } = await createMachine(page, "Side bar", corners.id);
+  const side = server.keep(() => syncingTablet({ token }, { url: server.url() }, { api: derivedDe1Pro({ serial: "27009" }), plugins: new SimulatedPlugins({ plugins: bundledPlugins() }), skins: own }));
+  await side.waitForLog(/^Connected to /);
+  await expect.poll(async () => (await software(page, machine.id)).skins?.length ?? 0, { timeout: 15_000 }).toBe(8);
+  await page.goto(`/machines/${machine.id}?tab=software`);
+  await expect(cell(skinRow(page, "Streamline held"), 2)).toHaveText("Pinned · decentespresso/streamline-js at v0.2.30");
+  const card = region(page, "Skins");
+  await card.getByRole("button", { name: "Check Skins for updates" }).click();
+  await expect(card.getByRole("status")).toHaveText("DoneChecked Skins for updates. Done · Streamline.js updated, 7 already current.");
 });
 
 test("a Skin that reports its page shows its build and since when, a newer build installed, and Reload, done or not confirmed with its note", async ({ page }) => {
@@ -320,7 +385,7 @@ test("an Admin starts Decaid's update on the Tablet behind a confirmation, refus
     ["Reloaded the Skin Corner Cafe", "Not confirmed · The Skin was asked to reload, but no fresh page reported in within 15 s"],
     ["Reloaded the Skin Corner Cafe", "Done · showing 1.4.1"],
     ["Removed the Skin Menu Board", "Done"],
-    ["Checked Skins for updates", "Done · Corner Cafe updated to 1.4.1, 9 already current"],
+    ["Checked Skins for updates", "Done · Corner Cafe updated to 1.4.1, 10 already current"],
     ["Restarted the Skin view", "Done · showing Corner Cafe 1.4.0"],
     ["Made Corner Cafe the default Skin", "Done"],
     ["Installed the Skin Corner Cafe · example/corner-cafe", "Done · 1.4.0"],

@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { type SoftwareAction, type SoftwareActionPage, type TabletPlugin, type TabletSkin, api } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { useNarrowScreen } from "@/lib/use-screen";
-import { nameDecaidState, namesCommit } from "@decent-sync/protocol";
+import { nameDecaidState, namesCommit, releaseAssetOf } from "@decent-sync/protocol";
 
 // Software Actions (ADR-0034): what an Admin asked a Machine's Tablet to do
 // to its plugins, its Skins and Decaid, and Staff at its Location to its
@@ -56,13 +56,15 @@ function skinName(id: string | undefined, named: string | null | undefined, skin
 
 /**
  * Where a Skin is installed from as an install names it: its repository, with
- * a branch it follows, or its URL, a GitHub commit's archive shortened to its
- * repository and commit.
+ * a branch it follows, or its URL, a GitHub commit's archive or one release's
+ * download shortened to its repository and the commit or tag.
  */
 export function skinSourceText(source: { repo?: string | null; branch?: string | null; url?: string | null }): string {
   if (source.url) {
     const archive = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/archive\/([0-9a-f]{40})\.zip$/i.exec(source.url);
-    return archive ? `${archive[1]} at ${archive[2]!.slice(0, 7)}` : source.url;
+    if (archive) return `${archive[1]} at ${archive[2]!.slice(0, 7)}`;
+    const asset = releaseAssetOf(source.url);
+    return asset ? `${asset.repo} at ${asset.tag}` : source.url;
   }
   return source.repo ? sourceText(source.repo, source.branch) : "";
 }
@@ -175,7 +177,8 @@ function pluginCheckedName(plugins: Plugins): (item: string) => string {
 function skinCheckedName(skins: Skins): (item: string) => string {
   return (item) => {
     const repo = item.toLowerCase();
-    const skin = skins?.find((entry) => entry.id === item) ?? skins?.find((entry) => "repo" in entry.updates && entry.updates.repo?.toLowerCase() === repo);
+    // Only one that comes with Decaid is named by its repository: another from that repository, such as one Pinned at a release's tag, is named by its id.
+    const skin = skins?.find((entry) => entry.id === item) ?? skins?.find((entry) => entry.updates.how === "comesWithDecaid" && entry.updates.repo?.toLowerCase() === repo);
     return skin?.name ?? skin?.id ?? item;
   };
 }
