@@ -231,6 +231,24 @@ test("a Skin from the URL of one release's download reads as Pinned at its tag, 
   await expect(install).toHaveCount(0);
 });
 
+test("an update check names a Skin that comes with Decaid by its repository, not another Skin Pinned at one of that repository's releases", async ({ page }) => {
+  // Derived: Streamline Pinned at a release's tag, listed before the Streamline Decaid comes with, whose newer build the check installs.
+  const own = new SimulatedSkins();
+  const bundled = own.listed().find((skin) => skin.id === "streamline.js")!;
+  own.install(exampleSkin(recordedSkin("streamline-cafe.js-dist"), { id: "streamline-held.js", name: "Streamline held", version: "0.2.30", sourceUrl: "https://github.com/decentespresso/streamline-js/releases/download/v0.2.30/streamline.zip" }));
+  own.install(bundled);
+  own.offerNewer("streamline.js", "0.2.33");
+  const { machine, token } = await createMachine(page, "Side bar", corners.id);
+  const side = server.keep(() => syncingTablet({ token }, { url: server.url() }, { api: derivedDe1Pro({ serial: "27009" }), plugins: new SimulatedPlugins({ plugins: bundledPlugins() }), skins: own }));
+  await side.waitForLog(/^Connected to /);
+  await expect.poll(async () => (await software(page, machine.id)).skins?.length ?? 0, { timeout: 15_000 }).toBe(8);
+  await page.goto(`/machines/${machine.id}?tab=software`);
+  await expect(cell(skinRow(page, "Streamline held"), 2)).toHaveText("Pinned · decentespresso/streamline-js at v0.2.30");
+  const card = region(page, "Skins");
+  await card.getByRole("button", { name: "Check Skins for updates" }).click();
+  await expect(card.getByRole("status")).toHaveText("DoneChecked Skins for updates. Done · Streamline.js updated, 7 already current.");
+});
+
 test("a Skin that reports its page shows its build and since when, a newer build installed, and Reload, done or not confirmed with its note", async ({ page }) => {
   // Corner Cafe 1.4.0 loaded before its update to 1.4.1.
   await reportPage(front, "corner-cafe.js", "1.4.0");

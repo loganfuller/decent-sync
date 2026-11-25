@@ -177,7 +177,8 @@ function pluginCheckedName(plugins: Plugins): (item: string) => string {
 function skinCheckedName(skins: Skins): (item: string) => string {
   return (item) => {
     const repo = item.toLowerCase();
-    const skin = skins?.find((entry) => entry.id === item) ?? skins?.find((entry) => "repo" in entry.updates && entry.updates.repo?.toLowerCase() === repo);
+    // Only one that comes with Decaid is named by its repository: another from that repository, such as one Pinned at a release's tag, is named by its id.
+    const skin = skins?.find((entry) => entry.id === item) ?? skins?.find((entry) => entry.updates.how === "comesWithDecaid" && entry.updates.repo?.toLowerCase() === repo);
     return skin?.name ?? skin?.id ?? item;
   };
 }
