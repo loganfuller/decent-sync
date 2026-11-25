@@ -108,6 +108,10 @@ test("a Machine at a Location marked for it follows a Draft, its Trial Shot arri
   // With the Trial Shot over the run, where it stopped is named clear of the selected step's handles and the rest of what the graph writes (#621).
   await expect(graph(page).locator("[data-compared-stop]")).toContainText("The Shot stopped");
   await expect.poll(() => graphClashes(graph(page))).toEqual([]);
+  // The Trial Shot's curve is its own: what the Draft started from stays faint behind it, never drawn on from the Shot's end (#684).
+  const startedFrom = await graph(page).locator("[data-baseline] path").first().getAttribute("d");
+  expect(startedFrom).toMatch(/^M.+L/);
+  expect(await graph(page).locator("[data-compared] path").first().getAttribute("d")).not.toContain(startedFrom!.slice(1));
   // Beside the inspector the graph keeps its width, wider than a phone's 560 px.
   expect((await graph(page).locator("svg[data-graph-end]").first().boundingBox())!.width).toBeGreaterThanOrEqual(560);
   // Each can be changed after, the Trial Shot staying over the run.

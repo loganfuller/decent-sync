@@ -126,7 +126,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `generated/`: the images `npm run site-images` makes for the site's build, ignored by git.
 - `src/route-data.ts`: the canonical address of a minor release's page.
 - `check-links.mjs`: the check of the built site's internal links, run by its build.
-- `test/`: the built site's tests, in a browser (`npm test -w site`).
+- `test/`: the built site's tests, in a browser, and `guide-pages.test.mjs`, the written Guide pages read as source: their steps, images, Glossary link and the controls they name (`npm test -w site`).
 
 ### Tests, scripts and CI
 

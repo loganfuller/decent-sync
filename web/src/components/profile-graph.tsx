@@ -264,8 +264,8 @@ export function ProfileGraph({
   const baselinePoints = (lane: "pressure" | "flow") =>
     (baselineRun?.samples ?? []).map((sample): [number, number] | null => (sample.values[lane] === null ? null : [x(sample.seconds), y(lane, sample.values[lane]!)]));
   const points: Record<Lane, { run: ([number, number] | null)[]; plan: ([number, number] | null)[]; compared: ([number, number] | null)[] }> = {
-    pressure: { run: runPoints("pressure"), plan: planPoints("pressure"), compared: [...comparedPoints("pressure"), ...baselinePoints("pressure")] },
-    flow: { run: runPoints("flow"), plan: planPoints("flow"), compared: [...comparedPoints("flow"), ...baselinePoints("flow")] },
+    pressure: { run: runPoints("pressure"), plan: planPoints("pressure"), compared: comparedPoints("pressure") },
+    flow: { run: runPoints("flow"), plan: planPoints("flow"), compared: comparedPoints("flow") },
     temperature: { run: [], plan: temperaturePlan, compared: comparedPoints("temperature") },
   };
 
@@ -317,7 +317,7 @@ export function ProfileGraph({
       return [lane.key, { text, box: rows.find((box) => clear(box, within(lane.key), covered)) ?? rows[0]! }];
     }),
   ) as Record<Lane, { text: string; box: LabelBox }>;
-  // Each lane's curves, as what is written there keeps off them: the compared record's points and the baseline's are two curves, as `points` joins them.
+  // Each lane's curves, as what is written there keeps off them: the compared record's points and the baseline's are two curves.
   const laneCurves = Object.fromEntries(
     LANES.map((lane) => [lane.key, [points[lane.key].run, points[lane.key].plan, comparedPoints(lane.key), lane.key === "temperature" ? [] : baselinePoints(lane.key)].flatMap((curve) => densified(curve))]),
   ) as Record<Lane, [number, number][]>;

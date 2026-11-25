@@ -434,6 +434,32 @@ test("README and site images", async ({ page }) => {
   };
   const shotRows = page.getByRole("table", { name: "Shots" }).getByRole("row").filter({ has: page.getByRole("cell") });
 
+  /**
+   * A Draft of Gentle and sweet as a new version, its pour held a bar lower, followed on the Lab's Machine once the
+   * Lab is marked for trying Drafts, with one Trial Shot pulled on its steps: its id.
+   */
+  const triedDraft = async (): Promise<string> => {
+    const from = profile("Gentle and sweet")!;
+    type Draft = { id: string; title: string; saves: number; profile: { steps: { pump?: string; pressure?: number }[] } };
+    const { draft } = await post<{ draft: Draft }>(page, "/api/drafts", { profileId: from, as: "version" });
+    const steps = structuredClone(draft.profile.steps);
+    const pour = [...steps].reverse().find((step) => step.pump === "pressure" && typeof step.pressure === "number")!;
+    pour.pressure = pour.pressure! - 1;
+    const saved = await page.request.put(`/api/drafts/${draft.id}`, { data: { profile: { ...draft.profile, steps }, saves: draft.saves } });
+    expect(saved.status(), await saved.text()).toBe(200);
+    const marked = await page.request.patch(`/api/locations/${lab.id}`, { data: { triesDrafts: true } });
+    expect(marked.status(), await marked.text()).toBe(200);
+    const followed = await page.request.put(`/api/drafts/${draft.id}/following`, { data: { machineId: labMachine.id } });
+    expect(followed.status(), await followed.text()).toBe(200);
+    const held = () => labMachine.tablet.workflow().profile as { title?: string } | undefined;
+    await expect.poll(() => held()?.title, { timeout: 60_000 }).toBe(`${draft.title} (Draft)`);
+    // Pulled now, by the tablet's clock after it was written the Draft, with the Workflow's profile and no recipe.
+    const trial = shotOn(labMachine.tablet, labMachine.serial, labMachine.model, { ...at(labMachine, DF), id: "lb-trial", at: new Date(), source: sample[6]!, ...HUILA, barista: "Jonah", setting: "10.5" });
+    (trial.workflow as { profile: unknown }).profile = held();
+    labMachine.tablet.pullShot(trial);
+    return draft.id;
+  };
+
   // The page stills, by their names in stills.ts. A still for a Guide page is one more entry here.
   const captures: Record<Exclude<StillName, "live-view" | "phone">, Capture> = {
     overview: {
@@ -489,6 +515,52 @@ test("README and site images", async ({ page }) => {
       },
       clip: spanning(region("How it runs"), region("Steps")),
       settle: 1500,
+    },
+    // House Espresso's page (#684): how it is pulling today, then its Reference Shot.
+    recipe: {
+      height: 1600,
+      url: () => `/library/recipes/${houseRecipe.id}`,
+      ready: async () => {
+        await expect(page.getByRole("heading", { name: "How it is pulling" })).toBeVisible();
+        await expect(region("Reference Shot").getByRole("link", { name: "Open its Reference Shot" })).toBeVisible();
+        await expect(page.getByText("Loading", { exact: true })).toHaveCount(0);
+      },
+      clip: toBottomOf(region("Reference Shot")),
+    },
+    // The same page's Recipe card: what the Recipe holds.
+    "recipe-details": {
+      height: 3000,
+      url: () => `/library/recipes/${houseRecipe.id}`,
+      ready: async () => {
+        await expect(region("Recipe").getByText("Gentle and sweet")).toBeVisible();
+        await expect(region("Recipe").getByText("Bean Batch", { exact: true })).toBeVisible();
+      },
+      clip: spanning(region("Recipe"), region("Recipe")),
+      settle: 1000,
+    },
+    "new-profile": {
+      height: 1400,
+      url: () => "/library/profiles/new",
+      ready: async () => {
+        await expect(page.getByRole("button", { name: /^Start from / })).toHaveCount(6);
+        await expect(page.getByRole("button", { name: "Duplicate", exact: true })).toBeVisible();
+      },
+      clip: toBottomOf(page.getByRole("button", { name: "Choose a file" })),
+      settle: 1500,
+    },
+    // A Draft of Gentle and sweet, tried at the Lab (#684). It is the last still: the Draft, the Lab's following and
+    // its Trial Shot are made here, as its address is asked for, so no other still shows them.
+    draft: {
+      height: 2600,
+      url: async () => `/library/drafts/${await triedDraft()}`,
+      ready: async () => {
+        await expect(region("On a Machine")).toContainText("The Machine has these steps, since");
+        await expect(region("Trial Shots").getByRole("listitem")).toHaveCount(1);
+        await expect(region("How it runs")).toContainText("The Trial Shot, as it ran");
+        await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeVisible();
+      },
+      clip: toBottomOf(region("How it runs")),
+      settle: 2000,
     },
   };
 
