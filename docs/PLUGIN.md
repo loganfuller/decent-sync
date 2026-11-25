@@ -273,7 +273,8 @@ plugins back afterwards, so the Machine's Settings History ties what changed
 to the action. Whatever it is sent, it never disables or removes itself, of
 its own settings changes only the poll interval, as its server address and
 Token are set on the tablet, changes how it updates itself only to follow
-the releases of its own repository or to pin one of its commits, and never
+the releases of its own repository or to pin one of its commits (of which
+Decaid installs none, the repository's root not being the plugin), and never
 removes the default Skin or the one on screen. An install from a repository whose plugin is
 `decent-sync.reaplugin` replaces this plugin with that build, as Decaid
 installs it: like every Software Action, it is an Admin's, trusted with the

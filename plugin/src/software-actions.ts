@@ -394,7 +394,7 @@ export class SoftwareActions {
     for (;;) {
       if (this.stopped) return undefined;
       const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
-      const installed = after === undefined ? undefined : installedSkin(before, after);
+      const installed = after === undefined ? undefined : installedSkin(before, after, action.kind === "changeSkinSource" ? action.skinId : undefined);
       if (installed !== undefined) return found ? installed : { type: "softwareActed", id: action.id, outcome: "done", result: skinNamed(installed) };
       if (Date.now() + WATCH_STEP_MS > until) return undefined;
       await new Promise<void>((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
@@ -889,14 +889,14 @@ function skinInstalls(report: Record<string, unknown>): Map<string, string> {
 
 /**
  * The Skin an install put on the Tablet: one new since `before`, or
- * installed again since. The one an action named, where it is, so that
- * another Decaid installed again meanwhile, as at its own update check, is
- * not taken for it.
+ * installed again since. The one an action named, where it is, then one new
+ * since, so that another Decaid installed again meanwhile, as at its own
+ * update check, is not taken for it.
  */
 function installedSkin(before: Record<string, unknown>, after: Record<string, unknown>, named?: string): Record<string, unknown> | undefined {
   const earlier = skinInstalls(before);
   const changed = [...skinInstalls(after)].filter(([skinId, installed]) => earlier.get(skinId) !== installed).map(([skinId]) => skinId);
-  const id = named !== undefined && changed.includes(named) ? named : changed[0];
+  const id = named !== undefined && changed.includes(named) ? named : (changed.find((skinId) => !earlier.has(skinId)) ?? changed[0]);
   return id === undefined ? undefined : skinsIn(after).find((skin) => skin.id === id);
 }
 

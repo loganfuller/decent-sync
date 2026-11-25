@@ -1137,8 +1137,9 @@ How each is made, carried out and answered:
     from, at the same version, rolls nothing back; or no such item; with
     400 for Decent Sync's own plugin to any source but the latest release of
     its own repository or one of its commits, for a Skin that comes with
-    Decaid, and for a Skin to the branch or URL it was installed from, which
-    Decaid installs nothing from while it serves the same build. The
+    Decaid, and for a Skin to the branch or URL it was installed from: from
+    the branch Decaid installs nothing while it serves the same build, and
+    from the URL it installs the same build again, which changes nothing. The
     action's `params` keep it as `expected`.
   - **Pinning it where it is now.** `GET
     /api/machines/:id/pinned-source?pluginId=` or `?skinId=`, an Admin's,

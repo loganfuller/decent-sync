@@ -277,6 +277,18 @@ describe("A change of how a plugin or Skin updates, carried out by the plugin", 
     await actions.apply(skinChange(decaid, { repo: "example/tasting-flight" }), () => true);
     expect(answers).toEqual([{ type: "softwareActed", id, outcome: "done", result: { skinId: FLIGHT, name: "Tasting Flight", version: "0.2.32-flight.1", previousVersion: "0.2.31-flight.2" } }]);
     expect(decaid.managed).toEqual(["POST /webui/skins/install/github-release"]);
+
+    // The same where Decaid's call timed out and the install is watched for.
+    decaid.skinSources.set("example/tasting-flight@dist", { ...flight(), version: "0.2.33-dev.4", reaMetadata: { skinId: FLIGHT, sourceUrl: "github_branch:example/tasting-flight@dist" } });
+    decaid.failing = { route: /\/install\//, error: "localApi call timed out after 60s", carriedOut: true };
+    await actions.apply(skinChange(decaid, { repo: "example/tasting-flight", branch: "dist" }), () => true);
+    expect(answers[1]).toMatchObject({ outcome: "done", result: { skinId: FLIGHT, version: "0.2.33-dev.4", previousVersion: "0.2.32-flight.1" } });
+
+    // Where the source held another Skin, that one, new, is taken over the one installed again: removed, and the action refused.
+    decaid.skinSources.set("example/nsx", { id: "nova.js", name: "Nova", version: "1.0.0", path: "/web-ui/nova.js", isBundled: false, reaMetadata: { sourceUrl: "github_release:example/nsx@v1.0.0" } });
+    await actions.apply(skinChange(decaid, { repo: "example/nsx" }), () => true);
+    expect(answers[2]).toMatchObject({ outcome: "refused", reason: "differentItem", message: expect.stringContaining("another Skin, Nova, not Tasting Flight") });
+    expect(decaid.skins.some((skin) => skin.id === "nova.js")).toBe(false);
   });
 
   it("refuses as differentItem where the source holds another Skin, removing it again unless the Tablet held it before", async () => {

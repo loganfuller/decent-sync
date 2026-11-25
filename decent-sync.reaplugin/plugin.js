@@ -5833,7 +5833,7 @@ var __decentSync = (() => {
       for (; ; ) {
         if (this.stopped) return void 0;
         const after = await this.reports.readSoftwareSkins(action.id).catch(() => void 0);
-        const installed = after === void 0 ? void 0 : installedSkin(before, after);
+        const installed = after === void 0 ? void 0 : installedSkin(before, after, action.kind === "changeSkinSource" ? action.skinId : void 0);
         if (installed !== void 0) return found ? installed : { type: "softwareActed", id: action.id, outcome: "done", result: skinNamed(installed) };
         if (Date.now() + WATCH_STEP_MS > until) return void 0;
         await new Promise((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
@@ -6264,7 +6264,7 @@ var __decentSync = (() => {
   function installedSkin(before, after, named) {
     const earlier = skinInstalls(before);
     const changed = [...skinInstalls(after)].filter(([skinId, installed]) => earlier.get(skinId) !== installed).map(([skinId]) => skinId);
-    const id = named !== void 0 && changed.includes(named) ? named : changed[0];
+    const id = named !== void 0 && changed.includes(named) ? named : changed.find((skinId) => !earlier.has(skinId)) ?? changed[0];
     return id === void 0 ? void 0 : skinsIn(after).find((skin) => skin.id === id);
   }
   function skinResultOf(action, answer, before, after) {

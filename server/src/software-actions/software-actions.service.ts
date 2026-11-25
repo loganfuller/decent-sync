@@ -349,7 +349,7 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
       if (!sameSourceSeen(action.seen, skin.build)) {
         throw new ConflictException(`${skin.name ?? skin.id} is at another version or source now than the page showed: load the page again`);
       }
-      // Decaid installs nothing from the branch or URL a Skin was installed from while it serves the same build, and answers that it is current.
+      // From the branch a Skin was installed from Decaid installs nothing while it serves the same build, answering that it is current; from the same URL it installs the same build again, which changes nothing.
       const source = "url" in action ? action.url : action.branch === null ? null : `github_branch:${action.repo}@${action.branch}`;
       if (source !== null && source === skin.build.sourceUrl) {
         throw new BadRequestException(`${skin.name ?? skin.id} already updates from there: choose another source, or check the Skins for updates to install its newest build`);
