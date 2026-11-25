@@ -104,8 +104,9 @@ current build and ffmpeg, takes about 4 minutes, and runs at any hour.
   change redraws.
 - The site's images are built when it is deployed, by `npm run site-images`
   into `site/generated/`, and never committed.
-- A pull request that changes `web/` or the generator runs it in CI's `stills`
-  job, which keeps the images as the run's `stills` artifact.
+- A pull request that changes `web/` or the generator captures its page stills
+  in CI's `stills` job, which keeps them as the run's `stills` artifact. The
+  Live View GIF and the phone are captured only at the deploy.
 
 [scripts/images/README.md](../scripts/images/README.md) has its options, what
 each image shows, how it is made, and how a Guide page adds one of its own.

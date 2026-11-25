@@ -8,7 +8,7 @@ One generator makes the images of the management interface that `README.md` and 
 - The site's images are built: the site's deploy (`.github/workflows/release.yml`) generates every image into `site/generated/` with `npm run site-images` and builds the site with them. None is committed, and `site/generated/` is ignored by git.
 - A build of the site without them, such as a pull request's or `npm run dev -w site`, shows the README's committed copy in their place, and an image the README does not commit as a line saying it is built at deploy (`site/src/pick-still.mjs`).
 - A failed capture fails the site's deploy, and the release it follows stays published.
-- A pull request that changes `web/` or this folder runs `npm run site-images` in CI's `stills` job and builds the site with the images, as the deploy does. The run keeps them as its `stills` artifact, for a reviewer to look at.
+- A pull request that changes `web/` or this folder captures the page stills in CI's `stills` job (`SKIP_LIVE=1`, `--raw`), each asserting its page's content, and the run keeps the captures as its `stills` artifact, for a reviewer to look at. The Live View GIF and the phone are captured only at the deploy, so a change that breaks them fails the deploy rather than the pull request.
 
 ## Running it
 
@@ -16,12 +16,13 @@ You need:
 
 - the test PostgreSQL (`npm run db:test`), with `TEST_DATABASE_URL` naming it in the environment or `.env`;
 - a current build (`npm run build`, or `npm run build:stale`);
-- ffmpeg on `PATH` (macOS: `brew install ffmpeg`).
+- ffmpeg on `PATH` (macOS: `brew install ffmpeg`), but for `--raw`.
 
 ```bash
 npm run readme-images                  # into dist/readme-images, to copy over into docs/images/
 npm run readme-images -- <directory>   # into a directory of your own
 npm run site-images                    # into site/generated/, for the site's build to read
+node scripts/images/run.mjs --raw <directory>   # captures only, into <directory>/raw: no encoding, no ffmpeg
 ```
 
 - A whole run takes about 4 minutes, at any hour (Time and zone, below).

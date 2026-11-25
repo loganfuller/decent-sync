@@ -392,17 +392,20 @@ jobs:
 
       - *postgres-logs
 
-  # The README's and the documentation site's images (scripts/images/), on a
-  # pull request that changes the management interface or the generator. Each
-  # asserts its page's content before it is captured, and the site is built
-  # with them as the deploy builds it (release.yml), so a page that no longer
-  # shows what its image should fails here rather than at a release. The run
-  # keeps the images, as its `stills` artifact, for a reviewer to look at.
+  # The page stills of the README's and the documentation site's images
+  # (scripts/images/), on a pull request that changes the management interface
+  # or the generator. Each asserts its page's content before it is captured,
+  # so a page that no longer shows what its still should fails here rather
+  # than at the site's deploy (release.yml). The run keeps the captures, as its
+  # `stills` artifact, for a reviewer to look at. The Live View GIF and the
+  # phone are left to the deploy: recording the GIF in real time would make
+  # this the slowest job of the run, and the captures are not encoded, so no
+  # ffmpeg.
   stills:
     needs: changes
     if: needs.changes.outputs.stills == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     env: *env
 
@@ -417,28 +420,21 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --only-shell --no-progress chromium
 
-      - name: Install ffmpeg
-        run: command -v ffmpeg || { sudo apt-get update --quiet && sudo apt-get install --yes --quiet --no-install-recommends ffmpeg; }
-
       - *wait-postgres
 
-      - name: Capture the images
-        run: npm run site-images
-
-      - name: Build the site with them, as the deploy does
+      - name: Capture the page stills
         env:
-          SITE_IMAGES: generated
-        run: npm run build -w site
+          SKIP_LIVE: "1"
+        run: node scripts/images/run.mjs --raw dist/stills
 
-      - name: Upload the images
+      - name: Upload the stills
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: stills
           path: |
-            site/generated/*.png
-            site/generated/*.gif
-            site/generated/playwright/
+            dist/stills/raw/*.png
+            dist/stills/playwright/
           retention-days: 14
 
       - *postgres-logs
