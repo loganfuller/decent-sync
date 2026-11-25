@@ -93,7 +93,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/skin-requests/`: answers to what a plugin asks for a Skin.
 - `src/live-view/`: the Live View's stream, leases and relay.
 - `src/connected-apps/`: the OAuth authorization server and Connected Apps.
-- `src/mcp/`: the MCP endpoint and its tools.
+- `src/mcp/`: the MCP endpoint and its tools; `tools.ts` lists the classes that hold them and reads every tool's definition, which the documentation site's Assistant tools page is written from.
 - `test/`: Seam 1 tests, one file per area.
 - `test/recipe-steam-switch.test.ts`: a load switching steam, and a Recipe holding "Off" (#616).
 - `test/support/`: the test server, simulated tablet, simulated DYE2 and Streamline, Decaid stand-ins, proxies and fixtures.
@@ -123,6 +123,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `astro.config.mjs`, `site.config.mjs`: the documentation site's Astro Starlight config with its sidebar, which settles every page's address; where it is published.
 - `src/content/docs/`: the site's pages in Markdown, a folder per section; `index.mdx` is the home page.
 - `src/root-pages.mjs`: the Glossary and Upgrade notes pages, rendered from `GLOSSARY.md` and `UPGRADING.md` at the root with no copy.
+- `src/assistant-tools.mjs`: the Assistant tools page, written as the site is built from the compiled server's tool definitions (`server/src/mcp/tools.ts`), with no file of its own.
 - `src/components/`, `src/styles/theme.css`: the home page, the footer naming the release, `Still.astro` showing one of the generator's images in the site's theme, and the management interface's font and palette on Starlight.
 - `src/pick-still.mjs`: which file a still shows, the deploy's generated one or the README's committed copy.
 - `generated/`: the images `npm run site-images` makes for the site's build, ignored by git.
@@ -174,7 +175,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `site/src/content/docs/self-hosting/internet.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |
 | What the plugin serves a Skin on its tablet | ADR-0030, ADR-0031; `AI_PROTOCOL_NOTES.md`, Requests for a Skin; `site/src/content/docs/technical/skin-authors.md`; `AI_RUNTIME_NOTES.md`, Skins; milestone 8's spec |
 | The management interface's pages and components | ADR-0011; `AI_WEB_NOTES.md`; the topic doc of the data a page shows; `docs/agents/pull-requests.md`, Screenshots |
-| Docs people read to run and use Decent Sync | `README.md`; the documentation site's pages in `site/src/content/docs/`: `get-started/` (the quick start, Locations and Machines, installing the plugin, inviting people), `self-hosting/` (deploying, upgrading, and every setting in `configuration.md`), `reference/tablet-plugin.md` (the tablet plugin) and `technical/skin-authors.md` (what the plugin answers a Skin); `GLOSSARY.md` and `UPGRADING.md`, which the site renders from the root (`site/src/root-pages.mjs`); `DEVELOPMENT.md`, with The documentation site; for the README's and the site's images, `scripts/images/README.md`; `scripts/check-docs.mjs` checks the repository's relative Markdown links; its spec (#680) |
+| Docs people read to run and use Decent Sync | `README.md`; the documentation site's pages in `site/src/content/docs/`: `get-started/` (the quick start, Locations and Machines, installing the plugin, inviting people), `self-hosting/` (deploying, upgrading, and every setting in `configuration.md`), `guide/` (a page per area, `assistants.md` and `accounts-and-roles.md` among them), `reference/tablet-plugin.md` (the tablet plugin) and `technical/skin-authors.md` (what the plugin answers a Skin); the Assistant tools reference, written from the server's tool definitions (`site/src/assistant-tools.mjs`), so a tool's description is its documentation; `GLOSSARY.md` and `UPGRADING.md`, which the site renders from the root (`site/src/root-pages.mjs`); `DEVELOPMENT.md`, with The documentation site; for the README's and the site's images, `scripts/images/README.md`; `scripts/check-docs.mjs` checks the repository's relative Markdown links; its spec (#680) |
 
 For upstream paths and checkout conventions, see `AGENTS.md`, External sources.
 
