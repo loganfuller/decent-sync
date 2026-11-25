@@ -127,6 +127,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/pick-still.mjs`: which file a still shows, the deploy's generated one or the README's committed copy.
 - `generated/`: the images `npm run site-images` makes for the site's build, ignored by git.
 - `src/route-data.ts`: the canonical address of a minor release's page.
+- `src/versions.mjs`, `src/deployed.mjs`: the minors the deploy's `versions.json` lists and a page's address in each, for the header's version selector (`src/components/VersionSelect.astro`, placed by `SocialIcons.astro`) and the notice on an older minor's page (`Banner.astro`).
 - `check-links.mjs`: the check of the built site's internal links, run by its build.
 - `test/`: the built site's tests, in a browser (`npm test -w site`).
 
@@ -138,7 +139,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `scripts/simulation/`: the simulation's scorecard (`npm run simulation-scorecard`), the read-only puller of an instance's Shots and the scrubber that makes corpus Shots of them.
 - `scripts/simulation/corpus/`: scrubbed real Shots the scorecard's test runs on, and the levels its test holds the simulation at on them (`levels.json`).
 - `scripts/check-docs.mjs`: fails on a relative link in the repository's Markdown that does not resolve (`npm run check:docs`); CI runs it on every pull request.
-- `scripts/deploy-site.mjs`: places a build of the documentation site in a checkout of the `gh-pages` branch, a path for each minor release.
+- `scripts/deploy-site.mjs`: places a build of the documentation site in a checkout of the `gh-pages` branch, a path for each minor release, and writes the `versions.json` the site's version selector reads.
 - `.github/workflows/ci.yml`: CI on pull requests and `main`, with the documentation site's build and the docs check on docs-only ones too.
 - `.github/workflows/release.yml`: the release on a `vX.Y.Z` tag, then the documentation site's deploy to GitHub Pages, which also runs by hand.
 

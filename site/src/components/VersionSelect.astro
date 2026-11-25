@@ -1,0 +1,40 @@
+---
+// The header's version selector: the minor releases whose documentation is
+// deployed, newest first, with the one being read chosen. Choosing another
+// opens the same page in it, or its home page where it has no such page. The
+// build names only its own minor; the rest come from the deploy's
+// versions.json when the page loads (src/deployed.mjs).
+import Select from "@astrojs/starlight/components/Select.astro";
+
+import manifest from "../../../package.json";
+import { minorOf } from "../versions.mjs";
+
+const current = minorOf(manifest.version);
+---
+
+<ds-version-select data-current={current}>
+    <Select icon="open-book" label="Version" options={[{ label: current, value: current, selected: true }]} width="6.25em" />
+</ds-version-select>
+
+<script>
+    import { deployed, openIn } from "../deployed.mjs";
+
+    class VersionSelect extends HTMLElement {
+        connectedCallback() {
+            const select = this.querySelector("select");
+            const current = this.dataset.current;
+            if (!select || !current) return;
+            deployed(current).then(({ latest, versions }) => {
+                select.replaceChildren(...versions.map((minor) => new Option(minor, minor, minor === current, minor === current)));
+                select.addEventListener("change", () => {
+                    if (select.value !== current) openIn(select.value, latest);
+                });
+            });
+            // Back to this page from the browser's cache: show this page's minor again.
+            window.addEventListener("pageshow", (event) => {
+                if (event.persisted) select.value = current;
+            });
+        }
+    }
+    customElements.define("ds-version-select", VersionSelect);
+</script>

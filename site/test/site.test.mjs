@@ -6,7 +6,7 @@
 //   npm test -w site
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -18,6 +18,7 @@ import { brokenLinks } from "../check-links.mjs";
 import { ROOT_BASE, SITE } from "../site.config.mjs";
 import { canonicalAtRoot } from "../src/canonical.mjs";
 import { pageBody, ROOT_PAGES } from "../src/root-pages.mjs";
+import { minorOf } from "../src/versions.mjs";
 import { serve } from "./support/serve.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -51,7 +52,9 @@ const text = (html) =>
         .replace(/&gt;/g, ">")
         .replace(/&amp;/g, "&");
 
-const base = `${ROOT_BASE}/v9.8`;
+// The minor this checkout documents, built at its own path as the deploy builds it.
+const current = minorOf(version);
+const base = `${ROOT_BASE}/${current}`;
 let dist;
 
 before(() => {
@@ -354,6 +357,110 @@ describe("the site in a browser", () => {
         await page.getByRole("button", { name: "Menu" }).click();
         await sidebar.getByRole("link", { name: "Glossary" }).click();
         await page.getByRole("heading", { level: 1, name: "Glossary" }).waitFor();
+        await page.close();
+    });
+});
+
+// The deploy's gh-pages branch in small: this build at its minor's path and,
+// standing for a newer minor, at the root; an older minor with only a home
+// page; and versions.json naming the three.
+describe("the version selector", () => {
+    const NEWER = "v99.0";
+    const OLDER = "v0.1";
+    let pages;
+    let site;
+    let browser;
+
+    const listing = (...versions) => writeFileSync(join(pages, "versions.json"), JSON.stringify({ latest: versions[0], versions }));
+
+    before(async () => {
+        pages = mkdtempSync(join(tmpdir(), "decent-sync-pages-"));
+        cpSync(dist, pages, { recursive: true });
+        symlinkSync(dist, join(pages, current));
+        mkdirSync(join(pages, OLDER));
+        writeFileSync(join(pages, OLDER, "index.html"), `<!doctype html><title>${OLDER}</title><h1>The home page of ${OLDER}</h1>`);
+        listing(NEWER, current, OLDER);
+        site = await serve(pages, ROOT_BASE);
+        browser = await chromium.launch();
+    });
+
+    after(async () => {
+        await browser?.close();
+        await site?.close();
+        rmSync(pages, { recursive: true, force: true });
+    });
+
+    async function open(path, width = 1360) {
+        const page = await browser.newPage({ viewport: { width, height: 844 } });
+        await page.goto(site.url + path);
+        return page;
+    }
+
+    /** The header's selector, once it lists what versions.json holds. */
+    async function selector(page, count) {
+        const select = page.locator("header ds-version-select select");
+        await page.waitForFunction((n) => document.querySelector("header ds-version-select select")?.options.length === n, count);
+        return select;
+    }
+
+    test("lists the minors deployed, the latest first, and shows the one being read", async () => {
+        const page = await open(`${current}/guide/shots/`);
+        const select = await selector(page, 3);
+        assert.ok(await select.isVisible());
+        assert.deepEqual(await select.locator("option").allTextContents(), [NEWER, current, OLDER]);
+        assert.equal(await select.inputValue(), current);
+        await page.close();
+    });
+
+    test("opens the same page in the minor chosen, the latest at the root", async () => {
+        const page = await open(`${current}/guide/shots/`);
+        await (await selector(page, 3)).selectOption(NEWER);
+        await page.waitForURL(`${site.url}guide/shots/`);
+        await page.getByRole("heading", { level: 1, name: "Shots and out of spec" }).waitFor();
+        await page.close();
+    });
+
+    test("opens the minor's home page where it has no such page", async () => {
+        const page = await open(`${current}/guide/shots/`);
+        await (await selector(page, 3)).selectOption(OLDER);
+        await page.waitForURL(`${site.url}${OLDER}/`);
+        await page.getByRole("heading", { level: 1, name: `The home page of ${OLDER}` }).waitFor();
+        await page.close();
+    });
+
+    test("says on a page of an older minor that it is not the latest, and links to the latest", async () => {
+        const page = await open(`${current}/guide/machines/`);
+        const notice = page.locator("ds-older-release");
+        await notice.waitFor();
+        assert.match(await notice.innerText(), new RegExp(`documentation for ${current.replace(".", "\\.")}, which is not the latest release`));
+        await notice.getByRole("link", { name: `Read this page for ${NEWER}` }).click();
+        await page.waitForURL(`${site.url}guide/machines/`);
+        await page.close();
+    });
+
+    test("says nothing of the latest on the latest minor's pages", async () => {
+        listing(current, OLDER);
+        try {
+            const page = await open(`${current}/guide/shots/`);
+            await selector(page, 2);
+            assert.equal(await page.locator("ds-older-release").isVisible(), false);
+            await page.close();
+        } finally {
+            listing(NEWER, current, OLDER);
+        }
+    });
+
+    test("works from the menu at phone width", async () => {
+        const page = await open(`${current}/guide/shots/`, 390);
+        await selector(page, 3);
+        assert.equal(await page.locator("header ds-version-select select").isVisible(), false);
+        await page.getByRole("button", { name: "Menu" }).click();
+        const select = page.locator("ds-version-select select:visible");
+        assert.equal(await select.inputValue(), current);
+        const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
+        assert.ok(scrollWidth <= clientWidth, `the page is ${scrollWidth} wide in a window of ${clientWidth}`);
+        await select.selectOption(NEWER);
+        await page.waitForURL(`${site.url}guide/shots/`);
         await page.close();
     });
 });

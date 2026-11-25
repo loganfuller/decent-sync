@@ -75,3 +75,9 @@
 html[data-has-hero] {
     --sl-content-width: 75rem;
 }
+
+/* The menu at phone width: its version selector (src/components/SocialIcons.astro)
+   is taller than the GitHub link alone, so the row is lined up on its middle. */
+.mobile-preferences {
+    align-items: center;
+}

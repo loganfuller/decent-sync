@@ -119,7 +119,7 @@ each image shows, how it is made, and how a Guide page adds one of its own.
 <https://loganfuller.github.io/decent-sync/>: [Astro Starlight](https://starlight.astro.build)
 over the Markdown in `site/src/content/docs/`, in the management interface's
 logo, font and palette (`site/src/styles/theme.css`). Starlight's version is
-pinned exactly, since the site overrides two of its components.
+pinned exactly, since the site overrides four of its components.
 
 - `npm run dev -w site` serves it locally, rebuilding on change.
 - `npm run build:site` builds it into `site/dist`, then checks every internal
@@ -169,6 +169,17 @@ A patch release replaces its minor's build. Each page of a minor's own build
 names the root's page as its canonical address. The site says which release it
 documents in its footer: the version in the root `package.json` of the commit
 it was built from.
+
+`versions.json` at the root of `gh-pages`, which the deploy rewrites each
+time, lists the minors deployed, newest first, and names the latest. The
+header's version selector (`site/src/components/VersionSelect.astro`, beside
+the GitHub link, and in the menu at phone width) reads it when a page loads,
+so a minor's build lists the minors deployed after it and nothing is edited
+at a release. Choosing a minor opens the same page there, the latest's at the
+root, or that minor's home page where it has no such page. A page of an older
+minor says so above its title, linking to the same page in the latest
+(`site/src/components/Banner.astro`). A build with no `versions.json` beside
+it, such as `npm run dev -w site`, lists only its own minor.
 
 To deploy the site without a release, run the Release workflow by hand
 (`gh workflow run release.yml -f ref=vX.Y.Z`) with the tag, branch or commit to
