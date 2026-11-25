@@ -547,9 +547,12 @@ test("README and site images", async ({ page }) => {
     // encode.mjs crops the GIF to GIF_HEIGHT once scaled to GIF_WIDTH: a shorter clip would fail it.
     expect(Math.floor((clip.height * GIF_WIDTH) / clip.width), "the Live View clip's height at the GIF's width").toBeGreaterThanOrEqual(GIF_HEIGHT);
     if (LIVE_CHECK) {
-      await barLeft.tablet.replayLive(frames, { speed: fast }).to(midPour);
+      const check = barLeft.tablet.replayLive(frames, { speed: fast });
+      await check.to(midPour);
       await page.waitForTimeout(500);
       await page.screenshot({ path: path.join(OUT, `live-view-check-${theme}.png`), clip });
+      // Finished, as the recorded shot is, so the phone starts from the same state as at the deploy.
+      await check.to();
       continue;
     }
     const replay = barLeft.tablet.replayLive(frames, { speed: 1 });
