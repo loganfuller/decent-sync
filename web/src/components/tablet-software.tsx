@@ -1293,7 +1293,8 @@ function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCa
           </FormField>
         )}
         {asset && (
-          <Alert>
+          // A notice, not an error: it shows as the URL is typed.
+          <Alert role="status">
             <AlertTitle>This Skin will be Pinned at {asset.tag}</AlertTitle>
             <AlertDescription>
               <p>This URL is one release's download, which never changes, so no update check will move the Skin to a newer release.</p>

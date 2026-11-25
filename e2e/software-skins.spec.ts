@@ -201,7 +201,7 @@ test("a Skin from the URL of one release's download reads as Pinned at its tag, 
   await region(page, "Skins").getByRole("button", { name: "Install Skin" }).click();
   const install = page.getByRole("dialog", { name: "Install Skin" });
   const url = install.getByLabel("URL").and(install.getByRole("textbox"));
-  const warning = install.getByRole("alert");
+  const warning = install.getByRole("status");
   const follow = install.getByRole("button", { name: "Follow releases of example/corner-cafe instead" });
   await install.getByRole("radio", { name: "URL" }).click();
   // Neither a commit's archive nor the latest release's download, which moves, is warned of.
