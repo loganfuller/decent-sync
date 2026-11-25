@@ -1,10 +1,12 @@
 import { type BrowserContextOptions, expect, type Locator, type Page, test } from "@playwright/test";
+import { SimulatedPlugins, bundledPlugins, recordedPlugin } from "../server/test/support/decaid-plugins.js";
+import { SimulatedSkins } from "../server/test/support/decaid-skins.js";
 import { derivedShot, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
-import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../server/test/support/steam-fixtures.js";
 import { farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { openAccountMenu, openMachineTab } from "./support/locators.js";
+import { openAccountMenu, openCard, openMachineTab } from "./support/locators.js";
 import { admin, createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -16,10 +18,17 @@ import { tabletAt } from "./support/tablets.js";
 // simulated tablet running the built plugin backfills a Shot and a Steam
 // Record, so each list has a table to fit; its serial is made up. Its
 // Location's today, which the Machine page's On one day card lists, doesn't
-// turn while this runs (`farFromMidnight`, #587).
+// turn while this runs (`farFromMidnight`, #587). The Software tab is
+// lists on a phone, held either way, with each row's actions in a menu
+// (#674), and its tables from md, fitting either way with the most it shows:
+// its log open, a plugin update waiting for approval and a Skin that reports
+// its page; its repositories and commits are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const PHONE: BrowserContextOptions = { viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true };
 test.use(PHONE);
+
+const TIME_TO_READY_COMMIT = "451e2bb172243153c87122d86666000d55bb162c";
+const TIME_TO_READY_NEXT = "a74df584b7c1e5187a028ef2daae5ee9c59aa9f0";
 
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const MAIN_LINKS = ["Overview", "Shots", "Steam Records", "Library", "Machines", "Locations"];
@@ -42,8 +51,8 @@ const MACHINE_TABS: ["Now" | "Activity" | "Settings" | "Software" | "Setup", (pa
   ["Now", (page) => page.getByRole("region", { name: "Workflow" })],
   ["Activity", (page) => page.getByRole("region", { name: "On one day" }).getByRole("table")],
   ["Settings", (page) => page.getByRole("table", { name: "Paired devices" })],
-  // Shown once its Tablet Software has been read: its plugins' table, with an Admin's actions on each row.
-  ["Software", (page) => page.getByRole("table", { name: "Plugins" })],
+  // Shown once its Tablet Software has been read: its plugins' list, which is a table on a wider screen.
+  ["Software", (page) => page.getByRole("list", { name: "Plugins" })],
   // Shown once the library its tablet reported has been read.
   ["Setup", (page) => page.getByRole("region", { name: "Library" })],
 ];
@@ -81,6 +90,136 @@ test("on a phone, every page fits the screen for Staff too", async ({ page, brow
     await visitEachPage(await samsBrowser.newPage(), { name: sam.name, links: MAIN_LINKS });
   } finally {
     await samsBrowser.close();
+  }
+});
+
+test("on a phone, the Software tab's plugins, Skins and Software Actions are lists, each row's actions in its menu, and nothing on it is wider than the screen", async ({ page, browser }) => {
+  const corner = await createLocation(page, "Corner");
+  // Time To Ready follows a branch, whose next commit adds a permission, so its update waits for approval.
+  const plugins = new SimulatedPlugins({
+    plugins: bundledPlugins().map((plugin) =>
+      plugin.id === "time-to-ready.reaplugin" ? { ...plugin, source: { ...recordedPlugin("dye2.reaplugin", "branchInstalled").source, repo: "example/time-to-ready", branch: "main", commit: TIME_TO_READY_COMMIT } } : plugin,
+    ),
+  });
+  const skins = new SimulatedSkins();
+  const tablet = await tabletAt(page, server, "Corner 1", corner, "17002", {}, { plugins, skins });
+  const machineId = await machineIdOf(page, "Corner 1");
+  await expect.poll(async () => (await tabletSoftware(page, machineId)).skins?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(0);
+  await reportPage(tablet, skins.servedId()!);
+  await expect.poll(async () => (await tabletSoftware(page, machineId)).showing?.page ?? null).not.toBeNull();
+  const timeToReady = recordedPlugin("time-to-ready.reaplugin");
+  plugins.offer("example/time-to-ready", { manifest: { ...timeToReady, version: "1.0.6", permissions: [...timeToReady.permissions, "notifications"] }, branch: "main", commit: TIME_TO_READY_NEXT });
+
+  await page.goto(`/machines/${machineId}?tab=software`);
+  const pluginsCard = page.getByRole("region", { name: "Plugins", exact: true });
+  const pluginList = page.getByRole("list", { name: "Plugins" });
+  await expect(pluginList).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(0);
+  await expect(page.getByText("This table scrolls sideways.")).toHaveCount(0);
+  const pluginRow = (name: string) => pluginList.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
+
+  // The card's own actions are under its title, and its update check finds Time To Ready's update.
+  await pluginsCard.getByRole("button", { name: "Check for updates" }).click();
+  await expect(pluginsCard.getByRole("status")).toContainText("Time To Ready waits for approval.");
+  await expect(pluginRow("Time To Ready")).toContainText("1.0.5 · EnabledFollows a branch · example/time-to-ready, main1.0.6 waits for approval · adds: notifications");
+  // Approving it stays a button of its own, under what waits, outside the menu.
+  await expect(pluginRow("Time To Ready").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Approve", ""]);
+  await expect(pluginRow("Time To Ready").getByRole("button", { name: "Approve Time To Ready's update" })).toBeVisible();
+
+  // Decent Sync's own plugin has its settings alone; another's are its settings, enabling or disabling it, and removing it.
+  const menu = page.getByRole("menu");
+  await pluginRow("Decent Sync").getByRole("button", { name: "Actions for Decent Sync" }).click();
+  await expect(menu.getByRole("menuitem")).toHaveText(["Settings"]);
+  await page.keyboard.press("Escape");
+  const visualizer = pluginRow("Visualizer upload").getByRole("button", { name: "Actions for Visualizer upload" });
+  await visualizer.click();
+  await expect(menu.getByRole("menuitem")).toHaveText(["Settings", "Disable", "Remove"]);
+  // Remove is set apart, and asks first.
+  await expect(menu.getByRole("separator")).toHaveCount(1);
+  await menu.getByRole("menuitem", { name: "Remove Visualizer upload" }).click();
+  const remove = page.getByRole("alertdialog", { name: "Remove Visualizer upload?" });
+  await expect(remove).toBeVisible();
+  await remove.getByRole("button", { name: "Cancel" }).click();
+  await expect(remove).toBeHidden();
+  await expect(visualizer).toBeFocused();
+  // Its settings open in the dialog they open in on a wide screen.
+  await visualizer.click();
+  await menu.getByRole("menuitem", { name: "Visualizer upload settings" }).click();
+  const settings = page.getByRole("dialog", { name: "Visualizer upload settings" });
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "Cancel" }).click();
+  await expect(settings).toBeHidden();
+  await expect(visualizer).toBeFocused();
+  // What is typed in a dialog stays as the phone turns past md: in a plugin's settings, whose list holds until they close, and in installing one.
+  // Each is checked once the rest of the tab has turned (found by CSS, as the modal hides it from roles): a dialog the layout's change closed is there until it renders.
+  const smallButtons = page.locator("main button[data-size=sm]");
+  const listedPlugins = page.locator('ul[aria-label="Plugins"]');
+  await visualizer.click();
+  await menu.getByRole("menuitem", { name: "Visualizer upload settings" }).click();
+  await settings.getByLabel("Visualizer username", { exact: true }).fill("front-bar");
+  await page.setViewportSize({ width: 852, height: 393 });
+  await expect(smallButtons.first()).toBeAttached();
+  await expect(listedPlugins).toBeAttached();
+  await expect(settings).toBeVisible();
+  await expect(settings.getByLabel("Visualizer username", { exact: true })).toHaveValue("front-bar");
+  await settings.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("table", { name: "Plugins" })).toBeVisible();
+  await pluginsCard.getByRole("button", { name: "Install plugin" }).click();
+  const install = page.getByRole("dialog", { name: "Install plugin" });
+  await install.getByLabel("GitHub repository").fill("example/uploader");
+  await page.setViewportSize(PHONE.viewport!);
+  await expect(listedPlugins).toBeAttached();
+  await expect(smallButtons).toHaveCount(0);
+  await expect(install).toBeVisible();
+  await expect(install.getByLabel("GitHub repository")).toHaveValue("example/uploader");
+  await install.getByRole("button", { name: "Cancel" }).click();
+  await expect(install).toBeHidden();
+  await expect(pluginList).toBeVisible();
+  // An action made from the menu.
+  await visualizer.click();
+  await menu.getByRole("menuitem", { name: "Disable Visualizer upload" }).click();
+  await expect(pluginsCard.getByRole("status")).toHaveText("DoneDisabled Visualizer upload. Done.");
+  await expect(pluginRow("Visualizer upload")).toContainText(" · Disabled");
+
+  // The Skins: the default, which nothing is offered for, has no menu; another's are making it the default and removing it.
+  const skinList = page.getByRole("list", { name: "Skins" });
+  const defaultSkin = skinList.getByRole("listitem").filter({ has: page.getByText("Default", { exact: true }) });
+  await expect(defaultSkin).toHaveCount(1);
+  await expect(defaultSkin).toContainText(/^Streamline\.js\s*Default\s*Showing now/);
+  await expect(defaultSkin.getByRole("button", { name: /^Actions for / })).toHaveCount(0);
+  await expect(skinList.getByRole("button", { name: /^Actions for / }).first()).toBeVisible();
+  // The strip's actions, under what it says.
+  const strip = page.getByRole("group", { name: "What the Tablet shows" });
+  await expect(strip.getByRole("button", { name: /^(?!About )/ })).toHaveText(["Reload", "Restart the Skin view"]);
+
+  // The log, open, as a list of what each did, what came of it, then when and who.
+  const log = await openCard(page, "Software Actions");
+  const entries = log.getByRole("list", { name: "Software Actions" }).getByRole("listitem");
+  await expect(entries.first()).toContainText(/^Disabled Visualizer upload\.?Done.*· You$/);
+  // Every button on the tab is the default size, not the small one.
+  await expect(page.locator("main button[data-size=sm]")).toHaveCount(0);
+  await expectFits(page);
+  await expectTabFits(page);
+
+  // Below md, as on a phone held sideways, still its lists; from md, as wide as a tablet held upright, its tables. Each fits.
+  for (const [width, layout] of [
+    [640, "list"],
+    [768, "table"],
+  ] as const) {
+    const context = await browser.newContext({ baseURL: server.url(), viewport: { width, height: 1024 } });
+    try {
+      const wider = await context.newPage();
+      await signInAsAdmin(wider);
+      await wider.goto(`/machines/${machineId}?tab=software`);
+      for (const name of ["Plugins", "Skins"]) await expect(wider.getByRole(layout, { name })).toBeVisible();
+      await expect(wider.getByRole("button", { name: "Approve Time To Ready's update" })).toBeVisible();
+      await openCard(wider, "Software Actions");
+      await expect(wider.getByRole(layout, { name: "Software Actions" })).toBeVisible();
+      await expectFits(wider, width);
+      await expectTabFits(wider);
+    } finally {
+      await context.close();
+    }
   }
 });
 
@@ -193,6 +332,56 @@ async function expectThemeInReach(page: Page) {
   await expect(choices.getByRole("menuitemradio")).toHaveText(["Light", "Dark", "System"]);
   await page.keyboard.press("Escape");
   await expect(choices).toBeHidden();
+}
+
+/** A Machine's id, by its name. */
+async function machineIdOf(page: Page, name: string): Promise<string> {
+  const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
+  return machines.find((machine) => machine.name === name)!.id;
+}
+
+interface Reported {
+  skins: unknown[] | null;
+  showing: { page: unknown } | null;
+}
+async function tabletSoftware(page: Page, machineId: string): Promise<Reported> {
+  return ((await (await page.request.get(`/api/machines/${machineId}/tablet-software`)).json()) as { tabletSoftware: Reported }).tabletSoftware;
+}
+
+/** Reports a page to the plugin as a Skin that supports Reload does as it loads: its id, a version and when it loaded, now, as the plugin's clock reads it. */
+async function reportPage(tablet: SimulatedTablet, skinId: string): Promise<void> {
+  const answer = await tablet.callEndpoint("page", { method: "PUT", body: { skinId, version: "0.2.31", loadedAt: new Date().toISOString() } });
+  expect(answer.status).toBe(204);
+}
+
+/**
+ * Nothing on the Software tab is wider than what holds it: each of its
+ * cards lies within the page's main column, each thing in a card within the
+ * card, which would clip it, and nothing scrolls sideways within them.
+ */
+async function expectTabFits(page: Page) {
+  const overflowing = await page.evaluate(() => {
+    const main = document.querySelector("main")!.getBoundingClientRect();
+    const found: string[] = [];
+    const describe = (element: Element) => `${element.tagName.toLowerCase()} "${(element.textContent ?? "").trim().slice(0, 40)}"`;
+    for (const name of ["Decaid", "Plugins", "Skins", "Software Actions"]) {
+      const card = document.querySelector(`[role=region][aria-label="${name}"]`);
+      if (!card) {
+        found.push(`no ${name} card`);
+        continue;
+      }
+      const box = card.getBoundingClientRect();
+      if (box.left < main.left - 0.5 || box.right > main.right + 0.5) found.push(`the ${name} card is wider than the page's column`);
+      for (const element of [card, ...card.querySelectorAll("*")]) {
+        if (element.getClientRects().length === 0 || element.closest(".sr-only")) continue;
+        const own = element.getBoundingClientRect();
+        if (own.left < box.left - 0.5 || own.right > box.right + 0.5) found.push(`${describe(element)} in ${name} reaches past the card`);
+        if (element.scrollWidth > element.clientWidth + 0.5 && ["auto", "scroll"].includes(getComputedStyle(element).overflowX)) found.push(`${describe(element)} in ${name} scrolls sideways`);
+      }
+    }
+    return found;
+  });
+  expect(overflowing, `${new URL(page.url()).pathname}'s Software tab fits`).toEqual([]);
 }
 
 /** The page is no wider than the screen: what is wider, such as a table, scrolls within it. */

@@ -331,7 +331,9 @@ Each server has one owner: a household, or a business with all of its sites.
   Skin view rebuilds the view on the default Skin for any Skin; Admins, and
   Staff at the Machine's Location, may do either, and so may an assistant.
   Each action is made once, never kept for later, and logged with who asked
-  and what came of it. Staff and Viewers read the tab.
+  and what came of it. Staff and Viewers read the tab. On a phone its
+  plugins, Skins and log are lists, each row's actions in one menu, and
+  nothing scrolls sideways.
 - **Setup.** Its Setup tab holds what is looked at seldom: its hardware,
   firmware and tablets, with a link to the Software tab for what the tablet
   runs, its Location and where it has been, whether it shares the Library,
