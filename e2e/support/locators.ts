@@ -70,6 +70,17 @@ export async function recipeActions(page: Page): Promise<string[]> {
   return items;
 }
 
+/**
+ * Opens the menu of actions at the end of a row on a Machine's Software tab
+ * (#678), by the name the row gives its plugin or Skin, and returns the menu.
+ */
+export async function openRowMenu(page: Page, row: Locator, name: string): Promise<Locator> {
+  await row.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
 /** The table's rows, leaving out its header row and any row that only heads a group of rows, as a day's heading in the Shots list. */
 export function rows(table: Locator): Locator {
   return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") }).filter({ has: table.page().getByRole("cell") });

@@ -64,7 +64,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
  * raises. A test reads a release's from the source at its tag, so it stays
  * declared as it is here.
  */
-export const WIRE_REVISION = 5;
+export const WIRE_REVISION = 6;
 
 /**
  * The wire revision of a peer that sends none: the wire of every release
@@ -2866,6 +2866,8 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           }
           if (given.name !== undefined) result.string("name", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
           if (given.version !== undefined) result.string("version", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.previousVersion !== undefined) result.string("previousVersion", { maxLength: MAX_SOFTWARE_NAME_LENGTH });
+          if (given.addedPermissions !== undefined) result.array("addedPermissions", (value) => typeof value === "string" && value.length <= MAX_SOFTWARE_NAME_LENGTH, MAX_PLUGIN_SETTINGS);
           if (given.loaded !== undefined) result.boolean("loaded");
           if (given.results !== undefined) {
             result.array(
@@ -3057,6 +3059,25 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           case "disablePlugin":
           case "removePlugin":
             fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            break;
+          case "changePluginSource":
+            fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            fields.objectField("expected");
+            fields.pluginRepo("repo");
+            if (object.branch !== undefined) fields.string("branch", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            break;
+          case "changeSkinSource":
+            fields.string("skinId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            fields.objectField("expected");
+            // To a repository, with or without a branch, or to a URL: never both, as an install.
+            if (object.url !== undefined) {
+              fields.skinUrl("url");
+              fields.absent("repo");
+              fields.absent("branch");
+            } else {
+              fields.pluginRepo("repo");
+              if (object.branch !== undefined) fields.string("branch", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });
+            }
             break;
           case "approvePluginUpdate":
             fields.string("pluginId", { nonEmpty: true, maxLength: MAX_SOFTWARE_NAME_LENGTH });

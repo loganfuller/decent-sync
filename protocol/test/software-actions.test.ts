@@ -4,23 +4,29 @@ import {
   COLLECTION_NAMES,
   DECENT_SYNC_PLUGIN_ID,
   OWN_CHANGEABLE_SETTING,
-  SOFTWARE_ACTIONS_WIRE_REVISION,
+  DECENT_SYNC_REPO,
   SOFTWARE_ACTION_KINDS,
+  SOURCE_CHANGES_WIRE_REVISION,
   type SoftwareActed,
   type SoftwareAction,
   WIRE_REVISION,
+  commitArchiveUrl,
   decodePluginMessage,
   decodeServerMessage,
   isPluginRepo,
   isSecretState,
   isSkinUrl,
   isSkinViewKind,
+  isSourceChangeKind,
   namesCommit,
+  pluginSourceSeen,
   pluginSettingKey,
   pluginSettingOf,
   releaseAssetOf,
+  sameSourceSeen,
   settingsHistoryChanges,
   settingsHistoryFields,
+  skinSourceSeen,
   softwareActionMs,
 } from "../src/index.js";
 
@@ -30,17 +36,23 @@ import {
 
 const frame = (message: unknown) => JSON.stringify(message);
 const id = "0199c5a4-6b7e-7c3d-9a1b-2c3d4e5f6a7b";
+const CAFE_ASSET = "https://github.com/loganfuller/streamline-cafe-js/releases/download/v0.2.31-cafe.2/streamline-cafe.js-v0.2.31-cafe.2.zip";
+/** A plugin following a branch and a Skin Pinned at a release's tag, each as a change of how it updates carries what the Admin saw. */
+const seenPlugin = { version: "0.1.42", kind: "github_branch", repo: "decentespresso/dye2", branch: "dist", commit: "3a4083728302b3d30e108718cc690d34a13debb0", releaseTag: null };
+const seenSkin = { version: "0.2.31-cafe.2", sourceUrl: CAFE_ASSET, etag: '"0x8DF4822E30A23B6"' };
 
 describe("a Software Action on the wire", () => {
-  it("came in the wire revision after the latest release's, and names the plugin's own id and the one setting of its own it changes as its manifest does", () => {
-    expect(SOFTWARE_ACTIONS_WIRE_REVISION).toBe(WIRE_REVISION);
+  it("names the plugin's own id and the one setting of its own it changes as its manifest does, and a change of how an item updates came in the wire revision after the latest release's", () => {
+    expect(SOURCE_CHANGES_WIRE_REVISION).toBe(WIRE_REVISION);
+    expect(SOFTWARE_ACTION_KINDS.filter(isSourceChangeKind)).toEqual(["changePluginSource", "changeSkinSource"]);
+    expect(isPluginRepo(DECENT_SYNC_REPO)).toBe(true);
     const manifest = JSON.parse(fs.readFileSync(new URL("../../plugin/manifest.json", import.meta.url), "utf8")) as { id: string; settings: Record<string, unknown>; permissions: string[] };
     expect(DECENT_SYNC_PLUGIN_ID).toBe(manifest.id);
     expect(Object.keys(manifest.settings)).toContain(OWN_CHANGEABLE_SETTING);
     expect(manifest.permissions).toContain("manage.extensions");
   });
 
-  it("has two minutes for an install, an update check, an approval or the start of Decaid's update, and one for the rest", () => {
+  it("has two minutes for an install, an update check, an approval, a change of how an item updates or the start of Decaid's update, and one for the rest", () => {
     const times = Object.fromEntries(SOFTWARE_ACTION_KINDS.map((kind) => [kind, softwareActionMs(kind)]));
     expect(times).toEqual({
       installPlugin: 120_000,
@@ -50,10 +62,12 @@ describe("a Software Action on the wire", () => {
       checkPluginUpdates: 120_000,
       approvePluginUpdate: 120_000,
       removePlugin: 60_000,
+      changePluginSource: 120_000,
       installSkin: 120_000,
       chooseDefaultSkin: 60_000,
       checkSkinUpdates: 120_000,
       removeSkin: 60_000,
+      changeSkinSource: 120_000,
       reloadSkin: 60_000,
       restartSkinView: 60_000,
       checkDecaidUpdate: 120_000,
@@ -82,6 +96,11 @@ describe("a Software Action on the wire", () => {
       { type: "softwareAction", id, timeLeftMs: 59_000, kind: "reloadSkin" },
       { type: "softwareAction", id, timeLeftMs: 59_000, kind: "restartSkinView" },
       { type: "softwareAction", id, timeLeftMs: 119_000, kind: "startDecaidUpdate" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "changePluginSource", pluginId: "dye2.reaplugin", expected: seenPlugin, repo: "decentespresso/dye2" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "changePluginSource", pluginId: "dye2.reaplugin", expected: seenPlugin, repo: "decentespresso/dye2", branch: "3a4083728302b3d30e108718cc690d34a13debb0" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "changeSkinSource", skinId: "streamline-cafe.js", expected: seenSkin, repo: "loganfuller/streamline-cafe-js" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "changeSkinSource", skinId: "streamline-cafe.js", expected: seenSkin, repo: "loganfuller/streamline-cafe-js", branch: "dist" },
+      { type: "softwareAction", id, timeLeftMs: 119_000, kind: "changeSkinSource", skinId: "streamline-cafe.js", expected: seenSkin, url: CAFE_ASSET },
     ];
     for (const action of actions) expect(decodeServerMessage(frame(action)), action.kind).toEqual({ ok: true, message: action });
     expect(decodeServerMessage(frame({ ...actions[0], repo: "not a repository" }))).toMatchObject({ ok: false, problem: "softwareAction.repo must be a GitHub repository, as owner/name" });
@@ -94,6 +113,32 @@ describe("a Software Action on the wire", () => {
     expect(decodeServerMessage(frame({ ...actions[11], repo: "loganfuller/streamline-cafe-js" }))).toMatchObject({ ok: false, problem: "softwareAction.repo must be absent" });
     expect(decodeServerMessage(frame({ ...actions[11], url: "file:///sdcard/skin.zip" }))).toMatchObject({ ok: false, problem: "softwareAction.url must be an http or https URL" });
     expect(decodeServerMessage(frame({ ...actions[12], skinId: "" }))).toMatchObject({ ok: false, problem: "softwareAction.skinId must not be empty" });
+    // A change of how an item updates names the item, the source it was seen at and the source it goes to.
+    expect(decodeServerMessage(frame({ ...actions[18], expected: undefined }))).toMatchObject({ ok: false, problem: "softwareAction.expected must be an object" });
+    expect(decodeServerMessage(frame({ ...actions[18], repo: undefined }))).toMatchObject({ ok: false, problem: "softwareAction.repo must be a GitHub repository, as owner/name" });
+    expect(decodeServerMessage(frame({ ...actions[18], pluginId: undefined }))).toMatchObject({ ok: false, problem: "softwareAction.pluginId must be a string" });
+    expect(decodeServerMessage(frame({ ...actions[22], repo: "loganfuller/streamline-cafe-js" }))).toMatchObject({ ok: false, problem: "softwareAction.repo must be absent" });
+    expect(decodeServerMessage(frame({ ...actions[20], skinId: undefined }))).toMatchObject({ ok: false, problem: "softwareAction.skinId must be a string" });
+  });
+
+  it("reads the source and build an item is at from its entry in Decaid's list, and compares two whole", () => {
+    const dye2 = { id: "dye2.reaplugin", version: "0.1.42", source: { kind: "github_branch", repo: "decentespresso/dye2", branch: "dist", commit: "3a4083728302b3d30e108718cc690d34a13debb0", releaseTag: null, installedAt: "2026-11-23T20:00:27.292167", lastChecked: "2026-11-23T20:00:27.292167" } };
+    expect(pluginSourceSeen(dye2)).toEqual(seenPlugin);
+    // When Decaid installed or last checked it is no part of it, so an update check that finds it current leaves it the same.
+    expect(sameSourceSeen(pluginSourceSeen({ ...dye2, source: { ...dye2.source, lastChecked: "2026-11-25T08:00:00.000000" } }), seenPlugin)).toBe(true);
+    expect(sameSourceSeen(pluginSourceSeen({ ...dye2, source: { ...dye2.source, commit: "717fa95000000000000000000000000000000000" } }), seenPlugin)).toBe(false);
+    expect(sameSourceSeen(pluginSourceSeen({ ...dye2, version: "0.1.43" }), seenPlugin)).toBe(false);
+    // One with no recorded source, as a plugin Decaid bundles.
+    expect(pluginSourceSeen({ id: "settings.reaplugin", version: "1.0.0", source: null })).toEqual({ version: "1.0.0", kind: null, repo: null, branch: null, commit: null, releaseTag: null });
+    expect(pluginSourceSeen("not an entry")).toEqual({ version: null, kind: null, repo: null, branch: null, commit: null, releaseTag: null });
+    const cafe = { id: "streamline-cafe.js", version: "0.2.31-cafe.2", reaMetadata: { sourceUrl: CAFE_ASSET, etag: '"0x8DF4822E30A23B6"', lastChecked: "2026-11-24T14:10:42.781047" } };
+    expect(skinSourceSeen(cafe)).toEqual(seenSkin);
+    expect(sameSourceSeen(skinSourceSeen({ ...cafe, reaMetadata: { ...cafe.reaMetadata, etag: '"another"' } }), seenSkin)).toBe(false);
+    expect(sameSourceSeen(skinSourceSeen({ ...cafe, reaMetadata: { ...cafe.reaMetadata, lastChecked: "2026-11-25T08:00:00.000000" } }), seenSkin)).toBe(true);
+    // A field one side lacks counts as none, so a later release may read more of an entry.
+    expect(sameSourceSeen({ version: "1.0.0", sourceUrl: null }, { version: "1.0.0" })).toBe(true);
+    expect(skinSourceSeen({ id: "insight", isBundled: true })).toEqual({ version: null, sourceUrl: null, etag: null });
+    expect(commitArchiveUrl("loganfuller/streamline-cafe-js", "d7729dc9532ae31d606447ee0648e20284268b2c")).toBe("https://github.com/loganfuller/streamline-cafe-js/archive/d7729dc9532ae31d606447ee0648e20284268b2c.zip");
   });
 
   it("opens Reload and the restart, and only those, to Staff and assistants, and knows a URL a Skin installs from", () => {
@@ -119,6 +164,9 @@ describe("a Software Action on the wire", () => {
       { type: "softwareActed", id, outcome: "notConfirmed", message: "The Skin was asked to reload, but no fresh page reported in within 15 s" },
       { type: "softwareActed", id, outcome: "refused", reason: "installNotPermitted", message: "Installation requires approval on the Android device" },
       { type: "softwareActed", id, outcome: "refused", reason: "noSkinServed", message: "Decaid's Skin server did not start again" },
+      { type: "softwareActed", id, outcome: "refused", reason: "differentItem", message: "That source holds another Skin, Nova, not NSX" },
+      { type: "softwareActed", id, outcome: "done", result: { skinId: "streamline-cafe.js", name: "Streamline Cafe", version: "0.2.32-cafe.1", previousVersion: "0.2.31-cafe.2" } },
+      { type: "softwareActed", id, outcome: "done", result: { pluginId: "dye2.reaplugin", version: "0.1.43", previousVersion: "0.1.42", loaded: true, addedPermissions: ["notifications"] } },
     ];
     for (const answer of answers) expect(decodePluginMessage(frame(answer)), JSON.stringify(answer)).toEqual({ ok: true, message: answer });
     expect(decodePluginMessage(frame({ ...answers[0], outcome: "installed" }))).toMatchObject({ ok: false, problem: "softwareActed.outcome must be one of done, refused, notConfirmed" });
@@ -128,6 +176,8 @@ describe("a Software Action on the wire", () => {
     expect(decodePluginMessage(frame({ ...answers[4], state: "" }))).toMatchObject({ ok: false, problem: "softwareActed.state must not be empty" });
     expect(decodePluginMessage(frame({ type: "softwareActed", id, outcome: "refused", reason: "decaid", status: 500 }))).toMatchObject({ ok: false, problem: "softwareActed.message must be a string" });
     expect(decodePluginMessage(frame({ ...answers[1], result: { results: [{ item: 3, status: "updated" }] } }))).toMatchObject({ ok: false, problem: expect.stringContaining("softwareActed.result.results") });
+    expect(decodePluginMessage(frame({ ...answers[17], result: { pluginId: "dye2.reaplugin", addedPermissions: [3] } }))).toMatchObject({ ok: false, problem: expect.stringContaining("softwareActed.result.addedPermissions") });
+    expect(decodePluginMessage(frame({ ...answers[16], result: { skinId: "streamline-cafe.js", previousVersion: 2 } }))).toMatchObject({ ok: false, problem: "softwareActed.result.previousVersion must be a string" });
   });
 
   it("names its read-back, of the plugin list, the plugins' settings or Decaid's update state, never beside a Settings Edit", () => {

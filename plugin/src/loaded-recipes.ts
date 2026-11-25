@@ -109,7 +109,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * since it was last loaded, by the host's timers, as SHOT_STORED_WITHIN_MS
    * is, which a correction of the tablet's clock does not move.
    */
-  private awayTimer: number | undefined;
+  private awayTimer: ReturnType<typeof setTimeout> | undefined;
   /** Whether `awayTimer` has fired since DYE2 was last seen loaded. */
   private notLoadedLong = false;
   private captureOnly = false;
@@ -164,7 +164,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    */
   private steamWasOff = false;
   private chain: Promise<void> = Promise.resolve();
-  private pollTimer: number | undefined;
+  private pollTimer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
   private failing = false;
   private readonly pushes: Dye2Pushes;

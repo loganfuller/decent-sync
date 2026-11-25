@@ -4,7 +4,7 @@ import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "
 import { SimulatedPlugins, bundledPlugins, recordedPlugin } from "./support/decaid-plugins.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { rememberSecret } from "./support/secrets.js";
-import { RawConnection, type SimulatedTablet, helloWith } from "./support/simulated-tablet.js";
+import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #660: Software Actions on a Tablet's plugins, made
@@ -427,17 +427,5 @@ describe("Software Actions", () => {
     expect(await answered(machine, made.id, elsewhere)).toMatchObject({ outcome: "done" });
     expect(plugins.listed().find((entry) => entry.id === VISUALIZER)).toMatchObject({ loaded: false });
     expect((await read(machine, made.id)).outcome).toBe("done");
-  });
-
-  it("sends a plugin of the previous release no Software Action, and says its plugin must update", async () => {
-    const machine = await api.createMachine("Software old plugin", cafe.id);
-    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial: String(serial++) }, wireRevision: 4 }));
-    await api.waitForOnline(machine);
-    expect((await software(machine)).pluginMustUpdate).toBe(true);
-    expect(await refused(machine, { kind: "checkPluginUpdates" }, 409)).toMatch(/The Tablet's plugin must update before it takes a Software Action/);
-    expect((await api.get<{ total: number }>(path(machine))).total).toBe(0);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect((raw.messages as Frame[]).filter((message) => message.type === "softwareAction")).toEqual([]);
-    await raw.close();
   });
 });

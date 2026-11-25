@@ -87,7 +87,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/machine-events/`: Workflow and machine state events, Loaded Recipes, dial-in trail and Machine use.
 - `src/collections/`: collections, paired devices, the values of plugins' settings as each reader may see them, and Settings History.
 - `src/settings-edits/`: Settings Edits.
-- `src/software-actions/`: Software Actions, and a Machine's Tablet Software with how each item updates.
+- `src/software-actions/`: Software Actions, a Machine's Tablet Software with how each item updates, and what the server asks GitHub to pin an item where it is (`github.ts`).
 - `src/set-aside-deliveries/`: deliveries set aside.
 - `src/skin-requests/`: answers to what a plugin asks for a Skin.
 - `src/live-view/`: the Live View's stream, leases and relay.
@@ -98,6 +98,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `test/support/`: the test server, simulated tablet, simulated DYE2 and Streamline, Decaid stand-ins, proxies and fixtures.
 - `test/support/decaid-plugins.ts`: the simulated tablet's plugin management, `host.localApi` and update state, as Decaid v0.9.3's.
 - `test/support/decaid-skins.ts`: the simulated tablet's Skin management and Skin server, as Decaid v0.9.3's.
+- `test/support/fake-github.ts`: the stand-in for GitHub a test server asks in place of it (`TEST_GITHUB_URL`).
 - `test/support/decaid-notices.ts`: the simulated tablet's notification center, `host.notify` and `host.dismissNotification`, as Decaid v0.9.3's.
 - `test/latest-release/`: the tests against the latest release, the mixed-versions suite among them.
 - `test/fixtures/decaid/`: records Decaid, DYE2 and Streamline produced, by version.
@@ -151,7 +152,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | Recipes, Recipe Slots, Baskets, Tools, DYE2's lists | ADR-0005 (interim), ADR-0006, ADR-0008, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022 (interim); `LIBRARY.md`; milestone 3's spec; `server/test/support/simulated-dye2.ts`, `simulated-streamline.ts` |
 | A Recipe's Reference Shot | ADR-0029, ADR-0030; `LIBRARY.md`; `AI_PROTOCOL_NOTES.md`, Reference Shot copies |
 | Collections, Machine Settings, Tablet Settings, Settings Edits, Settings History | ADR-0023; `COLLECTIONS.md`; milestone 4's spec; `server/test/support/decaid-settings.ts` |
-| Tablet Software, Software Actions, reloading the Skin, notices on the tablet | ADR-0034, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins and Software Actions; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657); `server/test/support/decaid-plugins.ts`, `decaid-skins.ts`, `decaid-notices.ts` |
+| Tablet Software, Software Actions, changing how a plugin or Skin updates, reloading the Skin, notices on the tablet | ADR-0034, ADR-0035, ADR-0023, ADR-0017, ADR-0026; `COLLECTIONS.md`, Plugins and Skins and Software Actions; `PLUGIN.md`; `AI_RUNTIME_NOTES.md`, Local API and events; its spec (#657, and #676 for changing how one updates); `server/test/support/decaid-plugins.ts`, `decaid-skins.ts`, `decaid-notices.ts`, `fake-github.ts` |
 | The Live View | ADR-0009, ADR-0016, ADR-0024; `AI_PROTOCOL_NOTES.md`, Live frames; `AI_RUNTIME_NOTES.md`; its spec (#258) |
 | Rolling upgrades, keeping a change working beside the latest release | ADR-0025; `AI_STORAGE_NOTES.md`, Writing a migration; `AI_PROTOCOL_NOTES.md`, Wire revision and Between releases; `DEVELOPMENT.md`, Releasing; `server/test/latest-release/` |
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `SELF-HOSTING.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |

@@ -56,11 +56,11 @@ Decaid, its plugins and its Skins as installed on a tablet, each with its versio
 _Avoid_: Installed software, extensions, firmware (which is the machine's)
 
 **Software Action**:
-Something done to a tablet's software through the server, such as installing a plugin, changing a plugin's settings or reloading the Skin, kept with who asked for it and when, and what came of it.
+Something done to a tablet's software through the server, such as installing a plugin, changing a plugin's settings, changing how a plugin or Skin updates or reloading the Skin, kept with who asked for it and when, and what came of it.
 _Avoid_: Command, Settings Edit (which changes a Machine Setting or a Tablet Setting)
 
 **Pinned**:
-Of a plugin or Skin: installed from one fixed build, so no update check moves it. One that is not pinned follows releases, follows a branch, or is not updated.
+Of a plugin or Skin: installed from one fixed build, so no update check moves it. One that is not pinned follows releases, follows a branch, or is not updated. An Admin changes which with a Software Action, which installs the item again from the source chosen.
 _Avoid_: Held, locked, frozen
 
 **Machine State**:

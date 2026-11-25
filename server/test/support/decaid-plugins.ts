@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 // what Decaid's Linux release answered, recorded in
 // fixtures/decaid/tablet-software-v0.9.3/ (its README): an id or a version
 // is put in the place the recording holds one, and nothing else is written
-// by hand. What a test offers for install (`offer`) stands for a GitHub
+// by hand, but for Decaid's refusal of a build older than the one
+// installed, derived from its source where it is made, as no recording holds
+// one. What a test offers for install (`offer`) stands for a GitHub
 // repository, which the simulated tablet has no network for.
 
 const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/decaid/tablet-software-v0.9.3");
@@ -434,6 +436,10 @@ export class SimulatedPlugins {
     if (!build) return structuredClone(recorded(MANAGEMENT.installsRefused, branchInstall && offered ? 2 : 1));
     const id = String(build.manifest.id);
     const version = String(build.manifest.version);
+    // Decaid installs no build older than the one installed (`PluginLoaderService._ensureNotDowngrade`), answered 409 by
+    // `PluginsHandler._install`. Derived from that source: no recording holds one.
+    const held = id === own.id ? (this.ownVersion ?? String(own.manifest().version)) : this.plugins.find((entry) => entry.id === id)?.version;
+    if (held !== undefined && comparePluginVersions(version, held) < 0) return { status: 409, body: { error: `Plugin ${id} ${held} is installed; remove it before installing ${version}` } };
     const installed = recordedPlugin("decent-sync.reaplugin", branchInstall ? "releaseInstalled" : "releaseInstalled").source as Json;
     const now = new Date().toISOString().replace("Z", "");
     const source: Json = branchInstall
@@ -569,6 +575,36 @@ export class SimulatedPlugins {
     for (const [name, setting] of Object.entries(declared)) if (isSecure(setting)) shown[name] = { isSet: typeof saved[name] === "string" && saved[name] !== "" };
     return shown;
   }
+}
+
+/**
+ * Compares two plugin versions as Decaid does (`comparePluginVersions` in
+ * decaid:lib/src/plugins/plugin_version.dart): their numbers part by part,
+ * a missing part as 0, build metadata left out, and of two alike the one
+ * with a prerelease as the older, prereleases compared part by part,
+ * numbers as numbers.
+ */
+export function comparePluginVersions(a: string, b: string): number {
+  const parse = (version: string) => {
+    const [numbers = "", ...rest] = version.split("+")[0]!.split("-");
+    return { core: numbers.split(".").map((part) => Number.parseInt(part, 10) || 0), prerelease: rest.join("-").split(".").filter((part) => part !== "") };
+  };
+  const [first, second] = [parse(a), parse(b)];
+  for (let index = 0; index < Math.max(first.core.length, second.core.length); index++) {
+    const difference = (first.core[index] ?? 0) - (second.core[index] ?? 0);
+    if (difference !== 0) return Math.sign(difference);
+  }
+  if (first.prerelease.length === 0 || second.prerelease.length === 0) return Math.sign(second.prerelease.length - first.prerelease.length);
+  for (let index = 0; index < Math.max(first.prerelease.length, second.prerelease.length); index++) {
+    const [mine, theirs] = [first.prerelease[index], second.prerelease[index]];
+    if (mine === undefined || theirs === undefined) return mine === undefined ? -1 : 1;
+    const [mineNumber, theirsNumber] = [/^\d+$/.test(mine) ? Number(mine) : null, /^\d+$/.test(theirs) ? Number(theirs) : null];
+    if (mineNumber !== null && theirsNumber !== null && mineNumber !== theirsNumber) return Math.sign(mineNumber - theirsNumber);
+    if (mineNumber !== null && theirsNumber === null) return -1;
+    if (mineNumber === null && theirsNumber !== null) return 1;
+    if (mineNumber === null && mine !== theirs) return mine < theirs ? -1 : 1;
+  }
+  return 0;
 }
 
 /** A recorded answer with the id, or name, it was recorded for replaced by the one asked for. */

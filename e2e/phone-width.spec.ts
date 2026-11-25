@@ -1,6 +1,6 @@
 import { type BrowserContextOptions, expect, type Locator, type Page, test } from "@playwright/test";
 import { SimulatedPlugins, bundledPlugins, recordedPlugin } from "../server/test/support/decaid-plugins.js";
-import { SimulatedSkins } from "../server/test/support/decaid-skins.js";
+import { SimulatedSkins, recordedSkin } from "../server/test/support/decaid-skins.js";
 import { derivedShot, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../server/test/support/steam-fixtures.js";
@@ -19,8 +19,9 @@ import { tabletAt } from "./support/tablets.js";
 // Record, so each list has a table to fit; its serial is made up. Its
 // Location's today, which the Machine page's On one day card lists, doesn't
 // turn while this runs (`farFromMidnight`, #587). The Software tab is
-// lists on a phone, held either way, with each row's actions in a menu
-// (#674), and its tables from md, fitting either way with the most it shows:
+// lists on a phone, held either way, each row keeping the buttons it has on
+// a wide screen with the rest of its actions in its menu (#674, #678), and
+// its tables from md, fitting either way with the most it shows:
 // its log open, a plugin update waiting for approval and a Skin that reports
 // its page; its repositories and commits are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -93,7 +94,7 @@ test("on a phone, every page fits the screen for Staff too", async ({ page, brow
   }
 });
 
-test("on a phone, the Software tab's plugins, Skins and Software Actions are lists, each row's actions in its menu, and nothing on it is wider than the screen", async ({ page, browser }) => {
+test("on a phone, the Software tab's plugins, Skins and Software Actions are lists, each row with its buttons and its menu as on a wide screen, and nothing on it is wider than the screen", async ({ page, browser }) => {
   const corner = await createLocation(page, "Corner");
   // Time To Ready follows a branch, whose next commit adds a permission, so its update waits for approval.
   const plugins = new SimulatedPlugins({
@@ -102,6 +103,9 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
     ),
   });
   const skins = new SimulatedSkins();
+  // One Skin Decaid does not come with, Pinned at one release's download, so its row has every action a Skin's can.
+  const cafe = recordedSkin("streamline-cafe.js-dist");
+  skins.install({ ...cafe, reaMetadata: { ...(cafe.reaMetadata as Record<string, unknown>), sourceUrl: "https://github.com/example/corner-cafe/releases/download/v1.4.0/corner-cafe.js-v1.4.0.zip" } });
   const tablet = await tabletAt(page, server, "Corner 1", corner, "17002", {}, { plugins, skins });
   const machineId = await machineIdOf(page, "Corner 1");
   await expect.poll(async () => (await tabletSoftware(page, machineId)).skins?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(0);
@@ -122,18 +126,20 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
   await pluginsCard.getByRole("button", { name: "Check for updates" }).click();
   await expect(pluginsCard.getByRole("status")).toContainText("Time To Ready waits for approval.");
   await expect(pluginRow("Time To Ready")).toContainText("1.0.5 · EnabledFollows a branch · example/time-to-ready, main1.0.6 waits for approval · adds: notifications");
-  // Approving it stays a button of its own, under what waits, outside the menu.
-  await expect(pluginRow("Time To Ready").getByRole("button", { name: /^(?!About )/ })).toHaveText(["Approve", ""]);
+  // Approving it stays a button of its own, under what waits, outside the menu, as a plugin's settings do.
   await expect(pluginRow("Time To Ready").getByRole("button", { name: "Approve Time To Ready's update" })).toBeVisible();
+  await expect(pluginRow("Time To Ready").getByRole("button", { name: "Actions for Time To Ready" })).toBeVisible();
+  const visualizerSettings = pluginRow("Visualizer upload").getByRole("button", { name: "Visualizer upload settings" });
+  await expect(visualizerSettings).toBeVisible();
 
-  // Decent Sync's own plugin has its settings alone; another's are its settings, enabling or disabling it, and removing it.
+  // Decent Sync's own plugin's menu only changes how it updates; another's also enables or disables it, and removes it.
   const menu = page.getByRole("menu");
   await pluginRow("Decent Sync").getByRole("button", { name: "Actions for Decent Sync" }).click();
-  await expect(menu.getByRole("menuitem")).toHaveText(["Settings"]);
+  await expect(menu.getByRole("menuitem")).toHaveText(["Change how it updates…"]);
   await page.keyboard.press("Escape");
   const visualizer = pluginRow("Visualizer upload").getByRole("button", { name: "Actions for Visualizer upload" });
   await visualizer.click();
-  await expect(menu.getByRole("menuitem")).toHaveText(["Settings", "Disable", "Remove"]);
+  await expect(menu.getByRole("menuitem")).toHaveText(["Change how it updates…", "Disable", "Remove"]);
   // Remove is set apart, and asks first.
   await expect(menu.getByRole("separator")).toHaveCount(1);
   await menu.getByRole("menuitem", { name: "Remove Visualizer upload" }).click();
@@ -142,20 +148,27 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
   await remove.getByRole("button", { name: "Cancel" }).click();
   await expect(remove).toBeHidden();
   await expect(visualizer).toBeFocused();
-  // Its settings open in the dialog they open in on a wide screen.
+  // Changing how it updates opens in the dialog it opens in on a wide screen, and the focus goes back to the menu's button.
   await visualizer.click();
-  await menu.getByRole("menuitem", { name: "Visualizer upload settings" }).click();
+  await menu.getByRole("menuitem", { name: "Change how Visualizer upload updates" }).click();
+  const source = page.getByRole("dialog", { name: "Change how Visualizer upload updates" });
+  await expect(source).toBeVisible();
+  // It fits the phone's screen, with nothing in it reaching past it.
+  expect(await source.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth && dialog.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+  await source.getByRole("button", { name: "Cancel" }).click();
+  await expect(source).toBeHidden();
+  await expect(visualizer).toBeFocused();
+  // Its settings open in the dialog they open in on a wide screen.
+  await visualizerSettings.click();
   const settings = page.getByRole("dialog", { name: "Visualizer upload settings" });
   await expect(settings).toBeVisible();
   await settings.getByRole("button", { name: "Cancel" }).click();
   await expect(settings).toBeHidden();
-  await expect(visualizer).toBeFocused();
   // What is typed in a dialog stays as the phone turns past md: in a plugin's settings, whose list holds until they close, and in installing one.
   // Each is checked once the rest of the tab has turned (found by CSS, as the modal hides it from roles): a dialog the layout's change closed is there until it renders.
   const smallButtons = page.locator("main button[data-size=sm]");
   const listedPlugins = page.locator('ul[aria-label="Plugins"]');
-  await visualizer.click();
-  await menu.getByRole("menuitem", { name: "Visualizer upload settings" }).click();
+  await visualizerSettings.click();
   await settings.getByLabel("Visualizer username", { exact: true }).fill("front-bar");
   await page.setViewportSize({ width: 852, height: 393 });
   await expect(smallButtons.first()).toBeAttached();
@@ -181,13 +194,22 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
   await expect(pluginsCard.getByRole("status")).toHaveText("DoneDisabled Visualizer upload. Done.");
   await expect(pluginRow("Visualizer upload")).toContainText(" · Disabled");
 
-  // The Skins: the default, which nothing is offered for, has no menu; another's are making it the default and removing it.
+  // The Skins: the default, which nothing is offered for, has neither a button nor a menu; another that comes with Decaid has only
+  // the button making it the default; and one that doesn't has that button and, in its menu, the rest.
   const skinList = page.getByRole("list", { name: "Skins" });
   const defaultSkin = skinList.getByRole("listitem").filter({ has: page.getByText("Default", { exact: true }) });
   await expect(defaultSkin).toHaveCount(1);
   await expect(defaultSkin).toContainText(/^Streamline\.js\s*Default\s*Showing now/);
-  await expect(defaultSkin.getByRole("button", { name: /^Actions for / })).toHaveCount(0);
-  await expect(skinList.getByRole("button", { name: /^Actions for / }).first()).toBeVisible();
+  await expect(defaultSkin.getByRole("button", { name: /^(?!About )/ })).toHaveCount(0);
+  const passione = skinList.getByRole("listitem").filter({ has: page.getByText("Passione", { exact: true }) });
+  await expect(passione.getByRole("button", { name: "Make Passione the default" })).toBeVisible();
+  await expect(passione.getByRole("button", { name: /^Actions for / })).toHaveCount(0);
+  const cafeDev = skinList.getByRole("listitem").filter({ has: page.getByText("Streamline Cafe Dev", { exact: true }) });
+  await expect(cafeDev).toContainText("Pinned · example/corner-cafe at v1.4.0");
+  await expect(cafeDev.getByRole("button", { name: "Make Streamline Cafe Dev the default" })).toBeVisible();
+  await cafeDev.getByRole("button", { name: "Actions for Streamline Cafe Dev" }).click();
+  await expect(menu.getByRole("menuitem")).toHaveText(["Change how it updates…", "Follow releases instead", "Remove"]);
+  await page.keyboard.press("Escape");
   // The strip's actions, under what it says.
   const strip = page.getByRole("group", { name: "What the Tablet shows" });
   await expect(strip.getByRole("button", { name: /^(?!About )/ })).toHaveText(["Reload", "Restart the Skin view"]);

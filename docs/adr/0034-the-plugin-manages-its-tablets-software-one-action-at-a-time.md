@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (amended by ADR-0035, which replaces the fourth limit below: how a plugin or Skin updates is changed by installing it again)
 ---
 
 # The plugin manages its tablet's software, one action at a time

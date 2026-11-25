@@ -1006,8 +1006,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Sends the connection's Software Actions that it has not sent yet
    * (ADR-0034), once welcomed, as its Settings Edits are sent: claimed
-   * while it still holds its Machine, one claim at a time, and none to a
-   * plugin from before Software Actions.
+   * while it still holds its Machine, one claim at a time.
    */
   private sendSoftwareActions(session: Session): void {
     const live = session.live;

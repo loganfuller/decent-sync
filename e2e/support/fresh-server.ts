@@ -12,9 +12,11 @@ import { type TestServer, type TestServerOptions, startTestServer } from "../../
  * The simulated tablets and raw connections a test opens, in its body or a
  * `beforeEach`, end once it has run, whether or not it passed, as Vitest's
  * setup ends them (server/test/support/test-scope.ts), unless it opened them
- * through `keep()`.
+ * through `keep()`. Options given as a function are worked out as the
+ * server starts, for what must be running first, such as a stand-in the
+ * server is pointed at.
  */
-export function useFreshServer(options: TestServerOptions = {}): {
+export function useFreshServer(options: TestServerOptions | (() => Promise<TestServerOptions>) = {}): {
   url(): string;
   /** The server itself, such as to start another instance on its database (`sharing`), which it stops with its own. */
   server(): Promise<TestServer>;
@@ -38,7 +40,7 @@ export function useFreshServer(options: TestServerOptions = {}): {
   // Started by the first test that needs it: Playwright resolves baseURL
   // before beforeAll hooks run. Its start, migrations included, has a timeout
   // of its own, so on a loaded machine it does not use up that test's.
-  test.use({ baseURL: [async ({}, use) => use((await (server ??= startTestServer(options))).url), { scope: "test", timeout: 60_000 }] });
+  test.use({ baseURL: [async ({}, use) => use((await (server ??= (async () => startTestServer(typeof options === "function" ? await options() : options))())).url), { scope: "test", timeout: 60_000 }] });
   // This runs before any afterAll hook of the file's own, since Playwright 1.63 runs them in declaration order: so
   // what a file keeps ends here, before the server stops, rather than in a hook of its own.
   test.afterAll(async () => {

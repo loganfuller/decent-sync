@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   type Machine,
+  type PinnedSource,
   type PluginSetting,
   type PluginSource,
   type SettingsEdit,
@@ -38,12 +39,12 @@ import {
 import { valueText } from "@/lib/settings-text";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { useNarrowScreen } from "@/lib/use-screen";
-import { type EditableSettingsField, isEditable, isPluginRepo, isSkinUrl, namesCommit, releaseAssetOf, sameValue, settingsField } from "@decent-sync/protocol";
+import { DECENT_SYNC_REPO, type EditableSettingsField, commitArchiveUrl, isEditable, isPluginRepo, isSkinUrl, namesCommit, releaseAssetOf, sameValue, settingsField } from "@decent-sync/protocol";
 
-// A Machine's Software tab (#660, #661, ADR-0034): its Tablet Software,
-// Decaid, the plugins and the Skins, each with its version and how it
-// updates, what the Tablet shows, and for an Admin the Software Actions that
-// change them, each made once, while the Tablet is connected, and followed
+// A Machine's Software tab (#660, #661, #678, ADR-0034, ADR-0035): its
+// Tablet Software, Decaid, the plugins and the Skins, each with its version
+// and how it updates, what the Tablet shows, and for an Admin the Software
+// Actions that change them, how each updates among them, each made once, while the Tablet is connected, and followed
 // in place until it has an outcome, with the log of them all. Staff at the
 // Machine's Location may reload the Skin and restart the Skin view, and are
 // offered nothing else; other Staff and Viewers read the lists and the log
@@ -69,12 +70,21 @@ const ITEM_ACTIONS_WHEN_NARROW = "w-full flex-wrap *:flex-1";
 type NewAction =
   | { kind: "installPlugin"; repo: string; branch?: string }
   | { kind: "enablePlugin" | "disablePlugin" | "removePlugin"; pluginId: string }
+  | { kind: "changePluginSource"; pluginId: string; seen: Seen; repo: string; branch?: string }
+  | { kind: "changeSkinSource"; skinId: string; seen: Seen; repo: string; branch?: string }
+  | { kind: "changeSkinSource"; skinId: string; seen: Seen; url: string }
   | { kind: "approvePluginUpdate"; pluginId: string; version: string; addedPermissions: string[] }
   | { kind: "changePluginSettings"; pluginId: string; values: Record<string, unknown>; expected: Record<string, unknown> }
   | { kind: "installSkin"; repo: string; branch?: string }
   | { kind: "installSkin"; url: string }
   | { kind: "chooseDefaultSkin" | "removeSkin"; skinId: string }
   | { kind: "checkPluginUpdates" | "checkDecaidUpdate" | "startDecaidUpdate" | "checkSkinUpdates" | "reloadSkin" | "restartSkinView" };
+
+/** A plugin or Skin as its row showed it when a change of how it updates was asked for, which the server makes it over. */
+interface Seen {
+  version: string | null;
+  updates: SoftwareUpdates;
+}
 
 /** Makes a Software Action, answered with its outcome pending; a refusal at once throws with the server's words. */
 async function makeAction(machineId: string, action: NewAction): Promise<SoftwareAction> {
@@ -99,6 +109,8 @@ interface Acting {
   offered: boolean;
   /** Whether Reload and the restart of the Skin view are offered: to an Admin, and to Staff at the Machine's Location, while the Tablet's plugin takes them. */
   skinViewOffered: boolean;
+  /** Whether the Tablet's plugin carries out a change of how a plugin or Skin updates: not one of the previous release, which must update first. */
+  takesSourceChanges: boolean;
   /** Why they can't be made now, or null. */
   blocked: string | null;
   plugins: readonly TabletPlugin[] | null;
@@ -168,7 +180,7 @@ export function SoftwareTab({ machine, changed }: { machine: Machine; changed: n
   // Staff only at the Machine's Location, as the server judges by it.
   const skinViewOffered = mayChange && mayChangeAt(machine.location?.id ?? null) && software?.pluginMustUpdate === false;
   const blocked = actionBlocked(machine);
-  const acting: Acting = { machine, offered, skinViewOffered, blocked, plugins: software?.plugins ?? null, skins: software?.skins ?? null, onAnswered };
+  const acting: Acting = { machine, offered, skinViewOffered, takesSourceChanges: software?.takesSourceChanges === true, blocked, plugins: software?.plugins ?? null, skins: software?.skins ?? null, onAnswered };
   return (
     <>
       {error && (
@@ -334,7 +346,7 @@ function updatesText(updates: SoftwareUpdates): [text: string, about?: string] {
     case "followsUrl":
       return ["Follows its URL", `Installed again once what ${updates.url} serves changes.`];
     case "comesWithDecaid":
-      return ["Comes with Decaid", "Decaid may put its latest release back when it starts."];
+      return ["Comes with Decaid", "Decaid restores it from its own repository each time it starts, so how it updates can't be changed."];
     case "notUpdated":
       return ["Not updated", "Installed from a file or folder, or with no source recorded, so no update check moves it."];
   }
@@ -349,21 +361,22 @@ function pluginLabel(plugin: TabletPlugin): string {
  * The plugins on the Tablet, each with its version, how it updates, any
  * update that waits for approval and the permissions it adds, and whether it
  * is enabled; for an Admin, a check for updates, an install, and each one's
- * actions: approving its waiting update, enabling or disabling it, its
- * settings, and removing it, but for Decent Sync's own, which is never
- * disabled or removed from here.
+ * actions: approving its waiting update and its settings as buttons, and in
+ * a menu changing how it updates, enabling or disabling it, and removing
+ * it, but for Decent Sync's own, which is never disabled or removed from
+ * here.
  */
 function PluginsCard({ plugins, acting }: { plugins: TabletPlugin[] | null; acting: Acting }) {
-  // A plugin's settings open in its row, in the table or the list: the layout holds while they are open.
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const narrow = useNarrowScreen(settingsOpen);
+  // A plugin's dialogs open in its row, in the table or the list: the layout holds while one is open.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const narrow = useNarrowScreen(dialogOpen);
   const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
   const disabled = making || acting.blocked !== null;
   const shown = (action: SoftwareAction) => {
     setError(undefined);
     setMade(action);
   };
-  const rows: PluginRows = { plugins: plugins ?? [], acting, disabled, make, shown, settingsOpened: setSettingsOpen };
+  const rows: PluginRows = { plugins: plugins ?? [], acting, disabled, make, shown, dialogOpened: setDialogOpen };
   return (
     <Card role="region" aria-label="Plugins">
       <CardHeader>
@@ -415,8 +428,8 @@ interface PluginRows {
   make(action: NewAction): Promise<void>;
   /** Shows an action made from a dialog. */
   shown(action: SoftwareAction): void;
-  /** Whether a plugin's settings are open, holding the layout meanwhile. */
-  settingsOpened(open: boolean): void;
+  /** Whether one of a plugin's dialogs is open, holding the layout meanwhile. */
+  dialogOpened(open: boolean): void;
 }
 
 /** What waits for approval of a plugin's update, with the permissions it adds. */
@@ -444,8 +457,12 @@ function ApproveButton({ plugin, disabled, narrow, make }: { plugin: TabletPlugi
 /** What removing a plugin asks to confirm. */
 const REMOVE_PLUGIN = "Its settings on this Tablet are deleted. What it stored stays on the Tablet. If it comes with Decaid, Decaid puts it back when it next starts.";
 
-/** The plugins on a wide screen: a table, with each one's actions as buttons at the end of its row. */
-function PluginsTable({ plugins, acting, disabled, make, shown, settingsOpened }: PluginRows) {
+/**
+ * The plugins on a wide screen: a table, with each one's actions at the end
+ * of its row: approving its waiting update and its settings as buttons,
+ * and the rest in its menu.
+ */
+function PluginsTable({ plugins, acting, disabled, make, shown, dialogOpened }: PluginRows) {
   return (
     <Table aria-label="Plugins">
       <TableHeader>
@@ -480,29 +497,8 @@ function PluginsTable({ plugins, acting, disabled, make, shown, settingsOpened }
               <TableCell className="align-top">
                 <div className="flex flex-wrap justify-end gap-2">
                   <ApproveButton plugin={plugin} disabled={disabled} narrow={false} make={make} />
-                  {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} onOpened={settingsOpened} />}
-                  {!plugin.own &&
-                    (plugin.state === "enabled" ? (
-                      <Button variant="outline" size="sm" aria-label={`Disable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "disablePlugin", pluginId: plugin.id })}>
-                        Disable
-                      </Button>
-                    ) : (
-                      <Button variant="outline" size="sm" aria-label={`Enable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "enablePlugin", pluginId: plugin.id })}>
-                        Enable
-                      </Button>
-                    ))}
-                  {!plugin.own && (
-                    <ConfirmButton
-                      label="Remove"
-                      ariaLabel={`Remove ${pluginLabel(plugin)}`}
-                      title={`Remove ${pluginLabel(plugin)}?`}
-                      description={REMOVE_PLUGIN}
-                      confirmLabel="Remove"
-                      variant="destructive"
-                      disabled={disabled}
-                      onConfirm={() => void make({ kind: "removePlugin", pluginId: plugin.id })}
-                    />
-                  )}
+                  {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} narrow={false} onMade={shown} onOpened={dialogOpened} />}
+                  <PluginMenu plugin={plugin} acting={acting} disabled={disabled} narrow={false} make={make} shown={shown} dialogOpened={dialogOpened} />
                 </div>
               </TableCell>
             )}
@@ -516,10 +512,10 @@ function PluginsTable({ plugins, acting, disabled, make, shown, settingsOpened }
 /**
  * The plugins on a narrow screen (#674): a list, a row for each with its name, its
  * version and state, how it updates, and any update waiting for approval or
- * failed update check, then a button approving that update; its other
- * actions are in one menu at the row's end, where it has any.
+ * failed update check, then the buttons approving that update and opening
+ * its settings; its other actions are in the menu at the row's end.
  */
-function PluginsList({ plugins, acting, disabled, make, shown, settingsOpened }: PluginRows) {
+function PluginsList({ plugins, acting, disabled, make, shown, dialogOpened }: PluginRows) {
   return (
     <ul aria-label="Plugins" className="divide-y rounded-lg border">
       {plugins.map((plugin) => (
@@ -532,24 +528,25 @@ function PluginsList({ plugins, acting, disabled, make, shown, settingsOpened }:
             <UpdatesText updates={plugin.updates} />
             {plugin.pendingUpdate && <span className="text-muted-foreground">{pendingText(plugin.pendingUpdate)}</span>}
             {plugin.lastError && <span className="text-destructive">The last update check failed: {plugin.lastError}</span>}
-            {acting.offered && plugin.pendingUpdate && (
-              <div className="mt-1">
+            {acting.offered && (plugin.pendingUpdate || plugin.settings.length > 0) && (
+              <div className="mt-1 flex flex-wrap gap-2">
                 <ApproveButton plugin={plugin} disabled={disabled} narrow make={make} />
+                {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} narrow onMade={shown} onOpened={dialogOpened} />}
               </div>
             )}
           </div>
-          {acting.offered && <PluginMenu plugin={plugin} acting={acting} disabled={disabled} make={make} shown={shown} settingsOpened={settingsOpened} />}
+          {acting.offered && <PluginMenu plugin={plugin} acting={acting} disabled={disabled} narrow make={make} shown={shown} dialogOpened={dialogOpened} />}
         </li>
       ))}
     </ul>
   );
 }
 
-/** A row's actions on a narrow screen: a menu button named for its row, at the row's end. */
-function RowMenuButton({ name, ref }: { name: string; ref: Ref<HTMLButtonElement> }) {
+/** A row's menu of actions, at the row's end on every screen width (#678): a button named for its row. */
+function RowMenuButton({ name, narrow, ref }: { name: string; narrow: boolean; ref: Ref<HTMLButtonElement> }) {
   return (
     <DropdownMenuTrigger asChild>
-      <Button ref={ref} variant="outline" size="icon" aria-label={`Actions for ${name}`}>
+      <Button ref={ref} variant="outline" size={narrow ? "icon" : "icon-sm"} aria-label={`Actions for ${name}`}>
         <EllipsisIcon />
       </Button>
     </DropdownMenuTrigger>
@@ -576,25 +573,22 @@ function useMenuDialog<Which extends string>() {
 }
 
 /**
- * A plugin's actions on a narrow screen, in one menu: its settings, enabling or
- * disabling it, and removing it, set apart and behind a confirmation; none
- * for Decent Sync's own but its settings, and no menu where it has none.
+ * A plugin's menu: changing how it updates, enabling or disabling it, and
+ * removing it, set apart and behind a confirmation. Decent Sync's own is
+ * never disabled or removed from here, so its menu only changes how it
+ * updates.
  */
-function PluginMenu({ plugin, acting, disabled, make, shown, settingsOpened }: { plugin: TabletPlugin } & Omit<PluginRows, "plugins">) {
-  const { button, open, opened } = useMenuDialog<"settings" | "remove">();
+function PluginMenu({ plugin, acting, disabled, narrow, make, shown, dialogOpened }: { plugin: TabletPlugin; narrow: boolean } & Omit<PluginRows, "plugins">) {
+  const { button, open, opened } = useMenuDialog<"source" | "remove">();
   const name = pluginLabel(plugin);
-  const settings = plugin.settings.length > 0;
-  if (!settings && plugin.own) return null;
   return (
     <>
       <DropdownMenu>
-        <RowMenuButton name={name} ref={button} />
-        <DropdownMenuContent align="end" className="w-44">
-          {settings && (
-            <DropdownMenuItem aria-label={`${name} settings`} disabled={disabled} onSelect={() => open("settings")}>
-              Settings
-            </DropdownMenuItem>
-          )}
+        <RowMenuButton name={name} narrow={narrow} ref={button} />
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem aria-label={`Change how ${name} updates`} disabled={disabled} onSelect={() => open("source")}>
+            Change how it updates…
+          </DropdownMenuItem>
           {!plugin.own &&
             (plugin.state === "enabled" ? (
               <DropdownMenuItem aria-label={`Disable ${name}`} disabled={disabled} onSelect={() => void make({ kind: "disablePlugin", pluginId: plugin.id })}>
@@ -615,7 +609,7 @@ function PluginMenu({ plugin, acting, disabled, make, shown, settingsOpened }: {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {settings && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} onOpened={settingsOpened} opened={opened("settings")} />}
+      <ChangeSourceDialog machine={acting.machine} item={{ kind: "plugin", plugin }} takes={acting.takesSourceChanges} opened={opened("source")} onMade={shown} onOpened={dialogOpened} />
       {!plugin.own && (
         <ConfirmDialog
           {...opened("remove")}
@@ -650,18 +644,22 @@ function skinLabel(skin: { id: string; name: string | null }): string {
  * The Skins on the Tablet, each with its version and how it updates, the
  * default one and the one showing marked, under a strip saying what the
  * Tablet shows; for an Admin, a check for updates, an install, and on each
- * row making it the default and, for one neither the default, nor the one
- * served, nor one that comes with Decaid, removing it behind a confirmation.
+ * row making it the default, as a button, and in a menu changing how it
+ * updates, but for one that comes with Decaid, and, for one neither the
+ * default, nor the one served, nor one that comes with Decaid, removing it
+ * behind a confirmation.
  */
 function SkinsCard({ skins, showing, acting }: { skins: TabletSkin[] | null; showing: TabletShowing | null; acting: Acting }) {
-  const narrow = useNarrowScreen();
+  // A Skin's dialog opens in its row, in the table or the list: the layout holds while it is open.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const narrow = useNarrowScreen(dialogOpen);
   const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
   const disabled = making || acting.blocked !== null;
   const shown = (action: SoftwareAction) => {
     setError(undefined);
     setMade(action);
   };
-  const rows: SkinRows = { skins: skins ?? [], acting, disabled, make };
+  const rows: SkinRows = { skins: skins ?? [], acting, disabled, make, shown, dialogOpened: setDialogOpen };
   return (
     <Card role="region" aria-label="Skins">
       <CardHeader>
@@ -695,6 +693,10 @@ interface SkinRows {
   acting: Acting;
   disabled: boolean;
   make(action: NewAction): Promise<void>;
+  /** Shows an action made from a dialog. */
+  shown(action: SoftwareAction): void;
+  /** Whether one of a Skin's dialogs is open, holding the layout meanwhile. */
+  dialogOpened(open: boolean): void;
 }
 
 /** What removing a Skin asks to confirm. */
@@ -715,8 +717,21 @@ function SkinName({ skin }: { skin: TabletSkin }) {
   );
 }
 
-/** The Skins on a wide screen: a table, with each one's actions as buttons at the end of its row. */
-function SkinsTable({ skins, acting, disabled, make }: SkinRows) {
+/** Making a Skin the default, a button of its own at either width; none for the default one. */
+function MakeDefaultButton({ skin, disabled, narrow, make }: { skin: TabletSkin; disabled: boolean; narrow: boolean; make(action: NewAction): Promise<void> }) {
+  if (skin.default) return null;
+  return (
+    <Button variant="outline" size={narrow ? "default" : "sm"} aria-label={`Make ${skinLabel(skin)} the default`} disabled={disabled} onClick={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}>
+      Make default
+    </Button>
+  );
+}
+
+/**
+ * The Skins on a wide screen: a table, with each one's actions at the end
+ * of its row: making it the default as a button, and the rest in its menu.
+ */
+function SkinsTable({ skins, acting, disabled, make, shown, dialogOpened }: SkinRows) {
   return (
     <Table aria-label="Skins">
       <TableHeader>
@@ -744,24 +759,8 @@ function SkinsTable({ skins, acting, disabled, make }: SkinRows) {
             {acting.offered && (
               <TableCell className="align-top">
                 <div className="flex flex-wrap justify-end gap-2">
-                  {!skin.default && (
-                    <Button variant="outline" size="sm" aria-label={`Make ${skinLabel(skin)} the default`} disabled={disabled} onClick={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}>
-                      Make default
-                    </Button>
-                  )}
-                  {skin.removable && (
-                    <ConfirmButton
-                      label="Remove"
-                      ariaLabel={`Remove ${skinLabel(skin)}`}
-                      title={`Remove ${skinLabel(skin)}?`}
-                      description={REMOVE_SKIN}
-                      confirmLabel="Remove"
-                      variant="destructive"
-                      size="sm"
-                      disabled={disabled}
-                      onConfirm={() => void make({ kind: "removeSkin", skinId: skin.id })}
-                    />
-                  )}
+                  <MakeDefaultButton skin={skin} disabled={disabled} narrow={false} make={make} />
+                  <SkinMenu skin={skin} acting={acting} disabled={disabled} narrow={false} make={make} shown={shown} dialogOpened={dialogOpened} />
                 </div>
               </TableCell>
             )}
@@ -774,10 +773,11 @@ function SkinsTable({ skins, acting, disabled, make }: SkinRows) {
 
 /**
  * The Skins on a narrow screen (#674): a list, a row for each with its name and
- * marks, its version and how it updates; its actions are in one menu at the
- * row's end, where it has any.
+ * marks, its version and how it updates, then the button making it the
+ * default; its other actions are in the menu at the row's end, where it has
+ * any.
  */
-function SkinsList({ skins, acting, disabled, make }: SkinRows) {
+function SkinsList({ skins, acting, disabled, make, shown, dialogOpened }: SkinRows) {
   return (
     <ul aria-label="Skins" className="divide-y rounded-lg border">
       {skins.map((skin) => (
@@ -788,8 +788,13 @@ function SkinsList({ skins, acting, disabled, make }: SkinRows) {
             </span>
             <span>{skin.version ?? "Not reported"}</span>
             <UpdatesText updates={skin.updates} />
+            {acting.offered && !skin.default && (
+              <div className="mt-1">
+                <MakeDefaultButton skin={skin} disabled={disabled} narrow make={make} />
+              </div>
+            )}
           </div>
-          {acting.offered && <SkinMenu skin={skin} disabled={disabled} make={make} />}
+          {acting.offered && <SkinMenu skin={skin} acting={acting} disabled={disabled} narrow make={make} shown={shown} dialogOpened={dialogOpened} />}
         </li>
       ))}
     </ul>
@@ -797,27 +802,40 @@ function SkinsList({ skins, acting, disabled, make }: SkinRows) {
 }
 
 /**
- * A Skin's actions on a narrow screen, in one menu: making it the default, and
- * removing it, set apart and behind a confirmation; no menu where it has
- * neither, as the default one's.
+ * A Skin's menu: changing how it updates; for one Pinned at one release's
+ * download, following its repository's releases instead, in one step
+ * (#678); and removing it, set apart and behind a confirmation. No menu
+ * for one that comes with Decaid, which is neither changed nor removed.
  */
-function SkinMenu({ skin, disabled, make }: { skin: TabletSkin; disabled: boolean; make(action: NewAction): Promise<void> }) {
-  const { button, open, opened } = useMenuDialog<"remove">();
+function SkinMenu({ skin, acting, disabled, narrow, make, shown, dialogOpened }: { skin: TabletSkin; narrow: boolean } & Omit<SkinRows, "skins">) {
+  const { button, open, opened } = useMenuDialog<"source" | "remove">();
   const name = skinLabel(skin);
-  if (skin.default && !skin.removable) return null;
+  // Decaid restores one it comes with from its own repository each time it starts: no source is changed, and none is removed.
+  const changeable = skin.updates.how !== "comesWithDecaid";
+  if (!changeable && !skin.removable) return null;
+  const releasesOf = skin.updates.how === "pinned" && skin.updates.tag ? skin.updates.repo : null;
   return (
     <>
       <DropdownMenu>
-        <RowMenuButton name={name} ref={button} />
-        <DropdownMenuContent align="end" className="w-44">
-          {!skin.default && (
-            <DropdownMenuItem aria-label={`Make ${name} the default`} disabled={disabled} onSelect={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}>
-              Make default
+        <RowMenuButton name={name} narrow={narrow} ref={button} />
+        <DropdownMenuContent align="end" className="w-56">
+          {changeable && (
+            <DropdownMenuItem aria-label={`Change how ${name} updates`} disabled={disabled} onSelect={() => open("source")}>
+              Change how it updates…
+            </DropdownMenuItem>
+          )}
+          {changeable && releasesOf && (
+            <DropdownMenuItem
+              aria-label={`Have ${name} follow releases instead`}
+              disabled={disabled}
+              onSelect={() => void make(sourceChange({ kind: "skin", skin }, { repo: releasesOf }))}
+            >
+              Follow releases instead
             </DropdownMenuItem>
           )}
           {skin.removable && (
             <>
-              {!skin.default && <DropdownMenuSeparator />}
+              {changeable && <DropdownMenuSeparator />}
               <DropdownMenuItem variant="destructive" aria-label={`Remove ${name}`} disabled={disabled} onSelect={() => open("remove")}>
                 Remove
               </DropdownMenuItem>
@@ -825,6 +843,7 @@ function SkinMenu({ skin, disabled, make }: { skin: TabletSkin; disabled: boolea
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {changeable && <ChangeSourceDialog machine={acting.machine} item={{ kind: "skin", skin }} takes={acting.takesSourceChanges} opened={opened("source")} onMade={shown} onOpened={dialogOpened} />}
       {skin.removable && (
         <ConfirmDialog
           {...opened("remove")}
@@ -1318,6 +1337,315 @@ function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCa
   );
 }
 
+/** A plugin or Skin whose way of updating is changed, as its row shows it. */
+type SourceItem = { kind: "plugin"; plugin: TabletPlugin } | { kind: "skin"; skin: TabletSkin };
+
+/** What a change of how an item updates names of it: its id, its name, and its version and how it updates as its row shows them. */
+function sourceItem(item: SourceItem): { id: string; name: string; version: string | null; updates: SoftwareUpdates } {
+  return item.kind === "plugin"
+    ? { id: item.plugin.id, name: pluginLabel(item.plugin), version: item.plugin.version, updates: item.plugin.updates }
+    : { id: item.skin.id, name: skinLabel(item.skin), version: item.skin.version, updates: item.skin.updates };
+}
+
+/** A change of how an item updates, as the action that makes it, over the item as its row shows it. */
+function sourceChange(item: SourceItem, to: { repo: string; branch?: string } | { url: string }): NewAction {
+  const { id, version, updates } = sourceItem(item);
+  const seen = { version, updates };
+  if (item.kind === "skin") return { kind: "changeSkinSource", skinId: id, seen, ...to };
+  if ("url" in to) throw new Error("A plugin is installed from a repository, never a URL");
+  return { kind: "changePluginSource", pluginId: id, seen, ...to };
+}
+
+/** The ways an item can update, as the form offers them. */
+type SourceChoice = "releases" | "branch" | "pinHere" | "commit" | "url";
+
+/** A commit's archive on GitHub, as a Skin pinned to a commit is installed from: its repository and the commit. */
+const COMMIT_ARCHIVE = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/archive\/([0-9a-f]{40})\.zip$/i;
+
+/** What the form opens filled in with: the choice that is how the item updates now, with its fields. Decent Sync's own plugin is only ever of its own repository. */
+function currentSource(updates: SoftwareUpdates, own: boolean): { which: SourceChoice; repo: string; branch: string; commit: string; url: string } {
+  const blank = { which: "releases" as SourceChoice, repo: own ? DECENT_SYNC_REPO : "", branch: "", commit: "", url: "" };
+  const repo = (named: string | null) => (own ? DECENT_SYNC_REPO : (named ?? ""));
+  switch (updates.how) {
+    case "followsReleases":
+      return { ...blank, repo: repo(updates.repo) };
+    case "followsBranch":
+      return own ? blank : { ...blank, which: "branch", repo: repo(updates.repo), branch: updates.branch };
+    case "pinned": {
+      const archive = updates.url ? COMMIT_ARCHIVE.exec(updates.url) : null;
+      if (archive) return { ...blank, which: "commit", repo: archive[1]!, commit: archive[2]! };
+      if (updates.url) return { ...blank, which: "url", repo: updates.repo ?? "", url: updates.url };
+      return { ...blank, which: "commit", repo: repo(updates.repo), commit: updates.commit ?? "" };
+    }
+    case "followsUrl":
+      return { ...blank, which: "url", url: updates.url };
+    default:
+      return blank;
+  }
+}
+
+/** What pinning an item where it is now installs, as the form says it. */
+function pinText(pin: PinnedSource, skin: boolean): string {
+  const commit = pin.commit?.slice(0, 7);
+  if (skin) return pin.tag ? `Installs the download of ${pin.tag} again, which no update check moves. It then shows as Pinned at ${pin.tag}.` : `Installs the archive of commit ${commit}, the build installed now, which no update check moves.`;
+  return pin.tag ? `Installs commit ${commit}, which ${pin.tag} points at. No update check moves it.` : `Installs commit ${commit}, the one installed now. No update check moves it.`;
+}
+
+/**
+ * Changing how an installed plugin or Skin updates (#678, ADR-0035),
+ * opened from its row's menu: following a repository's releases or a
+ * branch, pinning it where it is now, which the server finds through
+ * GitHub, or to a commit, or, for a Skin, a URL. Decent Sync's own plugin
+ * only follows its own repository's releases or is pinned to one of its
+ * commits. Made, the dialog closes and the card follows the action; refused
+ * at once, the dialog says why.
+ */
+function ChangeSourceDialog({
+  machine,
+  item,
+  takes,
+  opened,
+  onMade,
+  onOpened,
+}: {
+  machine: Machine;
+  item: SourceItem;
+  /** Whether the Tablet's plugin carries the change out. */
+  takes: boolean;
+  /** Its state, held by the row's menu that opens it. */
+  opened: { open: boolean; onOpenChange(open: boolean): void; onCloseAutoFocus(event: Event): void };
+  onMade(action: SoftwareAction): void;
+  /** Told as it opens, and as it closes or goes. */
+  onOpened(open: boolean): void;
+}) {
+  const { open } = opened;
+  useEffect(() => {
+    if (!open) return;
+    onOpened(true);
+    return () => onOpened(false);
+  }, [open, onOpened]);
+  const title = `Change how ${sourceItem(item).name} updates`;
+  return (
+    <Dialog open={open} onOpenChange={opened.onOpenChange}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg" onCloseAutoFocus={opened.onCloseAutoFocus}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>On {machine.name}</DialogDescription>
+        </DialogHeader>
+        {/* Mounted only while open, so it starts over each time, from the item as it is then. */}
+        {open && (
+          <ChangeSourceForm
+            machine={machine}
+            item={item}
+            takes={takes}
+            label={title}
+            onCancel={() => opened.onOpenChange(false)}
+            onMade={(action) => {
+              opened.onOpenChange(false);
+              onMade(action);
+            }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChangeSourceForm({
+  machine,
+  item: shown,
+  takes,
+  label,
+  onCancel,
+  onMade,
+}: {
+  machine: Machine;
+  item: SourceItem;
+  takes: boolean;
+  label: string;
+  onCancel(): void;
+  onMade(action: SoftwareAction): void;
+}) {
+  const id = useId();
+  // The item as the form opened over it: a report loaded meanwhile changes neither the fields nor what the change is made over.
+  const [item] = useState(shown);
+  const { id: itemId, name, version, updates } = sourceItem(item);
+  const skin = item.kind === "skin";
+  const own = item.kind === "plugin" && item.plugin.own;
+  const [start] = useState(() => currentSource(updates, own));
+  const [which, setWhich] = useState<SourceChoice>(start.which);
+  const [repo, setRepo] = useState(start.repo);
+  const [branch, setBranch] = useState(start.branch);
+  const [commit, setCommit] = useState(start.commit);
+  const [url, setUrl] = useState(start.url);
+  const [pin, setPin] = useState<PinnedSource>();
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let stopped = false;
+    const query = new URLSearchParams(skin ? { skinId: itemId } : { pluginId: itemId });
+    api<{ pinnedSource: PinnedSource }>("GET", `/machines/${encodeURIComponent(machine.id)}/pinned-source?${query}`).then(
+      ({ pinnedSource }) => !stopped && setPin(pinnedSource),
+      // Pinning it where it is only helps: without it the form still changes to any other source.
+      () => !stopped && setPin({ source: null, tag: null, commit: null, unavailable: null }),
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [machine.id, itemId, skin]);
+
+  const choices: [SourceChoice, string][] = [
+    ["releases", "Follow releases"],
+    ...(own ? [] : ([["branch", "Follow a branch"]] satisfies [SourceChoice, string][])),
+    ...(pin?.source ? ([["pinHere", "Pin where it is now"]] satisfies [SourceChoice, string][]) : []),
+    ["commit", "Pin to a commit"],
+    ...(skin ? ([["url", "From a URL"]] satisfies [SourceChoice, string][]) : []),
+  ];
+  // One release's download never changes (#677), which an Admin pasting a release's link may not mean.
+  const asset = which === "url" ? releaseAssetOf(url.trim()) : null;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const named = repo.trim();
+    const noRepo = isPluginRepo(named) ? [] : [`Give the GitHub repository as owner/name, such as ${skin ? "decentespresso/streamline-js" : "decentespresso/dye2"}`];
+    let to: { repo: string; branch?: string } | { url: string } | undefined;
+    let problems: string[] = [];
+    if (which === "releases") {
+      problems = noRepo;
+      to = { repo: named };
+    } else if (which === "branch") {
+      const typed = branch.trim();
+      problems = [...noRepo, ...(typed === "" || /\s/.test(typed) ? ["Give a branch"] : namesCommit(typed) ? ["To hold it at a commit, choose Pin to a commit"] : [])];
+      to = { repo: named, branch: typed };
+    } else if (which === "commit") {
+      const typed = commit.trim().toLowerCase();
+      // A Skin is pinned by its commit's archive, whose URL shows as Pinned only with the commit's full id.
+      const unnamed = skin ? !/^[0-9a-f]{40}$/.test(typed) : !namesCommit(typed);
+      problems = [...noRepo, ...(unnamed ? [skin ? "Give the commit's full id, 40 characters" : "Give a commit: 7 to 40 characters of its id"] : [])];
+      to = skin ? { url: commitArchiveUrl(named, typed) } : { repo: named, branch: typed };
+    } else if (which === "url") {
+      problems = isSkinUrl(url.trim()) ? [] : ["Give the URL of a zip to install the Skin from"];
+      to = { url: url.trim() };
+    } else {
+      to = pin?.source ?? undefined;
+      if (!to) problems = ["It can't be pinned where it is now"];
+    }
+    if (problems.length > 0 || !to) return setError(problems.join(". "));
+    setError(undefined);
+    setSaving(true);
+    try {
+      onMade(await makeAction(machine.id, sourceChange(item, to)));
+    } catch (caught) {
+      setError(failure(caught, "How it updates could not be changed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form aria-label={label} className="grid min-w-0 gap-5" noValidate onSubmit={(event) => void submit(event)}>
+      {error && <FormError error={error} />}
+      {!takes && (
+        <Alert>
+          <AlertTitle>The Tablet's plugin must update first</AlertTitle>
+          <AlertDescription>Its Decent Sync plugin is from a release before this could be changed from here. Check the plugins for updates, then try again.</AlertDescription>
+        </Alert>
+      )}
+      <p className="text-sm wrap-anywhere">
+        Now: {version ?? "version not reported"} · {updatesText(updates)[0]}
+      </p>
+      <FieldGroup className="gap-4">
+        <div className="grid gap-2">
+          <Label id={`${id}-which`}>From now on</Label>
+          <RadioGroup aria-labelledby={`${id}-which`} value={which} onValueChange={(value) => setWhich(value as SourceChoice)} className="grid gap-2">
+            {choices.map(([value, text]) => (
+              <div key={value} className="flex items-center gap-2">
+                <RadioGroupItem id={`${id}-${value}`} value={value} />
+                <Label htmlFor={`${id}-${value}`} className="font-normal">
+                  {text}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+          {pin?.unavailable && <p className="text-sm text-muted-foreground">Pinning it where it is now isn't offered: {pin.unavailable}.</p>}
+        </div>
+        {(which === "releases" || which === "branch" || which === "commit") &&
+          (own ? (
+            <p className="text-sm wrap-anywhere">Of {DECENT_SYNC_REPO}.</p>
+          ) : (
+            <FormField>
+              <FieldLabel htmlFor={`${id}-repo`}>GitHub repository</FieldLabel>
+              <Input id={`${id}-repo`} placeholder="owner/name" autoComplete="off" spellCheck={false} value={repo} onChange={(event) => setRepo(event.target.value)} />
+              {which === "releases" && <FieldDescription>An update check installs its newest release.</FieldDescription>}
+            </FormField>
+          ))}
+        {which === "branch" && (
+          <FormField>
+            <FieldLabel htmlFor={`${id}-branch-name`}>Branch</FieldLabel>
+            <Input id={`${id}-branch-name`} autoComplete="off" spellCheck={false} value={branch} onChange={(event) => setBranch(event.target.value)} />
+            <FieldDescription>An update check installs the branch's newest commit.</FieldDescription>
+          </FormField>
+        )}
+        {which === "commit" && (
+          <FormField>
+            <FieldLabel htmlFor={`${id}-commit-id`}>Commit</FieldLabel>
+            <Input id={`${id}-commit-id`} autoComplete="off" spellCheck={false} value={commit} onChange={(event) => setCommit(event.target.value)} />
+            <FieldDescription>{skin ? "Its full id. The Skin is installed from that commit's archive, which no update check moves." : "No update check moves it."}</FieldDescription>
+          </FormField>
+        )}
+        {which === "pinHere" && pin?.source && <p className="text-sm text-muted-foreground">{pinText(pin, skin)}</p>}
+        {which === "url" && (
+          <FormField>
+            <FieldLabel htmlFor={`${id}-url-address`}>URL</FieldLabel>
+            <Input id={`${id}-url-address`} type="url" placeholder="https://github.com/owner/name/archive/<commit>.zip" autoComplete="off" spellCheck={false} value={url} onChange={(event) => setUrl(event.target.value)} />
+            <FieldDescription>A zip of the Skin, installed again once what the URL serves changes. A commit's archive stays pinned.</FieldDescription>
+          </FormField>
+        )}
+        {asset && (
+          // A notice, not an error: it shows as the URL is typed.
+          <Alert role="status">
+            <AlertTitle>This Skin will be Pinned at {asset.tag}</AlertTitle>
+            <AlertDescription>
+              <p>This URL is one release's download, which never changes, so no update check will move the Skin to a newer release.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-auto min-h-8 whitespace-normal"
+                onClick={() => {
+                  setWhich("releases");
+                  setRepo(asset.repo);
+                  setError(undefined);
+                }}
+              >
+                Follow releases of {asset.repo} instead
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+      </FieldGroup>
+      {own && (
+        <p className="text-sm text-muted-foreground">
+          Decent Sync's own plugin only follows the releases of {DECENT_SYNC_REPO} or is pinned to one of its commits: a build from anywhere else could cut the Tablet off from the
+          server, with no way back from here.
+        </p>
+      )}
+      <p className="text-sm text-muted-foreground">
+        Decaid installs what the chosen source serves now, which may be another version. {skin ? "The default Skin stays as it is." : "Its settings stay, and it stays enabled or disabled as it is."}
+      </p>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={saving || !takes}>
+          Change
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
 /**
  * A plugin's settings, in a form built from what it declares: text, number,
  * on or off and choice fields, and for a secret a field that only replaces
@@ -1328,22 +1656,19 @@ function PluginSettingsDialog({
   machine,
   plugin,
   disabled,
+  narrow,
   onMade,
   onOpened,
-  opened,
 }: {
   machine: Machine;
   plugin: TabletPlugin;
   disabled: boolean;
+  narrow: boolean;
   onMade(action: SoftwareAction): void;
   /** Told as it opens, and as it closes or goes. */
   onOpened(open: boolean): void;
-  /** Where a row's menu opens it, its state there, and no button of its own. */
-  opened?: { open: boolean; onOpenChange(open: boolean): void; onCloseAutoFocus(event: Event): void };
 }) {
-  const [own, setOwn] = useState(false);
-  const open = opened ? opened.open : own;
-  const setOpen = opened ? opened.onOpenChange : setOwn;
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
     onOpened(true);
@@ -1352,16 +1677,13 @@ function PluginSettingsDialog({
   const title = `${pluginLabel(plugin)} settings`;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {!opened && (
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm" aria-label={title} disabled={disabled}>
-            Settings
-          </Button>
-        </DialogTrigger>
-      )}
+      <DialogTrigger asChild>
+        <Button variant="outline" size={narrow ? "default" : "sm"} aria-label={title} disabled={disabled}>
+          Settings
+        </Button>
+      </DialogTrigger>
       <DialogContent
         className="max-h-[90dvh] overflow-y-auto sm:max-w-lg"
-        onCloseAutoFocus={opened?.onCloseAutoFocus}
         onOpenAutoFocus={(event) => {
           // The first thing to take the focus may be a setting's info tip, which opens as it does: a field takes it instead.
           const field = (event.currentTarget as HTMLElement).querySelector<HTMLElement>("input, [role='switch'], [role='combobox']");

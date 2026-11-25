@@ -24,6 +24,22 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### Changing how a plugin or Skin updates
+
+An Admin can now change how an installed plugin or Skin updates, from its
+row's menu on a Machine's Software tab
+([ADR-0035](docs/adr/0035-how-an-installed-plugin-or-skin-updates-is-changed-by-installing-it-again.md)).
+No step is needed, in either order of upgrading:
+
+- A tablet takes the change only once its plugin is this release's. Until
+  then the form says its plugin must update, and every other Software Action
+  works as before.
+- To offer pinning an item where it is now, the server asks GitHub
+  (`api.github.com` and `github.com`, over HTTPS, without credentials) as
+  the form opens. A server that can't reach GitHub offers the other choices.
+
 ## 1.13.0
 
 ### The Conflict routes are gone

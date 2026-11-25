@@ -24,7 +24,7 @@ export class TabletId {
   /** The read of the id under way, shared by callers meanwhile. */
   private reading: Promise<string> | undefined;
   /** The next attempt to have Decaid's backups include the id, while one is due. */
-  private backupRetry: number | undefined;
+  private backupRetry: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
 
   constructor(

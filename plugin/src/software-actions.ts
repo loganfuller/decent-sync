@@ -1,4 +1,6 @@
 import {
+  DECENT_SYNC_REPO,
+  MAX_PLUGIN_SETTINGS,
   MAX_REFUSAL_LENGTH,
   MAX_SOFTWARE_NAME_LENGTH,
   OWN_CHANGEABLE_SETTING,
@@ -10,7 +12,11 @@ import {
   type SoftwareAction,
   type SoftwareActionResult,
   type UpdateResult,
+  namesCommit,
+  pluginSourceSeen,
+  sameSourceSeen,
   sameValue,
+  skinSourceSeen,
 } from "@decent-sync/protocol";
 import { type Answer, manage, request } from "./decaid.js";
 import type { Transports } from "./host.js";
@@ -82,6 +88,8 @@ interface Pending {
   builds: Record<string, string>;
   /** When Decaid last installed each plugin, as its source says, by its id. */
   installed: Record<string, string>;
+  /** For a change of how a plugin updates: the permissions it declared before. */
+  permissions?: string[];
 }
 
 /**
@@ -95,8 +103,9 @@ interface Pending {
  * unanswered.
  *
  * The plugin protects its own connection, whatever it is sent: it never
- * disables or removes itself, and of its own settings changes only the poll
- * interval. For each action it then reads the machine's state, going ahead
+ * disables or removes itself, of its own settings changes only the poll
+ * interval, and installs itself again only from its own repository's latest
+ * release or one of its commits. For each action it then reads the machine's state, going ahead
  * only while the machine runs nothing or none is connected, but for a check
  * for Decaid's own update; reads the lists; asks Decaid; and, whether Decaid
  * took it or not, reads the lists again and queues them as reports naming
@@ -201,6 +210,9 @@ export class SoftwareActions {
       // A change of its own poll interval shows in the settings it was loaded again with.
       const ownSettings = reloaded && kept.kind === "changePluginSettings" ? await readOwnSettings() : undefined;
       if (this.stopped) return undefined;
+      // A change of how a plugin updates is done once Decaid installed from its new source: whichever plugin that held.
+      const installed = plugins !== undefined && kept.kind === "changePluginSource" ? installedSince(kept, plugins) : undefined;
+      if (installed !== undefined && plugins !== undefined) return this.pluginSourceChanged(kept, String(installed.id), plugins);
       const answer = plugins === undefined ? undefined : settled(kept, plugins, report, reloaded, ownSettings);
       if (answer !== undefined) return answer;
       if (Date.now() + WATCH_STEP_MS > until) return undefined;
@@ -264,7 +276,58 @@ export class SoftwareActions {
     const after = await this.reports.readSoftware("plugins", action.id).catch(() => undefined);
     if (answer === undefined) return refusedByDecaid(action.id, null, `Decaid did not answer: ${failure}`);
     if (!answer.ok) return refusedByDecaid(action.id, answer.status, decaidMessage(answer));
+    if (action.kind === "changePluginSource") {
+      // Decaid's answer names the plugin it installed; where it names none, the one the list shows installed since.
+      const said = parsed(answer.text);
+      const installed = isObject(said) && typeof said.id === "string" ? said.id : after === undefined ? undefined : installedSince(pending, after)?.id;
+      return this.pluginSourceChanged(pending, typeof installed === "string" ? installed : action.pluginId, after ?? before);
+    }
     return { type: "softwareActed", id: action.id, outcome: "done", result: resultOf(action, answer, before, after) };
+  }
+
+  /**
+   * What a change of how a plugin updates came to, once Decaid installed
+   * the plugin `installedId` from the new source, over the plugin list as it
+   * is now. Done where that is the plugin the action named, with its version
+   * before and after and the permissions its new build adds. Where the
+   * source held another plugin, Decaid installed that one beside it: the
+   * plugin removes it again, unless the Tablet held it before the action or
+   * it is this plugin itself, reads the list back, and refuses the action as
+   * `differentItem`, the plugin it named being as it was.
+   */
+  private async pluginSourceChanged(kept: Pending, installedId: string, plugins: unknown[]): Promise<SoftwareActed | undefined> {
+    const listed = (id: string) => plugins.find((entry): entry is Record<string, unknown> => isObject(entry) && entry.id === id);
+    const wanted = kept.pluginId ?? "";
+    if (installedId === wanted) {
+      const plugin = listed(wanted);
+      const before = new Set(kept.permissions ?? []);
+      const added = plugin && Array.isArray(plugin.permissions) ? plugin.permissions.filter((permission): permission is string => typeof permission === "string" && !before.has(permission)) : [];
+      return {
+        type: "softwareActed",
+        id: kept.id,
+        outcome: "done",
+        result: {
+          pluginId: wanted,
+          ...(typeof plugin?.name === "string" && plugin.name !== "" ? { name: plugin.name.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {}),
+          ...(typeof plugin?.version === "string" ? { version: plugin.version } : {}),
+          ...(kept.versions[wanted] === undefined ? {} : { previousVersion: kept.versions[wanted] }),
+          ...(typeof plugin?.loaded === "boolean" ? { loaded: plugin.loaded } : {}),
+          ...(added.length > 0 ? { addedPermissions: added.slice(0, MAX_PLUGIN_SETTINGS).map((permission) => permission.slice(0, MAX_SOFTWARE_NAME_LENGTH)) } : {}),
+        },
+      };
+    }
+    const stray = listed(installedId);
+    const named = String(stray?.name ?? installedId).slice(0, MAX_SOFTWARE_NAME_LENGTH);
+    const heldBefore = kept.versions[installedId] !== undefined || installedId === __PLUGIN_ID__;
+    let left = `${named} was on the Tablet before, and is now installed from that source`;
+    if (!heldBefore) {
+      const removed = await manage("DELETE", `/plugins/${encodeURIComponent(installedId)}`).catch((error: unknown): Answer => ({ status: 0, ok: false, text: describe(error) }));
+      if (this.stopped) return undefined;
+      await this.reports.readSoftware("plugins", kept.id).catch(() => undefined);
+      left = removed.ok ? "Decaid installed it beside it, and the plugin removed it again" : `Decaid installed it beside it, and it could not be removed again (${removed.status === 0 ? removed.text : decaidMessage(removed)}): remove it from its row`;
+    }
+    const wantedName = String(listed(wanted)?.name ?? wanted).slice(0, MAX_SOFTWARE_NAME_LENGTH);
+    return differentItem(kept.id, `That source holds another plugin, ${named}, not ${wantedName}. ${left}. ${wantedName} is unchanged`);
   }
 
   /**
@@ -296,6 +359,10 @@ export class SoftwareActions {
     if (this.stopped) return undefined;
     // Decaid stops waiting on a call after a minute and goes on with it: an install is watched for until the action's time is up.
     if (answer === undefined && action.kind === "installSkin" && /timed out/i.test(failure)) return this.watchSkinInstall(action, before, endTime);
+    if (answer === undefined && action.kind === "changeSkinSource" && /timed out/i.test(failure)) {
+      const watched = await this.watchSkinInstall(action, before, endTime, true);
+      return watched === undefined || this.stopped ? undefined : this.skinSourceChanged(action, before, watched);
+    }
     // An update check is asked for again, which joins the one still running and answers with its results (`checkForSkinUpdates`),
     // holding the actions after it meanwhile; not confirmed where that times out too, or the action's time is up.
     if (answer === undefined && action.kind === "checkSkinUpdates" && /timed out/i.test(failure)) {
@@ -311,19 +378,56 @@ export class SoftwareActions {
     const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
     if (answer === undefined) return refusedByDecaid(action.id, null, `Decaid did not answer: ${failure}`);
     if (!answer.ok) return refusedByDecaid(action.id, answer.status, decaidMessage(answer));
+    if (action.kind === "changeSkinSource") return this.skinSourceChanged(action, before, after === undefined ? undefined : installedSkin(before, after));
     return { type: "softwareActed", id: action.id, outcome: "done", result: skinResultOf(action, answer, before, after) };
   }
 
-  /** Reads the Skins every WATCH_STEP_MS until `until` for the Skin an install whose call timed out put there; undefined, and so not confirmed, where none shows. */
-  private async watchSkinInstall(action: SkinAction, before: Record<string, unknown>, until: number): Promise<SoftwareActed | undefined> {
+  /**
+   * Reads the Skins every WATCH_STEP_MS until `until` for the Skin an install
+   * whose call timed out put there; undefined, and so not confirmed, where
+   * none shows. Answers done with that Skin, or, for a change of how a Skin
+   * updates (`found`), gives the Skin itself.
+   */
+  private async watchSkinInstall(action: SkinAction, before: Record<string, unknown>, until: number): Promise<SoftwareActed | undefined>;
+  private async watchSkinInstall(action: SkinAction, before: Record<string, unknown>, until: number, found: true): Promise<Record<string, unknown> | undefined>;
+  private async watchSkinInstall(action: SkinAction, before: Record<string, unknown>, until: number, found?: true): Promise<SoftwareActed | Record<string, unknown> | undefined> {
     for (;;) {
       if (this.stopped) return undefined;
       const after = await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
       const installed = after === undefined ? undefined : installedSkin(before, after);
-      if (installed !== undefined) return { type: "softwareActed", id: action.id, outcome: "done", result: skinNamed(installed) };
+      if (installed !== undefined) return found ? installed : { type: "softwareActed", id: action.id, outcome: "done", result: skinNamed(installed) };
       if (Date.now() + WATCH_STEP_MS > until) return undefined;
       await new Promise<void>((resolve) => setTimeout(() => resolve(), WATCH_STEP_MS));
     }
+  }
+
+  /**
+   * What a change of how a Skin updates came to, once Decaid took the
+   * install: `installed` is the Skin the list shows installed since. Done
+   * where that is the Skin the action named, with its version before and
+   * after. Where the source held another Skin, Decaid installed that one:
+   * the plugin removes it again, unless the Tablet held it before, reads the
+   * Skins back, and refuses the action as `differentItem`, the Skin it named
+   * being as it was. Not confirmed where the list shows no Skin installed.
+   */
+  private async skinSourceChanged(action: Extract<SkinAction, { kind: "changeSkinSource" }>, before: Record<string, unknown>, installed: Record<string, unknown> | undefined): Promise<SoftwareActed | undefined> {
+    if (installed === undefined) return { type: "softwareActed", id: action.id, outcome: "notConfirmed", message: "Decaid took the install, but its Skins list shows no Skin installed since" };
+    const earlier = skinsIn(before).find((skin) => skin.id === action.skinId);
+    if (installed.id === action.skinId) {
+      const previous = typeof earlier?.version === "string" && earlier.version !== "" ? { previousVersion: earlier.version.slice(0, MAX_SOFTWARE_NAME_LENGTH) } : {};
+      return { type: "softwareActed", id: action.id, outcome: "done", result: { ...skinNamed(installed), ...previous } };
+    }
+    const installedId = String(installed.id);
+    const named = String(installed.name ?? installedId).slice(0, MAX_SOFTWARE_NAME_LENGTH);
+    const wanted = String(earlier?.name ?? action.skinId).slice(0, MAX_SOFTWARE_NAME_LENGTH);
+    let left = `${named} was on the Tablet before, and is now installed from that source`;
+    if (!skinsIn(before).some((skin) => skin.id === installedId)) {
+      const removed = await manage("DELETE", `/webui/skins/${encodeURIComponent(installedId)}`).catch((error: unknown): Answer => ({ status: 0, ok: false, text: describe(error) }));
+      if (this.stopped) return undefined;
+      await this.reports.readSoftwareSkins(action.id).catch(() => undefined);
+      left = removed.ok ? "Decaid installed it beside it, and the plugin removed it again" : `Decaid installed it beside it, and it could not be removed again (${removed.status === 0 ? removed.text : decaidMessage(removed)}): remove it from its row`;
+    }
+    return differentItem(action.id, `That source holds another Skin, ${named}, not ${wanted}. ${left}. ${wanted} is unchanged`);
   }
 
   /**
@@ -641,7 +745,8 @@ function pendingOf(action: SoftwareAction, plugins: unknown[]): Pending {
     builds: buildsOf(plugins),
     installed: installedOf(plugins),
     ...("pluginId" in action ? { pluginId: action.pluginId } : {}),
-    ...(action.kind === "installPlugin" ? { repo: action.repo, ...(action.branch === undefined ? {} : { branch: action.branch }) } : {}),
+    ...(action.kind === "installPlugin" || action.kind === "changePluginSource" ? { repo: action.repo, ...(action.branch === undefined ? {} : { branch: action.branch }) } : {}),
+    ...(action.kind === "changePluginSource" ? { permissions: permissionsOf(plugins, action.pluginId) } : {}),
     ...(action.kind === "changePluginSettings" ? { pollSeconds: action.values[OWN_CHANGEABLE_SETTING] } : {}),
   };
 }
@@ -654,13 +759,17 @@ function forbiddenToItself(action: SoftwareAction): string | null {
   if (action.kind === "changePluginSettings" && Object.keys(action.values).some((setting) => setting !== OWN_CHANGEABLE_SETTING)) {
     return "The Decent Sync plugin changes none of its own settings but its poll interval: its server address and Token are set on the Tablet";
   }
+  // A build from anywhere else, or a branch's moving head, could cut the Tablet off from the server with no way back from it.
+  if (action.kind === "changePluginSource" && (action.repo.toLowerCase() !== DECENT_SYNC_REPO || (action.branch !== undefined && !namesCommit(action.branch)))) {
+    return `The Decent Sync plugin installs itself only from the latest release of ${DECENT_SYNC_REPO} or one of its commits: a build from anywhere else could cut the Tablet off from the server`;
+  }
   return null;
 }
 
 /** An action on the Tablet's Skins. */
-type SkinAction = Extract<SoftwareAction, { kind: "installSkin" | "chooseDefaultSkin" | "checkSkinUpdates" | "removeSkin" | "reloadSkin" | "restartSkinView" }>;
+type SkinAction = Extract<SoftwareAction, { kind: "installSkin" | "chooseDefaultSkin" | "checkSkinUpdates" | "removeSkin" | "changeSkinSource" | "reloadSkin" | "restartSkinView" }>;
 
-const SKIN_KINDS: readonly string[] = ["installSkin", "chooseDefaultSkin", "checkSkinUpdates", "removeSkin", "reloadSkin", "restartSkinView"];
+const SKIN_KINDS: readonly string[] = ["installSkin", "chooseDefaultSkin", "checkSkinUpdates", "removeSkin", "changeSkinSource", "reloadSkin", "restartSkinView"];
 
 function isSkinAction(action: SoftwareAction): action is SkinAction {
   return SKIN_KINDS.includes(action.kind);
@@ -690,9 +799,15 @@ function servedSkin(report: Record<string, unknown>): Record<string, unknown> | 
  * Why the plugin's own protections forbid an action on the Skins, or null:
  * it never removes the default Skin, nor the one served, as Decaid would go
  * on serving a folder that is gone, which answers 404 once the page loads
- * again (`defaultRemoved`).
+ * again (`defaultRemoved`). And it changes the source of no Skin that comes
+ * with Decaid, which restores it from its own repository each time it
+ * starts and at each update check, whatever it was installed from since.
  */
 function forbiddenOnSkins(action: SkinAction, before: Record<string, unknown>): string | null {
+  if (action.kind === "changeSkinSource") {
+    const skin = skinsIn(before).find((entry) => entry.id === action.skinId);
+    return skin?.isBundled === true ? "Decaid restores a Skin it comes with from its own repository each time it starts, so how it updates can't be changed" : null;
+  }
   if (action.kind !== "removeSkin") return null;
   if (action.skinId === defaultSkinId(before)) return "The plugin does not remove the default Skin: choose another default first";
   if (action.skinId === servedSkin(before)?.id) return "The plugin does not remove the Skin on screen: restart the Skin view onto the default first";
@@ -708,6 +823,11 @@ function skinsChangedSince(action: SkinAction, before: Record<string, unknown>, 
   if (action.kind === "chooseDefaultSkin" || action.kind === "removeSkin") {
     return skinsIn(before).some((skin) => skin.id === action.skinId) ? null : `The Tablet has no Skin ${action.skinId} any more`;
   }
+  if (action.kind === "changeSkinSource") {
+    const skin = skinsIn(before).find((entry) => entry.id === action.skinId);
+    if (!skin) return `The Tablet has no Skin ${action.skinId} any more`;
+    if (!sameSourceSeen(skinSourceSeen(skin), action.expected)) return SOURCE_MOVED;
+  }
   if (action.kind === "reloadSkin") {
     const served = servedSkin(before);
     if (served === undefined) return "Decaid serves no Skin now: restart the Skin view";
@@ -721,6 +841,7 @@ function skinsChangedSince(action: SkinAction, before: Record<string, unknown>, 
 function askOnSkins(action: SkinAction): Promise<Answer> {
   switch (action.kind) {
     case "installSkin":
+    case "changeSkinSource":
       if (action.url !== undefined) return manage("POST", "/webui/skins/install/url", { url: action.url });
       return action.branch === undefined
         ? manage("POST", "/webui/skins/install/github-release", { repo: action.repo })
@@ -816,20 +937,22 @@ function skinResultOf(action: SkinAction, answer: Answer, before: Record<string,
 
 /** Whether carrying an action out may have Decaid load this plugin again: any install or update check may bring its own update. */
 function mayReloadItself(action: SoftwareAction): boolean {
-  if (action.kind === "installPlugin" || action.kind === "checkPluginUpdates") return true;
+  if (action.kind === "installPlugin" || action.kind === "changePluginSource" || action.kind === "checkPluginUpdates") return true;
   return (action.kind === "approvePluginUpdate" || action.kind === "changePluginSettings") && action.pluginId === __PLUGIN_ID__;
 }
 
 /**
  * What no longer holds on the Tablet of what an action was made over, in
  * words, or null: the plugin it names is gone, the update that waited is
- * another or none, or a setting it changes holds another value than the
- * form showed, a secret compared by whether it is set.
+ * another or none, a setting it changes holds another value than the
+ * form showed, a secret compared by whether it is set, or the plugin whose
+ * source it changes is at another source or build than the page showed.
  */
 async function changedSince(action: SoftwareAction, plugins: unknown[]): Promise<string | null> {
   if (!("pluginId" in action)) return null;
   const plugin = plugins.find((entry) => isObject(entry) && entry.id === action.pluginId) as Record<string, unknown> | undefined;
   if (!plugin) return `The Tablet has no plugin ${action.pluginId} any more`;
+  if (action.kind === "changePluginSource" && !sameSourceSeen(pluginSourceSeen(plugin), action.expected)) return SOURCE_MOVED;
   if (action.kind === "approvePluginUpdate") {
     const waiting = isObject(plugin.pendingUpdate) ? plugin.pendingUpdate : null;
     if (waiting === null) return "No update of the plugin waits for approval any more";
@@ -850,6 +973,7 @@ async function changedSince(action: SoftwareAction, plugins: unknown[]): Promise
 function ask(action: SoftwareAction): Promise<Answer> {
   switch (action.kind) {
     case "installPlugin":
+    case "changePluginSource":
       return action.branch === undefined
         ? manage("POST", "/plugins/install/github-release", { repo: action.repo })
         : manage("POST", "/plugins/install/github-branch", { repo: action.repo, branch: action.branch });
@@ -931,14 +1055,7 @@ function settled(kept: Pending, plugins: unknown[], report: unknown[] | undefine
       return plugin && rebuilt && !isObject(plugin.pendingUpdate) ? done(resultFor(plugin)) : undefined;
     }
     case "installPlugin": {
-      const installed = installedOf(plugins);
-      const plugin = entries.find((entry) => {
-        const source = isObject(entry.source) ? entry.source : {};
-        const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
-        const sameBranch = kept.branch === undefined ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
-        const id = String(entry.id);
-        return sameRepo && sameBranch && installed[id] !== undefined && installed[id] !== kept.installed[id];
-      });
+      const plugin = installedSince(kept, plugins);
       return plugin ? done(resultFor(plugin)) : undefined;
     }
     case "checkPluginUpdates": {
@@ -962,6 +1079,32 @@ function settled(kept: Pending, plugins: unknown[], report: unknown[] | undefine
     default:
       return undefined;
   }
+}
+
+/** The plugin in a plugin list that Decaid installed since a kept action began, from the repository, and branch, the action named: undefined where none shows yet. */
+function installedSince(kept: Pending, plugins: unknown[]): Record<string, unknown> | undefined {
+  const installed = installedOf(plugins);
+  return plugins.filter(isObject).find((entry) => {
+    const source = isObject(entry.source) ? entry.source : {};
+    const sameRepo = typeof source.repo === "string" && typeof kept.repo === "string" && source.repo.toLowerCase() === kept.repo.toLowerCase();
+    const sameBranch = kept.branch === undefined ? source.kind === "github_release" : source.kind === "github_branch" && source.branch === kept.branch;
+    const id = String(entry.id);
+    return sameRepo && sameBranch && installed[id] !== undefined && installed[id] !== kept.installed[id];
+  });
+}
+
+/** The permissions a plugin declares in a plugin list, by its id. */
+function permissionsOf(plugins: unknown[], pluginId: string): string[] {
+  const plugin = plugins.find((entry): entry is Record<string, unknown> => isObject(entry) && entry.id === pluginId);
+  return Array.isArray(plugin?.permissions) ? plugin.permissions.filter((permission): permission is string => typeof permission === "string") : [];
+}
+
+/** What a change of how an item updates is refused with where the Tablet reports another source or build of it than the page showed. */
+const SOURCE_MOVED = "The Tablet reports another source or build of it than the page showed: load the page again";
+
+/** The refusal of a change of how an item updates whose source held another item. */
+function differentItem(id: string, message: string): SoftwareActed {
+  return { type: "softwareActed", id, outcome: "refused", reason: "differentItem", message: message.slice(0, MAX_REFUSAL_LENGTH) };
 }
 
 /** The plugin's own settings as Decaid holds them, or undefined where it does not answer with them. */
@@ -1046,6 +1189,8 @@ function describeRefusal(answer: SoftwareActed): string {
       return "it came too late to start in time, or its connection closed";
     case "notAllowed":
       return answer.message ?? "the plugin does not do that to itself";
+    case "differentItem":
+      return answer.message ?? "its source held another plugin or Skin";
     case "decaid":
       return `${answer.status === null || answer.status === undefined ? "" : `Decaid answered ${answer.status}: `}${answer.message}`;
     default:
