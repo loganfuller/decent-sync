@@ -4,7 +4,7 @@
 // no time of day or date is kept. Check every string left in the output before committing it: the repo is public.
 //
 // Usage: SAMPLE_SERVER=<server URL> SAMPLE_EMAIL=<Admin email> SAMPLE_PASSWORD=<password> \
-//          node scripts/readme-images/sample.mjs <out.json>
+//          node scripts/images/sample.mjs <out.json>
 // It signs in, makes only GET requests, and signs out. README.md beside this file says when to use it.
 
 import fs from "node:fs";
@@ -115,7 +115,7 @@ if (import.meta.main) {
   const missing = [["SAMPLE_SERVER", base], ["SAMPLE_EMAIL", email], ["SAMPLE_PASSWORD", password]].filter(([, value]) => !value).map(([name]) => name);
   if (missing.length || !out) {
     console.error(`Missing ${[...missing, ...(out ? [] : ["the output path"])].join(", ")}.`);
-    console.error("Usage: SAMPLE_SERVER=<server URL> SAMPLE_EMAIL=<Admin email> SAMPLE_PASSWORD=<password> node scripts/readme-images/sample.mjs <out.json>");
+    console.error("Usage: SAMPLE_SERVER=<server URL> SAMPLE_EMAIL=<Admin email> SAMPLE_PASSWORD=<password> node scripts/images/sample.mjs <out.json>");
     process.exit(1);
   }
   await sample(base, email, password, out);

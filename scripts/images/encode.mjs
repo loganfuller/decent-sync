@@ -1,25 +1,21 @@
-// Encodes the README spec's raw captures into the images README.md shows, named as in docs/images/: each still as a
+// Encodes the image spec's raw captures into the images README.md and the site show, named as in stills.ts: each still as a
 // palette PNG, 1600 px wide (the phone 520), and each theme's Live View frames as a GIF. Needs ffmpeg on PATH.
 //
-// Usage: node scripts/readme-images/encode.mjs <raw directory> <output directory>
-// `npm run readme-images` runs it after the spec (README.md beside this file).
+// Usage: node scripts/images/encode.mjs <raw directory> <output directory>
+// `npm run readme-images` and `npm run site-images` run it after the spec (README.md beside this file).
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { GIF_HEIGHT, GIF_WIDTH } from "./stills.ts";
 
 /** Widths of the encoded stills: the page stills are captured at a device scale of 2 from 1280 px, the phone's from 390. */
 const STILL_WIDTH = 1600;
 const PHONE_WIDTH = 520;
-/** The GIF plays at twice the speed of the shot, 8 frames a second, 800 px wide. */
+/** The GIF plays at twice the speed of the shot, 8 frames a second, GIF_WIDTH wide (stills.ts). */
 const GIF_SPEED = 2;
 /** Seconds, as the GIF plays, that it holds its last frame, the shot finished on the scale, before it loops. */
 const GIF_HOLD_SECONDS = 6;
-/**
- * The GIF's height after scaling to 800 px: it crops off the sliver of the Weight chart's legend that the capture's
- * clip leaves at the bottom. Recheck it when the Live View card's layout changes.
- */
-const GIF_HEIGHT = 482;
 
 /** Fails with what to do when ffmpeg is not on PATH. */
 export function requireFfmpeg() {
@@ -57,7 +53,7 @@ function encodeLive(framesDir, output) {
   fs.writeFileSync(list, `${lines.join("\n")}\n`);
   ffmpeg([
     "-f", "concat", "-safe", "0", "-i", list,
-    "-vf", `fps=8,tpad=stop_mode=clone:stop_duration=${GIF_HOLD_SECONDS},scale=800:-1:flags=lanczos,crop=800:${GIF_HEIGHT}:0:0,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
+    "-vf", `fps=8,tpad=stop_mode=clone:stop_duration=${GIF_HOLD_SECONDS},scale=${GIF_WIDTH}:-1:flags=lanczos,crop=${GIF_WIDTH}:${GIF_HEIGHT}:0:0,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
     output,
   ]);
   return { kept, captured: frameTimesMs.length, cutAtMs: frameTimesMs[kept - 1] };
@@ -90,7 +86,7 @@ export function encode(rawDir, outDir) {
 if (import.meta.main) {
   const [rawDir, outDir] = process.argv.slice(2);
   if (!rawDir || !outDir) {
-    console.error("Usage: node scripts/readme-images/encode.mjs <raw directory> <output directory>");
+    console.error("Usage: node scripts/images/encode.mjs <raw directory> <output directory>");
     process.exit(1);
   }
   try {

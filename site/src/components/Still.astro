@@ -1,0 +1,70 @@
+---
+// One of the generator's images (scripts/images/stills.ts) by its name, in light and dark: each shown while the site
+// is in its theme. A page can show only an image the generator makes. Where it comes from: pick-still.mjs. Without
+// an image to show, as on a pull request's build of an image the README does not commit, it says so in its place.
+import type { ImageMetadata } from "astro";
+import { Image } from "astro:assets";
+
+import { STILLS, type StillName, THEMES, stillFile } from "../../../scripts/images/stills.ts";
+import { byFile, pickStill } from "../pick-still.mjs";
+
+interface Props {
+    name: StillName;
+    alt: string;
+    class?: string;
+    /** Widths to make of a PNG, besides its own, for `sizes`. */
+    widths?: number[];
+    sizes?: string;
+    width?: number;
+    loading?: "lazy" | "eager";
+    [attribute: string]: unknown;
+}
+
+const { name, alt, class: className, widths, sizes, width, loading = "lazy", ...attributes } = Astro.props;
+if (!Object.hasOwn(STILLS, name)) {
+    throw new Error(`No still is named ${name}: name it in scripts/images/stills.ts and capture it in images.spec.ts`);
+}
+const generated = byFile(import.meta.glob<ImageMetadata>("/generated/*.{png,gif}", { eager: true, import: "default" }));
+const committed = byFile(import.meta.glob<ImageMetadata>("../../../docs/images/*.{png,gif}", { eager: true, import: "default" }));
+const required = process.env.SITE_IMAGES === "generated";
+const hidden = { light: "dark:sl-hidden", dark: "light:sl-hidden" } as const;
+const images = THEMES.map((theme) => ({ theme, image: pickStill(stillFile(name, theme), { generated, committed, required }) as ImageMetadata | undefined }));
+const missing = images.some(({ image }) => !image);
+---
+
+{
+    missing ? (
+        <p class:list={["still-missing", className]} data-still={name} {...attributes}>
+            {alt}: an image built when the site is deployed.
+        </p>
+    ) : (
+        images.map(({ theme, image }) =>
+            STILLS[name].file === "gif" ? (
+                <img class:list={[className, hidden[theme]]} src={image!.src} width={image!.width} height={image!.height} alt={alt} loading={loading} data-still={name} data-still-theme={theme} {...attributes} />
+            ) : (
+                <Image
+                    class:list={[className, hidden[theme]]}
+                    src={image!}
+                    alt={alt}
+                    widths={widths && [...widths, image!.width]}
+                    sizes={sizes}
+                    width={width}
+                    loading={loading}
+                    data-still={name}
+                    data-still-theme={theme}
+                    {...attributes}
+                />
+            ),
+        )
+    )
+}
+
+<style>
+    .still-missing {
+        padding: 2rem 1rem;
+        border: 1px dashed var(--sl-color-gray-5);
+        border-radius: 0.5rem;
+        color: var(--sl-color-gray-3);
+        text-align: center;
+    }
+</style>
