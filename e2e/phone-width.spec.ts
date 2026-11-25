@@ -150,6 +150,31 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
   await settings.getByRole("button", { name: "Cancel" }).click();
   await expect(settings).toBeHidden();
   await expect(visualizer).toBeFocused();
+  // What is typed in a dialog stays as the phone turns past md: in a plugin's settings, whose list holds until they close, and in installing one.
+  // Each is checked once the rest of the tab has turned (found by CSS, as the modal hides it from roles): a dialog the layout's change closed is there until it renders.
+  const smallButtons = page.locator("main [data-slot=button][data-size=sm]");
+  const listedPlugins = page.locator('ul[aria-label="Plugins"]');
+  await visualizer.click();
+  await menu.getByRole("menuitem", { name: "Visualizer upload settings" }).click();
+  await settings.getByLabel("Visualizer username", { exact: true }).fill("front-bar");
+  await page.setViewportSize({ width: 852, height: 393 });
+  await expect(smallButtons.first()).toBeAttached();
+  await expect(listedPlugins).toBeAttached();
+  await expect(settings).toBeVisible();
+  await expect(settings.getByLabel("Visualizer username", { exact: true })).toHaveValue("front-bar");
+  await settings.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("table", { name: "Plugins" })).toBeVisible();
+  await pluginsCard.getByRole("button", { name: "Install plugin" }).click();
+  const install = page.getByRole("dialog", { name: "Install plugin" });
+  await install.getByLabel("GitHub repository").fill("example/uploader");
+  await page.setViewportSize(PHONE.viewport!);
+  await expect(listedPlugins).toBeAttached();
+  await expect(smallButtons).toHaveCount(0);
+  await expect(install).toBeVisible();
+  await expect(install.getByLabel("GitHub repository")).toHaveValue("example/uploader");
+  await install.getByRole("button", { name: "Cancel" }).click();
+  await expect(install).toBeHidden();
+  await expect(pluginList).toBeVisible();
   // An action made from the menu.
   await visualizer.click();
   await menu.getByRole("menuitem", { name: "Disable Visualizer upload" }).click();

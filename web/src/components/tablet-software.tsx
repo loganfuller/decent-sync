@@ -351,14 +351,16 @@ function pluginLabel(plugin: TabletPlugin): string {
  * disabled or removed from here.
  */
 function PluginsCard({ plugins, acting }: { plugins: TabletPlugin[] | null; acting: Acting }) {
-  const narrow = useNarrowScreen();
+  // A plugin's settings open in its row, in the table or the list: the layout holds while they are open.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const narrow = useNarrowScreen(settingsOpen);
   const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
   const disabled = making || acting.blocked !== null;
   const shown = (action: SoftwareAction) => {
     setError(undefined);
     setMade(action);
   };
-  const rows: PluginRows = { plugins: plugins ?? [], acting, disabled, make, shown };
+  const rows: PluginRows = { plugins: plugins ?? [], acting, disabled, make, shown, settingsOpened: setSettingsOpen };
   return (
     <Card role="region" aria-label="Plugins">
       <CardHeader>
@@ -386,12 +388,20 @@ function PluginsCard({ plugins, acting }: { plugins: TabletPlugin[] | null; acti
 }
 
 /**
- * A card's own actions: on a wide screen beside its title, and on a narrow screen
- * under it, sharing the card's width.
+ * A card's own actions: on a wide screen beside its title, as its `CardAction`,
+ * and on a narrow screen under it, sharing the card's width. It is the same
+ * element either way, so an install dialog open in it, and what was typed
+ * there, stays as the screen turns past the breakpoint.
  */
 function CardButtons({ narrow, children }: { narrow: boolean; children: ReactNode }) {
-  if (narrow) return <div className="mt-2 flex flex-wrap gap-2 *:flex-1">{children}</div>;
-  return <CardAction className="flex flex-wrap justify-end gap-2">{children}</CardAction>;
+  return (
+    <div
+      data-slot={narrow ? undefined : "card-action"}
+      className={narrow ? "mt-2 flex flex-wrap gap-2 *:flex-1" : "col-start-2 row-span-2 row-start-1 flex flex-wrap justify-end gap-2 self-start justify-self-end"}
+    >
+      {children}
+    </div>
+  );
 }
 
 /** What the plugins' table and their list on a narrow screen share: the plugins, and making an action on one. */
@@ -402,6 +412,8 @@ interface PluginRows {
   make(action: NewAction): Promise<void>;
   /** Shows an action made from a dialog. */
   shown(action: SoftwareAction): void;
+  /** Whether a plugin's settings are open, holding the layout meanwhile. */
+  settingsOpened(open: boolean): void;
 }
 
 /** What waits for approval of a plugin's update, with the permissions it adds. */
@@ -430,7 +442,7 @@ function ApproveButton({ plugin, disabled, narrow, make }: { plugin: TabletPlugi
 const REMOVE_PLUGIN = "Its settings on this Tablet are deleted. What it stored stays on the Tablet. If it comes with Decaid, Decaid puts it back when it next starts.";
 
 /** The plugins on a wide screen: a table, with each one's actions as buttons at the end of its row. */
-function PluginsTable({ plugins, acting, disabled, make, shown }: PluginRows) {
+function PluginsTable({ plugins, acting, disabled, make, shown, settingsOpened }: PluginRows) {
   return (
     <Table aria-label="Plugins">
       <TableHeader>
@@ -465,7 +477,7 @@ function PluginsTable({ plugins, acting, disabled, make, shown }: PluginRows) {
               <TableCell className="align-top">
                 <div className="flex flex-wrap justify-end gap-2">
                   <ApproveButton plugin={plugin} disabled={disabled} narrow={false} make={make} />
-                  {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} />}
+                  {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} onOpened={settingsOpened} />}
                   {!plugin.own &&
                     (plugin.state === "enabled" ? (
                       <Button variant="outline" size="sm" aria-label={`Disable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "disablePlugin", pluginId: plugin.id })}>
@@ -504,7 +516,7 @@ function PluginsTable({ plugins, acting, disabled, make, shown }: PluginRows) {
  * failed update check, then a button approving that update; its other
  * actions are in one menu at the row's end, where it has any.
  */
-function PluginsList({ plugins, acting, disabled, make, shown }: PluginRows) {
+function PluginsList({ plugins, acting, disabled, make, shown, settingsOpened }: PluginRows) {
   return (
     <ul aria-label="Plugins" className="divide-y rounded-lg border">
       {plugins.map((plugin) => (
@@ -523,7 +535,7 @@ function PluginsList({ plugins, acting, disabled, make, shown }: PluginRows) {
               </div>
             )}
           </div>
-          {acting.offered && <PluginMenu plugin={plugin} acting={acting} disabled={disabled} make={make} shown={shown} />}
+          {acting.offered && <PluginMenu plugin={plugin} acting={acting} disabled={disabled} make={make} shown={shown} settingsOpened={settingsOpened} />}
         </li>
       ))}
     </ul>
@@ -565,7 +577,7 @@ function useMenuDialog<Which extends string>() {
  * disabling it, and removing it, set apart and behind a confirmation; none
  * for Decent Sync's own but its settings, and no menu where it has none.
  */
-function PluginMenu({ plugin, acting, disabled, make, shown }: { plugin: TabletPlugin } & Omit<PluginRows, "plugins">) {
+function PluginMenu({ plugin, acting, disabled, make, shown, settingsOpened }: { plugin: TabletPlugin } & Omit<PluginRows, "plugins">) {
   const { button, open, opened } = useMenuDialog<"settings" | "remove">();
   const name = pluginLabel(plugin);
   const settings = plugin.settings.length > 0;
@@ -600,7 +612,7 @@ function PluginMenu({ plugin, acting, disabled, make, shown }: { plugin: TabletP
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {settings && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} opened={opened("settings")} />}
+      {settings && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} onOpened={settingsOpened} opened={opened("settings")} />}
       {!plugin.own && (
         <ConfirmDialog
           {...opened("remove")}
@@ -1290,18 +1302,26 @@ function PluginSettingsDialog({
   plugin,
   disabled,
   onMade,
+  onOpened,
   opened,
 }: {
   machine: Machine;
   plugin: TabletPlugin;
   disabled: boolean;
   onMade(action: SoftwareAction): void;
+  /** Told as it opens, and as it closes or goes. */
+  onOpened(open: boolean): void;
   /** Where a row's menu opens it, its state there, and no button of its own. */
   opened?: { open: boolean; onOpenChange(open: boolean): void; onCloseAutoFocus(event: Event): void };
 }) {
   const [own, setOwn] = useState(false);
   const open = opened ? opened.open : own;
   const setOpen = opened ? opened.onOpenChange : setOwn;
+  useEffect(() => {
+    if (!open) return;
+    onOpened(true);
+    return () => onOpened(false);
+  }, [open, onOpened]);
   const title = `${pluginLabel(plugin)} settings`;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
