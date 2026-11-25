@@ -3,7 +3,6 @@ import { CollapsibleCard } from "@/components/collapsible-card";
 import { InfoTip } from "@/components/info-tip";
 import { failure } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
-import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { MadeBy } from "@/components/settings-edits";
 import { type Lasting, StatusAlert } from "@/components/status-alert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,6 +11,7 @@ import { CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type SoftwareAction, type SoftwareActionPage, type TabletPlugin, type TabletSkin, api } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
+import { useNarrowScreen } from "@/lib/use-screen";
 import { nameDecaidState, namesCommit } from "@decent-sync/protocol";
 
 // Software Actions (ADR-0034): what an Admin asked a Machine's Tablet to do
@@ -430,6 +430,7 @@ function SoftwareActionsLog({ machineId, plugins, skins, answered }: { machineId
   }, [machineId, offset]);
   const { data, error, reload } = usePolled(load, DETAILS_POLL_MS);
   useReloadOn(answered, reload);
+  const narrow = useNarrowScreen();
   const first = data ? data.offset + 1 : 0;
   const last = data ? data.offset + data.page.softwareActions.length : 0;
   return (
@@ -441,8 +442,21 @@ function SoftwareActionsLog({ machineId, plugins, skins, answered }: { machineId
           <AlertDescription>Could not read the Software Actions: {error}</AlertDescription>
         </Alert>
       )}
-      {data && data.page.softwareActions.length > 0 && <ScrollsSideways />}
-      {data && data.page.softwareActions.length > 0 && (
+      {data && data.page.softwareActions.length > 0 && narrow && (
+        // On a narrow screen (#674), a list: what each did, what came of it, then when it was made and who made it.
+        <ul aria-label="Software Actions" className="divide-y rounded-lg border">
+          {data.page.softwareActions.map((action) => (
+            <li key={action.id} className="grid justify-items-start gap-1 px-3 py-2.5 wrap-anywhere">
+              <span className="font-medium">{actionText(action, plugins, skins)}</span>
+              <SoftwareActionOutcome action={action} plugins={plugins} skins={skins} />
+              <span className="text-muted-foreground">
+                {formatTime(action.madeAt)} · <SoftwareActionMadeBy action={action} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {data && data.page.softwareActions.length > 0 && !narrow && (
         <Table aria-label="Software Actions">
           <TableHeader>
             <TableRow>
@@ -474,10 +488,10 @@ function SoftwareActionsLog({ machineId, plugins, skins, answered }: { machineId
             {first}–{last} of {data.page.total}
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
+            <Button variant="outline" size={narrow ? "default" : "sm"} disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
               Newer
             </Button>
-            <Button variant="outline" size="sm" disabled={last >= data.page.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
+            <Button variant="outline" size={narrow ? "default" : "sm"} disabled={last >= data.page.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
               Older
             </Button>
           </div>

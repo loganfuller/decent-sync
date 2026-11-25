@@ -1,10 +1,10 @@
-import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { EllipsisIcon } from "lucide-react";
+import { type FormEvent, type ReactNode, type Ref, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useIsAdmin, useMayChange } from "@/auth";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
-import { ConfirmButton, formatTime } from "@/components/machines";
-import { ScrollsSideways } from "@/components/scrolls-sideways";
+import { ConfirmButton, ConfirmDialog, formatTime } from "@/components/machines";
 import { SettingsEditStatus, SettingsForm } from "@/components/settings-edits";
 import { SoftwareActionStatus, SoftwareActionsCard, decaidUpdateText, skinSourceText, sourceText } from "@/components/software-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field as FormField, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
@@ -36,6 +37,7 @@ import {
 } from "@/lib/api";
 import { valueText } from "@/lib/settings-text";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
+import { useNarrowScreen } from "@/lib/use-screen";
 import { type EditableSettingsField, isEditable, isPluginRepo, isSkinUrl, namesCommit, sameValue, settingsField } from "@decent-sync/protocol";
 
 // A Machine's Software tab (#660, #661, ADR-0034): its Tablet Software,
@@ -59,6 +61,9 @@ const AUTOMATIC_UPDATE_CHECK = (() => {
   if (!field || !isEditable(field)) throw new Error("The automatic update checks are not editable");
   return field satisfies EditableSettingsField;
 })();
+
+/** A card's group's actions on a narrow screen: under the text they belong to, sharing its width. */
+const ITEM_ACTIONS_WHEN_NARROW = "w-full flex-wrap *:flex-1";
 
 /** A Software Action as asked for, by its kind. */
 type NewAction =
@@ -203,6 +208,7 @@ export function SoftwareTab({ machine, changed }: { machine: Machine; changed: n
  * on, which an Admin turns on or off with a Settings Edit.
  */
 function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Acting }) {
+  const narrow = useNarrowScreen();
   const { decaid } = software;
   const { made, error, making, make } = useMade(acting.machine.id);
   const [editing, setEditing] = useState(false);
@@ -222,7 +228,7 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
         </CardTitleWithInfo>
         {acting.offered && (
           <CardAction>
-            <Button variant="outline" size="sm" disabled={making || acting.blocked !== null} onClick={() => void make({ kind: "checkDecaidUpdate" })}>
+            <Button variant="outline" size={narrow ? "default" : "sm"} disabled={making || acting.blocked !== null} onClick={() => void make({ kind: "checkDecaidUpdate" })}>
               Check now
             </Button>
           </CardAction>
@@ -252,7 +258,7 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
                 <p>While they are on, Decaid checks its plugins and Skins for updates every 12 hours and installs what it finds.</p>
               </InfoTip>
               {acting.offered && decaid.automaticUpdateCheck !== null && !editing && (
-                <Button variant="outline" size="sm" aria-label="Edit automatic update checks" disabled={acting.blocked !== null} onClick={() => setEditing(true)}>
+                <Button variant="outline" size={narrow ? "default" : "sm"} aria-label="Edit automatic update checks" disabled={acting.blocked !== null} onClick={() => setEditing(true)}>
                   Edit
                 </Button>
               )}
@@ -266,13 +272,13 @@ function DecaidCard({ software, acting }: { software: TabletSoftware; acting: Ac
                 Decaid {update} can be installed. Someone at the Tablet confirms it and taps Open once it is, as Decaid does not reopen by itself.
               </ItemDescription>
             </ItemContent>
-            <ItemActions className="flex-wrap">
+            <ItemActions className={narrow ? ITEM_ACTIONS_WHEN_NARROW : "flex-wrap"}>
               <ConfirmButton
                 label="Start the update on the Tablet"
                 title="Start Decaid's update on the Tablet?"
                 description={`Decaid downloads ${update} and installs it through Android's installer. Someone at the Tablet must then confirm the update in the installer and tap Open: Decaid does not reopen by itself, and the Machine is offline until it does.`}
                 confirmLabel="Start the update"
-                size="sm"
+                size={narrow ? undefined : "sm"}
                 disabled={making || acting.blocked !== null}
                 onConfirm={() => void make({ kind: "startDecaidUpdate" })}
               />
@@ -345,12 +351,14 @@ function pluginLabel(plugin: TabletPlugin): string {
  * disabled or removed from here.
  */
 function PluginsCard({ plugins, acting }: { plugins: TabletPlugin[] | null; acting: Acting }) {
+  const narrow = useNarrowScreen();
   const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
   const disabled = making || acting.blocked !== null;
   const shown = (action: SoftwareAction) => {
     setError(undefined);
     setMade(action);
   };
+  const rows: PluginRows = { plugins: plugins ?? [], acting, disabled, make, shown };
   return (
     <Card role="region" aria-label="Plugins">
       <CardHeader>
@@ -360,104 +368,250 @@ function PluginsCard({ plugins, acting }: { plugins: TabletPlugin[] | null; acti
         </CardTitleWithInfo>
         {!plugins && <CardDescription>Its Tablet has not reported its plugins yet.</CardDescription>}
         {acting.offered && (
-          <CardAction className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" size="sm" disabled={disabled} onClick={() => void make({ kind: "checkPluginUpdates" })}>
+          <CardButtons narrow={narrow}>
+            <Button variant="outline" size={narrow ? "default" : "sm"} disabled={disabled} onClick={() => void make({ kind: "checkPluginUpdates" })}>
               Check for updates
             </Button>
-            <InstallPluginDialog machine={acting.machine} disabled={disabled} onMade={shown} />
-          </CardAction>
+            <InstallPluginDialog machine={acting.machine} disabled={disabled} narrow={narrow} onMade={shown} />
+          </CardButtons>
         )}
       </CardHeader>
       <CardContent className="grid gap-3">
         <MadeStatus acting={acting} made={made} error={error} />
         {plugins && plugins.length === 0 && <p className="text-sm text-muted-foreground">No plugin is installed.</p>}
-        {plugins && plugins.length > 0 && (
-          <>
-            <ScrollsSideways />
-            <Table aria-label="Plugins">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Plugin</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Updates</TableHead>
-                  <TableHead>State</TableHead>
-                  {acting.offered && (
-                    <TableHead>
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {plugins.map((plugin) => (
-                  <TableRow key={plugin.id}>
-                    <TableCell className="align-top font-medium whitespace-normal">{pluginLabel(plugin)}</TableCell>
-                    <TableCell className="align-top">{plugin.version ?? "Not reported"}</TableCell>
-                    <TableCell className="min-w-48 align-top whitespace-normal">
-                      <div className="grid gap-0.5">
-                        <UpdatesText updates={plugin.updates} />
-                        {plugin.pendingUpdate && (
-                          <span className="text-muted-foreground">
-                            {plugin.pendingUpdate.version ? `${plugin.pendingUpdate.version} waits for approval` : "An update waits for approval"}
-                            {plugin.pendingUpdate.addedPermissions.length > 0 && ` · adds: ${plugin.pendingUpdate.addedPermissions.join(", ")}`}
-                          </span>
-                        )}
-                        {plugin.lastError && <span className="text-destructive">The last update check failed: {plugin.lastError}</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top">
-                      <PluginState plugin={plugin} />
-                    </TableCell>
-                    {acting.offered && (
-                      <TableCell className="align-top">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          {plugin.pendingUpdate && (
-                            <Button
-                              size="sm"
-                              aria-label={`Approve ${pluginLabel(plugin)}'s update`}
-                              disabled={disabled || plugin.pendingUpdate.version === null}
-                              onClick={() =>
-                                plugin.pendingUpdate?.version &&
-                                void make({ kind: "approvePluginUpdate", pluginId: plugin.id, version: plugin.pendingUpdate.version, addedPermissions: plugin.pendingUpdate.addedPermissions })
-                              }
-                            >
-                              Approve
-                            </Button>
-                          )}
-                          {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} />}
-                          {!plugin.own &&
-                            (plugin.state === "enabled" ? (
-                              <Button variant="outline" size="sm" aria-label={`Disable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "disablePlugin", pluginId: plugin.id })}>
-                                Disable
-                              </Button>
-                            ) : (
-                              <Button variant="outline" size="sm" aria-label={`Enable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "enablePlugin", pluginId: plugin.id })}>
-                                Enable
-                              </Button>
-                            ))}
-                          {!plugin.own && (
-                            <ConfirmButton
-                              label="Remove"
-                              ariaLabel={`Remove ${pluginLabel(plugin)}`}
-                              title={`Remove ${pluginLabel(plugin)}?`}
-                              description="Its settings on this Tablet are deleted. What it stored stays on the Tablet. If it comes with Decaid, Decaid puts it back when it next starts."
-                              confirmLabel="Remove"
-                              variant="destructive"
-                              disabled={disabled}
-                              onConfirm={() => void make({ kind: "removePlugin", pluginId: plugin.id })}
-                            />
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </>
-        )}
+        {plugins && plugins.length > 0 && (narrow ? <PluginsList {...rows} /> : <PluginsTable {...rows} />)}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * A card's own actions: on a wide screen beside its title, and on a narrow screen
+ * under it, sharing the card's width.
+ */
+function CardButtons({ narrow, children }: { narrow: boolean; children: ReactNode }) {
+  if (narrow) return <div className="mt-2 flex flex-wrap gap-2 *:flex-1">{children}</div>;
+  return <CardAction className="flex flex-wrap justify-end gap-2">{children}</CardAction>;
+}
+
+/** What the plugins' table and their list on a narrow screen share: the plugins, and making an action on one. */
+interface PluginRows {
+  plugins: TabletPlugin[];
+  acting: Acting;
+  disabled: boolean;
+  make(action: NewAction): Promise<void>;
+  /** Shows an action made from a dialog. */
+  shown(action: SoftwareAction): void;
+}
+
+/** What waits for approval of a plugin's update, with the permissions it adds. */
+function pendingText(pending: NonNullable<TabletPlugin["pendingUpdate"]>): string {
+  const waits = pending.version ? `${pending.version} waits for approval` : "An update waits for approval";
+  return pending.addedPermissions.length > 0 ? `${waits} · adds: ${pending.addedPermissions.join(", ")}` : waits;
+}
+
+/** Approving a plugin's waiting update, a button of its own at either width. */
+function ApproveButton({ plugin, disabled, narrow, make }: { plugin: TabletPlugin; disabled: boolean; narrow: boolean; make(action: NewAction): Promise<void> }) {
+  const pending = plugin.pendingUpdate;
+  if (!pending) return null;
+  return (
+    <Button
+      size={narrow ? "default" : "sm"}
+      aria-label={`Approve ${pluginLabel(plugin)}'s update`}
+      disabled={disabled || pending.version === null}
+      onClick={() => pending.version && void make({ kind: "approvePluginUpdate", pluginId: plugin.id, version: pending.version, addedPermissions: pending.addedPermissions })}
+    >
+      Approve
+    </Button>
+  );
+}
+
+/** What removing a plugin asks to confirm. */
+const REMOVE_PLUGIN = "Its settings on this Tablet are deleted. What it stored stays on the Tablet. If it comes with Decaid, Decaid puts it back when it next starts.";
+
+/** The plugins on a wide screen: a table, with each one's actions as buttons at the end of its row. */
+function PluginsTable({ plugins, acting, disabled, make, shown }: PluginRows) {
+  return (
+    <Table aria-label="Plugins">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Plugin</TableHead>
+          <TableHead>Version</TableHead>
+          <TableHead>Updates</TableHead>
+          <TableHead>State</TableHead>
+          {acting.offered && (
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          )}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {plugins.map((plugin) => (
+          <TableRow key={plugin.id}>
+            <TableCell className="align-top font-medium whitespace-normal">{pluginLabel(plugin)}</TableCell>
+            <TableCell className="align-top">{plugin.version ?? "Not reported"}</TableCell>
+            <TableCell className="min-w-48 align-top whitespace-normal">
+              <div className="grid gap-0.5">
+                <UpdatesText updates={plugin.updates} />
+                {plugin.pendingUpdate && <span className="text-muted-foreground">{pendingText(plugin.pendingUpdate)}</span>}
+                {plugin.lastError && <span className="text-destructive">The last update check failed: {plugin.lastError}</span>}
+              </div>
+            </TableCell>
+            <TableCell className="align-top">
+              <PluginState plugin={plugin} />
+            </TableCell>
+            {acting.offered && (
+              <TableCell className="align-top">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <ApproveButton plugin={plugin} disabled={disabled} narrow={false} make={make} />
+                  {plugin.settings.length > 0 && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} />}
+                  {!plugin.own &&
+                    (plugin.state === "enabled" ? (
+                      <Button variant="outline" size="sm" aria-label={`Disable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "disablePlugin", pluginId: plugin.id })}>
+                        Disable
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" aria-label={`Enable ${pluginLabel(plugin)}`} disabled={disabled} onClick={() => void make({ kind: "enablePlugin", pluginId: plugin.id })}>
+                        Enable
+                      </Button>
+                    ))}
+                  {!plugin.own && (
+                    <ConfirmButton
+                      label="Remove"
+                      ariaLabel={`Remove ${pluginLabel(plugin)}`}
+                      title={`Remove ${pluginLabel(plugin)}?`}
+                      description={REMOVE_PLUGIN}
+                      confirmLabel="Remove"
+                      variant="destructive"
+                      disabled={disabled}
+                      onConfirm={() => void make({ kind: "removePlugin", pluginId: plugin.id })}
+                    />
+                  )}
+                </div>
+              </TableCell>
+            )}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/**
+ * The plugins on a narrow screen (#674): a list, a row for each with its name, its
+ * version and state, how it updates, and any update waiting for approval or
+ * failed update check, then a button approving that update; its other
+ * actions are in one menu at the row's end, where it has any.
+ */
+function PluginsList({ plugins, acting, disabled, make, shown }: PluginRows) {
+  return (
+    <ul aria-label="Plugins" className="divide-y rounded-lg border">
+      {plugins.map((plugin) => (
+        <li key={plugin.id} className="flex items-start gap-2 px-3 py-2.5">
+          <div className="grid min-w-0 flex-1 justify-items-start gap-1 wrap-anywhere">
+            <span className="font-medium">{pluginLabel(plugin)}</span>
+            <span>
+              {plugin.version ?? "Not reported"} · <PluginState plugin={plugin} />
+            </span>
+            <UpdatesText updates={plugin.updates} />
+            {plugin.pendingUpdate && <span className="text-muted-foreground">{pendingText(plugin.pendingUpdate)}</span>}
+            {plugin.lastError && <span className="text-destructive">The last update check failed: {plugin.lastError}</span>}
+            {acting.offered && plugin.pendingUpdate && (
+              <div className="mt-1">
+                <ApproveButton plugin={plugin} disabled={disabled} narrow make={make} />
+              </div>
+            )}
+          </div>
+          {acting.offered && <PluginMenu plugin={plugin} acting={acting} disabled={disabled} make={make} shown={shown} />}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A row's actions on a narrow screen: a menu button named for its row, at the row's end. */
+function RowMenuButton({ name, ref }: { name: string; ref: Ref<HTMLButtonElement> }) {
+  return (
+    <DropdownMenuTrigger asChild>
+      <Button ref={ref} variant="outline" size="icon" aria-label={`Actions for ${name}`}>
+        <EllipsisIcon />
+      </Button>
+    </DropdownMenuTrigger>
+  );
+}
+
+/**
+ * Keeps track of the dialog a row's menu opened, which has no trigger of its
+ * own for the keyboard's focus to go back to as it closes: it goes back to
+ * the menu's button.
+ */
+function useMenuDialog<Which extends string>() {
+  const [open, setOpen] = useState<Which>();
+  const button = useRef<HTMLButtonElement>(null);
+  const opened = (which: Which) => ({
+    open: open === which,
+    onOpenChange: (next: boolean) => !next && setOpen(undefined),
+    onCloseAutoFocus: (event: Event) => {
+      event.preventDefault();
+      button.current?.focus();
+    },
+  });
+  return { button, open: setOpen, opened };
+}
+
+/**
+ * A plugin's actions on a narrow screen, in one menu: its settings, enabling or
+ * disabling it, and removing it, set apart and behind a confirmation; none
+ * for Decent Sync's own but its settings, and no menu where it has none.
+ */
+function PluginMenu({ plugin, acting, disabled, make, shown }: { plugin: TabletPlugin } & Omit<PluginRows, "plugins">) {
+  const { button, open, opened } = useMenuDialog<"settings" | "remove">();
+  const name = pluginLabel(plugin);
+  const settings = plugin.settings.length > 0;
+  if (!settings && plugin.own) return null;
+  return (
+    <>
+      <DropdownMenu>
+        <RowMenuButton name={name} ref={button} />
+        <DropdownMenuContent align="end" className="w-44">
+          {settings && (
+            <DropdownMenuItem aria-label={`${name} settings`} disabled={disabled} onSelect={() => open("settings")}>
+              Settings
+            </DropdownMenuItem>
+          )}
+          {!plugin.own &&
+            (plugin.state === "enabled" ? (
+              <DropdownMenuItem aria-label={`Disable ${name}`} disabled={disabled} onSelect={() => void make({ kind: "disablePlugin", pluginId: plugin.id })}>
+                Disable
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem aria-label={`Enable ${name}`} disabled={disabled} onSelect={() => void make({ kind: "enablePlugin", pluginId: plugin.id })}>
+                Enable
+              </DropdownMenuItem>
+            ))}
+          {!plugin.own && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" aria-label={`Remove ${name}`} disabled={disabled} onSelect={() => open("remove")}>
+                Remove
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {settings && <PluginSettingsDialog machine={acting.machine} plugin={plugin} disabled={disabled} onMade={shown} opened={opened("settings")} />}
+      {!plugin.own && (
+        <ConfirmDialog
+          {...opened("remove")}
+          title={`Remove ${name}?`}
+          description={REMOVE_PLUGIN}
+          confirmLabel="Remove"
+          variant="destructive"
+          onConfirm={() => void make({ kind: "removePlugin", pluginId: plugin.id })}
+        />
+      )}
+    </>
   );
 }
 
@@ -485,12 +639,14 @@ function skinLabel(skin: { id: string; name: string | null }): string {
  * served, nor one that comes with Decaid, removing it behind a confirmation.
  */
 function SkinsCard({ skins, showing, acting }: { skins: TabletSkin[] | null; showing: TabletShowing | null; acting: Acting }) {
+  const narrow = useNarrowScreen();
   const { made, setMade, error, setError, making, make } = useMade(acting.machine.id);
   const disabled = making || acting.blocked !== null;
   const shown = (action: SoftwareAction) => {
     setError(undefined);
     setMade(action);
   };
+  const rows: SkinRows = { skins: skins ?? [], acting, disabled, make };
   return (
     <Card role="region" aria-label="Skins">
       <CardHeader>
@@ -499,93 +655,172 @@ function SkinsCard({ skins, showing, acting }: { skins: TabletSkin[] | null; sho
         </CardTitleWithInfo>
         {!skins && <CardDescription>Its Tablet has not reported its Skins yet.</CardDescription>}
         {acting.offered && skins && (
-          <CardAction className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" size="sm" aria-label="Check Skins for updates" disabled={disabled} onClick={() => void make({ kind: "checkSkinUpdates" })}>
+          <CardButtons narrow={narrow}>
+            <Button variant="outline" size={narrow ? "default" : "sm"} aria-label="Check Skins for updates" disabled={disabled} onClick={() => void make({ kind: "checkSkinUpdates" })}>
               Check for updates
             </Button>
-            <InstallSkinDialog machine={acting.machine} disabled={disabled} onMade={shown} />
-          </CardAction>
+            <InstallSkinDialog machine={acting.machine} disabled={disabled} narrow={narrow} onMade={shown} />
+          </CardButtons>
         )}
       </CardHeader>
       {skins && (
         <CardContent className="grid gap-3">
           <MadeStatus acting={acting} made={made} error={error} />
-          {showing && <ShowingStrip skins={skins} showing={showing} acting={acting} disabled={disabled} make={make} />}
-          {skins.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No Skin is installed.</p>
-          ) : (
-            <>
-              <ScrollsSideways />
-              <Table aria-label="Skins">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Skin</TableHead>
-                    <TableHead>Version</TableHead>
-                    <TableHead>Updates</TableHead>
-                    {acting.offered && (
-                      <TableHead>
-                        <span className="sr-only">Actions</span>
-                      </TableHead>
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {skins.map((skin) => (
-                    <TableRow key={skin.id}>
-                      <TableCell className="align-top font-medium whitespace-normal">
-                        <span className="inline-flex flex-wrap items-center gap-2">
-                          {skinLabel(skin)}
-                          {skin.default && <Badge variant="secondary">Default</Badge>}
-                          {skin.served && (
-                            <Badge variant="outline" className="text-muted-foreground">
-                              Showing now
-                            </Badge>
-                          )}
-                        </span>
-                      </TableCell>
-                      <TableCell className="align-top">{skin.version ?? "Not reported"}</TableCell>
-                      <TableCell className="min-w-48 align-top whitespace-normal">
-                        <UpdatesText updates={skin.updates} />
-                      </TableCell>
-                      {acting.offered && (
-                        <TableCell className="align-top">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            {!skin.default && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                aria-label={`Make ${skinLabel(skin)} the default`}
-                                disabled={disabled}
-                                onClick={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}
-                              >
-                                Make default
-                              </Button>
-                            )}
-                            {skin.removable && (
-                              <ConfirmButton
-                                label="Remove"
-                                ariaLabel={`Remove ${skinLabel(skin)}`}
-                                title={`Remove ${skinLabel(skin)}?`}
-                                description="Decaid deletes it from the Tablet. It can be installed again from here."
-                                confirmLabel="Remove"
-                                variant="destructive"
-                                size="sm"
-                                disabled={disabled}
-                                onConfirm={() => void make({ kind: "removeSkin", skinId: skin.id })}
-                              />
-                            )}
-                          </div>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </>
-          )}
+          {showing && <ShowingStrip skins={skins} showing={showing} acting={acting} disabled={disabled} narrow={narrow} make={make} />}
+          {skins.length === 0 ? <p className="text-sm text-muted-foreground">No Skin is installed.</p> : narrow ? <SkinsList {...rows} /> : <SkinsTable {...rows} />}
         </CardContent>
       )}
     </Card>
+  );
+}
+
+/** What the Skins' table and their list on a narrow screen share: the Skins, and making an action on one. */
+interface SkinRows {
+  skins: TabletSkin[];
+  acting: Acting;
+  disabled: boolean;
+  make(action: NewAction): Promise<void>;
+}
+
+/** What removing a Skin asks to confirm. */
+const REMOVE_SKIN = "Decaid deletes it from the Tablet. It can be installed again from here.";
+
+/** A Skin's name, marked where it is the default and where it is showing now. */
+function SkinName({ skin }: { skin: TabletSkin }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {skinLabel(skin)}
+      {skin.default && <Badge variant="secondary">Default</Badge>}
+      {skin.served && (
+        <Badge variant="outline" className="text-muted-foreground">
+          Showing now
+        </Badge>
+      )}
+    </span>
+  );
+}
+
+/** The Skins on a wide screen: a table, with each one's actions as buttons at the end of its row. */
+function SkinsTable({ skins, acting, disabled, make }: SkinRows) {
+  return (
+    <Table aria-label="Skins">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Skin</TableHead>
+          <TableHead>Version</TableHead>
+          <TableHead>Updates</TableHead>
+          {acting.offered && (
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          )}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {skins.map((skin) => (
+          <TableRow key={skin.id}>
+            <TableCell className="align-top font-medium whitespace-normal">
+              <SkinName skin={skin} />
+            </TableCell>
+            <TableCell className="align-top">{skin.version ?? "Not reported"}</TableCell>
+            <TableCell className="min-w-48 align-top whitespace-normal">
+              <UpdatesText updates={skin.updates} />
+            </TableCell>
+            {acting.offered && (
+              <TableCell className="align-top">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {!skin.default && (
+                    <Button variant="outline" size="sm" aria-label={`Make ${skinLabel(skin)} the default`} disabled={disabled} onClick={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}>
+                      Make default
+                    </Button>
+                  )}
+                  {skin.removable && (
+                    <ConfirmButton
+                      label="Remove"
+                      ariaLabel={`Remove ${skinLabel(skin)}`}
+                      title={`Remove ${skinLabel(skin)}?`}
+                      description={REMOVE_SKIN}
+                      confirmLabel="Remove"
+                      variant="destructive"
+                      size="sm"
+                      disabled={disabled}
+                      onConfirm={() => void make({ kind: "removeSkin", skinId: skin.id })}
+                    />
+                  )}
+                </div>
+              </TableCell>
+            )}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/**
+ * The Skins on a narrow screen (#674): a list, a row for each with its name and
+ * marks, its version and how it updates; its actions are in one menu at the
+ * row's end, where it has any.
+ */
+function SkinsList({ skins, acting, disabled, make }: SkinRows) {
+  return (
+    <ul aria-label="Skins" className="divide-y rounded-lg border">
+      {skins.map((skin) => (
+        <li key={skin.id} className="flex items-start gap-2 px-3 py-2.5">
+          <div className="grid min-w-0 flex-1 justify-items-start gap-1 wrap-anywhere">
+            <span className="font-medium">
+              <SkinName skin={skin} />
+            </span>
+            <span>{skin.version ?? "Not reported"}</span>
+            <UpdatesText updates={skin.updates} />
+          </div>
+          {acting.offered && <SkinMenu skin={skin} disabled={disabled} make={make} />}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A Skin's actions on a narrow screen, in one menu: making it the default, and
+ * removing it, set apart and behind a confirmation; no menu where it has
+ * neither, as the default one's.
+ */
+function SkinMenu({ skin, disabled, make }: { skin: TabletSkin; disabled: boolean; make(action: NewAction): Promise<void> }) {
+  const { button, open, opened } = useMenuDialog<"remove">();
+  const name = skinLabel(skin);
+  if (skin.default && !skin.removable) return null;
+  return (
+    <>
+      <DropdownMenu>
+        <RowMenuButton name={name} ref={button} />
+        <DropdownMenuContent align="end" className="w-44">
+          {!skin.default && (
+            <DropdownMenuItem aria-label={`Make ${name} the default`} disabled={disabled} onSelect={() => void make({ kind: "chooseDefaultSkin", skinId: skin.id })}>
+              Make default
+            </DropdownMenuItem>
+          )}
+          {skin.removable && (
+            <>
+              {!skin.default && <DropdownMenuSeparator />}
+              <DropdownMenuItem variant="destructive" aria-label={`Remove ${name}`} disabled={disabled} onSelect={() => open("remove")}>
+                Remove
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {skin.removable && (
+        <ConfirmDialog
+          {...opened("remove")}
+          title={`Remove ${name}?`}
+          description={REMOVE_SKIN}
+          confirmLabel="Remove"
+          variant="destructive"
+          onConfirm={() => void make({ kind: "removeSkin", skinId: skin.id })}
+        />
+      )}
+    </>
   );
 }
 
@@ -602,12 +837,14 @@ function ShowingStrip({
   showing,
   acting,
   disabled,
+  narrow,
   make,
 }: {
   skins: readonly TabletSkin[];
   showing: TabletShowing;
   acting: Acting;
   disabled: boolean;
+  narrow: boolean;
   make(action: NewAction): Promise<void>;
 }) {
   const served = showing.skin;
@@ -654,9 +891,9 @@ function ShowingStrip({
         )}
       </ItemContent>
       {acting.skinViewOffered && (
-        <ItemActions className="flex-wrap">
+        <ItemActions className={narrow ? ITEM_ACTIONS_WHEN_NARROW : "flex-wrap"}>
           {reported && (
-            <Button size="sm" disabled={disabled} onClick={() => void make({ kind: "reloadSkin" })}>
+            <Button size={narrow ? "default" : "sm"} disabled={disabled} onClick={() => void make({ kind: "reloadSkin" })}>
               Reload
             </Button>
           )}
@@ -670,7 +907,7 @@ function ShowingStrip({
               </>
             }
             confirmLabel="Restart"
-            size="sm"
+            size={narrow ? undefined : "sm"}
             disabled={disabled}
             onConfirm={() => void make({ kind: "restartSkinView" })}
           />
@@ -703,12 +940,12 @@ function howShort(updates: SoftwareUpdates): string {
  * suggested, and picking one fills the form. Made, the dialog closes and the
  * Plugins card follows the action; refused at once, the dialog says why.
  */
-function InstallPluginDialog({ machine, disabled, onMade }: { machine: Machine; disabled: boolean; onMade(action: SoftwareAction): void }) {
+function InstallPluginDialog({ machine, disabled, narrow, onMade }: { machine: Machine; disabled: boolean; narrow: boolean; onMade(action: SoftwareAction): void }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" disabled={disabled}>
+        <Button size={narrow ? "default" : "sm"} disabled={disabled}>
           Install plugin
         </Button>
       </DialogTrigger>
@@ -856,12 +1093,12 @@ function InstallPluginForm({ machine, onCancel, onMade }: { machine: Machine; on
  * Made, the dialog closes and the Skins card follows the action; refused at
  * once, the dialog says why.
  */
-function InstallSkinDialog({ machine, disabled, onMade }: { machine: Machine; disabled: boolean; onMade(action: SoftwareAction): void }) {
+function InstallSkinDialog({ machine, disabled, narrow, onMade }: { machine: Machine; disabled: boolean; narrow: boolean; onMade(action: SoftwareAction): void }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" disabled={disabled}>
+        <Button size={narrow ? "default" : "sm"} disabled={disabled}>
           Install Skin
         </Button>
       </DialogTrigger>
@@ -1048,18 +1285,36 @@ function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCa
  * it, shown as set or not set, never with its value. A setting Decent
  * Sync's own plugin keeps to the Tablet is shown, not changed.
  */
-function PluginSettingsDialog({ machine, plugin, disabled, onMade }: { machine: Machine; plugin: TabletPlugin; disabled: boolean; onMade(action: SoftwareAction): void }) {
-  const [open, setOpen] = useState(false);
+function PluginSettingsDialog({
+  machine,
+  plugin,
+  disabled,
+  onMade,
+  opened,
+}: {
+  machine: Machine;
+  plugin: TabletPlugin;
+  disabled: boolean;
+  onMade(action: SoftwareAction): void;
+  /** Where a row's menu opens it, its state there, and no button of its own. */
+  opened?: { open: boolean; onOpenChange(open: boolean): void; onCloseAutoFocus(event: Event): void };
+}) {
+  const [own, setOwn] = useState(false);
+  const open = opened ? opened.open : own;
+  const setOpen = opened ? opened.onOpenChange : setOwn;
   const title = `${pluginLabel(plugin)} settings`;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" aria-label={title} disabled={disabled}>
-          Settings
-        </Button>
-      </DialogTrigger>
+      {!opened && (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" aria-label={title} disabled={disabled}>
+            Settings
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent
         className="max-h-[90dvh] overflow-y-auto sm:max-w-lg"
+        onCloseAutoFocus={opened?.onCloseAutoFocus}
         onOpenAutoFocus={(event) => {
           // The first thing to take the focus may be a setting's info tip, which opens as it does: a field takes it instead.
           const field = (event.currentTarget as HTMLElement).querySelector<HTMLElement>("input, [role='switch'], [role='combobox']");

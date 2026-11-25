@@ -28,6 +28,7 @@ Conventions of the management interface (`web/`) that no single file states.
 
 - Every page fits a phone's width, which `e2e/phone-width.spec.ts` checks.
 - A table's bordered wrapper that is a grid item takes `min-w-0`, so the table scrolls in its own container rather than widening the page.
+- Below `md` (`useNarrowScreen`, `web/src/lib/use-screen.ts`) a Machine's Software tab renders lists in place of its tables, each row's actions in a menu whose dialogs open from `ConfirmDialog` or with their state held outside it, and its buttons at the default size; `expectTabFits` in `e2e/phone-width.spec.ts` checks nothing in its cards reaches past them or scrolls sideways.
 
 ## MCP parity
 
