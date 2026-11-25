@@ -150,7 +150,8 @@ export function brokenLinks(root) {
                     continue;
                 }
                 if (heading === "" || !MARKDOWN.test(resolved) || !fs.statSync(resolved).isFile()) continue;
-                if (!anchorsIn(resolved).has(heading.toLowerCase())) problems.push(`${file}:${number}: "${target}" names no heading of that file`);
+                const known = anchorsIn(resolved);
+                if (!known.has(heading) && !known.has(heading.toLowerCase())) problems.push(`${file}:${number}: "${target}" names no heading of that file`);
             }
         }
     }
