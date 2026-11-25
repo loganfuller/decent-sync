@@ -114,8 +114,9 @@ These changes an assistant makes are recorded as yours, through the app, and sho
 - a Settings Edit, in the Machine's Settings Edits;
 - an edit of a Shot's rating or note, in the Shot's edits;
 - a reload of a Skin, in the Machine's Software Actions.
+- a Draft's latest save, beside the Draft as "saved … by *account*, through *app*". Only the latest save is kept, not each one.
 
-Other changes, such as creating or editing a Location, keep no record of who made them, whether an assistant or a person made them.
+Other changes, such as creating or editing a Location or moving a Machine, keep no record of who made them, whether an assistant or a person made them.
 
 A change you make yourself in the management interface shows as "*account*, here" in an item's history, so the two are told apart.
 
