@@ -70,7 +70,7 @@ describe("the built site", () => {
 
     // The Guide pages written so far (#685), by what a reader would miss, never by their wording: the page itself, its
     // images, its steps, and its way to the Glossary.
-    const WRITTEN = {
+    const GUIDE_STILLS = {
         "guide/shots": ["shots", "shot", "overview", "recipe"],
         "guide/machines": ["machines", "live-view", "phone", "machine-activity", "machine-settings", "machine-software"],
     };
@@ -79,7 +79,7 @@ describe("the built site", () => {
         return html.slice(html.indexOf("<main"), html.indexOf("</main>"));
     };
 
-    for (const [path, stills] of Object.entries(WRITTEN)) {
+    for (const [path, stills] of Object.entries(GUIDE_STILLS)) {
         test(`${path} is written, with its images, its steps and a link to the Glossary`, () => {
             const main = content(path);
             assert.ok(!main.includes("This page is not written yet"), `${path} is still a placeholder`);
