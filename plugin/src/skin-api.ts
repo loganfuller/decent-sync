@@ -26,7 +26,7 @@ import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
 // handler, for up to 30 s (`__dispatchPluginHttp` and `registerPendingHttp`
 // in decaid:lib/src/plugins/plugin_manager.dart, the same at v0.9.1 and
 // v0.9.2). Decaid checks no caller, so anything on the tablet's network can
-// call these, as it can Decaid's own API. docs/PLUGIN.md describes them for
+// call these, as it can Decaid's own API. site/src/content/docs/technical/skin-authors.md describes them for
 // a Skin's author. All read but two. A PUT to `reference` chooses a Recipe's
 // Reference Shot (ticket #511), which the server does or refuses, never the
 // plugin later. A PUT to `shot` edits a Shot's rating and note (ticket #515,

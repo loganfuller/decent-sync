@@ -15,7 +15,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 const PLUGIN = String(readBuiltPlugin().manifest.id);
 const SAVED = "Shots still save on this tablet and will upload later.";
 const MANAGER = "Someone who manages Decent Sync";
-/** What the tablet shows, as docs/PLUGIN.md lists it. */
+/** What the tablet shows, as site/src/content/docs/reference/tablet-plugin.md lists it. */
 const NOTICES = {
   decaidTooOld: `${SAVED} Decent Sync stopped syncing because this tablet's Decaid is older than the Decent Sync server supports. ${MANAGER} can update Decaid on this tablet.`,
   pluginTooOld: `${SAVED} Decent Sync stopped syncing because this tablet's Decent Sync plugin is older than the server supports. ${MANAGER} can update the plugin.`,
@@ -71,7 +71,7 @@ describe("Notices on the tablet", () => {
   const load = (options: SimulatedTabletOptions) => SimulatedTablet.load(options);
 
   it("fits each notice in Decaid's limit, and the plugin guide lists each as the tablet shows it", () => {
-    const guide = readFileSync(new URL("../../docs/PLUGIN.md", import.meta.url), "utf8");
+    const guide = readFileSync(new URL("../../site/src/content/docs/reference/tablet-plugin.md", import.meta.url), "utf8");
     for (const message of Object.values(NOTICES)) {
       expect(message.length).toBeLessThanOrEqual(600);
       expect(guide).toContain(message);

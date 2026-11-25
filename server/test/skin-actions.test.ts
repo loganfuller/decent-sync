@@ -14,7 +14,7 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // fixtures/decaid/tablet-software-v0.9.3/skin-management.json), and
 // answered, against real servers sharing one PostgreSQL database. A Skin
 // that reports its page is played by the test, through the plugin's `page`
-// endpoint, as docs/PLUGIN.md tells a Skin's author to. Serials are made up.
+// endpoint, as site/src/content/docs/technical/skin-authors.md tells a Skin's author to. Serials are made up.
 
 interface ActionView {
   id: string;

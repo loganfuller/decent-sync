@@ -7,7 +7,8 @@ order, and the new server runs beside the old one as it upgrades, so nothing
 here stops the server or recreates the database
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)).
 Earlier releases' notes may still ask that. A server that skipped a release
-takes each release in turn (docs/SELF-HOSTING.md, Upgrading).
+takes each release in turn
+([Upgrading](site/src/content/docs/self-hosting/upgrading.md#if-you-skipped-a-release)).
 
 Where a note has a tablet's plugin updated or approved through Decaid's API
 from its network (`POST /api/v1/plugins/update`,
@@ -18,7 +19,7 @@ settings on the tablet: send it as `Authorization: Bearer <token>`, which does
 no harm where none is asked. Make one on the tablet in Decaid, on its
 Decent Account page under API access tokens, with "Manage plugins and skins"
 turned on. It is shown once, and needs no Decent Account sign-in
-(docs/PLUGIN.md, A token for managing plugins).
+([A token for managing plugins](site/src/content/docs/reference/tablet-plugin.md#a-token-for-managing-plugins)).
 
 Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,

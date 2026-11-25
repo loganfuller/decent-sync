@@ -17,6 +17,7 @@ import { chromium } from "@playwright/test";
 import { brokenLinks } from "../check-links.mjs";
 import { ROOT_BASE, SITE } from "../site.config.mjs";
 import { canonicalAtRoot } from "../src/canonical.mjs";
+import { pageBody, ROOT_PAGES } from "../src/root-pages.mjs";
 import { serve } from "./support/serve.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -33,6 +34,22 @@ const SECTIONS = [
     ["Project", ["project/roadmap", "project/releases"]],
 ];
 const PAGES = SECTIONS.flatMap(([, pages]) => pages);
+
+// The pages #683 wrote from the README, the self-hosting document and the
+// plugin document, and the two rendered from a file at the repository's root.
+const WRITTEN = [...SECTIONS[0][1], ...SECTIONS[2][1], "reference/glossary", "reference/tablet-plugin", "reference/upgrade-notes", "technical/skin-authors"];
+
+const repository = join(root, "..");
+const repositoryFile = (path) => readFileSync(join(repository, path), "utf8");
+/** A built page's text as a reader sees it: no tags, and entities as their characters. */
+const text = (html) =>
+    html
+        .replace(/<[^>]+>/g, "")
+        .replace(/&#x27;|&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
 
 const base = `${ROOT_BASE}/v9.8`;
 let dist;
@@ -114,6 +131,94 @@ describe("the built site", () => {
 
     test("has no broken internal link", () => {
         assert.deepEqual(brokenLinks(dist, base), []);
+    });
+
+    test("has each Get started, Self-hosting and plugin page written", () => {
+        for (const page of WRITTEN) {
+            const html = read(page);
+            assert.ok(!html.includes("This page is not written yet"), `${page} is not written`);
+            assert.match(html, /<h2 /, `${page} has no section`);
+        }
+    });
+
+    test("has every setting the server and the Compose file read on the Configuration page", () => {
+        const page = text(read("self-hosting/configuration"));
+        const server = [...repositoryFile("server/src/config.ts").matchAll(/\benv\.([A-Z][A-Z0-9_]+)/g)].map(([, name]) => name);
+        const compose = [...repositoryFile("docker-compose.yml").matchAll(/\$\{([A-Z][A-Z0-9_]+)/g)].map(([, name]) => name);
+        // What only the server's own tests set.
+        const settings = [...new Set([...server, ...compose])].filter((name) => !name.startsWith("TEST_"));
+        assert.ok(settings.includes("DATABASE_URL") && settings.includes("POSTGRES_PASSWORD"), "the settings were not read from the code");
+        for (const setting of settings) assert.ok(page.includes(setting), `the Configuration page lacks ${setting}`);
+    });
+
+    test("lists each notice the tablet shows on the tablet plugin's page", () => {
+        const page = text(read("reference/tablet-plugin"));
+        assert.ok(page.includes("Decent Sync has not reached its server for 10 minutes."));
+    });
+
+    test("renders the Glossary and the Upgrade notes from the files at the repository's root, with no copy", () => {
+        for (const { id, file, title } of ROOT_PAGES) {
+            for (const extension of ["md", "mdx"]) assert.ok(!existsSync(join(root, "src", "content", "docs", `${id}.${extension}`)), `${id} has a copy of ${file}`);
+            const html = read(id);
+            assert.match(html, new RegExp(`<h1[^>]*>${title}</h1>`));
+            const headings = [...repositoryFile(file).matchAll(/^## (.+)$/gm)].map(([, heading]) => heading);
+            assert.ok(headings.length > 3, `${file} has no sections`);
+            const shown = [...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map(([, heading]) => text(heading));
+            for (const heading of headings) assert.ok(shown.includes(heading), `${id} lacks ${file}'s section ${heading}`);
+        }
+        // The root file's own links, made to work from the page.
+        const notes = read("reference/upgrade-notes");
+        assert.ok(notes.includes('href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md"'));
+        assert.ok(notes.includes('href="../../self-hosting/upgrading/#if-you-skipped-a-release"'));
+    });
+});
+
+describe("a root file's page", () => {
+    test("drops the file's own first heading, which the page's title replaces", () => {
+        assert.equal(pageBody("# Upgrading\n\nWhat to do.\n\n## 1.2.0\n\n# Not a title\n"), "What to do.\n\n## 1.2.0\n\n# Not a title\n");
+    });
+
+    test("changes with the root file", () => {
+        assert.notEqual(pageBody("# Glossary\n\n**Machine**:\nA machine.\n"), pageBody("# Glossary\n\n**Machine**:\nA Decent espresso machine.\n"));
+    });
+
+    test("links to a page of the site by its address, and to anything else in the repository on GitHub", () => {
+        const body = pageBody(
+            [
+                "# Upgrading",
+                "[Upgrading](site/src/content/docs/self-hosting/upgrading.md#if-you-skipped-a-release), [the plugin](site/src/content/docs/reference/tablet-plugin.md),",
+                "[ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md), [a site](https://example.com/x.md) and [below](#120).",
+            ].join("\n"),
+        );
+        assert.equal(
+            body,
+            [
+                "[Upgrading](../../self-hosting/upgrading/#if-you-skipped-a-release), [the plugin](../../reference/tablet-plugin/),",
+                "[ADR-0025](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md), [a site](https://example.com/x.md) and [below](#120).",
+            ].join("\n"),
+        );
+    });
+
+    test("leaves a code block as it is written", () => {
+        const block = "```md\n# A heading\n[A link](docs/x.md)\n```\n";
+        assert.equal(pageBody(`# Title\n\n${block}`), block);
+    });
+});
+
+describe("the documents that moved to the site", () => {
+    const address = new RegExp(`\\]\\(${SITE}${ROOT_BASE}/([a-z-]+/[a-z-]+)/\\)`, "g");
+    const linked = (file) => [...repositoryFile(file).matchAll(address)].map(([, page]) => page);
+
+    test("leave a stub at the self-hosting document's path, linking to each Self-hosting page", () => {
+        const pages = linked("docs/SELF-HOSTING.md");
+        for (const page of [...SECTIONS[2][1], "get-started/invite-people"]) assert.ok(pages.includes(page), `the stub lacks ${page}`);
+        for (const page of pages) assert.ok(PAGES.includes(page), `${page} is no page of the site`);
+        assert.ok(repositoryFile("docs/SELF-HOSTING.md").split("\n").length < 25, "the stub holds more than its links");
+    });
+
+    test("leave a stub at the plugin document's path, linking to its three pages", () => {
+        assert.deepEqual(linked("docs/PLUGIN.md"), ["get-started/install-the-plugin", "reference/tablet-plugin", "technical/skin-authors"]);
+        assert.ok(repositoryFile("docs/PLUGIN.md").split("\n").length < 25, "the stub holds more than its links");
     });
 });
 

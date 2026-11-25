@@ -4,7 +4,7 @@ import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
 // The page a Skin shows (ADR-0034, #661): a Skin that supports Reload tells
 // the plugin which Skin and version it is each time its page loads, and each
 // time its connection to the plugin opens, at the plugin's HTTP endpoint
-// `page`, as docs/PLUGIN.md describes for a Skin's author. The plugin keeps
+// `page`, as site/src/content/docs/technical/skin-authors.md describes. The plugin keeps
 // the latest from the Tablet's own Skin view, which loads the Skin from
 // localhost (Decaid's `_skinUrl`), reports it as the `skinPage` collection,
 // and asks the Skin to reload by a push on `changes`, the socket the Skin
