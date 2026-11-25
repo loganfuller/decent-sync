@@ -1,8 +1,8 @@
 // The README's and the documentation site's images, captured raw into SCREENSHOT_DIR: run it through
 // `npm run readme-images` or `npm run site-images`, which also encode them (README.md beside this file). It is not one
-// of the e2e specs: on a pull request that changes the management interface, CI captures the page stills alone, raw
-// (`SKIP_LIVE=1 node scripts/images/run.mjs --raw`), and the site's deploy runs `npm run site-images`. stills.ts names
-// every image; each is captured here.
+// of the e2e specs: on a pull request that changes the management interface, CI captures the page stills raw and
+// checks what the Live View GIF and the phone need without recording them (`LIVE_CHECK=1 node scripts/images/run.mjs
+// --raw`), and the site's deploy runs `npm run site-images`. stills.ts names every image; each is captured here.
 // Seeds a fresh test server with made-up Locations, Machines, Library and Shots through simulated tablets running the
 // built plugin. Each Shot's curves are a real recording, anonymized: Shots from real Machines reduced to their physics
 // (sample-shots.json, written by sample.mjs) and the repo's de1pro-v0.9.0/shot-preheat fixture. Names, serials, times
@@ -18,7 +18,7 @@ import { type DecaidApi, NO_DYE2_LISTS, type SimulatedTablet, derivedDe1Pro } fr
 import { SimulatedDye2, openDye2Dashboard } from "../../server/test/support/simulated-dye2.js";
 import { useFreshServer } from "../../e2e/support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "../../e2e/support/seed.js";
-import { type StillName, THEMES } from "./stills.js";
+import { GIF_HEIGHT, GIF_WIDTH, type StillName, THEMES } from "./stills.js";
 import { afternoonZone, offsetHours } from "./zone.js";
 
 if (!process.env.SCREENSHOT_DIR) throw new Error("Set SCREENSHOT_DIR, or run this through `npm run readme-images`");
@@ -512,7 +512,14 @@ test("README and site images", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
   }
 
-  if (process.env.SKIP_LIVE) return;
+  // LIVE_CHECK=1 checks what the Live View GIF and the phone need, in place of capturing them: in the light theme only,
+  // the shot replayed fast, the same assertions and the GIF's clip measured, then one screenshot of each. No frames
+  // are recorded in real time, so nothing is left for ffmpeg. CI's stills job runs it; SKIP_LIVE skips this part.
+  const LIVE_CHECK = Boolean(process.env.LIVE_CHECK);
+  if (process.env.SKIP_LIVE && !LIVE_CHECK) return;
+  const liveThemes = LIVE_CHECK ? (["light"] as const) : THEMES;
+  /** How fast to replay the shot where it is not being recorded. */
+  const fast = LIVE_CHECK ? 20 : 4;
   // The Live View: a real recorded shot replayed on Bar Left's tablet, its card captured from the Preheat on. A clip
   // outside the viewport is cut at its edge, so the viewport is taller here.
   const frames = liveFixture("shot.json");
@@ -526,17 +533,25 @@ test("README and site images", async ({ page }) => {
   const live = page.getByRole("region", { name: "Live View" });
   await page.goto("/shots");
   await page.setViewportSize({ width: 1280, height: 1400 });
-  for (const theme of THEMES) {
+  for (const theme of liveThemes) {
     await setTheme(page, theme);
     await openLive(page, barLeft.id);
     await expect.poll(() => barLeft.tablet.delivered).toContainEqual({ type: "liveStart" });
     // A warm-up shot, so every chart is drawn, to measure the clip: the tiles and the Pressure and Flow charts.
-    await barLeft.tablet.replayLive(frames, { speed: 4 }).to();
+    await barLeft.tablet.replayLive(frames, { speed: fast }).to();
     await expect(live.getByRole("figure", { name: "Weight", exact: true })).toBeVisible();
     await page.waitForTimeout(800);
     const box = (await live.boundingBox())!;
     const weight = (await live.getByRole("figure", { name: "Weight", exact: true }).boundingBox())!;
     const clip = { x: box.x, y: box.y, width: box.width, height: Math.round(weight.y - box.y - 36) };
+    // encode.mjs crops the GIF to GIF_HEIGHT once scaled to GIF_WIDTH: a shorter clip would fail it.
+    expect(Math.floor((clip.height * GIF_WIDTH) / clip.width), "the Live View clip's height at the GIF's width").toBeGreaterThanOrEqual(GIF_HEIGHT);
+    if (LIVE_CHECK) {
+      await barLeft.tablet.replayLive(frames, { speed: fast }).to(midPour);
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: path.join(OUT, `live-view-check-${theme}.png`), clip });
+      continue;
+    }
     const replay = barLeft.tablet.replayLive(frames, { speed: 1 });
     await replay.to(espresso + 2);
     await page.waitForTimeout(300);
@@ -561,10 +576,10 @@ test("README and site images", async ({ page }) => {
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const theme of THEMES) {
+  for (const theme of liveThemes) {
     await setTheme(page, theme);
     await openLive(page, barLeft.id);
-    const replay = barLeft.tablet.replayLive(frames, { speed: 1 });
+    const replay = barLeft.tablet.replayLive(frames, { speed: LIVE_CHECK ? fast : 1 });
     await replay.to(midPour);
     await expect(live.getByRole("figure", { name: "Weight", exact: true })).toBeVisible();
     await page.waitForTimeout(800);

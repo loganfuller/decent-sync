@@ -8,7 +8,7 @@ One generator makes the images of the management interface that `README.md` and 
 - The site's images are built: the site's deploy (`.github/workflows/release.yml`) generates every image into `site/generated/` with `npm run site-images` and builds the site with them. None is committed, and `site/generated/` is ignored by git.
 - A build of the site without them, such as a pull request's or `npm run dev -w site`, shows the README's committed copy in their place, and an image the README does not commit as a line saying it is built at deploy (`site/src/pick-still.mjs`).
 - A failed capture fails the site's deploy, and the release it follows stays published.
-- A pull request that changes `web/` or this folder captures the page stills in CI's `stills` job (`SKIP_LIVE=1`, `--raw`), each asserting its page's content, and the run keeps the captures as its `stills` artifact, for a reviewer to look at. The Live View GIF and the phone are captured only at the deploy, so a change that breaks them fails the deploy rather than the pull request.
+- A pull request that changes `web/` or this folder captures the page stills in CI's `stills` job (`LIVE_CHECK=1`, `--raw`), each asserting its page's content, and the run keeps the captures as its `stills` artifact, for a reviewer to look at. The Live View GIF and the phone are checked there rather than captured (`LIVE_CHECK`, below). Only their real-time recording and encoding are left to the deploy, so a change that breaks those fails the deploy rather than the pull request.
 
 ## Running it
 
@@ -39,6 +39,7 @@ The spec reads these from the environment:
 | `STILLS=overview,location` | Captures only the page stills named, of `overview`, `location`, `bean-batches`, `shots`, `shot` and `profile`. Unset, every one. |
 | `SKIP_STILLS=1` | Captures no page stills: only the Live View GIF and the phone. |
 | `SKIP_LIVE=1` | Captures only the page stills. With `STILLS`, a run takes under 20 seconds. |
+| `LIVE_CHECK=1` | Checks the Live View GIF and the phone instead of capturing them: in the light theme only, the shot replayed at 20 times its speed, the same assertions, the GIF's clip measured against `GIF_HEIGHT`, and one screenshot of each (`live-view-check-light.png`, `phone-light.png`). It adds about 15 seconds to a run of the page stills, needs no ffmpeg, and misses only what real-time recording and encoding would show, such as too few frames before the shot turns Idle. |
 | `SCREENSHOT_ZONE` | The time zone of the Locations, the browser and the tablets, in place of the one the spec chooses. Choose one where it is the afternoon, with no daylight saving. |
 | `SAMPLE_SHOTS=<file>` | Reads a fresh sample instead of `sample-shots.json`. |
 
@@ -117,7 +118,7 @@ The Overview marks a duration more than 10% from the Reference Shot's, a yield m
 
 - It is captured from the Preheat on, one screenshot of the card after another, each with its time.
 - It plays at twice the shot's speed, at 8 frames a second, 800 px wide.
-- It is cropped to 482 px tall at that width, which drops the sliver of the Weight chart's legend the clip leaves. Recheck that height (`GIF_HEIGHT` in `encode.mjs`) when the card's layout changes.
+- It is cropped to 482 px tall at that width, which drops the sliver of the Weight chart's legend the clip leaves. Recheck that height (`GIF_HEIGHT` in `stills.ts`) when the card's layout changes: the spec fails when the clip, scaled to the GIF's width, is shorter.
 - It ends on the last frame captured before the recording turns Idle, about 38.3 s into the capture, and holds it 6 s. After that the recording shows Idle, the scale at -189 g as the cup is lifted, and "Waiting for its Shot", which reads as a bug.
 - The spec writes when the recording turns Idle into `capture.json` beside the frames, and `encode.mjs` cuts there.
 - `getByRole("figure", { name })` matches a case-insensitive substring, so the Live View's `"Weight"` lookups take `exact: true`, or they would match the Weight flow chart too.

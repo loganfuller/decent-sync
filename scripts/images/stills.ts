@@ -15,6 +15,15 @@ export const STILLS = {
 } as const;
 
 export type StillName = keyof typeof STILLS;
+
+/**
+ * The Live View GIF's size: 800 px wide, and cropped to 482 px tall at that width, which drops the sliver of the
+ * Weight chart's legend that the capture's clip leaves at the bottom. Recheck the height when the Live View card's
+ * layout changes; the spec fails when the clip is shorter.
+ */
+export const GIF_WIDTH = 800;
+export const GIF_HEIGHT = 482;
+
 export type Theme = "light" | "dark";
 export const THEMES: readonly Theme[] = ["light", "dark"];
 
