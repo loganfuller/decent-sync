@@ -3,13 +3,8 @@
 // get, who it is for, how it works, the quick start and the block for
 // developers. A phone gets a shorter page: the `narrow` copy, and without the
 // sections marked `wide`.
-import { Image } from "astro:assets";
-
-import overviewDark from "../../../docs/images/overview-dark.png";
-import overviewLight from "../../../docs/images/overview-light.png";
-import phoneDark from "../../../docs/images/phone-dark.png";
-import phoneLight from "../../../docs/images/phone-light.png";
 import { page } from "../links.mjs";
+import Still from "./Still.astro";
 
 const benefits = [
     {
@@ -145,14 +140,12 @@ const phoneAlt = "A Machine's Live View on a phone, mid-shot";
                 Reference Shot.
             </p>
         </div>
-        <Image class="shot dark:sl-hidden" src={overviewLight} alt={overviewAlt} widths={[720, 1200, overviewLight.width]} sizes="(min-width: 80rem) 75rem, 100vw" loading="lazy" />
-        <Image class="shot light:sl-hidden" src={overviewDark} alt={overviewAlt} widths={[720, 1200, overviewDark.width]} sizes="(min-width: 80rem) 75rem, 100vw" loading="lazy" />
+        <Still class="shot" name="overview" alt={overviewAlt} widths={[720, 1200]} sizes="(min-width: 80rem) 75rem, 100vw" />
     </section>
 
     <section class="band narrow centred">
         <h2>Watch a shot from the other room.</h2>
-        <Image class="phone dark:sl-hidden" src={phoneLight} alt={phoneAlt} width={520} loading="lazy" />
-        <Image class="phone light:sl-hidden" src={phoneDark} alt={phoneAlt} width={520} loading="lazy" />
+        <Still class="phone" name="phone" alt={phoneAlt} width={520} />
     </section>
 
     <section>

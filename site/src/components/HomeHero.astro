@@ -1,9 +1,8 @@
 ---
 // The home page's first screen, in place of Starlight's hero. Its heading,
 // pitch and buttons come from the page's `hero` frontmatter.
-import liveViewDark from "../../../docs/images/live-view-dark.gif";
-import liveViewLight from "../../../docs/images/live-view-light.gif";
 import { page } from "../links.mjs";
+import Still from "./Still.astro";
 
 const { data } = Astro.locals.starlightRoute.entry;
 const { title = data.title, tagline, actions = [] } = data.hero ?? {};
@@ -32,8 +31,7 @@ const liveViewAlt = "A Machine's Live View during a shot, with its pressure and 
         <p class="note">Free and open source under the MIT license. In production at its author's cafe.</p>
     </div>
     <figure>
-        <img class="dark:sl-hidden" src={liveViewLight.src} width={liveViewLight.width} height={liveViewLight.height} alt={liveViewAlt} />
-        <img class="light:sl-hidden" src={liveViewDark.src} width={liveViewDark.width} height={liveViewDark.height} alt={liveViewAlt} />
+        <Still name="live-view" alt={liveViewAlt} loading="eager" />
         <figcaption>A shot on a Machine's Live View, at twice its speed. Sample data, real recorded curves.</figcaption>
     </figure>
 </div>

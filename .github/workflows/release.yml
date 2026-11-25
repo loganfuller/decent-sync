@@ -120,15 +120,34 @@ jobs:
   # branch: at its minor release's own path, and at the root when no newer
   # minor is there. On a tag it runs only once the release is published; by
   # hand it runs alone. Deploys run one at a time, since each pushes the branch.
+  # The site's images are generated here first (scripts/images/), on a fresh
+  # test server, and built into the site, never committed. A failed capture
+  # fails this job, so the site is not deployed, and leaves the release
+  # published.
   site:
     needs: publish
     if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.publish.result == 'success') }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: write
     concurrency:
       group: site-deploy
+
+    # The test PostgreSQL the image capture starts its server on.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: decent_sync
+          POSTGRES_PASSWORD: decent_sync
+          POSTGRES_DB: decent_sync
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U decent_sync" --health-interval 5s --health-timeout 5s --health-retries 20
+
+    env:
+      TEST_DATABASE_URL: postgresql://decent_sync:decent_sync@localhost:5432/decent_sync
 
     steps:
       - uses: actions/checkout@v7
@@ -141,6 +160,18 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      # A ref from before the generator served the site has no site-images
+      # script, and its site shows the README's committed images.
+      - name: Generate the site's images
+        run: |
+          if npm run | grep --quiet '^  site-images$'; then
+            npm run build
+            npx playwright install --only-shell --no-progress chromium
+            command -v ffmpeg || { sudo apt-get update --quiet && sudo apt-get install --yes --quiet --no-install-recommends ffmpeg; }
+            npm run site-images
+            echo "SITE_IMAGES=generated" >> "$GITHUB_ENV"
+          fi
 
       # The first deploy finds no gh-pages branch and starts it, with no history of main's.
       - name: Check out the gh-pages branch

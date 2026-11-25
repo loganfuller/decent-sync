@@ -216,6 +216,21 @@ describe("the site in a browser", () => {
         await page.close();
     });
 
+    // Each of the generator's images is there twice, once a theme (Still.astro).
+    test("shows each image in the site's theme, light or dark", async () => {
+        const page = await open("", 1360, "light");
+        const images = page.locator("img[data-still]");
+        const shown = async () => {
+            const themes = new Set();
+            for (const image of await images.all()) if (await image.isVisible()) themes.add(`${await image.getAttribute("data-still")} ${await image.getAttribute("data-still-theme")}`);
+            return [...themes].sort();
+        };
+        assert.deepEqual(await shown(), ["live-view light", "overview light"]);
+        await page.locator("header starlight-theme-select select").selectOption("dark");
+        assert.deepEqual(await shown(), ["live-view dark", "overview dark"]);
+        await page.close();
+    });
+
     test("lists a page's own headings, and every page in the sidebar", async () => {
         const page = await open("guide/shots/", 1360);
         assert.ok(await page.getByRole("heading", { name: "On this page" }).isVisible());

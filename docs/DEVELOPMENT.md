@@ -5,7 +5,7 @@
 - [Commands](#commands)
 - [Tests](#tests)
 - [The committed plugin](#the-committed-plugin)
-- [README images](#readme-images)
+- [Images of the management interface](#images-of-the-management-interface)
 - [The documentation site](#the-documentation-site)
 - [The simulation's scorecard](#the-simulations-scorecard)
 - [Releasing](#releasing)
@@ -66,7 +66,8 @@ variable, and the paths the server serves.
 | `npm run package:plugin` | Write the release ZIP of the committed plugin to `dist/` |
 | `npm run build:site` | Build the documentation site into `site/dist` and check its links ([The documentation site](#the-documentation-site)) |
 | `npm test -w site` | Build the documentation site and test it in a browser |
-| `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([README images](#readme-images)) |
+| `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([Images of the management interface](#images-of-the-management-interface)) |
+| `npm run site-images` | Generate the documentation site's images into `site/generated/`, as its deploy does ([Images of the management interface](#images-of-the-management-interface)) |
 | `npm run simulation-scorecard` | Print how close the simulation of a Profile comes to recorded Shots ([The simulation's scorecard](#the-simulations-scorecard)) |
 | `docker compose up --build` | Build the server image from this checkout and run it with PostgreSQL |
 
@@ -91,15 +92,23 @@ CI checks that the committed plugin matches a fresh build. It also packages
 the plugin ZIP, runs the server image with Docker Compose, and builds the
 image for amd64 and arm64 as the release does, without publishing any of them.
 
-## README images
+## Images of the management interface
 
-The images in `docs/images/` that `README.md` shows are generated, from made-up
-data and real recorded curves, by `npm run readme-images`. It needs the test
-PostgreSQL (`TEST_DATABASE_URL`), a current build and ffmpeg, and takes about
-4 minutes. It writes them to `dist/readme-images`, for you to look at and copy
-over those a change redraws.
-[scripts/readme-images/README.md](../scripts/readme-images/README.md) has its
-options, what each image shows and how it is made.
+One generator, in `scripts/images/`, makes the images of the management
+interface that `README.md` and the documentation site show, from made-up data
+and real recorded curves. It needs the test PostgreSQL (`TEST_DATABASE_URL`), a
+current build and ffmpeg, takes about 4 minutes, and runs at any hour.
+
+- The README's images are committed, in `docs/images/`. `npm run readme-images`
+  writes them to `dist/readme-images`, for you to look at and copy over those a
+  change redraws.
+- The site's images are built when it is deployed, by `npm run site-images`
+  into `site/generated/`, and never committed.
+- A pull request that changes `web/` or the generator runs it in CI's `stills`
+  job, which keeps the images as the run's `stills` artifact.
+
+[scripts/images/README.md](../scripts/images/README.md) has its options, what
+each image shows, how it is made, and how a Guide page adds one of its own.
 
 ## The documentation site
 
@@ -124,8 +133,11 @@ another page of the site with a relative path ending in a slash, such as
 not yet written is a short page saying what it will hold.
 
 The home page is `site/src/content/docs/index.mdx`, drawn by
-`site/src/components/HomeHero.astro` and `Home.astro`. Its images are the
-README's, read from `docs/images/`.
+`site/src/components/HomeHero.astro` and `Home.astro`. A page shows an image of
+the management interface by its name with `site/src/components/Still.astro`,
+in the site's theme, light or dark. The deploy builds the site with the images
+it generates; any other build shows the README's copy in `docs/images/` in
+their place ([Images of the management interface](#images-of-the-management-interface)).
 
 CI builds and tests the site on every pull request, docs-only ones included,
 and deploys nothing. The release workflow deploys it
@@ -307,10 +319,10 @@ It then:
    (`scripts/release-notes.mjs`), followed by GitHub's notes generated from
    the pull requests merged since the last release.
 
-Once the release is published, a second job deploys
-[the documentation site](#the-documentation-site) built at the tag. If it
-fails, the release stays published: fix the cause and run the workflow by hand
-for the tag.
+Once the release is published, a second job generates the site's images and
+deploys [the documentation site](#the-documentation-site) built at the tag
+with them. If it fails, a failed capture of an image included, the release
+stays published: fix the cause and run the workflow by hand for the tag.
 
 ### Upgrade notes
 

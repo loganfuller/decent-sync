@@ -1,5 +1,7 @@
-// The README's images, captured raw into SCREENSHOT_DIR: run it through `npm run readme-images`, which also encodes
-// them (README.md beside this file). It is not one of the e2e specs and CI never runs it.
+// The README's and the documentation site's images, captured raw into SCREENSHOT_DIR: run it through
+// `npm run readme-images` or `npm run site-images`, which also encode them (README.md beside this file). It is not one
+// of the e2e specs: CI runs it through `npm run site-images`, on a pull request that changes the management interface
+// and when the site is deployed. stills.ts names every image; each is captured here.
 // Seeds a fresh test server with made-up Locations, Machines, Library and Shots through simulated tablets running the
 // built plugin. Each Shot's curves are a real recording, anonymized: Shots from real Machines reduced to their physics
 // (sample-shots.json, written by sample.mjs) and the repo's de1pro-v0.9.0/shot-preheat fixture. Names, serials, times
@@ -15,6 +17,8 @@ import { type DecaidApi, NO_DYE2_LISTS, type SimulatedTablet, derivedDe1Pro } fr
 import { SimulatedDye2, openDye2Dashboard } from "../../server/test/support/simulated-dye2.js";
 import { useFreshServer } from "../../e2e/support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "../../e2e/support/seed.js";
+import { type StillName, THEMES } from "./stills.js";
+import { afternoonZone, offsetHours } from "./zone.js";
 
 if (!process.env.SCREENSHOT_DIR) throw new Error("Set SCREENSHOT_DIR, or run this through `npm run readme-images`");
 const OUT = process.env.SCREENSHOT_DIR;
@@ -22,16 +26,17 @@ fs.mkdirSync(OUT, { recursive: true });
 const server = useFreshServer();
 test.setTimeout(900_000);
 
-/**
- * The Locations' and the browser's time zone, and its hours ahead of UTC. The Overview and the Recipe page show each
- * Location's own today, so choose a zone where it is the afternoon as the spec runs, and one with no daylight saving.
- */
-const ZONE = process.env.SCREENSHOT_ZONE ?? "America/Toronto";
-const ZONE_HOURS = Number(process.env.SCREENSHOT_ZONE_HOURS ?? -5);
-test.use({ timezoneId: ZONE, viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
-const ROASTER = "Lantern Coffee Roasters";
 /** The latest Shot's time: a quarter of an hour before the run, so today's Shots are the Overview's. */
 const ANCHOR = Math.floor((Date.now() - 15 * 60_000) / 60_000) * 60_000;
+/**
+ * The Locations' and the browser's time zone, and its hours ahead of UTC. The Overview and the Recipe page show each
+ * Location's own today, so it is a zone where the latest Shot falls in the afternoon (zone.ts), unless
+ * SCREENSHOT_ZONE names one.
+ */
+const ZONE = process.env.SCREENSHOT_ZONE ?? afternoonZone(ANCHOR);
+const ZONE_HOURS = offsetHours(ZONE, ANCHOR);
+test.use({ timezoneId: ZONE, viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+const ROASTER = "Lantern Coffee Roasters";
 /** A date as the zone has it, some days before the latest Shot: roast dates keep their distance from it. */
 const daysBefore = (d: number) => new Date(ANCHOR + ZONE_HOURS * 3_600_000 - d * 86_400_000).toISOString().slice(0, 10);
 const hoursBefore = (h: number) => new Date(ANCHOR - h * 3_600_000);
@@ -223,7 +228,8 @@ async function openLive(page: Page, machineId: string) {
   await page.waitForTimeout(1500);
 }
 
-test("README screenshots", async ({ page }) => {
+test("README and site images", async ({ page }) => {
+  console.log(`Capturing in ${ZONE}, UTC${ZONE_HOURS < 0 ? "" : "+"}${ZONE_HOURS}`);
   await signInAsAdmin(page);
   const lab = await createLocation(page, "Roastery Lab", ZONE);
   const downtown = await createLocation(page, "Downtown", ZONE);
@@ -392,107 +398,115 @@ test("README screenshots", async ({ page }) => {
   expect(chosen.status(), await chosen.text()).toBe(200);
   await page.waitForTimeout(3000);
 
-  // Stills, each in both themes, cropped to what they show.
-  const card = (text: string) => page.locator('[data-slot="card"]').filter({ has: page.getByText(text, { exact: true }) }).first();
-  const toBottomOf = async (name: string, bottom: () => Promise<number>, ready?: () => Promise<void>) => {
-    for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme);
-      await page.reload();
-      await ready?.();
-      await page.waitForTimeout(2500);
-      await page.mouse.move(0, 0);
-      await page.screenshot({ path: path.join(OUT, `${name}-${theme}.png`), clip: { x: 0, y: 0, width: 1280, height: Math.ceil(await bottom()) + 32 } });
-    }
+  // Stills, each in both themes, cropped to what they show. Each is loaded once, then for each theme reloaded, its
+  // content asserted by `ready` and captured: a still whose page no longer shows what it should fails the run.
+  type Clip = { x: number; y: number; width: number; height: number };
+  interface Capture {
+    /** The viewport's height, where the clip runs below 800 px: a clip outside the viewport is cut at its edge. */
+    height?: number;
+    /** The page's address. */
+    url: () => string | Promise<string>;
+    /** Waits for the page's content and asserts it, after every reload. */
+    ready: () => Promise<void>;
+    /** What to capture, once ready. */
+    clip: () => Promise<Clip>;
+    /** How long to let the page settle after `ready`, in ms. */
+    settle?: number;
+  }
+  const box = async (locator: ReturnType<Page["locator"]>) => (await locator.boundingBox())!;
+  /** From the top of the page to just below the locator, the page's whole width. */
+  const toBottomOf = (locator: ReturnType<Page["locator"]>) => async (): Promise<Clip> => {
+    const { y, height } = await box(locator);
+    return { x: 0, y: 0, width: 1280, height: Math.ceil(y + height) + 32 };
   };
-  const bottomOf = (locator: ReturnType<Page["locator"]>) => async () => {
-    const box = (await locator.boundingBox())!;
-    return box.y + box.height;
+  /** From the top of one locator to the bottom of another, the first's width. */
+  const spanning = (top: ReturnType<Page["locator"]>, end: ReturnType<Page["locator"]>) => async (): Promise<Clip> => {
+    const [from, to] = [await box(top), await box(end)];
+    return { x: from.x, y: from.y, width: from.width, height: to.y + to.height - from.y };
   };
+  const region = (name: string) => page.getByRole("region", { name, exact: true });
+  // The Overview's blocks, read again every 30 s: each block's table and status cards, and no "Loading" left.
+  const settled = async (block: ReturnType<Page["locator"]>) => {
+    await expect(block.getByRole("rowheader").first()).toBeVisible();
+    await expect(block.getByRole("list", { name: /^Machines at / }).getByRole("listitem")).toHaveCount(2);
+    await expect(block.getByText("Loading", { exact: true })).toHaveCount(0);
+  };
+  const shotRows = page.getByRole("table", { name: "Shots" }).getByRole("row").filter({ has: page.getByRole("cell") });
 
-  // `STILLS=overview,location` captures only the stills it names; unset, every one.
-  const still = (name: string) => !process.env.STILLS || process.env.STILLS.split(",").includes(name);
-  if (!process.env.SKIP_STILLS) {
-    // The Overview's blocks, read again every 30 s: each block's table and status cards, and no "Loading" left.
-    const settled = async (block: ReturnType<Page["locator"]>) => {
-      await expect(block.getByRole("rowheader").first()).toBeVisible();
-      await expect(block.getByRole("list", { name: /^Machines at / }).getByRole("listitem")).toHaveCount(2);
-      await expect(block.getByText("Loading", { exact: true })).toHaveCount(0);
-    };
-    if (still("overview")) {
-      await page.goto("/");
-      const downtownBlock = page.getByRole("region", { name: "Downtown", exact: true });
-      await settled(downtownBlock);
-      await toBottomOf("overview", bottomOf(downtownBlock), () => settled(downtownBlock));
-    }
-
-    // A clip outside the viewport is cut at its edge, and the Location's page is taller than it since its Overview block.
+  // The page stills, by their names in stills.ts. A still for a Guide page is one more entry here.
+  const captures: Record<Exclude<StillName, "live-view" | "phone">, Capture> = {
+    overview: {
+      url: () => "/",
+      ready: () => settled(region("Downtown")),
+      clip: toBottomOf(region("Downtown")),
+    },
     // From v1.11.0 the page is its Overview block and its Recipes card: no Machines card.
-    if (still("location")) {
-      await page.setViewportSize({ width: 1280, height: 1600 });
-      await page.goto(`/locations/${downtown.id}`);
-      const recipesCard = page.getByRole("region", { name: "Recipes", exact: true });
-      const ready = async () => {
-        await settled(page.getByRole("region", { name: "Overview", exact: true }));
-        await expect(recipesCard.getByText("Guji Espresso").first()).toBeVisible();
-      };
-      await ready();
-      await toBottomOf("location", bottomOf(recipesCard), ready);
-      await page.setViewportSize({ width: 1280, height: 800 });
-    }
+    location: {
+      height: 1600,
+      url: () => `/locations/${downtown.id}`,
+      ready: async () => {
+        await settled(region("Overview"));
+        await expect(region("Recipes").getByText("Guji Espresso").first()).toBeVisible();
+      },
+      clip: toBottomOf(region("Recipes")),
+    },
+    "bean-batches": {
+      url: () => "/library/bean-batches",
+      ready: async () => {
+        await expect(page.getByRole("table").first().getByText("Colombia Huila").first()).toBeVisible();
+        await expect(page.getByText("Loading", { exact: true })).toHaveCount(0);
+      },
+      clip: toBottomOf(page.getByRole("table").first()),
+    },
+    shots: {
+      url: () => "/shots",
+      ready: () => expect(shotRows).toHaveCount(Math.min(25, placed.length)),
+      clip: toBottomOf(shotRows.nth(7)),
+    },
+    // From v1.11.0 the page opens with how the Shot went, over its curves: the still is both cards. It compares bl-1
+    // with its Recipe's Reference Shot, whose radio is chosen already.
+    shot: {
+      height: 2600,
+      url: () => "/shots/bl-1",
+      ready: async () => {
+        await expect(region("Curves").locator(".recharts-line").first()).toBeVisible();
+        await expect(page.getByRole("radio", { name: "Reference Shot", exact: true })).toBeChecked();
+      },
+      clip: spanning(region("How it went"), region("Curves")),
+      settle: 2000,
+    },
+    // The Profile page (#578): House Espresso's Profile, its graph and its steps.
+    profile: {
+      height: 2000,
+      url: async () => {
+        const listed = (await (await page.request.get("/api/profiles")).json()) as { profiles: { id: string; title: string | null }[] };
+        return `/library/profiles/${encodeURIComponent(listed.profiles.find((each) => each.title === "Gentle and sweet")!.id)}`;
+      },
+      ready: async () => {
+        await expect(region("How it runs").getByRole("figure", { name: /^Simulated run of / })).toBeVisible();
+        await expect(page.getByRole("region", { name: "Recipes on this version" }).getByRole("listitem").first()).toBeVisible();
+      },
+      clip: spanning(region("How it runs"), region("Steps")),
+      settle: 1500,
+    },
+  };
 
-    if (still("bean-batches")) {
-      await page.goto("/library/bean-batches");
-      await expect(page.getByText("Colombia Huila").first()).toBeVisible();
-      await toBottomOf("bean-batches", bottomOf(page.getByRole("table").first()));
-    }
-
-    if (still("shots")) {
-      await page.goto("/shots");
-      const shotRows = page.getByRole("table", { name: "Shots" }).getByRole("row").filter({ has: page.getByRole("cell") });
-      await expect(shotRows).toHaveCount(Math.min(25, placed.length));
-      await toBottomOf("shots", bottomOf(shotRows.nth(7)));
-    }
-  }
-  if (!process.env.SKIP_STILLS && still("shot")) {
-    // From v1.11.0 the page opens with how the Shot went, over its curves: the still is both cards. A clip outside the
-    // viewport is cut at its edge, so the viewport is taller here.
-    await page.setViewportSize({ width: 1280, height: 2600 });
-    await page.goto("/shots/bl-1");
-    const compare = page.getByRole("radio", { name: "Reference Shot", exact: true });
-    const went = page.getByRole("region", { name: "How it went", exact: true });
-    const curves = page.getByRole("region", { name: "Curves", exact: true });
-    for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme);
-      await page.reload();
-      await expect(page.locator(".recharts-line").first()).toBeVisible();
-      await expect(compare).toBeChecked();
-      await page.waitForTimeout(2000);
-      await page.mouse.move(0, 0);
-      const top = (await went.boundingBox())!;
-      const end = (await curves.boundingBox())!;
-      await page.screenshot({ path: path.join(OUT, `shot-${theme}.png`), clip: { x: top.x, y: top.y, width: top.width, height: end.y + end.height - top.y } });
-    }
-    await page.setViewportSize({ width: 1280, height: 800 });
-  }
-
-  if (!process.env.SKIP_STILLS && still("profile")) {
-    // The Profile page (#578): House Espresso's Profile, its graph and its steps. A clip outside the viewport is cut at
-    // its edge, so the viewport is taller here.
-    await page.setViewportSize({ width: 1280, height: 2000 });
-    const listed = (await (await page.request.get("/api/profiles")).json()) as { profiles: { id: string; title: string | null }[] };
-    await page.goto(`/library/profiles/${encodeURIComponent(listed.profiles.find((each) => each.title === "Gentle and sweet")!.id)}`);
-    const runs = page.getByRole("region", { name: "How it runs", exact: true });
-    const steps = page.getByRole("region", { name: "Steps", exact: true });
-    for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme);
-      await page.reload();
-      await expect(runs.getByRole("figure", { name: /^Simulated run of / })).toBeVisible();
-      await expect(page.getByRole("region", { name: "Recipes on this version" }).getByRole("listitem").first()).toBeVisible();
-      await page.waitForTimeout(1500);
-      await page.mouse.move(0, 0);
-      const top = (await runs.boundingBox())!;
-      const end = (await steps.boundingBox())!;
-      await page.screenshot({ path: path.join(OUT, `profile-${theme}.png`), clip: { x: top.x, y: top.y, width: top.width, height: end.y + end.height - top.y } });
+  // `STILLS=overview,location` captures only the page stills it names; unset, every one.
+  const named = process.env.STILLS?.split(",").map((name) => name.trim());
+  for (const name of named ?? []) if (!(name in captures)) throw new Error(`STILLS: ${name} is not one of ${Object.keys(captures).join(", ")}`);
+  if (!process.env.SKIP_STILLS) {
+    for (const [name, capture] of Object.entries(captures) as [keyof typeof captures, Capture][]) {
+      if (named && !named.includes(name)) continue;
+      await page.setViewportSize({ width: 1280, height: capture.height ?? 800 });
+      await page.goto(await capture.url());
+      for (const theme of THEMES) {
+        await setTheme(page, theme);
+        await page.reload();
+        await capture.ready();
+        await page.waitForTimeout(capture.settle ?? 2500);
+        await page.mouse.move(0, 0);
+        await page.screenshot({ path: path.join(OUT, `${name}-${theme}.png`), clip: await capture.clip() });
+      }
     }
     await page.setViewportSize({ width: 1280, height: 800 });
   }
@@ -511,7 +525,7 @@ test("README screenshots", async ({ page }) => {
   const live = page.getByRole("region", { name: "Live View" });
   await page.goto("/shots");
   await page.setViewportSize({ width: 1280, height: 1400 });
-  for (const theme of ["light", "dark"] as const) {
+  for (const theme of THEMES) {
     await setTheme(page, theme);
     await openLive(page, barLeft.id);
     await expect.poll(() => barLeft.tablet.delivered).toContainEqual({ type: "liveStart" });
@@ -546,11 +560,12 @@ test("README screenshots", async ({ page }) => {
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const theme of ["light", "dark"] as const) {
+  for (const theme of THEMES) {
     await setTheme(page, theme);
     await openLive(page, barLeft.id);
     const replay = barLeft.tablet.replayLive(frames, { speed: 1 });
     await replay.to(midPour);
+    await expect(live.getByRole("figure", { name: "Weight", exact: true })).toBeVisible();
     await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(OUT, `phone-${theme}.png`) });
     await replay.to();

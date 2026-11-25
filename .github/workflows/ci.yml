@@ -41,16 +41,18 @@ jobs:
   # anything else, every later push runs CI. Every other job but `site` skips
   # on docs-only, which `ci` passes; a workflow-level `paths` filter would
   # leave the required check pending instead. A push to main is never
-  # docs-only.
+  # docs-only. `stills` says whether the pull request changes the management
+  # interface or the image generator, for the stills job.
   changes:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.files.outputs.docs-only }}
+      stills: ${{ steps.files.outputs.stills }}
 
     steps:
       - id: files
-        name: Check whether the pull request changes only docs
+        name: Check whether the pull request changes only docs, or the management interface
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,6 +64,9 @@ jobs:
               && ! printf '%s\n' "$files" | grep --quiet --extended-regexp '^(UPGRADING\.md$|decent-sync\.reaplugin/)'; then
             echo "::notice title=Docs only::This pull request changes only docs, so the other jobs skip."
             echo "docs-only=true" >> "$GITHUB_OUTPUT"
+          fi
+          if printf '%s\n' "$files" | grep --quiet --extended-regexp '^(web/|scripts/images/)'; then
+            echo "stills=true" >> "$GITHUB_OUTPUT"
           fi
 
   checks:
@@ -387,6 +392,57 @@ jobs:
 
       - *postgres-logs
 
+  # The README's and the documentation site's images (scripts/images/), on a
+  # pull request that changes the management interface or the generator. Each
+  # asserts its page's content before it is captured, and the site is built
+  # with them as the deploy builds it (release.yml), so a page that no longer
+  # shows what its image should fails here rather than at a release. The run
+  # keeps the images, as its `stills` artifact, for a reviewer to look at.
+  stills:
+    needs: changes
+    if: needs.changes.outputs.stills == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+
+    env: *env
+
+    steps:
+      - *start-postgres
+      - *checkout
+      - *setup-node
+      - *restore-modules
+      - *install
+      - *build
+
+      - name: Install Playwright browser
+        run: npx playwright install --only-shell --no-progress chromium
+
+      - name: Install ffmpeg
+        run: command -v ffmpeg || { sudo apt-get update --quiet && sudo apt-get install --yes --quiet --no-install-recommends ffmpeg; }
+
+      - *wait-postgres
+
+      - name: Capture the images
+        run: npm run site-images
+
+      - name: Build the site with them, as the deploy does
+        env:
+          SITE_IMAGES: generated
+        run: npm run build -w site
+
+      - name: Upload the images
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stills
+          path: |
+            site/generated/*.png
+            site/generated/*.gif
+            site/generated/playwright/
+          retention-days: 14
+
+      - *postgres-logs
+
   # Builds what a release publishes without publishing it: the plugin ZIP, and
   # the server image for the runner's platform, run the way a self-hoster runs
   # it. The image job below builds it for each platform the release publishes.
@@ -490,20 +546,22 @@ jobs:
   # a superseded run's included, fails it rather than leaving it skipped, which
   # branch protection would count as passing.
   ci:
-    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package, image, site]
+    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, stills, package, image, site]
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 5
 
     steps:
-      # The site job never skips, so a skipped one has not passed.
-      - name: Check every job passed, or skipped on docs only
+      # The site job never skips, so a skipped one has not passed. The stills
+      # job skips too where the management interface is unchanged.
+      - name: Check every job passed, or skipped where it should
         env:
           NEEDS: ${{ toJSON(needs) }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs-only }}
+          STILLS: ${{ needs.changes.outputs.stills }}
         run: |
-          failed=$(echo "$NEEDS" | jq -r --arg docs "$DOCS_ONLY" \
-            'to_entries[] | select(.value.result != "success" and (.value.result != "skipped" or $docs != "true" or .key == "site")) | "\(.key): \(.value.result)"')
+          failed=$(echo "$NEEDS" | jq -r --arg docs "$DOCS_ONLY" --arg stills "$STILLS" \
+            'to_entries[] | select(.value.result != "success" and ((.value.result == "skipped" and (($docs == "true" and .key != "site") or (.key == "stills" and $stills != "true"))) | not)) | "\(.key): \(.value.result)"')
           if [ -n "$failed" ]; then
             echo "::error title=CI failed::$(echo $failed)"
             exit 1

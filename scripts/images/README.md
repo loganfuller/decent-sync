@@ -1,6 +1,14 @@
-# README images
+# Images
 
-Regenerates the images in `docs/images/` that `README.md` shows, each in light and dark: the Live View GIF, and stills of the Overview, a Location's page, a Shot's page, a Profile's page, the Library's Bean Batches and a Machine's Live View on a phone.
+One generator makes the images of the management interface that `README.md` and the documentation site show, each in light and dark: the Live View GIF, and stills of the Overview, a Location's page, a Shot's page, a Profile's page, the Shots list, the Library's Bean Batches and a Machine's Live View on a phone. `stills.ts` names each one.
+
+## Committed and built
+
+- The README's images are committed, in `docs/images/`: those `stills.ts` marks `readme`. A change that redraws one of their pages regenerates it in the same change, with `npm run readme-images`.
+- The site's images are built: the site's deploy (`.github/workflows/release.yml`) generates every image into `site/generated/` with `npm run site-images` and builds the site with them. None is committed, and `site/generated/` is ignored by git.
+- A build of the site without them, such as a pull request's or `npm run dev -w site`, shows the README's committed copy in their place, and an image the README does not commit as a line saying it is built at deploy (`site/src/pick-still.mjs`).
+- A failed capture fails the site's deploy, and the release it follows stays published.
+- A pull request that changes `web/` or this folder runs `npm run site-images` in CI's `stills` job and builds the site with the images, as the deploy does. The run keeps them as its `stills` artifact, for a reviewer to look at.
 
 ## Running it
 
@@ -11,34 +19,54 @@ You need:
 - ffmpeg on `PATH` (macOS: `brew install ffmpeg`).
 
 ```bash
-npm run readme-images                  # into dist/readme-images
+npm run readme-images                  # into dist/readme-images, to copy over into docs/images/
 npm run readme-images -- <directory>   # into a directory of your own
+npm run site-images                    # into site/generated/, for the site's build to read
 ```
 
-- A whole run takes about 4 minutes.
+- A whole run takes about 4 minutes, at any hour (Time and zone, below).
 - The output directory holds the encoded images, named as in `docs/images/`; `raw/` holds the captures, and `playwright/` a failed run's trace.
 - It empties an output directory an earlier run made, and refuses any other that is not empty.
-- `node scripts/readme-images/encode.mjs <directory>/raw <directory>` encodes the captures again without capturing them.
-- Look at every image and compare it with the one in `docs/images/`, then copy over only those the change redraws.
-- Every run differs from the last in its dates, times and encoding noise, so an image whose page did not change stays as committed.
+- `node scripts/images/encode.mjs <directory>/raw <directory>` encodes the captures again without capturing them.
+- For the README, look at every image it shows and compare it with the one in `docs/images/`, then copy over only those the change redraws.
+- Every run differs from the last in its dates, times, time zone and encoding noise, so an image whose page did not change stays as committed.
 
 The spec reads these from the environment:
 
 | Variable | Effect |
 |---|---|
-| `STILLS=overview,location` | Captures only the stills named, of `overview`, `location`, `bean-batches`, `shots`, `shot` and `profile`. Unset, every one. |
-| `SKIP_STILLS=1` | Captures no stills: only the Live View GIF and the phone. |
-| `SKIP_LIVE=1` | Captures only the stills. With `STILLS`, a run takes under 20 seconds. |
-| `SCREENSHOT_ZONE`, `SCREENSHOT_ZONE_HOURS` | The time zone of the Locations, the browser and the tablets, and its hours ahead of UTC. Default `America/Toronto` and `-5`. |
+| `STILLS=overview,location` | Captures only the page stills named, of `overview`, `location`, `bean-batches`, `shots`, `shot` and `profile`. Unset, every one. |
+| `SKIP_STILLS=1` | Captures no page stills: only the Live View GIF and the phone. |
+| `SKIP_LIVE=1` | Captures only the page stills. With `STILLS`, a run takes under 20 seconds. |
+| `SCREENSHOT_ZONE` | The time zone of the Locations, the browser and the tablets, in place of the one the spec chooses. Choose one where it is the afternoon, with no daylight saving. |
 | `SAMPLE_SHOTS=<file>` | Reads a fresh sample instead of `sample-shots.json`. |
 
-- The `shots` still, the Shots list, is not in the README.
+## A still for a Guide page
+
+A Guide page shows only an image the generator makes, by its name. To add one:
+
+1. Name it in `STILLS` in `stills.ts`, with `readme: false` and what it shows.
+2. Capture it in `images.spec.ts`: an entry of that name in `captures`, with the page's address, the `ready` check of what the page must show, and the `clip` to capture. The spec seeds the data it needs, so add to the seed if the page needs more. `ready` runs after every reload, before each theme's capture, so a page that stops showing what it should fails the capture rather than drawing a wrong image.
+3. Rename the page from `.md` to `.mdx`, and show the image where it belongs:
+
+   ```mdx
+   import Still from "../../../components/Still.astro";
+
+   <Still name="shots" alt="The Shots list, newest first, each Shot with its Recipe, Machine and how it ran" />
+   ```
+
+4. Run `STILLS=<name> SKIP_LIVE=1 npm run site-images`, then `npm run dev -w site`, and look at the page in both themes.
+
+- The site's build fails on a name `stills.ts` lacks, and the deploy's on an image the generator did not make.
+- Each image is shown twice, once a theme, and the site's theme picks which (`site/src/components/Still.astro`).
 
 ## What is here
 
-- `run.mjs`: `npm run readme-images`. Runs the spec, then the encoder.
-- `readme-images.spec.ts`: seeds a fresh test server through simulated tablets running the built plugin, and captures the pages.
-- `playwright.config.ts`: the spec's own config. The spec is outside `e2e/`, so `npm run test:e2e` and CI never run it.
+- `run.mjs`: `npm run readme-images` and `npm run site-images`. Runs the spec, then the encoder.
+- `stills.ts`: every image by name, and which the README commits.
+- `images.spec.ts`: seeds a fresh test server through simulated tablets running the built plugin, and captures the pages.
+- `zone.ts`: the time zone the capture runs in.
+- `playwright.config.ts`: the spec's own config. The spec is outside `e2e/`, so `npm run test:e2e` never runs it.
 - `encode.mjs`: turns the captures into palette PNGs and GIFs with ffmpeg.
 - `sample.mjs`: samples Shots from a running server into an anonymized file (A fresh sample, below).
 - `sample-shots.json`: its output, nine Shots, which the spec reads.
@@ -52,9 +80,9 @@ The spec reads these from the environment:
 ## Time and zone
 
 - The latest Shot is a quarter of an hour before the run, since the Overview and the Recipe page show each Location's own today.
-- Today's Shots go back about 4 hours, so run it where it is late morning or afternoon in the zone, or set the zone to one where it is.
-- Choose a zone with no daylight saving.
-- The Location's page shows the zone's name, and every still shows times in the zone.
+- Today's Shots go back about 4 hours, and yesterday's from about 25 to 28 hours.
+- So the spec runs in a zone where the latest Shot falls between 14:00 and 15:00: `zone.ts` has one for each whole hour from UTC-10 to UTC+13, none with daylight saving, and chooses by the hour of the run. Every run shows the same Shots on the same days.
+- The Location's page shows the zone's name, and every still shows times in the zone, so both differ with the hour of the run.
 
 ## The stills
 
@@ -100,7 +128,7 @@ The committed sample is enough unless the curves need replacing.
 
 ```bash
 SAMPLE_SERVER=<server URL> SAMPLE_EMAIL=<Admin email> SAMPLE_PASSWORD=<password> \
-  node scripts/readme-images/sample.mjs <file>
+  node scripts/images/sample.mjs <file>
 ```
 
 - Sample only a server whose owner agrees to its Shots' curves being published.

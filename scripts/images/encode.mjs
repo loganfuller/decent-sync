@@ -1,8 +1,8 @@
-// Encodes the README spec's raw captures into the images README.md shows, named as in docs/images/: each still as a
+// Encodes the image spec's raw captures into the images README.md and the site show, named as in stills.ts: each still as a
 // palette PNG, 1600 px wide (the phone 520), and each theme's Live View frames as a GIF. Needs ffmpeg on PATH.
 //
-// Usage: node scripts/readme-images/encode.mjs <raw directory> <output directory>
-// `npm run readme-images` runs it after the spec (README.md beside this file).
+// Usage: node scripts/images/encode.mjs <raw directory> <output directory>
+// `npm run readme-images` and `npm run site-images` run it after the spec (README.md beside this file).
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -90,7 +90,7 @@ export function encode(rawDir, outDir) {
 if (import.meta.main) {
   const [rawDir, outDir] = process.argv.slice(2);
   if (!rawDir || !outDir) {
-    console.error("Usage: node scripts/readme-images/encode.mjs <raw directory> <output directory>");
+    console.error("Usage: node scripts/images/encode.mjs <raw directory> <output directory>");
     process.exit(1);
   }
   try {
