@@ -1125,24 +1125,27 @@ How each is made, carried out and answered:
     `changePluginSource`, the `pluginId`, `repo` and `branch`, null or
     absent for the latest release; for `changeSkinSource`, the `skinId` and
     a `repo` and `branch` or a `url`, checked as an install's are; and for
-    both `seen`, the item as the page showed it: `{ version, updates }`. It
-    is refused with 409 where the Tablet's latest report holds another
-    version or another `updates` for the item ("... is at another version or
-    source now than the page showed: load the page again"), or no such
-    item; with 400 for Decent Sync's own plugin to any source but the latest
-    release of its own repository or one of its commits, and for a Skin that
-    comes with Decaid. The action's `params` keep `expected`, the item's
-    source and build as the Tablet reported them then (`pluginSourceSeen`,
-    `skinSourceSeen` in `protocol/src/software-actions.ts`): its version,
-    and for a plugin its `source`'s kind, repository, branch, commit and
-    release tag, for a Skin its `sourceUrl` and the ETag of what that
-    served.
+    both `seen`, the item's source and build as the page showed them: the
+    `build` of its row in `GET /api/machines/:id/tablet-software`
+    (`pluginSourceSeen`, `skinSourceSeen` in
+    `protocol/src/software-actions.ts`): its version, and for a plugin its
+    `source`'s kind, repository, branch, commit and release tag, for a Skin
+    its `sourceUrl` and the ETag of what that served. It is refused with
+    409 where the Tablet's latest report holds another for the item ("...
+    is at another version or source now than the page showed: load the page
+    again"), so a pin worked out from a build a check has since moved on
+    from, at the same version, rolls nothing back; or no such item; with
+    400 for Decent Sync's own plugin to any source but the latest release of
+    its own repository or one of its commits, and for a Skin that comes
+    with Decaid. The action's `params` keep it as `expected`.
   - **Pinning it where it is now.** `GET
     /api/machines/:id/pinned-source?pluginId=` or `?skinId=`, an Admin's,
-    answers `{ pinnedSource: { source, tag, commit, unavailable } }`: what an
-    install names to hold the item at the build installed, which the form
-    then sends as any other source, or `source: null` where nothing matches
-    (`TabletSoftwareService.pinnedSource`). The server asks GitHub
+    answers `{ pinnedSource: { source, tag, commit, unavailable, build } }`:
+    what an install names to hold the item at the build installed, which the
+    form then sends as any other source, or `source: null` where nothing
+    matches (`TabletSoftwareService.pinnedSource`), and `build`, the build it
+    was worked out from, as its row's: the form offers the pin only while
+    the two are the same. The server asks GitHub
     (`server/src/software-actions/github.ts`), without credentials: for a
     plugin following releases, the commit its `releaseTag` points at, given
     as the branch; for a Skin following releases, its installed tag's

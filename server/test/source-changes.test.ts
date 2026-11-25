@@ -31,6 +31,7 @@ interface ItemView {
   name: string | null;
   version: string | null;
   updates: Record<string, unknown>;
+  build: Record<string, string | null>;
 }
 interface SoftwareView {
   plugins: (ItemView & { state: string; permissions: string[]; settings: { name: string; value?: unknown }[] })[] | null;
@@ -43,6 +44,7 @@ interface Pinned {
   tag: string | null;
   commit: string | null;
   unavailable: string | null;
+  build: Record<string, string | null>;
 }
 
 const FLIGHT = "tasting-flight.js";
@@ -50,6 +52,7 @@ const FLIGHT_REPO = "example/tasting-flight";
 const FLIGHT_ASSET = `https://github.com/${FLIGHT_REPO}/releases/download/v0.2.31-flight.2/tasting-flight.js-v0.2.31-flight.2.zip`;
 const RECIPES = "recipes.reaplugin";
 const COMMIT = "717fa95a2b3c4d5e6f708192a3b4c5d6e7f80910";
+const OTHER_COMMIT = "8a9b0c1d2e3f405162738495a6b7c8d9e0f1a2b3";
 
 /** A Skin's entry as Decaid lists one, a recorded one's with another id, name, version and source. */
 function exampleSkin(base: Record<string, unknown>, skin: { id: string; name: string; version: string; sourceUrl: string; etag?: string }): Record<string, unknown> {
@@ -119,9 +122,14 @@ describe("Changing how an installed plugin or Skin updates", () => {
   const software = async (machine: CreatedMachine, as = api) => (await as.get<{ tabletSoftware: SoftwareView }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware;
   const skin = async (machine: CreatedMachine, id: string) => (await software(machine)).skins!.find((entry) => entry.id === id)!;
   const plugin = async (machine: CreatedMachine, id: string) => (await software(machine)).plugins!.find((entry) => entry.id === id)!;
-  /** An item as the page shows it, which a change of how it updates is made over. */
-  const seen = (item: ItemView) => ({ version: item.version, updates: item.updates });
-  const pinned = async (machine: CreatedMachine, query: string, as = api) => (await as.get<{ pinnedSource: Pinned }>(`/machines/${machine.machine.id}/pinned-source?${query}`)).pinnedSource;
+  /** An item as the page shows it, which a change of how it updates is made over: its build. */
+  const seen = (item: ItemView) => item.build;
+  const pinnedAnswer = async (machine: CreatedMachine, query: string, as = api) => (await as.get<{ pinnedSource: Pinned }>(`/machines/${machine.machine.id}/pinned-source?${query}`)).pinnedSource;
+  /** Where an item can be pinned, without the build that was worked out from. */
+  const pinned = async (machine: CreatedMachine, query: string, as = api) => {
+    const { build: _build, ...where } = await pinnedAnswer(machine, query, as);
+    return where;
+  };
 
   /** Puts an action in the database for the connection holding the Machine, without the server's checks, and announces it: what the plugin is sent whatever the server would refuse. */
   async function stored(machine: CreatedMachine, kind: string, params: unknown): Promise<string> {
@@ -178,7 +186,10 @@ describe("Changing how an installed plugin or Skin updates", () => {
 
     // Over what the page showed only: another version, or another source, is refused at once, with nothing kept.
     expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: { ...seen(released), version: "0.2.30" }, repo: FLIGHT_REPO, branch: "dist" }, 409)).toMatch(/Tasting Flight is at another version or source now than the page showed/);
-    expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: { version: released.version, updates: { how: "followsUrl", url: "https://skins.example/flight.zip" } }, repo: FLIGHT_REPO }, 409)).toMatch(/load the page again/);
+    expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: { ...seen(released), sourceUrl: "https://skins.example/flight.zip" }, repo: FLIGHT_REPO }, 409)).toMatch(/load the page again/);
+    // Its build too: a branch's or a URL's next build may keep the version.
+    expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: { ...seen(released), etag: '"0123abcd"' }, repo: FLIGHT_REPO }, 409)).toMatch(/load the page again/);
+    expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: { version: released.version, updates: released.updates }, repo: FLIGHT_REPO }, 400)).toContain("Give the item's build as shown, as seen");
     expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, repo: FLIGHT_REPO }, 400)).toMatch(/as shown, as seen/);
     expect(await refused(machine, { kind: "changeSkinSource", skinId: "no-such.js", seen: seen(released), repo: FLIGHT_REPO }, 409)).toMatch(/reports no such Skin/);
     // As an install: no commit as a branch, and a URL or a repository, never both.
@@ -226,6 +237,33 @@ describe("Changing how an installed plugin or Skin updates", () => {
     const pinnedThere = await done(machine, { kind: "changePluginSource", pluginId: RECIPES, seen: seen(after), repo: "example/recipes", branch: COMMIT });
     expect(pinnedThere.result).toEqual({ pluginId: RECIPES, name: "Recipes", version: "0.1.43", previousVersion: "0.1.43", loaded: true });
     expect((await plugin(machine, RECIPES)).updates).toMatchObject({ how: "pinned", commit: COMMIT });
+  });
+
+  it("pins where the page showed it or not at all: refused once a check moved it to another build of the same version", async () => {
+    const recipes = recipesReleased();
+    const plugins = new SimulatedPlugins({ plugins: [recipes, ...bundledPlugins()] });
+    plugins.offer("example/recipes", { branch: "dist", commit: COMMIT, manifest: { ...recipes, version: "0.1.43" } });
+    const { machine } = await connected("Sources pin moved", { plugins });
+    await done(machine, { kind: "changePluginSource", pluginId: RECIPES, seen: seen(await plugin(machine, RECIPES)), repo: "example/recipes", branch: "dist" });
+
+    // The page as it loads: the row, and where it can be pinned, worked out from the same build.
+    const shown = await plugin(machine, RECIPES);
+    expect(shown).toMatchObject({ version: "0.1.43", updates: { how: "followsBranch", branch: "dist" }, build: { commit: COMMIT } });
+    const pin = await pinnedAnswer(machine, `pluginId=${RECIPES}`);
+    expect(pin).toMatchObject({ source: { repo: "example/recipes", branch: COMMIT }, build: shown.build });
+
+    // Meanwhile the branch's next build, of the same version, is installed by a check.
+    plugins.offer("example/recipes", { branch: "dist", commit: OTHER_COMMIT, manifest: { ...recipes, version: "0.1.43" } });
+    await done(machine, { kind: "checkPluginUpdates" });
+    await expect.poll(async () => (await plugin(machine, RECIPES)).build.commit).toBe(OTHER_COMMIT);
+    const installs = plugins.managed.length;
+
+    // Pinning it where the page showed it would roll it back: refused, with nothing kept or sent.
+    expect(await refused(machine, { kind: "changePluginSource", pluginId: RECIPES, seen: shown.build, ...(pin.source as { repo: string; branch: string }) }, 409)).toMatch(/Recipes is at another version or source now than the page showed: load the page again/);
+    expect(plugins.managed).toHaveLength(installs);
+    // Loaded again, it pins the build installed now.
+    const now = await plugin(machine, RECIPES);
+    expect(await pinnedAnswer(machine, `pluginId=${RECIPES}`)).toMatchObject({ source: { branch: OTHER_COMMIT }, build: now.build });
   });
 
   it("is refused where the Tablet reports another source by the time it runs, and for a build older than the one installed, in Decaid's words", async () => {
@@ -322,7 +360,7 @@ describe("Changing how an installed plugin or Skin updates", () => {
     const flight = await skin(machine, FLIGHT);
     const staff = await api.staffAt("sources-staff@example.com", cafe);
     expect(await refused(machine, { kind: "changeSkinSource", skinId: FLIGHT, seen: seen(flight), repo: FLIGHT_REPO }, 403, staff)).toContain("Only an Admin can do this");
-    expect(await refused(machine, { kind: "changePluginSource", pluginId: DECENT_SYNC_PLUGIN_ID, seen: { version: null, updates: { how: "notUpdated" } }, repo: DECENT_SYNC_REPO }, 403, staff)).toContain("Only an Admin can do this");
+    expect(await refused(machine, { kind: "changePluginSource", pluginId: DECENT_SYNC_PLUGIN_ID, seen: { version: null }, repo: DECENT_SYNC_REPO }, 403, staff)).toContain("Only an Admin can do this");
     expect((await staff.call("GET", `/machines/${machine.machine.id}/pinned-source?skinId=${FLIGHT}`)).status).toBe(403);
     expect((await software(machine, staff)).takesSourceChanges).toBe(true);
 
@@ -375,6 +413,9 @@ describe("Changing how an installed plugin or Skin updates", () => {
     // A Skin following releases: its installed tag's download, the first zip, as Decaid's install picks it. One following a branch: the commit whose archive has the ETag Decaid recorded.
     expect(await pinned(machine, `skinId=${FLIGHT}`)).toEqual({ source: { url: FLIGHT_ASSET }, tag: "v0.2.31-flight.2", commit: null, unavailable: null });
     expect(await pinned(machine, "skinId=night-shift.js")).toEqual({ source: { url: `https://github.com/example/night-shift/archive/${installed}.zip` }, tag: null, commit: installed, unavailable: null });
+    // Each worked out from the build its row shows, which the page offers the pin over only while they match.
+    expect((await pinnedAnswer(machine, "skinId=night-shift.js")).build).toEqual((await skin(machine, "night-shift.js")).build);
+    expect((await pinnedAnswer(machine, `pluginId=${RECIPES}`)).build).toEqual((await plugin(machine, RECIPES)).build);
     expect(await pinned(machine, "skinId=pinned-flight.js")).toEqual(nowhere);
     expect(await pinned(machine, "skinId=elsewhere.js")).toEqual(nowhere);
     expect(await pinned(machine, "skinId=streamline.js")).toEqual(nowhere);

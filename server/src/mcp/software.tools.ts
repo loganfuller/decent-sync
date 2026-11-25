@@ -26,6 +26,10 @@ const updates = z
   })
   .describe("How it updates, worked out from where Decaid says it was installed from.");
 
+const build = z
+  .record(z.string(), z.string().nullable())
+  .describe("Where Decaid says it came from and the build it is at, each field as Decaid gives it or null: what a change of how it updates is made over, as its params.expected holds it.");
+
 const softwareInput = z.object({ machineId });
 
 const softwareOutput = z.object({
@@ -52,6 +56,7 @@ const softwareOutput = z.object({
         version: z.string().nullable(),
         state: z.enum(["enabled", "disabled", "notLoaded"]).describe("notLoaded: to load as Decaid starts, but not loaded now, as while it updates or where it failed to load."),
         updates,
+        build,
         lastError: z.string().nullable().describe("What its latest update check said went wrong, in Decaid's words."),
         pendingUpdate: z
           .object({ version: z.string().nullable(), addedPermissions: z.array(z.string()) })
@@ -87,6 +92,7 @@ const softwareOutput = z.object({
         default: z.boolean().describe("The Skin Decaid shows as it starts, and once its Skin view restarts."),
         served: z.boolean().describe("Whether Decaid's Skin server serves it now."),
         updates,
+        build,
         removable: z.boolean().describe("Whether an Admin may remove it: it is neither the default, nor the one served, nor one that comes with Decaid."),
         pageReported: z.boolean().describe("Whether it is served and has reported the page it shows, so reload_skin can ask it to reload."),
       }),

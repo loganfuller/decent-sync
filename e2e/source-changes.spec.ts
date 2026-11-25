@@ -294,8 +294,10 @@ test("a Tablet whose plugin is of the previous release is told to update before 
     await expect(dialog.getByRole("button", { name: "Change" })).toBeDisabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     // The server refuses one all the same, at once, with nothing kept.
+    const listed = (await (await page.request.get(`/api/machines/${frontId}/tablet-software`)).json()) as { tabletSoftware: { skins: { id: string; build: Record<string, string | null> }[] } };
+    const shown = listed.tabletSoftware.skins.find((skin) => skin.id === "night-shift.js")!;
     const made = await page.request.post(`/api/machines/${frontId}/software-actions`, {
-      data: { kind: "changeSkinSource", skinId: "night-shift.js", seen: { version: "0.3.0-dev.12", updates: { how: "followsBranch", repo: "example/night-shift", branch: "dev" } }, repo: "example/night-shift" },
+      data: { kind: "changeSkinSource", skinId: shown.id, seen: shown.build, repo: "example/night-shift" },
     });
     expect(made.status()).toBe(409);
     expect(await made.text()).toContain("The Tablet's plugin must update before it can change how a plugin or Skin updates");

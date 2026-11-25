@@ -5,6 +5,7 @@ import {
   MAX_SOFTWARE_NAME_LENGTH,
   SOFTWARE_ACTION_KINDS,
   type SoftwareActionKind,
+  type SourceSeen,
   commitArchiveUrl,
   isPluginRepo,
   isSecretState,
@@ -25,10 +26,10 @@ export type NewSoftwareAction =
   | { kind: "installPlugin"; repo: string; branch: string | null }
   | { kind: "enablePlugin" | "disablePlugin" | "removePlugin"; pluginId: string }
   /** To a repository's latest release, a branch or a commit, over the plugin as the page showed it. */
-  | { kind: "changePluginSource"; pluginId: string; seen: SeenItem; repo: string; branch: string | null }
+  | { kind: "changePluginSource"; pluginId: string; seen: SourceSeen; repo: string; branch: string | null }
   /** To a repository's latest release or a branch, or to a URL, over the Skin as the page showed it. */
-  | { kind: "changeSkinSource"; skinId: string; seen: SeenItem; repo: string; branch: string | null }
-  | { kind: "changeSkinSource"; skinId: string; seen: SeenItem; url: string }
+  | { kind: "changeSkinSource"; skinId: string; seen: SourceSeen; repo: string; branch: string | null }
+  | { kind: "changeSkinSource"; skinId: string; seen: SourceSeen; url: string }
   /** The update that waits, as the page showed it. */
   | { kind: "approvePluginUpdate"; pluginId: string; version: string; addedPermissions: string[] }
   /** Each setting's new value, and what the page showed for it: a value, null for one not set, or `{ isSet }` for a secret. */
@@ -40,19 +41,20 @@ export type NewSoftwareAction =
   | { kind: "reloadSkin" }
   | { kind: "checkPluginUpdates" | "checkSkinUpdates" | "restartSkinView" | "checkDecaidUpdate" | "startDecaidUpdate" };
 
-/** A plugin or Skin as the page showed it when a change of how it updates was asked for: its version, and how it updates (`UpdatesView`). */
-export interface SeenItem {
-  version: string | null;
-  updates: Record<string, unknown>;
-}
+/** The most fields, and the longest value, a source seen may hold: those of `pluginSourceSeen` and `skinSourceSeen`, a Skin's URL the longest. */
+const MAX_SEEN_FIELDS = 8;
+const MAX_SEEN_LENGTH = 2048;
 
-function readSeen(value: unknown): SeenItem {
-  const seen = isObject(value) ? value : {};
-  const version = seen.version === undefined ? null : seen.version;
-  if ((version !== null && (typeof version !== "string" || version.length > MAX_SOFTWARE_NAME_LENGTH)) || !isObject(seen.updates) || typeof seen.updates.how !== "string") {
-    throw new BadRequestException(["Give the version and how it updates as shown, as seen"]);
-  }
-  return { version, updates: seen.updates };
+/** A plugin or Skin as the page showed it when a change of how it updates was asked for: its row's `build`, where Decaid said it came from and the build it was at. */
+function readSeen(value: unknown): SourceSeen {
+  const entries = isObject(value) ? Object.entries(value) : null;
+  const valid =
+    entries !== null &&
+    entries.length > 0 &&
+    entries.length <= MAX_SEEN_FIELDS &&
+    entries.every(([key, field]) => key.length <= 32 && (field === null || (typeof field === "string" && field.length <= MAX_SEEN_LENGTH)));
+  if (!valid) throw new BadRequestException(["Give the item's build as shown, as seen"]);
+  return Object.fromEntries(entries) as SourceSeen;
 }
 
 /** The repository, and branch or commit, a plugin is installed from, with what is wrong with them. */

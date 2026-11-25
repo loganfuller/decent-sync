@@ -18,8 +18,8 @@ import {
   namesCommit,
   peerHasWireRevision,
   pluginSourceSeen,
+  sameSourceSeen,
   sameValue,
-  skinSourceSeen,
   softwareActionMs,
 } from "@decent-sync/protocol";
 import { type Scope, includesLocation } from "../accounts/scope.js";
@@ -32,7 +32,7 @@ import { lockMachine } from "../machines/machines.service.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { type NewSoftwareAction, softwareActionNotFound } from "./input.js";
-import { type PluginSettingView, pluginUpdates, settingViews, skinViews } from "./tablet-software.js";
+import { type PluginSettingView, settingViews, skinViews } from "./tablet-software.js";
 
 /** Why a Software Action was refused, as the REST API gives it. */
 export type SoftwareActionRefusalView =
@@ -276,14 +276,16 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         if (own) throw new BadRequestException(`Decent Sync's own plugin can't be ${action.kind === "disablePlugin" ? "disabled" : "removed"} from here: that would cut the Tablet off from the server`);
         return { params: { plugin: named }, held: null };
       case "changePluginSource": {
-        if (!sameValue(action.seen, { version: text(plugin.version), updates: pluginUpdates(plugin.source) })) {
+        const expected = pluginSourceSeen(plugin);
+        // Its build too, not only how it updates: one a check moved since, at the same version, is not the one a pin from the page holds.
+        if (!sameSourceSeen(action.seen, expected)) {
           throw new ConflictException(`${named.name ?? named.id} is at another version or source now than the page showed: load the page again`);
         }
         // The plugin refuses this itself, whatever it is sent: said here first, with nothing kept.
         if (own && (action.repo.toLowerCase() !== DECENT_SYNC_REPO || (action.branch !== null && !namesCommit(action.branch)))) {
           throw new BadRequestException(`Decent Sync's own plugin follows the releases of ${DECENT_SYNC_REPO} or is pinned to one of its commits: a build from anywhere else could cut the Tablet off from the server`);
         }
-        return { params: { plugin: named, repo: action.repo, branch: action.branch, expected: pluginSourceSeen(plugin) }, held: null };
+        return { params: { plugin: named, repo: action.repo, branch: action.branch, expected }, held: null };
       }
       case "approvePluginUpdate": {
         const waiting = isRecord(plugin.pendingUpdate) ? plugin.pendingUpdate : null;
@@ -344,12 +346,11 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
       if (skin.updates.how === "comesWithDecaid") {
         throw new BadRequestException(`${skin.name ?? skin.id} comes with Decaid, which restores it from its own repository each time it starts: how it updates can't be changed`);
       }
-      if (!sameValue(action.seen, { version: skin.version, updates: skin.updates })) {
+      if (!sameSourceSeen(action.seen, skin.build)) {
         throw new ConflictException(`${skin.name ?? skin.id} is at another version or source now than the page showed: load the page again`);
       }
-      const entry = isRecord(reported) && Array.isArray(reported.skins) ? reported.skins.find((each) => isRecord(each) && each.id === skin.id) : undefined;
       const to = "url" in action ? { url: action.url } : { repo: action.repo, branch: action.branch };
-      return { skin: { id: skin.id, name: skin.name }, ...to, expected: skinSourceSeen(entry) };
+      return { skin: { id: skin.id, name: skin.name }, ...to, expected: skin.build };
     }
     return { skin: { id: skin.id, name: skin.name } };
   }

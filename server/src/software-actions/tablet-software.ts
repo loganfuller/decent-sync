@@ -5,7 +5,7 @@
 // updates is worked out from where Decaid says it was installed from, with
 // no list of Decaid's ids.
 
-import { DECENT_SYNC_PLUGIN_ID, isSecretState, namesCommit, releaseAssetOf } from "@decent-sync/protocol";
+import { DECENT_SYNC_PLUGIN_ID, type SourceSeen, isSecretState, namesCommit, pluginSourceSeen, releaseAssetOf, skinSourceSeen } from "@decent-sync/protocol";
 import type { Report } from "../collections/paired-devices.js";
 
 /**
@@ -65,6 +65,8 @@ export interface PluginView {
   /** `enabled`: loaded, and loaded as Decaid starts; `disabled`: neither; `notLoaded`: to load as Decaid starts, but not loaded now, as while it updates or where it failed to load. */
   state: "enabled" | "disabled" | "notLoaded";
   updates: UpdatesView;
+  /** Where Decaid says it came from and the build it is at (`pluginSourceSeen`): what a change of how it updates is made over, as `seen`. */
+  build: SourceSeen;
   /** What the latest update check said went wrong, in Decaid's words, if it failed. */
   lastError: string | null;
   /** An update that waits for someone to approve the permissions it adds. */
@@ -84,6 +86,8 @@ export interface SkinView {
   /** Whether Decaid's Skin server is serving this Skin now. */
   served: boolean;
   updates: UpdatesView;
+  /** Where Decaid says it came from and the build it is at (`skinSourceSeen`): what a change of how it updates is made over, as `seen`. */
+  build: SourceSeen;
   /** Whether it may be removed: it is neither the default, nor the one served, nor one that comes with Decaid. */
   removable: boolean;
   /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
@@ -175,6 +179,8 @@ export interface PinnedSourceView {
   commit: string | null;
   /** Why GitHub could not be asked, in words; null where it answered or was not needed. */
   unavailable: string | null;
+  /** The item's source and build this was worked out from, as its view's `build` gives them: the page offers the pin only over the build it shows. */
+  build: SourceSeen;
 }
 
 type Record_ = Record<string, unknown>;
@@ -226,6 +232,7 @@ export function pluginView(plugin: Record_, reported: unknown, admin: boolean): 
     version: text(plugin.version),
     state: plugin.loaded === true ? "enabled" : plugin.autoLoad === false ? "disabled" : "notLoaded",
     updates: pluginUpdates(source),
+    build: pluginSourceSeen(plugin),
     lastError: text(source?.lastError),
     pendingUpdate: pending && { version: text(pending.version), addedPermissions: strings(pending.addedPermissions) },
     permissions: strings(plugin.permissions),
@@ -323,7 +330,7 @@ export function skinViews(skins: unknown, page?: unknown): SkinView[] | null {
     const updates = skinUpdates(skin);
     const isDefault = id === defaultId;
     const served = servedPath !== null && skin.path === servedPath;
-    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, removable: !isDefault && !served && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
+    return [{ id, name: text(skin.name), version: text(skin.version), default: isDefault, served, updates, build: skinSourceSeen(skin), removable: !isDefault && !served && updates.how !== "comesWithDecaid", pageReported: served && pageOf === id }];
   });
 }
 

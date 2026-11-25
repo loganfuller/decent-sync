@@ -1,5 +1,5 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import { type CollectionName, commitArchiveUrl, releaseAssetOf } from "@decent-sync/protocol";
+import { type CollectionName, commitArchiveUrl, pluginSourceSeen, releaseAssetOf, skinSourceSeen } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
@@ -77,15 +77,16 @@ export class TabletSoftwareService {
     const id = "pluginId" in item ? item.pluginId : item.skinId;
     const entry = Array.isArray(list) ? (list as unknown[]).find((each): each is Record<string, unknown> => isRecord(each) && each.id === id) : undefined;
     if (!entry) throw new ConflictException(`The Tablet reports no such ${"pluginId" in item ? "plugin" : "Skin"}: it may have been removed since the page was loaded`);
+    const build = "pluginId" in item ? pluginSourceSeen(entry) : skinSourceSeen(entry);
     try {
-      return "pluginId" in item ? await this.pinnedPlugin(entry) : await this.pinnedSkin(entry);
+      return { ...("pluginId" in item ? await this.pinnedPlugin(entry) : await this.pinnedSkin(entry)), build };
     } catch (error) {
-      if (error instanceof GitHubUnavailable) return { ...NOWHERE, unavailable: error.message };
+      if (error instanceof GitHubUnavailable) return { ...NOWHERE, unavailable: error.message, build };
       throw error;
     }
   }
 
-  private async pinnedPlugin(plugin: Record<string, unknown>): Promise<PinnedSourceView> {
+  private async pinnedPlugin(plugin: Record<string, unknown>): Promise<Pinned> {
     const updates = pluginUpdates(plugin.source);
     const source = isRecord(plugin.source) ? plugin.source : {};
     if (updates.how === "followsBranch" && updates.repo !== null && typeof source.commit === "string" && /^[0-9a-f]{40}$/i.test(source.commit)) {
@@ -98,7 +99,7 @@ export class TabletSoftwareService {
     return NOWHERE;
   }
 
-  private async pinnedSkin(skin: Record<string, unknown>): Promise<PinnedSourceView> {
+  private async pinnedSkin(skin: Record<string, unknown>): Promise<Pinned> {
     const updates = skinUpdates(skin);
     const metadata = isRecord(skin.reaMetadata) ? skin.reaMetadata : {};
     if (updates.how === "followsReleases" && updates.repo !== null) {
@@ -122,8 +123,11 @@ export class TabletSoftwareService {
   }
 }
 
+/** Where an item can be pinned, before the build it was worked out from is added. */
+type Pinned = Omit<PinnedSourceView, "build">;
+
 /** An item that can't be pinned where it is. */
-const NOWHERE: PinnedSourceView = { source: null, tag: null, commit: null, unavailable: null };
+const NOWHERE: Pinned = { source: null, tag: null, commit: null, unavailable: null };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

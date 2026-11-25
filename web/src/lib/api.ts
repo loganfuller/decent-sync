@@ -1,4 +1,4 @@
-import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileText, ProfileTextField } from "@decent-sync/protocol";
+import type { HeldValue, MachineModel, Profile as ProfileDefinition, ProfileChecks, ProfileText, ProfileTextField, SourceSeen } from "@decent-sync/protocol";
 import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
@@ -486,6 +486,8 @@ export interface TabletPlugin {
   /** `notLoaded`: to load as Decaid starts, but not loaded now. */
   state: "enabled" | "disabled" | "notLoaded";
   updates: SoftwareUpdates;
+  /** Where Decaid says it came from and the build it is at: what a change of how it updates is made over. */
+  build: SourceSeen;
   /** What the latest update check said went wrong, in Decaid's words. */
   lastError: string | null;
   /** An update that waits for someone to approve the permissions it adds. */
@@ -504,6 +506,8 @@ export interface TabletSkin {
   /** Whether Decaid's Skin server is serving it now. */
   served: boolean;
   updates: SoftwareUpdates;
+  /** Where Decaid says it came from and the build it is at: what a change of how it updates is made over. */
+  build: SourceSeen;
   /** Whether it may be removed: it is neither the default, nor the one served, nor one that comes with Decaid. */
   removable: boolean;
   /** Whether it is served now and has reported the page it shows, so that it can be asked to reload. */
@@ -562,6 +566,8 @@ export interface PinnedSource {
   tag: string | null;
   commit: string | null;
   unavailable: string | null;
+  /** The item's source and build this was worked out from, as its row's `build`. */
+  build: SourceSeen;
 }
 
 /** A source the account's other Machines' plugins were installed from, for the install form. */

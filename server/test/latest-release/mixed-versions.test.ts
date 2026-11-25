@@ -284,7 +284,7 @@ describe("the latest release beside the change", () => {
     skins.install(flight(recordedSkin("streamline-cafe.js-dist"), "0.2.31-flight.2", asset));
     skins.offer({ repo: "example/tasting-flight" }, flight(recordedSkin("streamline-cafe.js", "releaseInstalled"), "0.2.32-flight.1", "github_release:example/tasting-flight@v0.2.32-flight.1"));
     const { machine, tablet } = await connected("mixed-source-changes", "latest release", "change", { skins, plugins: new SimulatedPlugins({ plugins: bundledPlugins() }) });
-    type Software = { takesSourceChanges: boolean; pluginMustUpdate: boolean; skins: { id: string; version: string | null; updates: Record<string, unknown> }[] | null };
+    type Software = { takesSourceChanges: boolean; pluginMustUpdate: boolean; skins: { id: string; version: string | null; updates: Record<string, unknown>; build: Record<string, string | null> }[] | null };
     const software = async () => (await apis.change.get<{ tabletSoftware: Software }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware;
     const shown = async () => (await software()).skins?.find((skin) => skin.id === "tasting-flight.js");
     const actions = `/machines/${machine.machine.id}/software-actions`;
@@ -293,7 +293,7 @@ describe("the latest release beside the change", () => {
     expect(await software()).toMatchObject({ takesSourceChanges: false, pluginMustUpdate: false });
     const change = async () => {
       const skin = (await shown())!;
-      return apis.change.call("POST", actions, { kind: "changeSkinSource", skinId: skin.id, seen: { version: skin.version, updates: skin.updates }, repo: "example/tasting-flight" });
+      return apis.change.call("POST", actions, { kind: "changeSkinSource", skinId: skin.id, seen: skin.build, repo: "example/tasting-flight" });
     };
     const refused = await change();
     expect(refused.status).toBe(409);
@@ -327,12 +327,12 @@ describe("the latest release beside the change", () => {
     // Slow enough for the tablet to be moved under the install.
     plugins.installMs = 2_000;
     const { machine, tablet } = await connected("mixed-different-item", "change", "change", { plugins });
-    type Plugin = { id: string; version: string | null; updates: Record<string, unknown> };
+    type Plugin = { id: string; version: string | null; updates: Record<string, unknown>; build: Record<string, string | null> };
     const listed = async () => (await apis.change.get<{ tabletSoftware: { plugins: Plugin[] | null } }>(`/machines/${machine.machine.id}/tablet-software`)).tabletSoftware.plugins?.find((plugin) => plugin.id === "recipes.reaplugin");
     await expect.poll(listed, { timeout: 15_000 }).toBeDefined();
     const shown = (await listed())!;
     const actions = `/machines/${machine.machine.id}/software-actions`;
-    const made = (await apis.change.send<{ softwareAction: { id: string } }>("POST", actions, { kind: "changePluginSource", pluginId: shown.id, seen: { version: shown.version, updates: shown.updates }, repo: "example/timers" }, 201)).softwareAction;
+    const made = (await apis.change.send<{ softwareAction: { id: string } }>("POST", actions, { kind: "changePluginSource", pluginId: shown.id, seen: shown.build, repo: "example/timers" }, 201)).softwareAction;
     await expect.poll(() => (tablet.received as { type?: string; id?: string }[]).some((frame) => frame.type === "softwareAction" && frame.id === made.id), { timeout: 15_000 }).toBe(true);
     // The install is under way, the action kept for the next load: the tablet moves to the latest release's instance.
     await new Promise((resolve) => setTimeout(resolve, 300));

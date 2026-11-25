@@ -39,7 +39,7 @@ import {
 import { valueText } from "@/lib/settings-text";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { useNarrowScreen } from "@/lib/use-screen";
-import { DECENT_SYNC_REPO, type EditableSettingsField, commitArchiveUrl, isEditable, isPluginRepo, isSkinUrl, namesCommit, releaseAssetOf, sameValue, settingsField } from "@decent-sync/protocol";
+import { DECENT_SYNC_REPO, type EditableSettingsField, commitArchiveUrl, isEditable, isPluginRepo, isSkinUrl, namesCommit, releaseAssetOf, sameSourceSeen, sameValue, settingsField, type SourceSeen } from "@decent-sync/protocol";
 
 // A Machine's Software tab (#660, #661, #678, ADR-0034, ADR-0035): its
 // Tablet Software, Decaid, the plugins and the Skins, each with its version
@@ -70,21 +70,15 @@ const ITEM_ACTIONS_WHEN_NARROW = "w-full flex-wrap *:flex-1";
 type NewAction =
   | { kind: "installPlugin"; repo: string; branch?: string }
   | { kind: "enablePlugin" | "disablePlugin" | "removePlugin"; pluginId: string }
-  | { kind: "changePluginSource"; pluginId: string; seen: Seen; repo: string; branch?: string }
-  | { kind: "changeSkinSource"; skinId: string; seen: Seen; repo: string; branch?: string }
-  | { kind: "changeSkinSource"; skinId: string; seen: Seen; url: string }
+  | { kind: "changePluginSource"; pluginId: string; seen: SourceSeen; repo: string; branch?: string }
+  | { kind: "changeSkinSource"; skinId: string; seen: SourceSeen; repo: string; branch?: string }
+  | { kind: "changeSkinSource"; skinId: string; seen: SourceSeen; url: string }
   | { kind: "approvePluginUpdate"; pluginId: string; version: string; addedPermissions: string[] }
   | { kind: "changePluginSettings"; pluginId: string; values: Record<string, unknown>; expected: Record<string, unknown> }
   | { kind: "installSkin"; repo: string; branch?: string }
   | { kind: "installSkin"; url: string }
   | { kind: "chooseDefaultSkin" | "removeSkin"; skinId: string }
   | { kind: "checkPluginUpdates" | "checkDecaidUpdate" | "startDecaidUpdate" | "checkSkinUpdates" | "reloadSkin" | "restartSkinView" };
-
-/** A plugin or Skin as its row showed it when a change of how it updates was asked for, which the server makes it over. */
-interface Seen {
-  version: string | null;
-  updates: SoftwareUpdates;
-}
 
 /** Makes a Software Action, answered with its outcome pending; a refusal at once throws with the server's words. */
 async function makeAction(machineId: string, action: NewAction): Promise<SoftwareAction> {
@@ -1340,17 +1334,16 @@ function InstallSkinForm({ machine, onCancel, onMade }: { machine: Machine; onCa
 /** A plugin or Skin whose way of updating is changed, as its row shows it. */
 type SourceItem = { kind: "plugin"; plugin: TabletPlugin } | { kind: "skin"; skin: TabletSkin };
 
-/** What a change of how an item updates names of it: its id, its name, and its version and how it updates as its row shows them. */
-function sourceItem(item: SourceItem): { id: string; name: string; version: string | null; updates: SoftwareUpdates } {
+/** What a change of how an item updates names of it: its id, its name, its version and how it updates, and the build the server makes the change over, as its row shows them. */
+function sourceItem(item: SourceItem): { id: string; name: string; version: string | null; updates: SoftwareUpdates; build: SourceSeen } {
   return item.kind === "plugin"
-    ? { id: item.plugin.id, name: pluginLabel(item.plugin), version: item.plugin.version, updates: item.plugin.updates }
-    : { id: item.skin.id, name: skinLabel(item.skin), version: item.skin.version, updates: item.skin.updates };
+    ? { id: item.plugin.id, name: pluginLabel(item.plugin), version: item.plugin.version, updates: item.plugin.updates, build: item.plugin.build }
+    : { id: item.skin.id, name: skinLabel(item.skin), version: item.skin.version, updates: item.skin.updates, build: item.skin.build };
 }
 
-/** A change of how an item updates, as the action that makes it, over the item as its row shows it. */
+/** A change of how an item updates, as the action that makes it, over the item's build as its row shows it. */
 function sourceChange(item: SourceItem, to: { repo: string; branch?: string } | { url: string }): NewAction {
-  const { id, version, updates } = sourceItem(item);
-  const seen = { version, updates };
+  const { id, build: seen } = sourceItem(item);
   if (item.kind === "skin") return { kind: "changeSkinSource", skinId: id, seen, ...to };
   if ("url" in to) throw new Error("A plugin is installed from a repository, never a URL");
   return { kind: "changePluginSource", pluginId: id, seen, ...to };
@@ -1469,7 +1462,7 @@ function ChangeSourceForm({
   const id = useId();
   // The item as the form opened over it: a report loaded meanwhile changes neither the fields nor what the change is made over.
   const [item] = useState(shown);
-  const { id: itemId, name, version, updates } = sourceItem(item);
+  const { id: itemId, name, version, updates, build } = sourceItem(item);
   const skin = item.kind === "skin";
   const own = item.kind === "plugin" && item.plugin.own;
   const [start] = useState(() => currentSource(updates, own));
@@ -1486,14 +1479,15 @@ function ChangeSourceForm({
     let stopped = false;
     const query = new URLSearchParams(skin ? { skinId: itemId } : { pluginId: itemId });
     api<{ pinnedSource: PinnedSource }>("GET", `/machines/${encodeURIComponent(machine.id)}/pinned-source?${query}`).then(
-      ({ pinnedSource }) => !stopped && setPin(pinnedSource),
+      // Only where it is as the form shows it: a build an update check moved to since is not the one the page shows.
+      ({ pinnedSource }) => !stopped && setPin(sameSourceSeen(pinnedSource.build, build) ? pinnedSource : { ...pinnedSource, source: null }),
       // Pinning it where it is only helps: without it the form still changes to any other source.
-      () => !stopped && setPin({ source: null, tag: null, commit: null, unavailable: null }),
+      () => !stopped && setPin({ source: null, tag: null, commit: null, unavailable: null, build }),
     );
     return () => {
       stopped = true;
     };
-  }, [machine.id, itemId, skin]);
+  }, [machine.id, itemId, skin, build]);
 
   const choices: [SourceChoice, string][] = [
     ["releases", "Follow releases"],
