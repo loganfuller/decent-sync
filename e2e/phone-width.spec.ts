@@ -152,7 +152,7 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
   await expect(visualizer).toBeFocused();
   // What is typed in a dialog stays as the phone turns past md: in a plugin's settings, whose list holds until they close, and in installing one.
   // Each is checked once the rest of the tab has turned (found by CSS, as the modal hides it from roles): a dialog the layout's change closed is there until it renders.
-  const smallButtons = page.locator("main [data-slot=button][data-size=sm]");
+  const smallButtons = page.locator("main button[data-size=sm]");
   const listedPlugins = page.locator('ul[aria-label="Plugins"]');
   await visualizer.click();
   await menu.getByRole("menuitem", { name: "Visualizer upload settings" }).click();
@@ -197,7 +197,7 @@ test("on a phone, the Software tab's plugins, Skins and Software Actions are lis
   const entries = log.getByRole("list", { name: "Software Actions" }).getByRole("listitem");
   await expect(entries.first()).toContainText(/^Disabled Visualizer upload\.?Done.*· You$/);
   // Every button on the tab is the default size, not the small one.
-  await expect(page.locator("main [data-slot=button][data-size=sm]")).toHaveCount(0);
+  await expect(page.locator("main button[data-size=sm]")).toHaveCount(0);
   await expectFits(page);
   await expectTabFits(page);
 

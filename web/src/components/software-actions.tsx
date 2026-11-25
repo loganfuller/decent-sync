@@ -403,9 +403,11 @@ function isAnswered(action: SoftwareAction): boolean {
  * whenever `answered` changes, as an action made on the tab is answered.
  */
 export function SoftwareActionsCard({ machineId, plugins, skins, answered }: { machineId: string; plugins: Plugins; skins?: Skins; answered: number }) {
+  const narrow = useNarrowScreen();
   return (
     <CollapsibleCard
       title="Software Actions"
+      buttonSize={narrow ? "default" : "sm"}
       info={
         <>
           <p>
