@@ -24,7 +24,18 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.13.1
+
+### Check every tablet runs the 1.13.0 plugin before deploying
+
+This release raises the wire revision, for changing how a plugin or Skin
+updates
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
+Deploying). Before deploying, check on each Machine's page that it runs the
+plugin of 1.13.0. A tablet still on the 1.12.2 plugin or earlier is refused
+as too old until its plugin is updated, at the tablet or through Decaid's API
+from its network with `POST /api/v1/plugins/update`. This release's plugin
+adds no permission, so Decaid installs its update without approval.
 
 ### Changing how a plugin or Skin updates
 

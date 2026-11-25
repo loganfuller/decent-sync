@@ -129,7 +129,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 
 ## Task routing
 
-Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are superseded, so no row names them. Milestone specs are GitHub issues (`gh issue view <number>`): milestone 1 is #1, 2 #77, 3 #134, 4 #220 with its Live View in #258, 5 #277, 6 #405, 7 #465, 8 #503 and 9 #574; from then on milestones are named by the release that finishes them, and v1.13.0's is #657.
+Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are superseded, so no row names them. Milestone specs are GitHub issues (`gh issue view <number>`): milestone 1 is #1, 2 #77, 3 #134, 4 #220 with its Live View in #258, 5 #277, 6 #405, 7 #465, 8 #503 and 9 #574; from then on milestones are named by the release that finishes them, v1.13.0's is #657 and v1.13.1's #676.
 
 | Task | Read |
 |---|---|
