@@ -10,7 +10,8 @@
     "plugin",
     "decent-sync.reaplugin",
     "server",
-    "web"
+    "web",
+    "site"
   ],
   "scripts": {
     "build": "npm run build -w protocol && npm run build -w plugin && npm run build -w web && npm run build -w server",
@@ -28,7 +29,8 @@
     "simulation-scorecard": "npm run build -w protocol --silent && node scripts/simulation/score.mjs",
     "start": "npm run build && npm run start -w server",
     "dev:server": "npm run build -w protocol && npm run dev -w server",
-    "dev:web": "npm run dev -w web"
+    "dev:web": "npm run dev -w web",
+    "build:site": "npm run build -w site"
   },
   "engines": {
     "node": ">=26"

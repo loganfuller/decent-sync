@@ -1,0 +1,21 @@
+{
+  "name": "@decent-sync/site",
+  "private": true,
+  "description": "The documentation site: Astro Starlight over plain Markdown, published on GitHub Pages",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && node check-links.mjs",
+    "preview": "astro preview",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.43.1",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "astro": "^7.4.13",
+    "cookie": "^2.0.2",
+    "sharp": "^0.35.5"
+  }
+}

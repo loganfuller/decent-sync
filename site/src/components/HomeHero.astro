@@ -1,0 +1,132 @@
+---
+// The home page's first screen, in place of Starlight's hero. Its heading,
+// pitch and buttons come from the page's `hero` frontmatter.
+import liveViewDark from "../../../docs/images/live-view-dark.gif";
+import liveViewLight from "../../../docs/images/live-view-light.gif";
+import { page } from "../links.mjs";
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero ?? {};
+const liveViewAlt = "A Machine's Live View during a shot, with its pressure and flow curves drawn as the shot runs";
+---
+
+<div class="home-hero not-content">
+    <div class="copy">
+        <p class="note">For any DE1 or a Bengle running Decaid</p>
+        <h1 id="_top" data-page-title>{title}</h1>
+        {tagline && <p class="tagline">{tagline}</p>}
+        <div class="actions">
+            {
+                actions.map(({ link, text, variant }) => (
+                    <a class:list={["button", variant]} href={page(link)}>
+                        {text}
+                        {variant === "primary" && (
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M5 12h14M13 6l6 6-6 6" />
+                            </svg>
+                        )}
+                    </a>
+                ))
+            }
+        </div>
+        <p class="note">Free and open source under the MIT license. In production at its author's cafe.</p>
+    </div>
+    <figure>
+        <img class="dark:sl-hidden" src={liveViewLight.src} width={liveViewLight.width} height={liveViewLight.height} alt={liveViewAlt} />
+        <img class="light:sl-hidden" src={liveViewDark.src} width={liveViewDark.width} height={liveViewDark.height} alt={liveViewAlt} />
+        <figcaption>A shot on a Machine's Live View, at twice its speed. Sample data, real recorded curves.</figcaption>
+    </figure>
+</div>
+
+<style>
+    .home-hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 2.25rem 3.5rem;
+        padding-block: 0.75rem 1.25rem;
+    }
+    .copy {
+        flex: 1 1 27.5rem;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1.125rem;
+    }
+    .note {
+        font-size: 0.84rem;
+        color: var(--ds-muted);
+    }
+    .copy > .note:first-child {
+        font-weight: 500;
+    }
+    h1 {
+        font-size: clamp(2.25rem, 1.5rem + 3.2vw, 3.5rem);
+        line-height: 1.08;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        color: var(--ds-text);
+    }
+    .tagline {
+        font-size: clamp(1.0625rem, 1rem + 0.3vw, 1.1875rem);
+        line-height: 1.55;
+        color: var(--ds-body);
+    }
+    .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.625rem 0.75rem;
+    }
+    .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        height: 3rem;
+        padding: 0 1.375rem;
+        border: 1px solid var(--ds-border-strong);
+        border-radius: 0.625rem;
+        background: var(--ds-card);
+        color: var(--ds-text);
+        font-weight: 500;
+        text-decoration: none;
+    }
+    .button.primary {
+        border-color: var(--ds-primary);
+        background: var(--ds-primary);
+        color: var(--ds-primary-text);
+    }
+    .button:hover {
+        opacity: 0.85;
+    }
+    figure {
+        flex: 1 1 32.5rem;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+    }
+    figure img {
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--ds-border);
+        border-radius: 0.875rem;
+        box-shadow: 0 12px 32px rgb(23 23 23 / 0.08);
+    }
+    figcaption {
+        font-size: 0.8125rem;
+        color: var(--ds-muted);
+    }
+    @media (max-width: 40rem) {
+        .home-hero {
+            padding-block: 0.75rem 0.5rem;
+        }
+        .actions {
+            flex-direction: column;
+        }
+        figure img {
+            border-radius: 0.625rem;
+            box-shadow: none;
+        }
+    }
+</style>

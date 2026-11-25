@@ -6,6 +6,7 @@
 - [Tests](#tests)
 - [The committed plugin](#the-committed-plugin)
 - [README images](#readme-images)
+- [The documentation site](#the-documentation-site)
 - [The simulation's scorecard](#the-simulations-scorecard)
 - [Releasing](#releasing)
 
@@ -20,6 +21,7 @@ decent-sync.reaplugin/    the built plugin, committed and released as a ZIP
 server/                   NestJS + Prisma on PostgreSQL
 web/                      management interface: React, Vite, shadcn/ui
 protocol/                 wire types and runtime validators shared by plugin and server
+site/                     the documentation site: Astro Starlight over plain Markdown
 ```
 
 The plugin talks to the server over one WebSocket. Everything else uses the
@@ -62,6 +64,8 @@ variable, and the paths the server serves.
 | `npm run test:latest-release-suite` | Run the latest release's Vitest suite on this checkout's schema, on a throwaway PostgreSQL in Docker. Run `npm run build:latest-release` first. |
 | `npm run check:plugin-build` | Fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | Write the release ZIP of the committed plugin to `dist/` |
+| `npm run build:site` | Build the documentation site into `site/dist` and check its links ([The documentation site](#the-documentation-site)) |
+| `npm test -w site` | Build the documentation site and test it in a browser |
 | `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([README images](#readme-images)) |
 | `npm run simulation-scorecard` | Print how close the simulation of a Profile comes to recorded Shots ([The simulation's scorecard](#the-simulations-scorecard)) |
 | `docker compose up --build` | Build the server image from this checkout and run it with PostgreSQL |
@@ -96,6 +100,47 @@ PostgreSQL (`TEST_DATABASE_URL`), a current build and ffmpeg, and takes about
 over those a change redraws.
 [scripts/readme-images/README.md](../scripts/readme-images/README.md) has its
 options, what each image shows and how it is made.
+
+## The documentation site
+
+`site/` is the documentation site, published at
+<https://loganfuller.github.io/decent-sync/>: [Astro Starlight](https://starlight.astro.build)
+over the Markdown in `site/src/content/docs/`, in the management interface's
+logo, font and palette (`site/src/styles/theme.css`). Starlight's version is
+pinned exactly, since the site overrides two of its components.
+
+- `npm run dev -w site` serves it locally, rebuilding on change.
+- `npm run build:site` builds it into `site/dist`, then checks every internal
+  link, image and heading link of the built pages (`site/check-links.mjs`). A
+  broken one fails the build.
+- `npm test -w site` builds it and opens it in a browser. It needs
+  Playwright's Chromium (`npx playwright install chromium`).
+
+A page's address is its path under `site/src/content/docs/`, and
+`site/astro.config.mjs` lists each in the sidebar. The addresses are meant to
+stay, so rename a page's title freely and its file never. A page links to
+another page of the site with a relative path ending in a slash, such as
+`../../guide/shots/`, because the site is served at more than one path. A page
+not yet written is a short page saying what it will hold.
+
+The home page is `site/src/content/docs/index.mdx`, drawn by
+`site/src/components/HomeHero.astro` and `Home.astro`. Its images are the
+README's, read from `docs/images/`.
+
+CI builds and tests the site on every pull request, docs-only ones included,
+and deploys nothing. The release workflow deploys it
+([What the release workflow does](#what-the-release-workflow-does)). GitHub
+Pages serves the `gh-pages` branch, which holds only built sites and which
+`scripts/deploy-site.mjs` fills: each minor release's build at a path of its
+own, such as `/decent-sync/v1.13/`, and the latest minor's at the root as well.
+A patch release replaces its minor's build. Each page of a minor's own build
+names the root's page as its canonical address. The site says which release it
+documents in its footer: the version in the root `package.json` of the commit
+it was built from.
+
+To deploy the site without a release, run the Release workflow by hand
+(`gh workflow run release.yml -f ref=vX.Y.Z`) with the tag, branch or commit to
+build. It deploys the site alone, as that commit's version.
 
 ## The simulation's scorecard
 
@@ -254,6 +299,11 @@ It then:
    only asset. Its notes start with the version's section of `UPGRADING.md`
    (`scripts/release-notes.mjs`), followed by GitHub's notes generated from
    the pull requests merged since the last release.
+
+Once the release is published, a second job deploys
+[the documentation site](#the-documentation-site) built at the tag. If it
+fails, the release stays published: fix the cause and run the workflow by hand
+for the tag.
 
 ### Upgrade notes
 

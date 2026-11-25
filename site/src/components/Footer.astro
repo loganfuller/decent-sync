@@ -1,0 +1,50 @@
+---
+// Starlight's footer, followed on every page by the release the site
+// documents: the version of the commit it was built from.
+import Default from "@astrojs/starlight/components/Footer.astro";
+
+import manifest from "../../../package.json";
+import { page, repository } from "../links.mjs";
+---
+
+<Default><slot /></Default>
+
+<div class="site-footer not-content">
+    <p>MIT license. This site documents <span data-site-version>v{manifest.version}</span>.</p>
+    <nav aria-label="Project">
+        <a href={repository}>GitHub</a>
+        <a href={page("project/releases")}>Releases</a>
+        <a href={page("project/roadmap")}>Roadmap</a>
+        <a href={page("reference/upgrade-notes")}>Upgrade notes</a>
+    </nav>
+</div>
+
+<style>
+    .site-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem 1.75rem;
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--sl-color-hairline);
+        font-size: var(--sl-text-sm);
+        color: var(--sl-color-gray-3);
+    }
+    p {
+        flex-grow: 1;
+    }
+    nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0 1.5rem;
+    }
+    a {
+        padding: 0.75rem 0;
+        color: var(--sl-color-gray-3);
+        text-decoration: none;
+    }
+    a:hover {
+        color: var(--sl-color-text-accent);
+    }
+</style>
