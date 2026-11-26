@@ -452,9 +452,8 @@ describe("Lost Edits", () => {
     const other = await libraryBean("Other Guji");
     const database = await server.connectDatabase();
     try {
-      // As such a release wrote them: with no edit it lost to. They name no `state`, which this release's suite must not, as
-      // it runs on the next release's schema without it (#653): whether one was used there, or dismissed and so deleted by
-      // the migration `20261123000001_dismissed_lost_edits_deleted`, is dismissed-lost-edits-migration.test.ts's.
+      // As such a release wrote them: with no edit it lost to. Whether one was used there, or dismissed and so deleted by the
+      // migration `20261123000001_dismissed_lost_edits_deleted`, is dismissed-lost-edits-migration.test.ts's.
       for (const value of ["First notes", "Second notes"]) {
         await database.query(
           `INSERT INTO conflicts (id, kind, item_id, field, value, machine_id, edited_at)

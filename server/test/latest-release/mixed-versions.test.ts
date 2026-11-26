@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   RECIPE_SETTINGS,
   WIRE_REVISION,
@@ -956,6 +957,39 @@ describe("the latest release beside the change", () => {
         await quiesced(apis.change, { tablets, machines: { onRelease: onRelease.machine, onChange: onChange.machine } });
         await apis[through].send("PATCH", `/grinders/${grinder.id}`, { content: { notes: `Edited through the ${through}` } });
         await expect.poll(() => heldGrinder(holding, grinder.id)?.notes).toBe(`Edited through the ${through}`);
+      }
+    });
+
+    // The change drops a Lost Edit's `state` (#653), which the latest release names in no query (#642): it still keeps
+    // an edit that loses, and both read it in the item's history.
+    it("keeps an edit that loses through the latest release's instance, on the change's schema, in the item's history read through either", async () => {
+      const location = await apis.change.createLocation("Lost, on both", "America/Chicago");
+      const onRelease = await connected("Lost, on the latest release", "latest release", "latest release", { location });
+      const onChange = await connected("Lost, on the change", "latest release", "change", { location });
+      const { grinder } = await apis.change.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model: "Lost EK43", burrs: "98mm" } }, 201);
+      for (const { tablet } of [onRelease, onChange]) await expect.poll(() => heldGrinder(tablet, grinder.id)).toMatchObject({ burrs: "98mm" });
+
+      // Both edit it offline; the change's comes back first, and loses to the latest release's, which it had not seen.
+      onRelease.tablet.loseNetwork();
+      onChange.tablet.loseNetwork();
+      await onChange.tablet.editGrinder(heldGrinder(onChange.tablet, grinder.id)!.id, { burrs: "98mm Turkish" });
+      await delay(20);
+      await onRelease.tablet.editGrinder(heldGrinder(onRelease.tablet, grinder.id)!.id, { burrs: "98mm Coffee" });
+      const burrs = async () => (await apis.change.get<{ grinder: { content: Record<string, unknown> } }>(`/grinders/${grinder.id}`)).grinder.content.burrs;
+      onChange.tablet.restoreNetwork();
+      await expect.poll(burrs).toBe("98mm Turkish");
+      onRelease.tablet.restoreNetwork();
+      await expect.poll(burrs).toBe("98mm Coffee");
+
+      for (const through of ["change", "latest release"] as const) {
+        const lostEdits = async () => (await apis[through].get<{ lostEdits: Record<string, unknown>[] }>(`/grinders/${grinder.id}/history`)).lostEdits;
+        await expect.poll(async () => (await lostEdits()).length, { message: through }).toBe(1);
+        expect((await lostEdits())[0], through).toMatchObject({
+          field: "burrs",
+          value: "98mm Turkish",
+          source: { machine: { id: onChange.machine.machine.id } },
+          lostTo: { value: "98mm Coffee", source: { machine: { id: onRelease.machine.machine.id } } },
+        });
       }
     });
 

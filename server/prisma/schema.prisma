@@ -2122,20 +2122,6 @@ model ItemVersion {
   @@map("item_versions")
 }
 
-/// What a release before Lost Edits (ADR-0033) made of a Conflict, as a
-/// Lost Edit was until then. This release names it in no query, and none
-/// writes anything but the column's default, `OPEN`; `DISMISSED` rows were deleted
-/// (`20261123000001_dismissed_lost_edits_deleted`). It goes in the next
-/// release, with `LostEdit.state` and its index (#653).
-enum LostEditState {
-  OPEN
-  /// Someone used its value, which made it a new edit.
-  USED
-  DISMISSED
-
-  @@map("conflict_state")
-}
-
 /// A Lost Edit (ADR-0033): an edit to a field of a Library item that did not
 /// apply, because it lost to another edit of the same field made without
 /// seeing it (ADR-0020), or because a record entered on a tablet taking part,
@@ -2146,8 +2132,8 @@ enum LostEditState {
 /// and a field of a Location's state names that Location. Its table is the
 /// one Conflicts were kept in, whose name it keeps.
 model LostEdit {
-  /// Written by `recordLostEdit` as `gen_random_uuid()`, a version 4 UUID,
-  /// not Prisma's default, since it writes in SQL (`state`, below); nothing
+  /// Prisma's version 7 UUID, or a version 4 one for a Lost Edit kept while
+  /// it was written in SQL, from `gen_random_uuid()` (#642, #653). Nothing
   /// orders Lost Edits by it.
   id              String        @id @default(uuid(7)) @db.Uuid
   /// The item's kind and id (`VersionedItem`).
@@ -2174,20 +2160,12 @@ model LostEdit {
   createdAt       DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// The order it lost in, which `createdAt` cannot tell apart within one transaction.
   seq             BigInt        @default(autoincrement())
-  /// Kept only so 1.12.2, which still selects and filters on it, runs
-  /// beside this release (ADR-0025). Every row holds `OPEN` or `USED`. This
-  /// release names it in no query, so that it runs beside the next, which
-  /// drops it with its enum and index (#653): a Lost Edit is written in SQL
-  /// leaving it to the column's default (`recordLostEdit`), as Prisma's
-  /// `create` would send it, and read omitting it.
-  state           LostEditState @default(OPEN)
   /// The version of the item (`ItemVersion`) it lost to: the edit that kept
   /// or took the field. Null where that is not known, as for one a release
   /// before Lost Edits kept as a Conflict. No foreign key: the version goes
   /// only with the item, which takes this with it.
   lostToVersionId String?       @map("lost_to_version_id") @db.Uuid
 
-  @@index([state, createdAt])
   @@index([kind, itemId])
   @@index([locationId])
   @@index([machineId])

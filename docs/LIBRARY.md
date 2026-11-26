@@ -432,18 +432,13 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   added by the migration `20261123000000_lost_edits`, with no foreign key, as
   a history entry goes only with its item, which takes these rows with it):
   null where that is not known, as for a row a release before Lost Edits
-  kept as a Conflict. Its `state` (`LostEditState`, PostgreSQL's
-  `conflict_state`) is what such a release made of a Conflict. Every row
-  holds `OPEN` or `USED`: the migration
-  `20261123000001_dismissed_lost_edits_deleted` deleted each row
-  `DISMISSED`. It stays only so 1.12.2, which selects and filters on it,
-  runs beside this release, and goes in the next, with its enum and its
-  index on `state` and `created_at` (#653). This release names it in no
-  query, so that it runs beside that one: it writes a Lost Edit in SQL that
-  leaves `state` to the column's default (`recordLostEdit` in
-  `server/src/library/history.ts`), since Prisma's `create` would send the
-  default itself, and reads Lost Edits omitting it
-  (`lost-edits-without-state.test.ts` drops the column and checks both).
+  kept as a Conflict. Such a release also kept what it made of a Conflict
+  in a `state`: the migration `20261123000001_dismissed_lost_edits_deleted`
+  deleted each row dismissed there, and `20261126000000_lost_edits_without_state`
+  dropped the column, with its enum `conflict_state` and its index on
+  `state` and `created_at` (#653). A row kept while 1.13.0 and 1.14.0 wrote
+  Lost Edits in SQL, so as to name no `state`, has a version 4 UUID for its
+  id, and the rest Prisma's version 7 one; nothing orders Lost Edits by it.
 
 ## Edits
 

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
+import { dropConflictState, restoreConflictState } from "./support/conflict-state.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { dye2List, dye2NeverUsed } from "./support/simulated-dye2.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -63,6 +64,8 @@ describe("Recipes shown on the strip by their slots alone, from 1.6.0's data", {
     const database = await server.connectDatabase();
     let conflicts: { open: string; used: string };
     try {
+      // The Conflicts' `state`, which this migration's SQL dismisses them in, as its release had it, dropped again below (#653).
+      await restoreConflictState(database);
       await database.query(
         `UPDATE recipes SET content = content || '{"showOnDashboard": false}'::jsonb,
            field_edits = field_edits || jsonb_build_object('showOnDashboard', field_edits -> 'name') WHERE id = $1`,
@@ -88,6 +91,7 @@ describe("Recipes shown on the strip by their slots alone, from 1.6.0's data", {
       expect(rows.find((row) => row.id === hidden.id)!.fieldEdits).toHaveProperty("name");
       const states = await database.query<{ id: string; state: string }>(`SELECT id::text AS id, state::text AS state FROM conflicts WHERE item_id = $1`, [shown.id]);
       expect(Object.fromEntries(states.rows.map((row) => [row.id, row.state]))).toEqual({ [conflicts.open]: "DISMISSED", [conflicts.used]: "USED" });
+      await dropConflictState(database);
     } finally {
       await database.end();
     }

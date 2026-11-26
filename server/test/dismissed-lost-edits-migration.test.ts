@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
+import { dropConflictState, restoreConflictState } from "./support/conflict-state.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #642: a release before Lost Edits (ADR-0033) kept a
@@ -11,7 +12,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // (`20261123000001_dismissed_lost_edits_deleted`) deletes those rows, so that
 // no release reads `state`, and keeps the open and used ones, which are Lost
 // Edits. The migration's SQL is run again on a migrated database holding what
-// such a release left, through the database and the REST API.
+// such a release left, its `state` put back as it was until a later migration
+// dropped it (#653), through the database and the REST API.
 
 const MIGRATION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261123000001_dismissed_lost_edits_deleted/migration.sql");
 
@@ -37,6 +39,7 @@ describe("Conflicts dismissed through a release before Lost Edits", { timeout: 6
     const ids = [await basket(location.id, "Dismissed 18g"), await basket(location.id, "Dismissed 20g")] as const;
     const database = await server.connectDatabase();
     try {
+      await restoreConflictState(database);
       // As such a release left them: with no edit each lost to, open, used or dismissed there.
       const conflictOf = async (id: string, value: string, state: string) =>
         (
@@ -67,6 +70,10 @@ describe("Conflicts dismissed through a release before Lost Edits", { timeout: 6
       // Run again, it changes nothing.
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
       expect(await states()).toEqual({ [kept.open]: "OPEN", [kept.used]: "USED" });
+
+      // Once the column goes, the open and used ones are still Lost Edits.
+      await dropConflictState(database);
+      expect(await lostEdits(ids[0])).toEqual([kept.open, kept.used].sort());
     } finally {
       await database.end();
     }
