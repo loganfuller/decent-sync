@@ -21,7 +21,10 @@ do with them, its REST routes, and how the management interface shows it.
 | [COLLECTIONS.md](https://github.com/loganfuller/decent-sync/blob/main/docs/COLLECTIONS.md) | What a tablet reports of itself: its settings, paired devices, plugins and Skins. Settings Edits, Settings History and Software Actions. |
 | [LIBRARY.md](https://github.com/loganfuller/decent-sync/blob/main/docs/LIBRARY.md) | The Library: who takes part, what a Location offers, how edits merge, taking in each kind of item from a tablet and writing it to the others, Recipes and Recipe Slots, simulating a Profile, Drafts, publishing and Trial Shots. |
 
-The REST routes of each area are in its document's REST API section. The MCP
+The REST routes of each of these areas are in its document's REST API
+section. Those of accounts, invites, first-run setup, adopting Machines and
+Connected Apps have no document: they are in the server's controllers, under
+[`server/src/`](https://github.com/loganfuller/decent-sync/tree/main/server/src). The MCP
 tools are on this site, in [Assistant tools](../../reference/assistant-tools/),
 and what the plugin answers a Skin is in
 [For a Skin's author](../../technical/skin-authors/).

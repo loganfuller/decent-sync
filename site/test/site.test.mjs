@@ -168,7 +168,10 @@ describe("the built site", () => {
     });
 
     test("has each Get started, Self-hosting, plugin, Technical and Project page written, and no page left saying what it will hold", () => {
-        for (const page of PAGES) assert.ok(!read(page).includes("This page is not written yet"), `${page} is not written`);
+        const built = (folder) => readdirSync(folder, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? built(join(folder, entry.name)) : entry.name === "index.html" ? [join(folder, entry.name)] : []));
+        const pages = built(dist);
+        assert.ok(pages.length >= PAGES.length, "the built pages were not read");
+        for (const page of pages) assert.ok(!readFileSync(page, "utf8").includes("This page is not written yet"), `${page.slice(dist.length)} is not written`);
         for (const page of WRITTEN) assert.match(read(page), /<h2 /, `${page} has no section`);
     });
 
@@ -210,7 +213,8 @@ describe("the built site", () => {
             assert.ok(main.includes(href), `technical/internals does not link ${document}`);
             const block = blocks.find((candidate) => candidate.includes(href));
             assert.ok(block, `technical/internals links ${document} outside a table row, list item or paragraph`);
-            const said = text(block.split(href).map((part, index) => (index === 0 ? part.replace(/<a [^>]*$/, "") : part.replace(/^[^>]*>[\s\S]*?<\/a>/, ""))).join(""));
+            // Every link's text is taken out, so a paragraph of bare links describes none of them.
+            const said = text(block.replace(/<a\b[^>]*>[\s\S]*?<\/a>/g, ""));
             assert.ok(said.replace(/[\s,.:;()|]+/g, " ").trim().length > 20, `technical/internals says nothing of ${document}`);
         }
         // And a table row has the line in its second cell.

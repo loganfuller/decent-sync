@@ -136,7 +136,8 @@ Use it only on a network you trust. The
 covers running on the internet, fly.io and every setting.
 
 > [!IMPORTANT]
-> Tablets install each new plugin release within 12 hours.
+> Tablets install each new plugin release within 12 hours, unless it asks
+> for a new permission.
 > [Upgrade the server](https://loganfuller.github.io/decent-sync/self-hosting/upgrading/)
 > soon after each release: `docker compose pull && docker compose up -d`.
 
@@ -156,7 +157,7 @@ covers running on the internet, fly.io and every setting.
 - [Architecture](https://loganfuller.github.io/decent-sync/technical/architecture/):
   what syncs where, the protocol in outline, and the design decisions.
 - [Internals](https://loganfuller.github.io/decent-sync/technical/internals/):
-  the full behaviour spec for each area, and every ADR.
+  the behaviour specs, and every ADR.
 - [Assistant tool reference](https://loganfuller.github.io/decent-sync/reference/assistant-tools/):
   each MCP tool an assistant can call.
 - [For a Skin's author](https://loganfuller.github.io/decent-sync/technical/skin-authors/):

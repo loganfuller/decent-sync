@@ -29,10 +29,13 @@ plugin catches up when it is back.
 | Grinders, Recipes and Recipe Slots | The Machines at one Location. |
 | What a Machine is using: its profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings | Nothing. Each Machine has its own, which loading a Recipe sets, steam turned on or off as the Recipe holds it. Turning steam off at the Machine never changes the Recipe. |
 
-What a tablet records goes one way, to the server: its Shots and Steam
+A tablet reports to the server what it records: its Shots and Steam
 Records, its Workflow changes and Machine States, and its settings, paired
 devices, plugins and Skins. The server stores each as Decaid sent it, and
-checks only the message that carries it.
+checks only the message that carries it. None of these is shared with other
+tablets. The server writes back to the tablet only where someone asks it to:
+a Recipe loaded into its Workflow, a Settings Edit, a Software Action, or a
+Shot's rating and note ([The protocol in outline](#the-protocol-in-outline)).
 
 A few rules shape the rest:
 
@@ -66,17 +69,22 @@ Everything else uses the REST API, under `/api`. The management interface is
 its main caller: a single-page app the server serves, which signs a person in
 with a session cookie. Apart from a few open ones, such as signing in and
 first-run setup, each route is for Admins alone unless it is marked as open
-to Staff or to Viewers, and Staff change only what is at the Locations
-they work at ([Accounts and roles](../../guide/accounts-and-roles/)).
+to Staff or to Viewers. Staff edit the Library's shared content anywhere,
+and change the rest only at the Locations they work at
+([Accounts and roles](../../guide/accounts-and-roles/)).
 
 One route streams. A Machine's Live View is a Server-Sent Events stream
 (`GET /api/machines/:id/live`): while someone is watching, the server asks
 that Machine's plugin for live frames and passes them on, and stops asking
-when the last viewer leaves.
+30 seconds after the last viewer leaves, so a page reloaded within that time
+carries on.
 
-The routes are documented in the behaviour spec of each area, which
-[Internals](../../technical/internals/) links. There is no separate REST
-reference.
+The routes of Shots, Steam Records, Workflows and Machine States, what a
+tablet reports of itself and the Library are documented in the behaviour
+spec of each, which [Internals](../../technical/internals/) links. Those of
+accounts, invites, first-run setup, adopting Machines and Connected Apps have
+no spec of their own: they are in the server's controllers, under
+`server/src/`. There is no separate REST reference.
 
 ### The MCP endpoint
 

@@ -42,7 +42,7 @@ Keeping the documentation true is part of every change, as its tests are: it is 
 
 For the site and the README:
 
-- A change that alters what people read or do updates the Guide or Reference page for its area in the same change: `guide/` for what a person does in the management interface, `get-started/` and `self-hosting/` for setting up and running the server, `reference/` for the tablet plugin, `technical/` for what a developer or a Skin's author builds on, and `project/roadmap.md` when something planned is built or the plan changes. Task references, below, names each page.
+- A change that alters what people read or do updates the Guide or Reference page for its area in the same change: `guide/` for what a person does in the management interface, `get-started/` and `self-hosting/` for setting up and running the server, `reference/` for the tablet plugin, `technical/` for what a developer or a Skin's author builds on, and `project/roadmap.md` when the plan changes (what a release finishes leaves it at the release, `docs/DEVELOPMENT.md`, Releasing). Task references, below, names each page.
 - Document what the page's reader would notice or need: a control added, renamed or removed, a limit, margin or default that changed, who may do something, a step that changed, a new setting, requirement or supported version. What an upgrade asks of the person running the server goes in `UPGRADING.md`, and a new term in `GLOSSARY.md`.
 - Leave out what that reader would not notice: a refactor, a rename inside the code, a test, a fix that makes Decent Sync do what its page already says, and how something is implemented, which belongs in the topic docs. Not every change needs a line. Where nothing a reader of the site would notice has changed, change no page.
 - Write for the person doing the task, in the glossary's terms, and name a control as the management interface writes it. Change or delete the sentence a change makes untrue rather than adding one beside it, so a page says a thing once.
@@ -53,7 +53,7 @@ For the site and the README:
 
 ## Keeping notes
 
-- Update `docs/AI_REPO_MAP.md` only when a change adds, moves or removes a file or folder, or changes what one is for: one short line per entry, saying what lives there. Its Task routing changes when an ADR or topic doc is added. An added ADR also gets its line on the site's Architecture page, and an added topic doc, note or agent convention its row on the Internals page (`site/src/content/docs/technical/`); the site's tests fail until they do.
+- Update `docs/AI_REPO_MAP.md` only when a change adds, moves or removes a file or folder, or changes what one is for: one short line per entry, saying what lives there. Its Task routing changes when an ADR or topic doc is added. An added ADR also gets its line on the site's Architecture page, and an ADR amended or superseded has its line there changed where the line no longer holds, and an added topic doc, note or agent convention its row on the Internals page (`site/src/content/docs/technical/`); the site's tests fail until they do.
 - In the `docs/AI_*_NOTES.md` notes, write one fact per line under a heading naming its topic, and update or delete the line a change makes stale. Behaviour belongs in the topic docs, history in the ticket and git.
 
 ## External sources
