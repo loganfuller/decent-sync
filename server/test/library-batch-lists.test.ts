@@ -223,11 +223,33 @@ describe("A Bean Batch's Recipes and a Location's Bean Batches", { timeout: 120_
     expect(await rowAt(cafe, id)).toBeUndefined();
   });
 
+  it("marks a batch's Recipes as finished there once it or its Bean is Archived, as each Recipe's own read does", async () => {
+    const own = await beanNamed("Listed, then retired");
+    const id = await batchAt(lab, { remainingWeight: 400 }, {}, own);
+    const atLab = await recipeAt(lab, "Archived under", id);
+    const atCafe = await recipeAt(cafe, "Archived under at the cafe", id);
+    /** Each Recipe's flag on the batch's page, and on its own read. */
+    const flags = async () => {
+      const named = await namingOver(id);
+      const read = await Promise.all([atLab, atCafe].map(async (recipe) => (await api.get<{ recipe: { batchFinished: boolean } }>(`/recipes/${recipe}`)).recipe.batchFinished));
+      return { named: [atLab, atCafe].map((recipe) => named.find((each) => each.id === recipe)!.batchFinished), read };
+    };
+    expect(await flags()).toEqual({ named: [false, false], read: [false, false] });
+    await api.send("PUT", `/bean-batches/${id}/archived`, { archived: true });
+    expect(await flags()).toEqual({ named: [true, true], read: [true, true] });
+    await api.send("PUT", `/bean-batches/${id}/archived`, { archived: false });
+    expect(await flags()).toEqual({ named: [false, false], read: [false, false] });
+    await api.send("PUT", `/beans/${own}/archived`, { archived: true });
+    expect(await flags()).toEqual({ named: [true, true], read: [true, true] });
+  });
+
   it("lists a Location's batches with each one's Bean, roast date, Batch Code, weight there, what its count starts from, the Shots and moves since, and the Recipes there that name it, as list_location_batches does", async () => {
     const id = await batchAt(lab, { remainingWeight: 1000 }, { roastDate: "2026-11-18", batchCode: "LR-70701" });
     const slotted = await recipeAt(lab, "Here in a slot", id, 7);
     const unslotted = await recipeAt(lab, "Here in no slot", id);
     await recipeAt(cafe, "At the cafe, not here", id);
+    const archived = await recipeAt(lab, "Here and Archived", id, 8);
+    await api.send("PUT", `/recipes/${archived}/archived`, { archived: true });
     await pull(lab, id, 18);
     await pull(lab, id, 20);
     await move(id, lab, cafe, 100);
@@ -242,7 +264,7 @@ describe("A Bean Batch's Recipes and a Location's Bean Batches", { timeout: 120_
       entered: { weight: 1000, arrivedFrom: null },
       used: { shots: 2, weight: 38 },
       moved: { in: 0, from: [], away: 100, to: [{ location: { id: cafe.location.id }, weight: 100 }] },
-      // Those at this Location only, the one in a slot first.
+      // Those at this Location only, not Archived, the one in a slot first.
       recipes: [
         { id: slotted, name: "Here in a slot", slot: 7 },
         { id: unslotted, name: "Here in no slot", slot: null },
@@ -339,9 +361,14 @@ describe("A Bean Batch's Recipes and a Location's Bean Batches", { timeout: 120_
       opened.push(theirs);
       return { api: AdminApi.signedInAs(server.url, cookie), assistant: theirs };
     };
+    const startedBy = (batch: BatchHere | undefined) => (batch?.entered?.by as { account: { name: string | null } | null } | undefined)?.account;
+    // An Admin reads who started the count; Staff and Viewers read that it was an account, not whose.
+    expect(startedBy((await batchesAt(cafe)).find((batch) => batch.id === id))).toMatchObject({ name: admin.name });
     // Staff work at the lab only; the cafe's list is theirs to read all the same.
     for (const reader of [await signedUp("sam-707@example.com", "staff", [lab.location]), await signedUp("vic-707@example.com", "viewer", [])]) {
       expect((await batchesAt(cafe, reader.api)).find((batch) => batch.id === id)).toMatchObject({ remainingWeight: 300, recipes: [{ id: recipe }] });
+      expect(startedBy((await batchesAt(cafe, reader.api)).find((batch) => batch.id === id))).toMatchObject({ name: null });
+      expect(startedBy((await listed(cafe, reader.assistant)).find((batch) => batch.id === id))).toMatchObject({ name: null });
       expect((await batchesAt(lab, reader.api)).length).toBeGreaterThan(0);
       expect((await namingOver(id, reader.api)).map((named) => named.id)).toEqual([recipe]);
       expect((await listed(cafe, reader.assistant)).find((batch) => batch.id === id)).toMatchObject({ remainingWeight: 300, recipes: [{ id: recipe }] });
