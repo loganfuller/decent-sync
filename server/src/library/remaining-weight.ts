@@ -78,9 +78,8 @@ export async function usedSince(db: Pick<Prisma.TransactionClient, "$queryRaw">,
  * it found there (`from_count_version_id`, `to_count_version_id`) is still
  * that Location's: a weight entered since, through this release or the
  * previous one, is a new version and so a new count, which no earlier move
- * bears on. This compares no clocks, so a tablet's entry timed by a clock
- * that is behind never takes a move made before it for one made since. The
- * move a count started with is what the count starts from, not a move
+ * bears on, except that an entry timed before moves it is received after
+ * takes them on (`enterRemainingWeight`). The move a count started with is what the count starts from, not a move
  * since. A move of a batch with no weight moved none, and is in none.
  */
 export async function movedSince(db: Pick<Prisma.TransactionClient, "$queryRaw">, counts: readonly Count[]): Promise<Map<string, Moved>> {

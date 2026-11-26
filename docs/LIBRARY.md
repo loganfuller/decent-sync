@@ -261,14 +261,15 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   batch that was pulled there after that time, plus what Batch Moves have
   brought since and less what they have taken away (ADR-0037, Remaining
   Weight, below).
-- `batch_moves`: each Batch Move (#704, ADR-0037), never changed once
-  written: its batch, the Location it left and the one it joined, each null
+- `batch_moves`: each Batch Move (#704, ADR-0037): its batch, the Location it left and the one it joined, each null
   once deleted, the weight moved, null for a batch with no weight where it
   was, whether it was all of it, its time, its version in the batch's
   history, and the count it was taken from and the one it was added to, by
   the version that started each (`from_count_version_id`,
   `to_count_version_id`). A move counts at a Location while the count it
-  found there is still that Location's.
+  found there is still that Location's. A weight entered that is timed
+  before moves of an amount there and replaces their count, as one entered
+  on a tablet while it was offline does, takes them on as its own.
 - A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
   edit wins (ADR-0020), with when that was last decided by PostgreSQL's clock.

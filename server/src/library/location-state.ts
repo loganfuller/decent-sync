@@ -263,6 +263,20 @@ export async function enterRemainingWeight(
         )[0].id;
   await tx.$executeRaw`
     UPDATE batch_locations SET remaining_weight_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
+  if (known) {
+    // A move of an amount leaves the stored weight as it was, so a tablet's entry timed before the move and received after
+    // it still replaces the count. The moves made since it was timed came after the weighing it records: they go on
+    // counting, against the count it starts, as the Shots pulled since it do. The move a count arrived with is what that
+    // count started from, which an entry made with it held already.
+    await tx.$executeRaw`
+      UPDATE batch_moves SET from_count_version_id = ${versionId}::uuid
+      WHERE batch_id = ${batchId}::uuid AND from_location_id = ${locationId}::uuid AND amount IS NOT NULL AND moved_at > ${at}::timestamptz
+        AND from_count_version_id IS NOT DISTINCT FROM ${known.versionId}::uuid`;
+    await tx.$executeRaw`
+      UPDATE batch_moves SET to_count_version_id = ${versionId}::uuid
+      WHERE batch_id = ${batchId}::uuid AND to_location_id = ${locationId}::uuid AND amount IS NOT NULL AND moved_at > ${at}::timestamptz
+        AND to_count_version_id IS NOT DISTINCT FROM ${known.versionId}::uuid AND version_id IS DISTINCT FROM ${known.versionId}::uuid`;
+  }
   // A value the tablet had not had, entered by another tablet before this one, is replaced without either seeing the other.
   if (known && !sameValue(known.value, weight.had) && !sameValue(known.value, weight.value) && known.tabletId !== source.tabletId) {
     await recordReplaced(tx, item, locationId, "remainingWeight", known.value, known.versionId, versionId);

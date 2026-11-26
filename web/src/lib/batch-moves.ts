@@ -75,7 +75,9 @@ export function movePlan(
 
   const arrives = (amount: number) => {
     const now = there?.remainingWeight ?? null;
-    return now === null || now === 0 ? `${to.name} will have ${grams(amount)}.` : `${to.name} will have ${grams(now + amount)}: the ${grams(now)} there now and these ${grams(amount)}.`;
+    if (now === null || now === 0) return `${to.name} will have ${grams(amount)}.`;
+    // All of a Location that reads 0 g moves 0 g, which changes nothing where it arrives.
+    return amount === 0 ? `${to.name} will have ${grams(now)}, as now.` : `${to.name} will have ${grams(now + amount)}: the ${grams(now)} there now and these ${grams(amount)}.`;
   };
   if (how === "all") return { amount: "all", lines: [arrives(has), ...leaves], submit: `Move all to ${to.name}` };
   const amount = entered.trim() === "" ? Number.NaN : Math.round(Number(entered) * 10) / 10;

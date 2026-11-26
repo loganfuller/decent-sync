@@ -102,11 +102,11 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
   let shots = 0;
 
   /** A Location with one Machine, whose tablet is online through the instance given. */
-  async function placeNamed(name: string, instance: TestServer = server): Promise<Place> {
+  async function placeNamed(name: string, instance: TestServer = server, decaidClockOffsetMs = 0): Promise<Place> {
     const location = await api.createLocation(name, "America/Chicago");
     const machine = await api.createMachine(`${name} bar`, location.id);
     const serial = String(++serials);
-    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
+    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(serial), decaidClockOffsetMs });
     await api.waitForOnline(machine);
     return { location, machine, tablet, serial };
   }
@@ -489,6 +489,45 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
     expect(await getBatch(id)).toMatchObject({ totalRemainingWeight: 500, finished: [{ location: { id: lab.location.id }, remainingWeight: 0 }] });
     await expect.poll(() => held(cafe.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(500);
     await expect.poll(() => held(lab.tablet, id)?.archived, { timeout: 15_000 }).toBe(true);
+  });
+
+  it("keeps a move of an amount made after a weight a barista entered offline, received after it, at both Locations: the weight is the one entered with the move since", async () => {
+    // Two Locations whose tablets' clocks are half a minute behind, so each entry is timed before the move made after it.
+    const left = await placeNamed("Move slow lab", server, -30_000);
+    const joined = await placeNamed("Move slow cafe", other, -30_000);
+
+    // At the Location left: 800 g weighed at the lab, then 300 g moved to the cafe, then the entry arrives.
+    const id = await batchAt(left, { remainingWeight: 1000 });
+    left.tablet.loseNetwork();
+    try {
+      await left.tablet.editBatch(held(left.tablet, id)!.id, { weightRemaining: 800 });
+      expect(await move(id, left, joined, 300)).toMatchObject({ totalRemainingWeight: 1000 });
+    } finally {
+      left.tablet.restoreNetwork();
+    }
+    await expect.poll(async () => at(await getBatch(id), left)?.entered?.weight, { timeout: 15_000 }).toBe(800);
+    const fromLeft = await getBatch(id);
+    expect(at(fromLeft, left)).toMatchObject({ remainingWeight: 500, moved: { in: 0, away: 300, to: [{ location: { id: joined.location.id }, weight: 300 }] } });
+    expect(at(fromLeft, joined)).toMatchObject({ remainingWeight: 300 });
+    expect(fromLeft.totalRemainingWeight).toBe(800);
+
+    // At the Location joined: its count started with 200 g that arrived, 150 g is weighed there, then 300 g more arrives.
+    const arriving = await batchAt(left, { remainingWeight: 1000 });
+    await move(arriving, left, joined, 200);
+    await expect.poll(() => held(joined.tablet, arriving)?.weightRemaining, { timeout: 15_000 }).toBe(200);
+    joined.tablet.loseNetwork();
+    try {
+      // Timed before the 200 g arrived too, by the tablet's clock, which its count started from and is not taken on again.
+      await joined.tablet.editBatch(held(joined.tablet, arriving)!.id, { weightRemaining: 150 });
+      expect(await move(arriving, left, joined, 300)).toMatchObject({ totalRemainingWeight: 1000 });
+    } finally {
+      joined.tablet.restoreNetwork();
+    }
+    await expect.poll(async () => at(await getBatch(arriving), joined)?.entered?.weight, { timeout: 15_000 }).toBe(150);
+    const toJoined = await getBatch(arriving);
+    expect(at(toJoined, joined)).toMatchObject({ remainingWeight: 450, entered: { arrivedFrom: null }, moved: { in: 300, away: 0 } });
+    expect(at(toJoined, left)).toMatchObject({ remainingWeight: 500 });
+    expect(toJoined.totalRemainingWeight).toBe(950);
   });
 
   it("starts the joined Location's count from the amount arriving where Shots had used more than it held, so the move keeps the total", async () => {

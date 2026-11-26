@@ -66,6 +66,9 @@ describe("a Batch Move in words", () => {
     expect(recipes(3, 2)).toEqual(['3 Recipes at Downtown name it and will go on naming it. The 2 in Recipe Slots will read "Batch finished here".']);
     // Not read yet, the dialog says nothing of them.
     expect(movePlan(at(downtown, 100), belmont, undefined, "all", "").lines).toEqual(["Belmont will have 100 g.", "Downtown stops listing the batch, and its tablets stop offering it."]);
+    // All of a Location that reads 0 g moves none, and the Location joined keeps what it has.
+    expect(movePlan(at(downtown, 0), riverside, at(riverside, 300), "all", "").lines[0]).toBe("Riverside will have 300 g, as now.");
+    expect(movePlan(at(downtown, 0), belmont, undefined, "all", "").lines[0]).toBe("Belmont will have 0 g.");
   });
 
   it("moves a batch with no weight as all of it or some of it, with no amount, and not as some to a Location it is at", () => {
