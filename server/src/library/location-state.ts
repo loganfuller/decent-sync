@@ -215,16 +215,23 @@ async function leaveOthers(tx: Prisma.TransactionClient, batchId: string, locati
 
 /**
  * The Location the batch was at last: the one it is at, the one it was added
- * at last if it is at several, or else the one it was finished at last, by
- * when the server decided it (`presence_decided_at`), as a finish is timed by
- * its edit, whose tablet's clock may run ahead; null for a batch that has
- * been nowhere.
+ * at last if it is at several, or else the one it arrived at last, by the
+ * order the server took in the versions that added it (`seq`). Neither when
+ * a finish was timed, which a tablet's clock may run ahead, nor when it was
+ * decided, which a later finish of a batch already finished there moves on,
+ * tells where it was last. A Location whose add has no version, from before
+ * versions were kept, goes by when its presence was decided. Null for a
+ * batch that has been nowhere.
  */
 async function lastAt(tx: Prisma.TransactionClient, batchId: string): Promise<string | null> {
   const [last] = await tx.$queryRaw<{ id: string }[]>`
-    SELECT location_id::text AS id FROM batch_locations WHERE batch_id = ${batchId}::uuid AND added_at IS NOT NULL
-    ORDER BY (finished_at IS NULL) DESC, CASE WHEN finished_at IS NULL THEN added_at END DESC,
-      presence_decided_at DESC NULLS LAST, COALESCE(finished_at, added_at) DESC, location_id
+    SELECT here.location_id::text AS id FROM batch_locations AS here
+    WHERE here.batch_id = ${batchId}::uuid AND here.added_at IS NOT NULL
+    ORDER BY (here.finished_at IS NULL) DESC, CASE WHEN here.finished_at IS NULL THEN here.added_at END DESC,
+      (SELECT max(version.seq) FROM item_versions AS version
+       WHERE version.kind = 'beanBatch' AND version.item_id = here.batch_id::text AND version.location_id = here.location_id
+         AND version.fields @> '{"atLocation": true}') DESC NULLS LAST,
+      here.presence_decided_at DESC NULLS LAST, here.location_id
     LIMIT 1`;
   return last?.id ?? null;
 }

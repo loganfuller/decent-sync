@@ -166,7 +166,8 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
     for (const tablet of cafe.tablets) await expect.poll(() => held(tablet, created.id)?.archived).toBe(true);
 
     // Finished there and then added at the cafe, it is no move, and takes the weight it had where it was last: the lab,
-    // finished there last, even where the cafe's finish is timed later, as by a tablet whose clock runs ahead.
+    // where it arrived last, even where the cafe's finish is timed later, as by a tablet whose clock runs ahead, and is
+    // finished again after the lab's, as by a tablet's archive delivered late.
     const database = await server.connectDatabase();
     try {
       await database.query(`UPDATE batch_locations SET finished_at = now() + interval '1 hour' WHERE batch_id = $1 AND location_id = $2`, [created.id, cafe.location.id]);
@@ -174,6 +175,7 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
       await database.end();
     }
     expect((await place(created.id, lab.location, { atLocation: false })).status).toBe(200);
+    expect((await place(created.id, cafe.location, { atLocation: false })).status).toBe(200);
     expect(await at(created.id)).toEqual([]);
     expect((await place(created.id, cafe.location, { atLocation: true })).status).toBe(200);
     expect(await batch(created.id)).toMatchObject({ locations: [{ location: { id: cafe.location.id }, remainingWeight: 640 }], movedFrom: [] });
@@ -321,6 +323,46 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
       expect(now.locations, `round ${round}`).toHaveLength(1);
       expect([first.id, second.id]).toContain(now.locations[0]!.location.id);
     }
+  });
+
+  it("moves a batch again where it finds it reached a Location after its locks were taken, whose lock is held, once that Location is free", async () => {
+    const [from, to, reached] = [await api.createLocation("Busy from", "America/Chicago"), await api.createLocation("Busy to", "America/Chicago"), await api.createLocation("Busy reached", "America/Chicago")];
+    const created = await batchAt("Busy Guji", from, 520);
+    const before = await history(created.id);
+    const [holder, reachedHolder, watcher] = [await server.connectDatabase(), await server.connectDatabase(), await server.connectDatabase()];
+    /** Whether a change waits for an advisory lock in the namespace, in this test's database. */
+    const waitingOn = async (namespace: number) =>
+      (
+        await watcher.query<{ waiting: number }>(
+          `SELECT count(*)::integer AS waiting FROM pg_locks
+           WHERE locktype = 'advisory' AND NOT granted AND classid = $1 AND objsubid = 2 AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+          [namespace],
+        )
+      ).rows[0]!.waiting > 0;
+    try {
+      // The batch's lock held, the move waits for it with the Locations' it read taken; the reached Location's held too.
+      await holder.query(`SELECT pg_advisory_lock(4000012, hashtext(lower($1::text)))`, [created.id]);
+      await reachedHolder.query(`SELECT pg_advisory_lock(4000007, hashtext($1::text))`, [reached.id]);
+      const moving = place(created.id, to, { atLocation: true });
+      await expect.poll(() => waitingOn(4_000_012)).toBe(true);
+      // Meanwhile it is added at another Location, as the previous release adds one, taking no batch's lock.
+      await holder.query(`INSERT INTO batch_locations (batch_id, location_id, added_at, presence_decided_at) VALUES ($1, $2, now(), clock_timestamp())`, [created.id, reached.id]);
+      await holder.query(`SELECT pg_advisory_unlock(4000012, hashtext(lower($1::text)))`, [created.id]);
+      // The move finds it there, busy, and is made again, which waits for that Location's lock in order.
+      await expect.poll(() => waitingOn(4_000_007)).toBe(true);
+      await reachedHolder.query(`SELECT pg_advisory_unlock(4000007, hashtext($1::text))`, [reached.id]);
+      expect((await moving).status).toBe(200);
+    } finally {
+      for (const client of [holder, reachedHolder, watcher]) await client.end();
+    }
+    const after = await batch(created.id);
+    // From two, it comes with the weight of the one it was added at last, where none was entered.
+    expect(after.locations).toMatchObject([{ location: { id: to.id }, remainingWeight: null }]);
+    expect(after.finished.map((here) => here.location.name).sort()).toEqual(["Busy from", "Busy reached"]);
+    // One entry, of the move made again; the first try left nothing.
+    const moved = await history(created.id);
+    expect(moved.versions).toHaveLength(before.versions.length + 1);
+    expect(moved.versions[0]).toMatchObject({ location: { id: to.id }, movedFrom: [{ id: reached.id }, { id: from.id }] });
   });
 
   it("settles a batch found at several Locations at the one it was added at last, as an instance starts, without a request failing meanwhile", async () => {
