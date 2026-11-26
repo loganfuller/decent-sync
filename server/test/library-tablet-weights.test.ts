@@ -63,10 +63,10 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
   let serials = 70500;
   let shots = 0;
 
-  async function machineAt(location: LocationView, name: string, instance: TestServer): Promise<Bar> {
+  async function machineAt(location: LocationView, name: string, instance: TestServer, decaidClockOffsetMs?: number): Promise<Bar> {
     const machine = await api.createMachine(name, location.id);
     const serial = String(++serials);
-    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
+    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(serial), ...(decaidClockOffsetMs === undefined ? {} : { decaidClockOffsetMs }) });
     await api.waitForOnline(machine);
     return { location, machine, tablet, serial };
   }
@@ -182,6 +182,39 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
     pull(one, id, 20, minutes(2));
     await holds(id, 330, one, two);
     expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 330, entered: { weight: 350 }, used: { shots: 1, weight: 20 } });
+  });
+
+  it("takes a barista's change made on a record written from the Location's current count though the tablet's clock times it before that count started", async () => {
+    // Its Decaid's clock is ten minutes behind, so its change is timed before the count below started, and is not the weight that count started from.
+    const slow = await machineAt(one.location, "Held bar slow", server, -10 * 60_000);
+    const id = await batchAtBar(400);
+    await holds(id, 400, slow);
+    pull(one, id, 18);
+    await holds(id, 382, one, two, slow);
+
+    await slow.tablet.editBatch(held(slow.tablet, id)!.id, { weightRemaining: 350 });
+    await expect.poll(async () => at(await getBatch(id), one)?.entered?.weight, WAIT).toBe(350);
+    const { versions, lostEdits } = await history(id);
+    expect(versions[0]).toMatchObject({ fields: { remainingWeight: 350 }, source: { machine: { id: slow.machine.machine.id } } });
+    expect(lostEdits).toEqual([]);
+  });
+
+  it("takes a barista's change to the weight a write carried as a weight entered where the write found it changed and set none", async () => {
+    const id = await batchAtBar(30);
+    pull(one, id, 18);
+    await holds(id, 12, one, two);
+    const local = held(two.tablet, id)!.id;
+
+    // The write of zero to the second tablet reads its record only once the barista has typed zero there, so it sets no weight.
+    const read = two.tablet.holdRequests("GET", `/bean-batches/${String(local)}`);
+    pull(one, id, 18, minutes(2));
+    await holds(id, 0, one);
+    await expect.poll(() => read.arrived, WAIT).toBeGreaterThan(0);
+    await two.tablet.editBatch(local, { weightRemaining: 0 });
+    read.release();
+
+    await expect.poll(async () => (await getBatch(id)).finished.map((here) => here.location.id), WAIT).toEqual([one.location.id]);
+    expect((await history(id)).versions[0]).toMatchObject({ fields: { remainingWeight: 0, atLocation: false }, source: { machine: { id: two.machine.machine.id } } });
   });
 
   it("writes a tablet that was offline while Shots were pulled on another Machine at its Location the current weight when it returns", async () => {

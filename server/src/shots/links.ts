@@ -1,6 +1,7 @@
 import { DYE2_RECIPE_FIELD, type LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { KINDS } from "../library/kinds.js";
+import { notify } from "../notifications.js";
 
 // Shots linked to the Library (tickets #92 and #147). A Shot names its Bean
 // Batch, Grinder and Basket by their ids on the tablet that reported it,
@@ -165,11 +166,13 @@ export async function linkShots(tx: Prisma.TransactionClient, kind: LibraryKind,
  * before Shots kept the tablet reporting them, that tablet, and links them
  * through its map: a tablet listing a Shot holds it, so its ids are that
  * tablet's. Holds the tablet's row for share, as storing a Shot's metadata
- * does, so a map gaining an id meanwhile links them either way.
+ * does, so a map gaining an id meanwhile links them either way. A Shot so
+ * linked to a batch counts against its weight where it was pulled, which
+ * that Location's tablets are then written (ADR-0037).
  */
 export async function claimListed(tx: Prisma.TransactionClient, tabletId: string, shotIds: readonly string[]): Promise<void> {
   await tx.$queryRaw`SELECT 1 FROM tablets WHERE id = ${tabletId}::uuid FOR SHARE`;
-  await tx.$executeRaw`
+  const claimed = await tx.$queryRaw<{ batchId: string | null }[]>`
     UPDATE shots AS s SET tablet_id = ${tabletId}::uuid,
       library_batch_id = (SELECT batch_id FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = s.bean_batch_id),
       library_grinder_id = (SELECT grinder_id FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = s.grinder_id),
@@ -178,7 +181,9 @@ export async function claimListed(tx: Prisma.TransactionClient, tabletId: string
         SELECT coalesce((SELECT tool_id::text FROM tablet_tools WHERE tablet_id = ${tabletId}::uuid AND local_id = listed.local), '')
         FROM unnest(s.tool_ids) WITH ORDINALITY AS listed(local, position) ORDER BY listed.position
       )
-    WHERE s.id = ANY(${shotIds}::text[]) AND s.tablet_id IS NULL`;
+    WHERE s.id = ANY(${shotIds}::text[]) AND s.tablet_id IS NULL
+    RETURNING s.library_batch_id::text AS "batchId"`;
+  if (claimed.some((shot) => shot.batchId !== null)) await notify(tx, "library_changes", tabletId);
 }
 
 /** Whether a Shot is linked to any of the items, under the locks of the tablets whose maps hold them. */

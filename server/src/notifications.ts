@@ -16,7 +16,9 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   what its tablets must be written, has changed; or a Library item's id:
  *   its content changed in the management interface, which every
  *   Location's tablets may hold; or a Machine's id: its Shots were credited
- *   to other Locations, whose tablets hold the weights they count against;
+ *   to other Locations, or handed over to it from a Pending Machine, so
+ *   count against the weights those Locations' tablets hold; or a tablet's
+ *   id: Shots its index listed were linked to the batches they name;
  * - `machine_locations`, a Machine's id: the Location it is at now has
  *   changed, or its sharing was turned off or on, so its tablet's Library is
  *   to be taken in afresh, or no longer; or its hardware was entered, so its

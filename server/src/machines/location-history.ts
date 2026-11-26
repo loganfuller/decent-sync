@@ -112,6 +112,8 @@ export async function handOverRecords(tx: Prisma.TransactionClient, hardware: Ha
       UPDATE ${records} SET machine_id = ${machineId}::uuid, pending_machine_id = NULL, location_id = ${location}
       WHERE pending_machine_id = (SELECT id FROM pending_machines WHERE model = ${hardware.model} AND serial = ${hardware.serial})`;
   }
+  // Its Shots so credited count against their batches' weights there, which those Locations' tablets hold (ADR-0037).
+  await notify(tx, "library_changes", machineId);
 }
 
 /** Credits one Shot by its Machine's Location History. The Machine's row lock must be held. */

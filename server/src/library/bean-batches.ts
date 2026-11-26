@@ -328,8 +328,11 @@ export async function noteWeightWritten(prisma: PrismaService, tabletId: string,
  * as for an answer to a write no longer awaited. A field of its content the
  * write did not set that differs from the record known was edited on the
  * tablet since, and is merged as a report's edit would be (ADR-0020). A
- * weight the write set was worked out from the count `weightCount`, which
- * the record has then seen; undefined for a write no longer awaited.
+ * weight the write carried was worked out from the count `weightCount`,
+ * which the record has then seen; undefined for a write that carried none,
+ * or one no longer awaited. A write that carried a weight and set none, as
+ * the tablet's barista changed it first, holds no weight of the server's: a
+ * change of it to the weight the write carried is the barista's entry.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
@@ -358,7 +361,10 @@ export async function recordBatchWritten(
         written_weights AS written, weight_count_version_id::text AS "weightCount",
         CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
       FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${batchId}::uuid`;
-    const known = row ? { ...row, writtenWeights: readWrittenWeights(row.written) } : undefined;
+    // The weight this write carried was kept last as it was sent (`noteWeightWritten`); an answer setting none shows it never landed.
+    const unwritten = weightCount !== undefined && !written.has("weightRemaining");
+    const pending = row ? readWrittenWeights(row.written) : [];
+    const known = row ? { ...row, writtenWeights: unwritten ? pending.slice(0, -1) : pending } : undefined;
     const at = updatedAt === null ? null : new Date(updatedAt);
     const edits = editsInAnswer(known ?? null, record, written);
     const source = tabletSource(tablet);
@@ -385,7 +391,8 @@ export async function recordBatchWritten(
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
     const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchRecordValues(record), edited, contentSeen));
     await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null), holds ? contentSeen : null);
-    await saveWeightHeld(tx, tablet.tabletId, batchId, weightHeld(known, weightOf(record), entered, written.has("weightRemaining") ? { count: weightCount } : undefined));
+    const held = weightHeld(known, weightOf(record), entered, written.has("weightRemaining") ? { count: weightCount } : undefined);
+    await saveWeightHeld(tx, tablet.tabletId, batchId, held ?? (known && unwritten ? { count: known.weightCount, written: known.writtenWeights } : null));
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
