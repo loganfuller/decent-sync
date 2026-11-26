@@ -7,6 +7,7 @@ import type { PrismaService } from "../src/prisma.service.js";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, adminDatabaseUrl, startTestServer } from "./support/test-server.js";
@@ -537,45 +538,63 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
     expect((await viewer.call("POST", `/bean-batches/${id}/moves`, moveBody(lab, cafe, 10))).status).toBe(403);
   });
 
-  it("makes two moves of one batch from one Location at once one after the other, through two instances: its weight is never below zero and the total is what one of the two orders gives", async () => {
-    for (let round = 0; round < 4; round++) {
-      const id = await batchAt(lab, { remainingWeight: 1000 });
-      // 700 g to the cafe and 600 g to the annex cannot both be had: whichever is second is refused.
-      const [toCafe, toAnnex] = await Promise.all([
-        api.call("POST", `/bean-batches/${id}/moves`, moveBody(lab, cafe, 700)),
-        otherApi.call("POST", `/bean-batches/${id}/moves`, moveBody(lab, annex, 600)),
-      ]);
-      expect([toCafe.status, toAnnex.status].sort(), `round ${round}`).toEqual([200, 409]);
-      const batch = await getBatch(id);
-      expect(batch.totalRemainingWeight).toBe(1000);
-      expect(at(batch, lab)!.remainingWeight).toBe(toCafe.status === 200 ? 300 : 400);
-      expect(at(batch, toCafe.status === 200 ? cafe : annex)!.remainingWeight).toBe(toCafe.status === 200 ? 700 : 600);
-      expect(batch.locations).toHaveLength(2);
-
-      // All and an amount at once: either the amount went first and all took the rest, or all went first and the amount is refused.
-      const both = await batchAt(lab, { remainingWeight: 1000 });
-      const [all, part] = await Promise.all([
-        api.call("POST", `/bean-batches/${both}/moves`, moveBody(lab, cafe, "all")),
-        otherApi.call("POST", `/bean-batches/${both}/moves`, moveBody(lab, annex, 250)),
-      ]);
-      expect(all.status).toBe(200);
-      const after = await getBatch(both);
-      expect(after.totalRemainingWeight).toBe(1000);
-      expect(at(after, lab)).toBeUndefined();
-      expect(at(after, cafe)!.remainingWeight).toBe(part.status === 200 ? 750 : 1000);
-      expect(at(after, annex)?.remainingWeight).toBe(part.status === 200 ? 250 : undefined);
-      expect([200, 409]).toContain(part.status);
-
-      // Two moves in opposite directions at once take both Locations' locks in one order, and both are made.
-      const crossed = await batchAt(lab, { remainingWeight: 1000 });
-      await move(crossed, lab, cafe, 500);
-      const pair = await Promise.all([
-        api.call("POST", `/bean-batches/${crossed}/moves`, moveBody(lab, cafe, 100)),
-        otherApi.call("POST", `/bean-batches/${crossed}/moves`, moveBody(cafe, lab, 40)),
-      ]);
-      expect(pair.map((response) => response.status)).toEqual([200, 200]);
-      expect(await getBatch(crossed)).toMatchObject({ totalRemainingWeight: 1000, locations: [{ remainingWeight: 560 }, { remainingWeight: 440 }] });
+  /**
+   * Makes the requests while the test holds the Location's lock (`lockLocation`), letting go once each waits for it, so
+   * they are made at once and the server's locks alone put them in an order.
+   */
+  async function atOnce(locationId: string, requests: () => Promise<Response>[]): Promise<Response[]> {
+    const database = await server.connectDatabase();
+    try {
+      await database.query("BEGIN");
+      await database.query("SELECT pg_advisory_xact_lock(4000007, hashtext($1::text))", [locationId]);
+      const made = requests();
+      await waitForLockWaits(server, { count: made.length, advisory: true });
+      await database.query("COMMIT");
+      return await Promise.all(made);
+    } finally {
+      await database.end();
     }
+  }
+
+  it("makes two moves of one batch from one Location at once one after the other, through two instances: its weight is never below zero and the total is what one of the two orders gives", async () => {
+    const id = await batchAt(lab, { remainingWeight: 1000 });
+    // 700 g to the cafe and 600 g to the annex cannot both be had: whichever is second is refused.
+    const [toCafe, toAnnex] = await atOnce(lab.location.id, () => [
+      api.call("POST", `/bean-batches/${id}/moves`, moveBody(lab, cafe, 700)),
+      otherApi.call("POST", `/bean-batches/${id}/moves`, moveBody(lab, annex, 600)),
+    ]);
+    expect([toCafe!.status, toAnnex!.status].sort()).toEqual([200, 409]);
+    const batch = await getBatch(id);
+    expect(batch.totalRemainingWeight).toBe(1000);
+    expect(at(batch, lab)!.remainingWeight).toBe(toCafe!.status === 200 ? 300 : 400);
+    expect(at(batch, toCafe!.status === 200 ? cafe : annex)!.remainingWeight).toBe(toCafe!.status === 200 ? 700 : 600);
+    expect(batch.locations).toHaveLength(2);
+
+    // All and an amount at once: either the amount went first and all took the rest, or all went first and the amount is refused.
+    const both = await batchAt(lab, { remainingWeight: 1000 });
+    const [all, part] = await atOnce(lab.location.id, () => [
+      api.call("POST", `/bean-batches/${both}/moves`, moveBody(lab, cafe, "all")),
+      otherApi.call("POST", `/bean-batches/${both}/moves`, moveBody(lab, annex, 250)),
+    ]);
+    expect(all!.status).toBe(200);
+    expect([200, 409]).toContain(part!.status);
+    const after = await getBatch(both);
+    expect(after.totalRemainingWeight).toBe(1000);
+    expect(at(after, lab)).toBeUndefined();
+    expect(at(after, cafe)!.remainingWeight).toBe(part!.status === 200 ? 750 : 1000);
+    expect(at(after, annex)?.remainingWeight).toBe(part!.status === 200 ? 250 : undefined);
+
+    // Two moves in opposite directions at once, each waiting for the lock of the Location first in id order: had either taken
+    // the other first, the two would deadlock once it is let go. Both are made.
+    const crossed = await batchAt(lab, { remainingWeight: 1000 });
+    await move(crossed, lab, cafe, 500);
+    const [first] = [lab.location.id, cafe.location.id].sort((a, b) => a.localeCompare(b));
+    const pair = await atOnce(first!, () => [
+      api.call("POST", `/bean-batches/${crossed}/moves`, moveBody(lab, cafe, 100)),
+      otherApi.call("POST", `/bean-batches/${crossed}/moves`, moveBody(cafe, lab, 40)),
+    ]);
+    expect(pair.map((response) => response.status)).toEqual([200, 200]);
+    expect(await getBatch(crossed)).toMatchObject({ totalRemainingWeight: 1000, locations: [{ remainingWeight: 560 }, { remainingWeight: 440 }] });
   });
 
   it("adds a batch without moving it, by the placement route and the assistant tool, changing no weight at any other Location", async () => {
