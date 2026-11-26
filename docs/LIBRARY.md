@@ -177,7 +177,11 @@ copied there with it.
 - **What an add that is decided does.** It finishes the batch, at the edit's
   time, at each other Location it is at, whatever decided its presence there,
   and keeps nothing it replaces there as a Lost Edit. An add that loses on
-  time moves nothing, and is a Lost Edit as before.
+  time moves nothing, and is a Lost Edit as before. So does a tablet's add
+  timed before the batch was added at another Location where it is now,
+  which the tablet's record had not seen: it loses to that add, as an
+  offline tablet's un-archive loses to a move made meanwhile. The server's
+  own edits, seeing everything, never lose this way.
 - **The weight.** A batch that was not at the Location takes the remaining
   weight entered at the Location it was at last (`lastAt`): the one it left,
   the one it was added at last if it left several, or, for a batch at no
