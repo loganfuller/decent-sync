@@ -447,6 +447,18 @@ describe("A Bean Batch's Remaining Weight at a Location", { timeout: 120_000 }, 
     expect(held(lab.tablet, id)).toMatchObject({ archived: false, weightRemaining: 0 });
   });
 
+  it("finishes nothing again when a barista sets zero on the record of a batch finished at the Location, keeping the zero as a weight alone", async () => {
+    const id = await batchAt(lab, { remainingWeight: 100 });
+    expect((await put(id, lab, { atLocation: false })).status).toBe(200);
+    await expect.poll(() => held(lab.tablet, id)?.archived, { timeout: 15_000 }).toBe(true);
+    const finishedAt = async () => ((await getBatch(id)).finished as unknown as { finishedAt: string }[]).map((here) => here.finishedAt);
+    const before = { finishedAt: await finishedAt(), versions: (await versions(id)).length };
+    await lab.tablet.editBatch(held(lab.tablet, id)!.id, { weightRemaining: 0 });
+    await expect.poll(async () => (await versions(id))[0]?.fields, { timeout: 15_000 }).toEqual({ remainingWeight: 0 });
+    expect(await versions(id)).toHaveLength(before.versions + 1);
+    expect(await finishedAt()).toEqual(before.finishedAt);
+  });
+
   it("pairs a weight entered with the Shots since that entry, though another weight is entered while the batch is read", async () => {
     const id = await batchAt(lab, { remainingWeight: 1000 });
     // Pulled after that entry and before the next, which is entered once the server has linked it.

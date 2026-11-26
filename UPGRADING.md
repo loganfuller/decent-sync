@@ -56,8 +56,11 @@ what you see changes:
   It does not fall on the tablet as Shots are pulled yet.
 
 While the upgrade runs, a page still open from the previous release may show
-a batch's weight as entered where a new page shows it worked out. Reload the
-page.
+a batch's weight as entered where a new page shows it worked out, and its
+**Set** finishes a batch whose weight field reads 0, as a zero entered now
+does, without saying so first. Reload the page. A zero entered through a
+server still on the previous release is kept as a weight and finishes
+nothing: finish the batch there afterwards if it stays at 0 g.
 
 ## 1.13.1
 

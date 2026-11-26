@@ -205,9 +205,10 @@ function unseen(before: { decidedAt: Date | null; tabletId: string | null }, see
  * does, where `finishing` says the entry may: what its maker had seen of the
  * batch's presence there, as `finishBatchAt` reads it. The two are one
  * version, a finish made by a weight of zero (`{ remainingWeight: 0,
- * atLocation: false }`), unless the finish loses or the batch was never
- * there, when the weight is kept alone. `finished` is when the finish
- * decided the batch's presence, or null.
+ * atLocation: false }`), unless the finish loses or the batch is not there,
+ * finished already or never added, when the weight is kept alone: a zero
+ * typed on a record of a batch finished there finishes nothing again.
+ * `finished` is when the finish decided the batch's presence, or null.
  */
 export async function enterRemainingWeight(
   tx: Prisma.TransactionClient,
@@ -218,9 +219,9 @@ export async function enterRemainingWeight(
   source: EditSource,
   finishing?: { seenAt: Date | null; held?: boolean },
 ): Promise<{ entered: boolean; finished: Date | null }> {
-  const [before] = await tx.$queryRaw<{ value: number | null; enteredAt: Date | null; versionId: string | null; tabletId: string | null }[]>`
+  const [before] = await tx.$queryRaw<{ value: number | null; enteredAt: Date | null; versionId: string | null; tabletId: string | null; there: boolean }[]>`
     SELECT here.remaining_weight AS value, here.remaining_weight_at AS "enteredAt", here.remaining_weight_version_id AS "versionId",
-      version.tablet_id AS "tabletId"
+      version.tablet_id AS "tabletId", here.added_at IS NOT NULL AND here.finished_at IS NULL AS there
     FROM batch_locations AS here LEFT JOIN item_versions AS version ON version.id = here.remaining_weight_version_id
     WHERE here.batch_id = ${batchId}::uuid AND here.location_id = ${locationId}::uuid`;
   const entered = await tx.$executeRaw`
@@ -238,7 +239,7 @@ export async function enterRemainingWeight(
     if (known && !sameValue(known.value, weight.value)) await recordLostEdit(tx, item, locationId, "remainingWeight", weight.value, source, at, known.versionId);
     return { entered: false, finished: null };
   }
-  const finished = weight.value === 0 && finishing ? await finishBatchAt(tx, batchId, locationId, at, finishing.seenAt, source, finishing.held, { remainingWeight: 0 }) : null;
+  const finished = weight.value === 0 && finishing && before?.there ? await finishBatchAt(tx, batchId, locationId, at, finishing.seenAt, source, finishing.held, { remainingWeight: 0 }) : null;
   const versionId =
     finished === null
       ? await recordVersion(tx, item, locationId, { remainingWeight: weight.value }, source, at)
