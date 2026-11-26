@@ -489,8 +489,7 @@ you would when the page comes back into view.
   changing
   ([decentespresso/decaid#1271](https://github.com/decentespresso/decaid/issues/1271)).
   Once it has, follow Decaid's instead: this one will stop in a later
-  release
-  ([ADR-0037](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0037-interim-the-plugin-tells-a-skin-when-it-archives-a-bean-batch.md)).
+  release.
 
 - Decaid sends a push only to the sockets open at that moment, and keeps none
   for a socket opened later. Read the status once the socket opens.

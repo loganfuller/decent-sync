@@ -226,7 +226,6 @@ with why it was made and what it rules out. In one line each:
 - [ADR-0032](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0032-the-server-authors-profiles-as-drafts-published-under-decaids-id.md): the server authors Profiles, as Drafts published under the id Decaid would give them.
 - [ADR-0036](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0036-interim-a-batch-code-in-the-records-extras.md): a Bean Batch's Batch Code is kept in its tablet record's `extras`, under a key of Decent Sync's own. Interim, until Decaid's record has a field for it.
 - [ADR-0033](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0033-an-edit-that-loses-is-kept-in-the-items-history.md): an edit that loses is kept in the item's history as a Lost Edit, with nothing to settle.
-- [ADR-0037](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0037-interim-the-plugin-tells-a-skin-when-it-archives-a-bean-batch.md): the plugin tells a Skin on the tablet when it archives a Bean Batch there or brings it back. Interim, until Decaid tells of a batch's record changing.
 
 ### Assistants
 

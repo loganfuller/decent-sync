@@ -100,7 +100,7 @@ import { randomUuid } from "./tablet-id.js";
 // that changes it, the skins listening for changes are told (`ListPosted`,
 // skins.ts). Once Decaid takes a write that archives a Bean Batch's record or
 // brings it back, a Skin listening on `changes` is told, as Decaid tells of
-// no record changing (ADR-0037, `tellBatch` in skin-api.ts).
+// no record changing (`tellBatch` in skin-api.ts).
 
 /** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
@@ -182,7 +182,7 @@ export interface ListPosted {
    * Told of each Bean Batch record whose `archived` a write of the plugin's
    * changed, either way, by Decaid's id of the record, once Decaid answered
    * it (`tellBatch` in skin-api.ts). Interim, until Decaid tells of a batch's
-   * record changing itself (ADR-0037). It must not throw.
+   * record changing itself (decentespresso/decaid#1271). It must not throw.
    */
   batchArchived: (batch: string) => void;
 }

@@ -382,7 +382,8 @@ export function tellReference(host: PluginHost, log: (message: string) => void, 
  * the record by Decaid's id. The push carries no state: a Skin showing that
  * batch reads Decaid's record again. Interim, until Decaid tells of a
  * batch's record changing itself, asked for in decentespresso/decaid#1271
- * (ADR-0037). It never throws: a push Decaid refuses is logged.
+ * (`AI_PROTOCOL_NOTES.md`, Requests for a Skin). It never throws: a push
+ * Decaid refuses is logged.
  */
 export function tellBatch(host: PluginHost, log: (message: string) => void, batch: string): void {
   try {
