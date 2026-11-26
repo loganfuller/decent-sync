@@ -59,12 +59,19 @@ export class BeanBatchesService {
   /**
    * Every Bean Batch, by its Bean's name and roaster, ignoring case, then the
    * latest roasted first; or, with a Batch Code, those holding exactly it,
-   * ignoring case and the spaces around it: at most one that is not Archived,
-   * and any Archived that held it.
+   * ignoring case and the spaces around it, compared in the database as the
+   * index that keeps a code to one batch compares them (`refuseTakenCode`):
+   * at most one that is not Archived, and any Archived that held it.
    */
   async list(batchCode?: string): Promise<BeanBatchSummary[]> {
-    const batches = sorted((await this.prisma.beanBatch.findMany({ include: withPlaces })).map(summary));
-    return batchCode === undefined ? batches : batches.filter((batch) => batch.batchCode !== null && sameBatchCode(batch.batchCode, batchCode));
+    const holding =
+      batchCode === undefined
+        ? undefined
+        : (
+            await this.prisma.$queryRaw<{ id: string }[]>`
+              SELECT id::text AS id FROM bean_batches WHERE lower(btrim(content ->> 'batchCode')) = lower(btrim(${batchCode.trim()}::text))`
+          ).map((batch) => batch.id);
+    return sorted((await this.prisma.beanBatch.findMany({ ...(holding ? { where: { id: { in: holding } } } : {}), include: withPlaces })).map(summary));
   }
 
   /** The Bean's batches, the latest roasted first. */
@@ -84,11 +91,6 @@ export class BeanBatchesService {
       .sort((a, b) => a.location.name.localeCompare(b.location.name));
     return { ...summary(batch), content: object(batch.content), finished };
   }
-}
-
-/** Whether two Batch Codes are one: compared ignoring case and the spaces around them, as their uniqueness is. */
-export function sameBatchCode(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 /** The Batch Code a list is asked for by, from a request's query: `batchCode`, or undefined where it gives none. 400 for one given more than once. */

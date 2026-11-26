@@ -108,6 +108,16 @@ describe("a Batch Code on a tablet's record (ADR-0036)", () => {
     const changed = reported(LOCAL[0], { roastLevel: "light", extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: "TABLET-9" } }, LATER);
     expect(planBatchIntake([changed], [known], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: changed, edits: [], content: { roastLevel: "light" } }]);
   });
+
+  it("changed on the tablet within the millisecond times are read to, and nothing else, still replaces the record known, so the batch's is written over it", () => {
+    const known = mapped(GLOBAL[0], LOCAL[0], { record: coded("PR-0470") });
+    for (const held of ["TABLET-9", null]) {
+      const changed = reported(LOCAL[0], { extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: held, other: "kept" } });
+      expect(planBatchIntake([changed], [known], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: changed, edits: [], content: {} }]);
+    }
+    // The same code, as old: nothing changed.
+    expect(planBatchIntake([reported(LOCAL[0], { extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: "PR-0470", other: "kept" } })], [known], beans, [])).toEqual([]);
+  });
 });
 
 describe("planBatchIntake", () => {
