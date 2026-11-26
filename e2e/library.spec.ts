@@ -102,16 +102,25 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expect(page.getByRole("heading", { name: "Bean Batches", level: 1 })).toBeVisible();
   await expectTip(page.getByRole("main"), "Bean Batches", /^The Bean Batches in the Library\./);
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe (no weight entered), Batch lab (180.5 g)", "Batch lab", ""].join(""),
-    ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe (no weight entered)", "Batch cafe", ""].join(""),
+    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe (not tracked), Batch lab (180.5 g)", "180.5 g", "Batch lab", ""].join(""),
+    ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe (not tracked)", "Not tracked", "Batch cafe", ""].join(""),
   ]);
 
   await page.getByRole("link", { name: "Batch Guji, roasted 2026-10-01" }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji, roasted 2026-10-01", level: 1 })).toBeVisible();
-  await expectTip(page.getByRole("main"), "Locations", /^Where it is, from when it was added there until it is finished there/);
-  await expectTip(page.getByRole("main"), "Roast", /^As it was created, with the edits made since, on tablets or here\.The Batch Code is your own identifier for this roast/);
+  // The page explains neither weights nor Batch Codes in a paragraph (#706): the Library's guide page does.
+  await expectTip(page.getByRole("main"), "Roast", "As it was created, with the edits made since, on tablets or here.");
+  const whereItIs = page.getByRole("region", { name: "Where it is" });
+  await expect(whereItIs.getByRole("paragraph").filter({ hasText: /Batch Code|added there until/ })).toHaveCount(0);
+  await expect(field(whereItIs, "Total remaining")).toHaveText("180.5 g");
   const locations = page.getByRole("table", { name: "Locations" });
-  await expect(rows(locations).locator("td:nth-child(-n+2)")).toHaveText(["Batch cafe", "no weight entered", "Batch lab", "180.5 g"]);
+  // Each Location's weight, and under it one line: the weight entered, when and on which Machine, and the Shots since.
+  await expect(rows(locations).locator("td:nth-child(-n+2)")).toHaveText([
+    "Batch cafe",
+    "Not tracked",
+    "Batch lab",
+    /^180\.5 g180\.5 g entered .+ on Batch lab group\. No Shots since\.$/,
+  ]);
   const roast = page.getByLabel("Roast", { exact: true });
   await expect(field(roast, "Batch Code")).toHaveText("-");
   await expect(field(roast, "Roasted")).toHaveText("2026-10-01");
@@ -127,7 +136,7 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expectTip(page.getByRole("main"), "Batches", "Its roasts, the latest first, and the Locations each is at.");
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Batch cafe, Batch lab");
   await expect(rows(page.getByRole("table", { name: "Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "Batch cafe (no weight entered), Batch lab (180.5 g)"].join(""),
+    ["Batch Guji, roasted 2026-10-01", "Batch cafe (not tracked), Batch lab (180.5 g)"].join(""),
   ]);
 });
 

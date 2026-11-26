@@ -96,8 +96,9 @@ export class LibraryEditsService {
   }
 
   /**
-   * Creates a batch of the Bean, added at each of the Locations, each with
-   * its remaining weight there if one is given. 404 if there is no such
+   * Creates a batch of the Bean, added at the Location a request names
+   * (`readNewBatch` takes exactly one), with the weight its count starts
+   * from there if it has one. 404 if there is no such
    * Bean or Location, 409 if the Bean is Archived, 403 for Staff at a
    * Location they do not work at. 409, naming the batch, if another batch
    * that is not Archived holds its Batch Code (`refuseTakenCode`).
@@ -197,8 +198,9 @@ export class LibraryEditsService {
   }
 
   /**
-   * Adds the batch at the Location or finishes it there, and sets its
-   * remaining weight there, each an edit of the Location's state of it. 404
+   * Adds the batch at the Location or finishes it there, and enters its
+   * remaining weight there, each an edit of the Location's state of it: a
+   * weight of zero finishes it there, and null leaves it untracked. 404
    * if there is no such batch or Location, 403 for Staff elsewhere, 409 for
    * a remaining weight where the batch is not and is not added.
    */
@@ -464,7 +466,8 @@ export class LibraryEditsService {
 /**
  * Adds or finishes the batch at the Location, and enters its remaining
  * weight there, as the account's edits of the Location's state, under its
- * lock, having seen every decision made there before them.
+ * lock, having seen every decision made there before them. A weight of zero
+ * entered where the batch is finishes it there.
  */
 async function place(tx: Prisma.TransactionClient, batchId: string, locationId: string, placement: BatchPlacement, at: Date, source: EditSource): Promise<void> {
   const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
@@ -472,7 +475,8 @@ async function place(tx: Prisma.TransactionClient, batchId: string, locationId: 
   if (placement.remainingWeight !== undefined) {
     const [here] = await tx.$queryRaw<{ weight: number | null }[]>`
       SELECT remaining_weight AS weight FROM batch_locations WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
-    await enterRemainingWeight(tx, batchId, locationId, { value: placement.remainingWeight, had: here?.weight ?? null }, at, source);
+    // A weight of zero finishes the batch here, as Finish here does (ADR-0037).
+    await enterRemainingWeight(tx, batchId, locationId, { value: placement.remainingWeight, had: here?.weight ?? null }, at, source, { seenAt });
   }
 }
 

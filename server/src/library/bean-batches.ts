@@ -215,7 +215,11 @@ async function applyEdits(
       decidedAt = edit.value ? await addBatchAt(tx, batchId, locationId, at, seenAt, source, held) : await finishBatchAt(tx, batchId, locationId, at, seenAt, source, held);
       changed = decidedAt !== null || changed;
     } else {
-      changed = (await enterRemainingWeight(tx, batchId, locationId, edit, at, source)) || changed;
+      // A weight of zero a barista enters finishes the batch there (ADR-0037), unless the same change added or finished it:
+      // a record created or un-archived holding zero is added, as its tablet has it. The tablet's record has not seen that
+      // finish, which is written to it as to the Location's other tablets, so it is no decision of its own.
+      const finishing = edits.some((other) => other.field === "at") ? undefined : { seenAt, ...(held === undefined ? {} : { held }) };
+      changed = (await enterRemainingWeight(tx, batchId, locationId, edit, at, source, finishing)).entered || changed;
     }
   }
   return { changed, decidedAt };

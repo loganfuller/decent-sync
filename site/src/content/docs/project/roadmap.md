@@ -14,7 +14,10 @@ In no fixed order, and with no dates:
 - **Monitoring**: noticing lost Shots, low water and dropped scale or Machine
   connections, with alerts.
 - **Calibration**: checks of stop-at-weight, flow and temperature.
-- **Stock**: deliveries, transfers, counts, and the coffee each Shot uses.
+- **Bean Batches by Location**: moving all or part of a batch between
+  Locations, its remaining weight on tablets, and scanning a batch's QR code
+  in the cafe Skin. A batch's remaining weight at a Location already falls
+  with each Shot pulled there.
 
 ## Following the work
 

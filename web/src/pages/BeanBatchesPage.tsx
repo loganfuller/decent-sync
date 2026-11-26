@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { BatchBadges, LibraryNav, atText, batchName } from "@/components/bean-batches";
+import { BatchBadges, LibraryNav, atText, batchName, totalText } from "@/components/bean-batches";
 import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewBatchDialog } from "@/components/library-forms";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -53,9 +53,9 @@ export function BeanBatchesPage() {
         <PageTitleWithInfo title="Bean Batches">
           <p>
             The Bean Batches in the Library. A batch entered on a tablet is at that tablet's Location, and is written, with its
-            Bean, to every tablet there. Archiving it on a tablet finishes it at that tablet's Location, and the remaining
-            weight entered on a tablet is that Location's. Here, a batch is added at Locations or finished there, its
-            remaining weight set at each.
+            Bean, to every tablet there. Archiving it on a tablet finishes it at that tablet's Location. A batch's remaining
+            weight at a Location is the weight last entered there, here or on a tablet, less the dose of each Shot pulled
+            there with it since; one with no weight entered is not tracked there.
           </p>
           <p>
             A batch's Batch Code is the roaster's own identifier for it, as on its label, which no other batch that is not
@@ -111,6 +111,7 @@ export function BeanBatchesPage() {
                 <TableHead>Batch Code</TableHead>
                 <TableHead>Roaster</TableHead>
                 <TableHead>At</TableHead>
+                <TableHead>Remaining</TableHead>
                 <TableHead>Created at</TableHead>
                 <TableHead>Attention</TableHead>
               </TableRow>
@@ -125,7 +126,8 @@ export function BeanBatchesPage() {
                   </TableCell>
                   <TableCell className="font-mono font-medium">{batch.batchCode ?? <span className="font-sans font-normal text-muted-foreground">-</span>}</TableCell>
                   <TableCell>{batch.bean.roaster ?? <span className="text-muted-foreground">-</span>}</TableCell>
-                  <TableCell>{atText(batch.locations)}</TableCell>
+                  <TableCell className="whitespace-normal">{atText(batch.locations)}</TableCell>
+                  <TableCell>{totalText(batch) ?? <span className="text-muted-foreground">-</span>}</TableCell>
                   <TableCell>{batch.createdLocation?.name ?? <span className="text-muted-foreground">-</span>}</TableCell>
                   <TableCell>
                     <BatchBadges batch={batch} />

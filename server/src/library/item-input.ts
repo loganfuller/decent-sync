@@ -270,33 +270,52 @@ export function readArchived(body: unknown): boolean {
   return archived;
 }
 
-/** A new batch, from a request: `{ beanId, content, locations }`, each Location `{ locationId, remainingWeight? }`, its ids in lower case. */
+/** Why a batch is not created or added with a remaining weight of zero: zero entered finishes it there (ADR-0037). */
+const NO_ZERO_START = "A batch is not added with a remaining weight of 0, which would finish it there: give what is there, or null to leave it untracked";
+
+/**
+ * A new batch, from a request: `{ beanId, content, locations }`, its ids in
+ * lower case. `locations` names exactly one Location, `{ locationId,
+ * remainingWeight? }`, so that its roasted weight is counted once (ADR-0037):
+ * none, or more than one, is refused. With no `remainingWeight`, its count
+ * there starts at its roasted `weight`, if it has one, as Decaid's own create
+ * does on a tablet; null leaves it untracked. Zero is refused, given or
+ * taken from a roasted weight of zero.
+ */
 export function readNewBatch(body: unknown): { beanId: string; content: Record<string, unknown>; locations: { locationId: string; remainingWeight?: number | null }[] } {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   if (typeof fields.beanId !== "string" || !UUID.test(fields.beanId)) throw new BadRequestException("Name the batch's Bean as beanId");
   const listed = fields.locations ?? [];
-  if (!Array.isArray(listed)) throw new BadRequestException("Send the Locations it is at as locations, each { locationId, remainingWeight }");
+  if (!Array.isArray(listed) || listed.length !== 1) {
+    throw new BadRequestException("Send the one Location the batch is created at as locations: [{ locationId, remainingWeight }]. It reaches another Location by being added there");
+  }
+  const content = readNewContent("beanBatch", { content: fields.content ?? {} });
   const locations = listed.map((here: unknown) => {
     const place = typeof here === "object" && here !== null ? (here as Record<string, unknown>) : {};
     if (typeof place.locationId !== "string" || !UUID.test(place.locationId)) throw new BadRequestException("Name each Location by its locationId");
-    return {
-      locationId: place.locationId.toLowerCase(),
-      ...(place.remainingWeight === undefined ? {} : { remainingWeight: readWeight(place.remainingWeight) }),
-    };
+    const remainingWeight = place.remainingWeight === undefined ? (typeof content.weight === "number" ? content.weight : undefined) : readWeight(place.remainingWeight);
+    if (remainingWeight === 0) throw new BadRequestException(NO_ZERO_START);
+    return { locationId: place.locationId.toLowerCase(), ...(remainingWeight === undefined ? {} : { remainingWeight }) };
   });
-  return { beanId: fields.beanId.toLowerCase(), content: readNewContent("beanBatch", { content: fields.content ?? {} }), locations };
+  return { beanId: fields.beanId.toLowerCase(), content, locations };
 }
 
-/** Where a request places a batch at a Location: `{ atLocation, remainingWeight }`, either or both. */
+/**
+ * Where a request places a batch at a Location: `{ atLocation,
+ * remainingWeight }`, either or both. A weight of zero alone finishes the
+ * batch there, so one sent with an add is refused.
+ */
 export function readPlacement(body: unknown): { atLocation?: boolean; remainingWeight?: number | null } {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   if (fields.atLocation !== undefined && typeof fields.atLocation !== "boolean") throw new BadRequestException("atLocation must be true or false");
   if (fields.atLocation === undefined && fields.remainingWeight === undefined) {
     throw new BadRequestException("Send atLocation, true to add the batch here or false to finish it here, or its remainingWeight here, or both");
   }
+  const remainingWeight = fields.remainingWeight === undefined ? undefined : readWeight(fields.remainingWeight);
+  if (fields.atLocation === true && remainingWeight === 0) throw new BadRequestException(NO_ZERO_START);
   return {
     ...(fields.atLocation === undefined ? {} : { atLocation: fields.atLocation as boolean }),
-    ...(fields.remainingWeight === undefined ? {} : { remainingWeight: readWeight(fields.remainingWeight) }),
+    ...(remainingWeight === undefined ? {} : { remainingWeight }),
   };
 }
 

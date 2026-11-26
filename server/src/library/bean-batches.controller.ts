@@ -30,8 +30,8 @@ export class BeanBatchesController {
   /** Every batch, or with `?batchCode=`, those holding exactly that Batch Code, ignoring case and the spaces around it. */
   @AllowStaff()
   @Get()
-  async list(@Query() query: Record<string, unknown>): Promise<{ batches: BeanBatchSummary[] }> {
-    return { batches: await this.batches.list(readBatchCodeFilter(query)) };
+  async list(@Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ batches: BeanBatchSummary[] }> {
+    return { batches: await this.batches.list(scope, readBatchCodeFilter(query)) };
   }
 
   /** Creates a batch of a Bean: `{ beanId, content, locations }`, each Location it is added at `{ locationId, remainingWeight? }`. */
@@ -40,13 +40,13 @@ export class BeanBatchesController {
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
     const { beanId, content, locations } = readNewBatch(body);
     const id = await this.edits.createBatch(beanId, content, locations, managementEditor(session.account.id), session.scope);
-    return { batch: await this.batches.get(id) };
+    return { batch: await this.batches.get(id, session.scope) };
   }
 
   @AllowStaff()
   @Get(":id")
-  async get(@Param("id") id: string): Promise<{ batch: BeanBatchView }> {
-    return { batch: await this.batches.get(readBeanBatchId(id)) };
+  async get(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ batch: BeanBatchView }> {
+    return { batch: await this.batches.get(readBeanBatchId(id), scope) };
   }
 
   /** Edits its details: `{ content }`, each field to change, null to clear it. */
@@ -55,7 +55,7 @@ export class BeanBatchesController {
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
     await this.edits.editBatch(batchId, readContentEdit("beanBatch", body), managementEditor(session.account.id));
-    return { batch: await this.batches.get(batchId) };
+    return { batch: await this.batches.get(batchId, session.scope) };
   }
 
   /** Archives it or restores it: `{ archived }`. */
@@ -64,7 +64,7 @@ export class BeanBatchesController {
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
     await this.edits.archiveBatch(batchId, readArchived(body), managementEditor(session.account.id));
-    return { batch: await this.batches.get(batchId) };
+    return { batch: await this.batches.get(batchId, session.scope) };
   }
 
   /** Adds it at the Location or finishes it there, and sets its remaining weight there: `{ atLocation, remainingWeight }`, either or both. */
@@ -78,7 +78,7 @@ export class BeanBatchesController {
   ): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
     await this.edits.placeBatch(batchId, readLocationId(locationId).toLowerCase(), readPlacement(body), managementEditor(session.account.id), session.scope);
-    return { batch: await this.batches.get(batchId) };
+    return { batch: await this.batches.get(batchId, session.scope) };
   }
 
   /** Deletes it from the Library and every tablet that holds it, unless a Shot names it. Admins only. */

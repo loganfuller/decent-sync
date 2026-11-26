@@ -115,8 +115,9 @@ describe("Shots linked to the Library", () => {
 
     const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Linked Guji" } }, 201)).bean;
     const batch = (
-      await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }, { locationId: cafe.id }] }, 201)
+      await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }] }, 201)
     ).batch;
+    await api.send("PUT", `/bean-batches/${batch.id}/locations/${cafe.id}`, { atLocation: true });
     const grinder = async (location: LocationView, model: string) =>
       (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
     const labGrinder = await grinder(lab, "Linked lab EK43");

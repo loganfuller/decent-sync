@@ -180,7 +180,7 @@ describe("Bean Batches at Locations", () => {
     const { labLocation, one, two, cafe } = await lab("Created", 16001);
     const { record, batch } = await enterBatch(one, "Guji Hambela");
     expect(batch).toMatchObject({ roastDate: "2026-10-01T00:00:00.000", archived: false, createdLocation: labLocation });
-    expect(batch.locations).toEqual([{ location: labLocation, remainingWeight: 250, since: expect.any(String) }]);
+    expect(batch.locations).toMatchObject([{ location: labLocation, remainingWeight: 250, since: expect.any(String) }]);
     expect(await offeredAt("Guji Hambela")).toEqual(["Created lab"]);
 
     // The lab's other tablet is written the Bean, then the batch under its own record of the Bean.

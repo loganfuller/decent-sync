@@ -287,8 +287,14 @@ describe("Shot Summaries by group", () => {
     const made = async (path: string, body: Fields) => Object.values(await api.send<Record<string, { id: string }>>("POST", path, body, 201))[0]!.id;
     const guji = await made("/beans", { content: { roaster: "Roux", name: "Guji" } });
     const brazil = await made("/beans", { content: { roaster: "Roux", name: "Brazil" } });
+    // Created at the lab, as a batch is at one Location, and added at the harbor.
+    const atBoth = async (beanId: string, roastDate: string) => {
+      const id = await made("/bean-batches", { beanId, content: { roastDate }, locations: [{ locationId: lab.id }] });
+      await api.send("PUT", `/bean-batches/${id}/locations/${harbor.id}`, { atLocation: true });
+      return id;
+    };
     const batch = async (beanId: string, bean: string, roastDate: string) => ({
-      id: await made("/bean-batches", { beanId, content: { roastDate }, locations: [{ locationId: lab.id }, { locationId: harbor.id }] }),
+      id: await atBoth(beanId, roastDate),
       bean: { id: beanId, roaster: "Roux", name: bean },
       roastDate: expect.stringMatching(new RegExp(`^${roastDate}`)) as unknown as string,
     });

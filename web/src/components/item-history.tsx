@@ -218,6 +218,11 @@ function HistoryValue({ field, value, names }: { field: string; value: unknown; 
   return <>{valueText(field, value, names)}</>;
 }
 
+/** Whether an edit is a batch finished at a Location by a weight of zero entered there, which is one change (ADR-0037). */
+function finishedByZero(version: ItemVersion): boolean {
+  return version.location !== null && version.fields.atLocation === false && version.fields.remainingWeight === 0;
+}
+
 /** A History card's content, which reads the item's history while it is shown. */
 function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: ReadonlyMap<string, string> }) {
   const load = useCallback(async () => historyRows(await api<History>("GET", `${itemApiPath(kind, id)}/history`)), [kind, id]);
@@ -281,7 +286,13 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                         </p>
                       )}
                       <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
-                        {Object.entries(version.fields).map(([field, value]) => (
+                        {finishedByZero(version) && (
+                          <div className="contents">
+                            <dt className="text-muted-foreground">{fieldLabel("atLocation", version.location)}</dt>
+                            <dd className="min-w-0 wrap-anywhere">Finished, by a weight of 0 g</dd>
+                          </div>
+                        )}
+                        {(finishedByZero(version) ? [] : Object.entries(version.fields)).map(([field, value]) => (
                           <div key={field} className="contents">
                             <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
                             <dd className="min-w-0 wrap-anywhere">

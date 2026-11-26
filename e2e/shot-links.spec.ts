@@ -31,8 +31,10 @@ test("a batch's page counts its Shots from both Locations and opens them in the 
   const { batch } = await post<{ batch: { id: string } }>(page, "/api/bean-batches", {
     beanId: bean.id,
     content: { roastDate: "2026-10-04" },
-    locations: [{ locationId: lab.location.id }, { locationId: cafe.location.id }],
+    locations: [{ locationId: lab.location.id }],
   });
+  // Created at the lab, as a batch is at one Location, and added at the cafe.
+  expect((await page.request.put(`/api/bean-batches/${batch.id}/locations/${cafe.location.id}`, { data: { atLocation: true } })).status()).toBe(200);
   const labGrinder = (await post<{ grinder: { id: string } }>(page, "/api/grinders", { locationId: lab.location.id, content: { model: "Lab EK43" } })).grinder;
   const cafeGrinder = (await post<{ grinder: { id: string } }>(page, "/api/grinders", { locationId: cafe.location.id, content: { model: "Belmont Mythos" } })).grinder;
   const local = (tablet: SimulatedTablet, grinderId: string) => ({

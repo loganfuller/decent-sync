@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
+import type { Scope } from "../accounts/scope.js";
 import {
   BEVERAGE_TYPES,
   EXIT_CONDITIONS,
@@ -60,7 +61,7 @@ export const TIMES =
 
 /** What the Library's items hold, for the descriptions of the tools that read or change them. */
 export const ITEMS =
-  "An item's content is its record's fields, as the tablet that created it sent them and as edited since, Decaid's names for a Bean's, Bean Batch's, Grinder's and Profile's, and DYE2's for a Basket's and Tool's. A Grinder's also holds, under DYE2's names, its feedRate note and the range and default of its setting and of its RPM (settingMin, settingMax, settingDefault, rpmMin, rpmMax, rpmDefault), where 0 is a value: a tablet's steppers stop at the range, and a Machine takes the default, or the middle of the range, as a barista picks the Grinder on it. A Recipe's content is in the Library's terms: dose and yield in grams, brewTemperature in °C, grindSetting as typed, and any steam, hot water and flush settings in °C, seconds, ml/s and ml. A Bean Batch's remainingWeight is in grams, last entered at each Location. A Profile marked bundled is one of Decaid's own, which every tablet has. A Bean's likelyDuplicates are other Beans with the same roaster and name, ignoring case, never merged.";
+  "An item's content is its record's fields, as the tablet that created it sent them and as edited since, Decaid's names for a Bean's, Bean Batch's, Grinder's and Profile's, and DYE2's for a Basket's and Tool's. A Grinder's also holds, under DYE2's names, its feedRate note and the range and default of its setting and of its RPM (settingMin, settingMax, settingDefault, rpmMin, rpmMax, rpmDefault), where 0 is a value: a tablet's steppers stop at the range, and a Machine takes the default, or the middle of the range, as a barista picks the Grinder on it. A Recipe's content is in the Library's terms: dose and yield in grams, brewTemperature in °C, grindSetting as typed, and any steam, hot water and flush settings in °C, seconds, ml/s and ml. A Bean Batch's remainingWeight at a Location is its Remaining Weight there, in grams, worked out as it is read: the weight last entered there (entered), less the dose of each Shot linked to the batch that was pulled there since (used), never below 0. One with no weight entered at a Location is untracked there: its remainingWeight there is null, not 0, and Shots take nothing from it. A Profile marked bundled is one of Decaid's own, which every tablet has. A Bean's likelyDuplicates are other Beans with the same roaster and name, ignoring case, never merged.";
 
 const time = (what: string) => z.string().describe(what);
 const joinedAt = time("When it joined the Library.");
@@ -87,6 +88,21 @@ const beanSummary = z.object({
     .describe("Other Beans with the same roaster and name, ignoring case: likely duplicates, never merged."),
 });
 
+export const source = z
+  .object({
+    machine: z.object({ id, name: z.string() }).nullable().describe("The Machine whose tablet made it, if one did and it still exists."),
+    tabletId: z.string().nullable().describe("The id of the tablet that made it, if one did; with no Machine, a tablet whose Machine has since been removed."),
+    account: z
+      .object({ id, name: z.string().nullable().describe("Shown to Admins only.") })
+      .nullable()
+      .describe("The account that made it, in the management interface or through a Connected App."),
+    connectedApp: z
+      .object({ id, name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host its client id is published at, which no app chooses.") })
+      .nullable()
+      .describe("The Connected App, such as an assistant, the account made it through; null for the management interface."),
+  })
+  .describe("Where it came from: a Machine's tablet, or an account, in the management interface or through a Connected App.");
+
 const batchSummary = z.object({
   id,
   bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }).describe("The Bean it is a roast of."),
@@ -94,8 +110,27 @@ const batchSummary = z.object({
   batchCode: z.string().nullable().describe("Its Batch Code, the roaster's own identifier for it, which no other Bean Batch that is not Archived holds; null for none."),
   archived: z.boolean(),
   locations: z
-    .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams; null for none."), since: time("When it was last added there.") }))
+    .array(
+      z.object({
+        location,
+        remainingWeight: z.number().nullable().describe("Its Remaining Weight there, in grams: the weight last entered there less what the Shots pulled there since have used, never below 0; null where it is untracked there."),
+        entered: z
+          .object({
+            weight: z.number().describe("In grams."),
+            at: time("When it was entered."),
+            by: source.nullable().describe("Who entered it: the Machine whose tablet it was entered on, or the account; null where unknown."),
+          })
+          .nullable()
+          .describe("The weight last entered there, which the count starts from; null where it is untracked there."),
+        used: z
+          .object({ shots: z.number().describe("How many Shots linked to it were pulled there since the weight was entered."), weight: z.number().describe("The coffee they used, in grams: each Shot's measured dose, else the dose its Workflow was set to.") })
+          .nullable()
+          .describe("What the Shots pulled there since the weight was entered have used; null where it is untracked there."),
+        since: time("When it was last added there."),
+      }),
+    )
     .describe("The Locations it is at, by name, kept while it or its Bean is Archived, though neither is offered anywhere then."),
+  totalRemainingWeight: z.number().nullable().describe("The sum of its Remaining Weights over the Locations that track it, in grams; null where none does."),
   createdAt: joinedAt,
   createdLocation,
 });
@@ -220,21 +255,6 @@ const recipe = z.object({
     ),
 });
 
-export const source = z
-  .object({
-    machine: z.object({ id, name: z.string() }).nullable().describe("The Machine whose tablet made it, if one did and it still exists."),
-    tabletId: z.string().nullable().describe("The id of the tablet that made it, if one did; with no Machine, a tablet whose Machine has since been removed."),
-    account: z
-      .object({ id, name: z.string().nullable().describe("Shown to Admins only.") })
-      .nullable()
-      .describe("The account that made it, in the management interface or through a Connected App."),
-    connectedApp: z
-      .object({ id, name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host its client id is published at, which no app chooses.") })
-      .nullable()
-      .describe("The Connected App, such as an assistant, the account made it through; null for the management interface."),
-  })
-  .describe("Where it came from: a Machine's tablet, or an account, in the management interface or through a Connected App.");
-
 const version = z.object({
   id,
   fields: content(
@@ -327,7 +347,7 @@ export const beanItem = beanSummary.extend({ content: content(RECORD_FIELDS), ba
 export const beanBatchItem = batchSummary.extend({
   content: content(`${RECORD_FIELDS} Its remaining weight and whether it is Archived are each Location's, so left out.`),
   finished: z
-    .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams."), finishedAt: time("When it was finished there.") }))
+    .array(z.object({ location, remainingWeight: z.number().nullable().describe("The weight last entered there, in grams, which went with it."), finishedAt: time("When it was finished there.") }))
     .describe("The Locations it was at and has been finished at since, by name."),
 });
 
@@ -436,7 +456,8 @@ export class LibraryTools {
     scopes: [READ],
     budget: { rest: "get_library_item reads one item with more of it." },
   })
-  async findLibraryItems(input: FindInput): Promise<FindOutput> {
+  async findLibraryItems(input: FindInput, context: McpContext): Promise<FindOutput> {
+    const { scope } = callerOf(context);
     if (input.batchCode !== undefined && input.kind !== "beanBatch") throw new BadRequestException("Only a Bean Batch has a Batch Code: ask for it with kind beanBatch");
     const at = await this.locationOf(input.locationId);
     const paged = <T, R>(items: readonly T[], filtered: (item: T) => Filtered, view: (item: T) => R) => {
@@ -453,7 +474,7 @@ export class LibraryTools {
         // A batch keeps the Locations it is at while it or its Bean is Archived, but no Location offers it then (LIBRARY.md).
         const archivedBeans = at === undefined ? new Set<string>() : await this.archivedBeans();
         const { entries, ...rest } = paged(
-          await this.batches.list(input.batchCode),
+          await this.batches.list(scope, input.batchCode),
           (batch) => ({
             archived: batch.archived,
             names: [batch.bean.roaster, batch.bean.name, batch.batchCode],
@@ -497,8 +518,8 @@ export class LibraryTools {
     budget: { whole: PROFILE_WHOLE, rest: "Asked for without its history, or fewer of its entries at a time, it has more of its text." },
   })
   async getLibraryItem(input: z.infer<typeof getInput>, context: McpContext): Promise<GetOutput> {
-    const { item, ref, itemLocation } = await this.item(input.kind, input.id);
     const { scope } = callerOf(context);
+    const { item, ref, itemLocation } = await this.item(input.kind, input.id, scope);
     // A field alone asks for its history.
     if (!input.history && input.historyField === undefined) return item;
     const { versions, lostEdits } = await this.history.history(ref, scope, input.historyField);
@@ -529,8 +550,8 @@ export class LibraryTools {
   }
 
   /** One item as get_library_item reads it, without its history: 404's message, as the REST API's, for none. */
-  async read(kind: LibraryKind, itemId: string): Promise<ItemOutput> {
-    return (await this.item(kind, itemId)).item;
+  async read(kind: LibraryKind, itemId: string, scope: Scope): Promise<ItemOutput> {
+    return (await this.item(kind, itemId, scope)).item;
   }
 
   /** A Location a list is filtered by, by its id in lower case, as the REST API reads one; refused as no Location if there is none. */
@@ -547,14 +568,14 @@ export class LibraryTools {
   }
 
   /** One item as the REST API returns it, with how its history names it and the Location it belongs to, if one. */
-  private async item(kind: LibraryKind, itemId: string): Promise<{ item: ItemOutput; ref: { kind: LibraryKind; id: string }; itemLocation: LocationView | null }> {
+  private async item(kind: LibraryKind, itemId: string, scope: Scope): Promise<{ item: ItemOutput; ref: { kind: LibraryKind; id: string }; itemLocation: LocationView | null }> {
     switch (kind) {
       case "bean": {
-        const bean = await this.beans.get(readBeanId(itemId));
+        const bean = await this.beans.get(readBeanId(itemId), scope);
         return { item: { bean: { ...beanOf(bean), content: bean.content, batches: bean.batches.map(batchOf) } }, ref: { kind, id: bean.id }, itemLocation: null };
       }
       case "beanBatch": {
-        const batch = await this.batches.get(readBeanBatchId(itemId));
+        const batch = await this.batches.get(readBeanBatchId(itemId), scope);
         return { item: { beanBatch: batchViewOf(batch) }, ref: { kind, id: batch.id }, itemLocation: null };
       }
       case "profile": {
@@ -636,7 +657,14 @@ function batchOf(batch: BeanBatchSummary | BeanBatchView): z.infer<typeof batchS
     roastDate: batch.roastDate,
     batchCode: batch.batchCode,
     archived: batch.archived,
-    locations: batch.locations.map((here) => ({ location: locationOf(here.location), remainingWeight: here.remainingWeight, since: timeAt(here.since, here.location) })),
+    locations: batch.locations.map((here) => ({
+      location: locationOf(here.location),
+      remainingWeight: here.remainingWeight,
+      entered: here.entered && { weight: here.entered.weight, at: timeAt(here.entered.at, here.location), by: here.entered.by && sourceOf(here.entered.by) },
+      used: here.used,
+      since: timeAt(here.since, here.location),
+    })),
+    totalRemainingWeight: batch.totalRemainingWeight,
     createdAt: timeAt(batch.createdAt, batch.createdLocation),
     createdLocation: maybeLocation(batch.createdLocation),
   };

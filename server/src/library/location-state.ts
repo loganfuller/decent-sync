@@ -12,6 +12,10 @@ import { type EditSource, type ItemRef, heldValue, recordLostEdit, recordReplace
 // there, offers the Grinders that belong to it, and shows a Profile while it
 // is shown there; nothing Archived is offered or shown anywhere.
 //
+// A batch's remaining weight at a Location is the weight last entered there,
+// which is all that is kept: what the Shots pulled there since have used is
+// taken from it as it is read (ADR-0037, `bean-batches.service.ts`).
+//
 // Whether a batch is at a Location, and whether a Profile is shown there, are
 // each a field of its own (ADR-0020), whose latest edit wins. Each decision
 // of one is stamped with PostgreSQL's clock (`decided_at`,
@@ -102,7 +106,8 @@ export async function addBatchAt(
  * `addBatchAt` adds one there again. It is never finished before it was
  * added, whatever the clock that timed the edit. `held` is as `addBatchAt`
  * reads it. Says when it decided it, or null if it was never added there or
- * the edit lost.
+ * the edit lost. `by` is what else its version says the edit set: the weight
+ * of zero whose entry made the finish (`enterRemainingWeight`).
  */
 export async function finishBatchAt(
   tx: Prisma.TransactionClient,
@@ -112,6 +117,7 @@ export async function finishBatchAt(
   seenAt: Date | null,
   source: EditSource,
   held?: boolean,
+  by: Readonly<Record<string, unknown>> = {},
 ): Promise<Date | null> {
   const before = await presenceAt(tx, batchId, locationId);
   const [finished] = await tx.$queryRaw<{ decidedAt: Date }[]>`
@@ -119,7 +125,7 @@ export async function finishBatchAt(
     WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid AND added_at IS NOT NULL
       AND (COALESCE(finished_at, added_at) <= ${at}::timestamptz OR presence_decided_at <= ${seenAt}::timestamptz)
     RETURNING presence_decided_at AS "decidedAt"`;
-  await keepPresenceEdit(tx, batchId, locationId, false, before, finished?.decidedAt ?? null, seenAt, source, at, held);
+  await keepPresenceEdit(tx, batchId, locationId, false, before, finished?.decidedAt ?? null, seenAt, source, at, held, by);
   return finished?.decidedAt ?? null;
 }
 
@@ -160,6 +166,7 @@ async function keepPresenceEdit(
   source: EditSource,
   at: Date,
   held: boolean | undefined,
+  by: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
   const item: ItemRef = { kind: "beanBatch", id: batchId };
   const was = before?.at ?? null;
@@ -167,7 +174,7 @@ async function keepPresenceEdit(
     if (was !== null && was !== value) await recordLostEdit(tx, item, locationId, "atLocation", value, source, at, before!.versionId);
     return;
   }
-  const versionId = await recordVersion(tx, item, locationId, { atLocation: value }, source, at);
+  const versionId = await recordVersion(tx, item, locationId, { ...by, atLocation: value }, source, at);
   await tx.$executeRaw`
     UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
   if (was !== null && was !== value && unseen(before!, seenAt, source) && !heldValue(held, was)) {
@@ -188,6 +195,19 @@ function unseen(before: { decidedAt: Date | null; tabletId: string | null }, see
  * known, which the tablet had not seen. Its time is never earlier than the
  * one known, so an entry timed between the two cannot undo it. Says whether
  * it did.
+ *
+ * It is where the Location's count starts (ADR-0037): the batch's Remaining
+ * Weight there is this weight less the doses of the Shots pulled there after
+ * `at`, worked out as it is read (`usedSince`), so nothing here is ever
+ * lowered by a Shot. Null leaves the batch untracked there.
+ *
+ * A weight of zero that is entered finishes the batch there, as a finish
+ * does, where `finishing` says the entry may: what its maker had seen of the
+ * batch's presence there, as `finishBatchAt` reads it. The two are one
+ * version, a finish made by a weight of zero (`{ remainingWeight: 0,
+ * atLocation: false }`), unless the finish loses or the batch was never
+ * there, when the weight is kept alone. `finished` is when the finish
+ * decided the batch's presence, or null.
  */
 export async function enterRemainingWeight(
   tx: Prisma.TransactionClient,
@@ -196,7 +216,8 @@ export async function enterRemainingWeight(
   weight: { value: number | null; had: number | null },
   at: Date,
   source: EditSource,
-): Promise<boolean> {
+  finishing?: { seenAt: Date | null; held?: boolean },
+): Promise<{ entered: boolean; finished: Date | null }> {
   const [before] = await tx.$queryRaw<{ value: number | null; enteredAt: Date | null; versionId: string | null; tabletId: string | null }[]>`
     SELECT here.remaining_weight AS value, here.remaining_weight_at AS "enteredAt", here.remaining_weight_version_id AS "versionId",
       version.tablet_id AS "tabletId"
@@ -215,16 +236,23 @@ export async function enterRemainingWeight(
   const known = before?.enteredAt ? before : null;
   if (entered === 0) {
     if (known && !sameValue(known.value, weight.value)) await recordLostEdit(tx, item, locationId, "remainingWeight", weight.value, source, at, known.versionId);
-    return false;
+    return { entered: false, finished: null };
   }
-  const versionId = await recordVersion(tx, item, locationId, { remainingWeight: weight.value }, source, at);
+  const finished = weight.value === 0 && finishing ? await finishBatchAt(tx, batchId, locationId, at, finishing.seenAt, source, finishing.held, { remainingWeight: 0 }) : null;
+  const versionId =
+    finished === null
+      ? await recordVersion(tx, item, locationId, { remainingWeight: weight.value }, source, at)
+      : (
+          await tx.$queryRaw<[{ id: string }]>`
+            SELECT presence_version_id AS id FROM batch_locations WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`
+        )[0].id;
   await tx.$executeRaw`
     UPDATE batch_locations SET remaining_weight_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
   // A value the tablet had not had, entered by another tablet before this one, is replaced without either seeing the other.
   if (known && !sameValue(known.value, weight.had) && !sameValue(known.value, weight.value) && known.tabletId !== source.tabletId) {
     await recordReplaced(tx, item, locationId, "remainingWeight", known.value, known.versionId, versionId);
   }
-  return true;
+  return { entered: true, finished };
 }
 
 /**

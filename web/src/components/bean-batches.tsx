@@ -1,6 +1,6 @@
 import { NavLink } from "react-router";
 import { Badge } from "@/components/ui/badge";
-import type { BatchAtLocation, BeanBatchSummary } from "@/lib/api";
+import type { BeanBatchSummary } from "@/lib/api";
 
 /** The Library's lists, as links between them: Recipes first (#547), as the list most come for. */
 export function LibraryNav() {
@@ -44,15 +44,7 @@ export function batchName(batch: Pick<BeanBatchSummary, "bean" | "roastDate">): 
   return `${batch.bean.name ?? "Unnamed Bean"}, ${roasted === undefined ? "no roast date" : `roasted ${roasted}`}`;
 }
 
-/** A remaining weight in grams, as entered. */
-export function weightText(weight: number | null): string {
-  return weight === null ? "no weight entered" : `${weight} g`;
-}
-
-/** Where a batch is, by Location name, with its remaining weight at each. */
-export function atText(locations: BatchAtLocation[]): string {
-  return locations.length === 0 ? "Nowhere" : locations.map((here) => `${here.location.name} (${weightText(here.remainingWeight)})`).join(", ");
-}
+export { atText, totalText, weightText } from "@/lib/remaining-weight";
 
 /** What may need someone's attention about a batch. */
 export function BatchBadges({ batch }: { batch: BeanBatchSummary }) {

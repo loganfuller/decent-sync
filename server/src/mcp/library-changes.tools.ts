@@ -231,11 +231,19 @@ const beanEditInput = z.strictObject({ id: id.describe("The Bean's id, as find_l
 
 const placeAt = z.strictObject({
   locationId: id.describe("The Location's id, as list_locations gives it."),
-  remainingWeight: z.number().nullable().optional().describe("Its remaining weight there, in grams, 0 or more; null or left out for none."),
+  remainingWeight: z
+    .number()
+    .nullable()
+    .optional()
+    .describe("The weight its Remaining Weight there starts from, in grams, above 0. Left out, it starts at the batch's roasted weight, if it has one; null leaves it untracked there, whatever its roasted weight. 0 is refused."),
 });
 const newBatchInput = z.strictObject({
   beanId: id.describe("The id of the Bean it is a roast of, as find_library_items gives it. The Bean may not be Archived."),
-  locations: z.array(placeAt).max(100).default([]).describe("The Locations to add it at, each once, with its remaining weight there if known. Staff add it only at the Locations they work at."),
+  locations: z
+    .array(placeAt)
+    .max(100)
+    .default([])
+    .describe("The one Location it is created at, so its roasted weight is counted once: none, or more than one, is refused. It reaches another Location by being added there (set_location_offering). Staff create it only at a Location they work at."),
   ...contentFields("beanBatch", false),
 });
 const batchEditInput = z.strictObject({ id: id.describe("The Bean Batch's id, as find_library_items gives it."), ...contentFields("beanBatch", true) });
@@ -279,7 +287,9 @@ const offeringInput = z.strictObject({
     .number()
     .nullable()
     .optional()
-    .describe("A Bean Batch's remaining weight at the Location, in grams, 0 or more, null to clear it: only where it is, or is being added."),
+    .describe(
+      "A weight entered for a Bean Batch at the Location, in grams, as weighed: its Remaining Weight there starts from it again, and falls with each Shot pulled there after. 0 finishes the batch there, as offered: false does, and is refused with offered: true. null clears it, leaving the batch untracked there. Only where the batch is, or is being added.",
+    ),
 });
 
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
@@ -309,7 +319,7 @@ export class LibraryChangesTools {
   })
   async createBean(input: z.infer<typeof newBeanInput>, context: McpContext): Promise<ItemOutput> {
     const beanId = await this.edits.createBean(readNewContent("bean", { content: input }), editorOf(context));
-    return this.library.read("bean", beanId);
+    return this.library.read("bean", beanId, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -324,13 +334,13 @@ export class LibraryChangesTools {
   async editBean({ id: beanId, ...fields }: z.infer<typeof beanEditInput>, context: McpContext): Promise<ItemOutput> {
     const values = readContentEdit("bean", { content: changed(fields) });
     await this.edits.editBean(readBeanId(beanId), values, editorOf(context));
-    return this.library.read("bean", beanId);
+    return this.library.read("bean", beanId, callerOf(context).scope);
   }
 
   @BudgetedTool({
     name: "create_bean_batch",
     title: "Create a Bean Batch",
-    description: `Creates a Bean Batch, one roast of a Bean, added at each of the Locations given, whose tablets are then written it. One with a Batch Code another Bean Batch that is not Archived holds is refused, naming that batch: find_library_items finds a batch by its code. Staff add one only at the Locations they work at. ${TIMES}`,
+    description: `Creates a Bean Batch, one roast of a Bean, at exactly one Location, whose tablets are then written it. Given a roasted weight and no remaining weight, its Remaining Weight there starts at the roasted weight, and falls by the dose of each Shot pulled there with it. One with a Batch Code another Bean Batch that is not Archived holds is refused, naming that batch: find_library_items finds a batch by its code. Staff add one only at the Locations they work at. ${TIMES}`,
     inputSchema: newBatchInput,
     outputSchema: z.object({ beanBatch: beanBatchItem }),
     annotations: CHANGES,
@@ -340,13 +350,13 @@ export class LibraryChangesTools {
     const batch = readNewBatch({ beanId, locations, content: fields });
     const { scope } = callerOf(context);
     const batchId = await this.edits.createBatch(batch.beanId, batch.content, batch.locations, editorOf(context), scope);
-    return this.library.read("beanBatch", batchId);
+    return this.library.read("beanBatch", batchId, callerOf(context).scope);
   }
 
   @BudgetedTool({
     name: "edit_bean_batch",
     title: "Edit a Bean Batch",
-    description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or its remaining weight there, which set_location_offering changes. A field given null is cleared, but frozen, which can't be. ${STAFF_SHARED} ${TIMES}`,
+    description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or the weight entered for it at a Location, which set_location_offering changes. A field given null is cleared, but frozen, which can't be. ${STAFF_SHARED} ${TIMES}`,
     inputSchema: batchEditInput,
     outputSchema: z.object({ beanBatch: beanBatchItem }),
     annotations: { ...CHANGES, idempotentHint: true },
@@ -355,7 +365,7 @@ export class LibraryChangesTools {
   async editBeanBatch({ id: batchId, ...fields }: z.infer<typeof batchEditInput>, context: McpContext): Promise<ItemOutput> {
     const values = readContentEdit("beanBatch", { content: changed(fields) });
     await this.edits.editBatch(readBeanBatchId(batchId), values, editorOf(context));
-    return this.library.read("beanBatch", batchId);
+    return this.library.read("beanBatch", batchId, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -370,7 +380,7 @@ export class LibraryChangesTools {
   async createGrinder({ locationId, ...fields }: z.infer<typeof newGrinderInput>, context: McpContext): Promise<ItemOutput> {
     const at = readGrinderLocation({ locationId });
     const grinderId = await this.edits.createGrinder(at, readNewContent("grinder", { content: fields }), editorOf(context), callerOf(context).scope);
-    return this.library.read("grinder", grinderId);
+    return this.library.read("grinder", grinderId, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -386,7 +396,7 @@ export class LibraryChangesTools {
     const values = changed(fields);
     const grinderId = readGrinderId(given);
     await this.edits.editGrinder(grinderId, readContentEdit("grinder", { content: values }), editorOf(context), callerOf(context).scope);
-    return this.library.read("grinder", grinderId);
+    return this.library.read("grinder", grinderId, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -402,7 +412,7 @@ export class LibraryChangesTools {
   async editProfile({ id: given, ...fields }: z.infer<typeof profileEditInput>, context: McpContext): Promise<ItemOutput> {
     const profileId = readProfileId(given);
     await this.edits.editProfile(profileId, readContentEdit("profile", { content: changed(fields) }), editorOf(context));
-    return this.library.read("profile", profileId);
+    return this.library.read("profile", profileId, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -490,13 +500,13 @@ export class LibraryChangesTools {
         await this.recipeEdits.archive(readRecipeId(itemId), archived, editor, callerOf(context).scope);
         break;
     }
-    return this.library.read(itemKind, itemId);
+    return this.library.read(itemKind, itemId, callerOf(context).scope);
   }
 
   @BudgetedTool({
     name: "set_location_offering",
     title: "Change what a Location offers",
-    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and sets a batch's remaining weight there; the Location's tablets are written the change. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
+    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and enters a batch's weight there, which its Remaining Weight there is then worked out from: the weight entered less the dose of each Shot pulled there since. A weight of 0 finishes the batch there, kept in its history as a finish made by a weight of zero, and null leaves it untracked there. The Location's tablets are written the change. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
     inputSchema: offeringInput,
     outputSchema: itemOutput,
     annotations: { ...CHANGES, idempotentHint: true },
@@ -520,14 +530,14 @@ export class LibraryChangesTools {
       if (itemKind === "profile") await this.edits.showProfile(readProfileId(input.id), locationId, input.offered, editor, scope);
       else await this.edits.showEquipment(itemKind, readEquipmentId(itemKind, input.id), locationId, input.offered, editor, scope);
     }
-    return this.library.read(itemKind, input.id);
+    return this.library.read(itemKind, input.id, callerOf(context).scope);
   }
 
   /** Creates a Basket or Tool as its REST route does, shown at the Location given. */
   private async createEquipment(kind: EquipmentKind, { locationId, ...fields }: { locationId: string } & Record<string, unknown>, context: McpContext): Promise<ItemOutput> {
     const created = readNewEquipment(kind, { locationId, content: fields });
     const itemId = await this.edits.createEquipment(kind, created.locationId, created.content, editorOf(context), callerOf(context).scope);
-    return this.library.read(kind, itemId);
+    return this.library.read(kind, itemId, callerOf(context).scope);
   }
 
   /** Edits a Basket's or Tool's content as its REST route does. */
@@ -535,7 +545,7 @@ export class LibraryChangesTools {
     const values = changed(fields);
     const itemId = readEquipmentId(kind, given);
     await this.edits.editEquipment(kind, itemId, readContentEdit(kind, { content: values }), editorOf(context));
-    return this.library.read(kind, itemId);
+    return this.library.read(kind, itemId, callerOf(context).scope);
   }
 }
 

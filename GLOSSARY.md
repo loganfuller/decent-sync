@@ -120,7 +120,7 @@ A person who can change everything on the server, including machines, tokens and
 The person who pulled a shot, as named on the tablet. A barista doesn't need an account. Names that differ only in case or the spaces around them are one barista.
 
 **Staff**:
-A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and record stock there.
+A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and enter remaining weights there.
 _Avoid_: User (when the role matters), barista (a barista may not have an account)
 
 **Viewer**:
@@ -145,13 +145,9 @@ _Avoid_: Roast (as a record), run, bag, bucket, lot
 The roaster's own identifier for a bean batch, as on its label: free text with no set format, held once for the batch wherever it is. No two batches that are not archived hold the same one, compared ignoring case and the spaces around it, and an archived batch's code is free for another batch. It is set in the management interface or through an assistant, not on a tablet.
 _Avoid_: Lot number, batch number, batch id (the global id is another thing), SKU
 
-**Stock**:
-How much of a bean batch is held at one location, when it is tracked.
-_Avoid_: Inventory (for one batch at one place), remaining weight
-
-**Stock Movement**:
-One recorded change to a batch's stock at a location: a delivery, a transfer between locations, a count, or the coffee used by a shot. A location's stock is the sum of its movements since the last count.
-_Avoid_: Adjustment, transaction
+**Remaining Weight**:
+How much of a bean batch is left at one location: the weight last entered there, less the dose of each shot pulled there with the batch since, never below zero. It is worked out, not kept. A batch with no weight entered at a location is untracked there, which is not zero, and entering zero finishes the batch there.
+_Avoid_: Stock, inventory, count, balance
 
 **Profile**:
 A program the machine follows while pulling a shot, such as a pressure or flow curve. Each location shows or hides each profile.

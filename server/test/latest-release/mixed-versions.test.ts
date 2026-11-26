@@ -14,7 +14,7 @@ import { CURVES_REVISION } from "../../src/shots/extraction.js";
 import { latestReleaseDir, latestReleaseTag, releaseCurvesRevision, releaseWireRevision } from "../support/latest-release.mjs";
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
-import { derivedShot, preheatShotFixture } from "../support/shot-fixtures.js";
+import { derivedShot, preheatShotFixture, shotFixture } from "../support/shot-fixtures.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
 import { PluginStorage, RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
@@ -868,6 +868,71 @@ describe("the latest release beside the change", () => {
         await apis.change.waitForMachine(machine.machine.name, (viewed) => !viewed.online);
         expect(tablet.sent).not.toContainEqual(expect.objectContaining({ type: "heartbeat" }));
       }
+    });
+
+    // A Bean Batch's Remaining Weight (#706, ADR-0037): the latest release goes on adding batches at Locations and
+    // entering weights, each stored as it always was, and the change works its weight out from those and the Shots
+    // pulled since. The latest release's pages read the same route, whose fields they know keep their names.
+    it("reads a batch the latest release creates at two Locations, adds at a third and enters weights for, its weights falling with Shots in the change's reads alone", async () => {
+      const old = apis["latest release"];
+      const lab = await apis.change.createLocation("Weights, the lab", "America/Chicago");
+      const cafe = await apis.change.createLocation("Weights, the cafe", "America/Chicago");
+      const kiosk = await apis.change.createLocation("Weights, the kiosk", "America/Chicago");
+      const machineSerial = String(serial);
+      const { tablet } = await connected("Weights, on the latest release", "latest release", "latest release", { location: lab });
+      type Batch = {
+        id: string;
+        totalRemainingWeight?: number | null;
+        locations: { location: { id: string }; remainingWeight: number | null; entered?: unknown; used?: unknown }[];
+        finished: { location: { id: string } }[];
+      };
+      const read = async (through: Release, id: string) => (await apis[through].get<{ batch: Batch }>(`/bean-batches/${id}`)).batch;
+      const weights = async (through: Release, id: string) => Object.fromEntries((await read(through, id)).locations.map((here) => [here.location.id, here.remainingWeight]));
+
+      // The latest release's New Batch dialog still creates one at two Locations at once, and its page adds it at a third.
+      const { bean } = await old.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Weights" } }, 201);
+      const created = await old.send<{ batch: Batch }>(
+        "POST",
+        "/bean-batches",
+        { beanId: bean.id, content: { roastDate: "2026-11-20", weight: 1000 }, locations: [{ locationId: lab.id, remainingWeight: 500 }, { locationId: cafe.id }] },
+        201,
+      );
+      const id = created.batch.id;
+      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { atLocation: true, remainingWeight: 200 });
+      await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 450 });
+      expect(await weights("change", id)).toEqual({ [lab.id]: 450, [cafe.id]: null, [kiosk.id]: 200 });
+      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 650 });
+      expect((await read("change", id)).locations.find((here) => here.location.id === lab.id)).toMatchObject({ entered: { weight: 450 }, used: { shots: 0, weight: 0 } });
+
+      // A Shot at the lab, taken in by the latest release's server: the change's read falls by its dose, and the latest release's reads the weight entered.
+      const held = () => tablet.batches().find((record) => globalIdOf(record) === id);
+      await expect.poll(held).toBeTruthy();
+      const fixture = shotFixture();
+      const workflow = fixture.workflow as Record<string, unknown>;
+      tablet.pullShot({
+        ...fixture,
+        id: "mixed-weights-shot",
+        timestamp: new Date(Date.now() + 60_000).toISOString(),
+        annotations: { actualDoseWeight: 19 },
+        workflow: { ...workflow, machine: { ...(workflow.machine as Record<string, unknown>), serialNumber: machineSerial }, context: { ...(workflow.context as Record<string, unknown>), beanBatchId: held()!.id } },
+      });
+      await expect.poll(() => weights("change", id), { timeout: 15_000 }).toEqual({ [lab.id]: 431, [cafe.id]: null, [kiosk.id]: 200 });
+      expect(await weights("latest release", id)).toEqual({ [lab.id]: 450, [cafe.id]: null, [kiosk.id]: 200 });
+
+      // A weight the latest release enters starts the count again, and one it clears leaves the batch untracked there.
+      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { remainingWeight: null });
+      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 431 });
+      expect((await weights("change", id))[kiosk.id]).toBeNull();
+      // Zero entered through the change finishes it there, which the latest release reads as a finish.
+      await apis.change.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 0 });
+      for (const through of ["change", "latest release"] as const) {
+        const batch = await read(through, id);
+        expect(batch.finished.map((here) => here.location.id), through).toEqual([lab.id]);
+        expect(batch.locations.map((here) => here.location.id).sort(), through).toEqual([cafe.id, kiosk.id].sort());
+      }
+      // Its history, read through the latest release, holds the finish made by a weight of zero as fields it knows.
+      const history = await old.get<{ versions: { fields: Record<string, unknown> }[] }>(`/bean-batches/${id}/history`);
+      expect(history.versions[0]!.fields).toEqual({ remainingWeight: 0, atLocation: false });
     });
 
     it("writes a Library edit made through one instance to the tablet the other holds", async () => {

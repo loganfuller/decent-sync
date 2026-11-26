@@ -30,7 +30,7 @@ const CONTENT: [key: string, term: string, show: (value: unknown, content: Recor
   ["notes", "Notes", text],
 ];
 
-/** One Bean Batch: what it is, the Locations it is at with its remaining weight at each, and where it was finished. */
+/** One Bean Batch: what it is, where it is with its remaining weight at each Location and in all, and where it was finished. */
 export function BeanBatchPage() {
   const { id = "" } = useParams();
   return <BeanBatchDetails key={id} id={id} />;
@@ -123,10 +123,6 @@ function BeanBatchDetails({ id }: { id: string }) {
           <CardHeader>
             <CardTitleWithInfo title="Roast">
               <p>As it was created, with the edits made since, on tablets or here.</p>
-              <p>
-                The Batch Code is your own identifier for this roast, as on its label. No other batch that is not Archived may hold
-                it, whatever its case. It is set here, not on a tablet.
-              </p>
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
