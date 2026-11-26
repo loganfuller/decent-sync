@@ -308,6 +308,8 @@ model Location {
   beanOrigins     BeanOrigin[]
   batchesCreated  BeanBatch[]          @relation("BeanBatchesCreated")
   batches         BatchLocation[]
+  batchMovesFrom  BatchMove[]          @relation("BatchMovesFrom")
+  batchMovesTo    BatchMove[]          @relation("BatchMovesTo")
   profilesCreated Profile[]            @relation("ProfilesCreated")
   profiles        ProfileLocation[]
   basketsCreated  Basket[]             @relation("BasketsCreated")
@@ -1329,7 +1331,8 @@ model TabletBean {
 
 /// One roast of a Bean (ADR-0008), by its global id (ADR-0006). Its content
 /// is the same everywhere; whether it is at each Location, and its remaining
-/// weight there, are each Location's own (`BatchLocation`).
+/// weight there, are each Location's own (`BatchLocation`), and the amounts
+/// moved between its Locations are kept (`BatchMove`).
 model BeanBatch {
   id                String    @id @default(uuid(7)) @db.Uuid
   beanId            String    @map("bean_id") @db.Uuid
@@ -1357,6 +1360,7 @@ model BeanBatch {
   fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
 
   locations      BatchLocation[]
+  moves          BatchMove[]
   tablets        TabletBeanBatch[]
   shots          Shot[]
   workflowEvents WorkflowEvent[]
@@ -1367,8 +1371,9 @@ model BeanBatch {
 
 /// A Bean Batch's state at one Location (ADR-0008), each part a field of its
 /// own (ADR-0020): whether it is there, from when it was added until it is
-/// finished, and its remaining weight there, the latest value entered. Each
-/// part keeps the time of the edit that set it, a tablet's edits by the
+/// finished, and the weight its count there starts from, the latest value
+/// entered, or the amount a Batch Move brought where none was (ADR-0037).
+/// Each part keeps the time of the edit that set it, a tablet's edits by the
 /// record's `updatedAt` in UTC (ADR-0003).
 model BatchLocation {
   batchId                  String    @map("batch_id") @db.Uuid
@@ -1385,21 +1390,68 @@ model BatchLocation {
   /// of the Bean, has seen it had seen it (`TabletBeanBatch.seenAt`,
   /// `TabletBean.seenAt`).
   presenceDecidedAt        DateTime? @map("presence_decided_at") @db.Timestamptz(3)
-  /// The remaining weight entered there last, in grams; null if it was cleared.
+  /// The weight its count there starts from, in grams: the one entered there
+  /// last, or the amount a Batch Move brought where the batch had none, or
+  /// zero once a move took all of it; null if it was cleared.
   remainingWeight          Float?    @map("remaining_weight")
-  /// When that weight was entered; null if none ever was there.
+  /// When that count started; null if none ever did there.
   remainingWeightAt        DateTime? @map("remaining_weight_at") @db.Timestamptz(3)
   /// The version that last added or finished it there (`ItemVersion`), if
   /// one is known: who did, for a Lost Edit that loses to it, or that it
   /// becomes once a later edit replaces it unseen. No foreign key:
   /// versions go only with their item, which takes this row with it.
   presenceVersionId        String?   @map("presence_version_id") @db.Uuid
-  /// The version that entered the remaining weight there, as `presenceVersionId`.
+  /// The version that started the count there, as `presenceVersionId`: a
+  /// weight entered, or a Batch Move. It names the count: a move counts at
+  /// the Location while this is the version it found there (`BatchMove`).
   remainingWeightVersionId String?   @map("remaining_weight_version_id") @db.Uuid
 
   @@id([batchId, locationId])
   @@index([locationId])
   @@map("batch_locations")
+}
+
+/// A Batch Move (ADR-0037): a Bean Batch taken from one Location it was at
+/// to another, all of it or part of its weight, kept because each
+/// Location's Remaining Weight is worked out from the amounts moved to it
+/// and away from it since its count started. Never changed once written;
+/// it goes with its batch. A Location deleted leaves the move with the
+/// other's amount still counted. The previous release neither reads nor
+/// writes it (ADR-0025). See `moveBatchBetween` in
+/// server/src/library/location-state.ts.
+model BatchMove {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  batchId            String    @map("batch_id") @db.Uuid
+  batch              BeanBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  /// The Location it left.
+  fromLocationId     String?   @map("from_location_id") @db.Uuid
+  fromLocation       Location? @relation("BatchMovesFrom", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  /// The Location it joined.
+  toLocationId       String?   @map("to_location_id") @db.Uuid
+  toLocation         Location? @relation("BatchMovesTo", fields: [toLocationId], references: [id], onDelete: SetNull)
+  /// The weight moved, in grams: for a move of all, what the Location left
+  /// had then. Null for a batch with no weight there, which moves none.
+  amount             Float?
+  /// Whether all of it was moved, which finished it at the Location left.
+  movedAll           Boolean   @map("moved_all")
+  /// When it was made: an account's by PostgreSQL's clock.
+  movedAt            DateTime  @map("moved_at") @db.Timestamptz(3)
+  /// Its entry in the batch's history (`ItemVersion`). No foreign key, as
+  /// `BatchLocation.presenceVersionId` has none.
+  versionId          String?   @map("version_id") @db.Uuid
+  /// The count it was taken from at the Location left: that Location's
+  /// `remainingWeightVersionId` as the move found it. It is moved away from
+  /// there since that count started, and no longer once another starts.
+  fromCountVersionId String?   @map("from_count_version_id") @db.Uuid
+  /// The count it was added to at the Location joined, as `fromCountVersionId`
+  /// names the other; its own `versionId` where the count there starts with
+  /// it, which is then what the count starts from and no move since.
+  toCountVersionId   String?   @map("to_count_version_id") @db.Uuid
+
+  @@index([batchId])
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@map("batch_moves")
 }
 
 /// A Library Bean Batch's record on one tablet (ADR-0006), as `TabletBean`
@@ -2082,7 +2134,9 @@ model ItemVersion {
   locationId           String?       @map("location_id") @db.Uuid
   location             Location?     @relation("VersionLocation", fields: [locationId], references: [id], onDelete: Cascade)
   /// The fields it set, by Decaid's names or a Location's state's
-  /// (`atLocation`, `remainingWeight` or `shown`), each with its value.
+  /// (`atLocation`, `remainingWeight` or `shown`), each with its value. A
+  /// Batch Move's names the Location joined, with what the move set there,
+  /// and the move itself (`movedFrom`, `movedAmount`, `movedAll`).
   fields               Json          @db.JsonB
   /// The Machine whose tablet made it, if one did.
   machineId            String?       @map("machine_id") @db.Uuid

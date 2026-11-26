@@ -252,11 +252,25 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   Archived (Content, below).
 - `batch_locations`: each batch's state at a Location, each part a field of
   its own (ADR-0020): when it was last added there and when it was finished
-  there since, if it was, and the remaining weight entered there last, in
-  grams, with that edit's time, never earlier than the one before. That
-  weight is all that is kept: the batch's Remaining Weight there is worked
-  out from it as it is read, less the dose of each Shot linked to the batch
-  that was pulled there after that time (ADR-0037, Remaining Weight, below). A batch is at a Location while it was added
+  there since, if it was, and the weight its count there starts from, in
+  grams, with that edit's time, never earlier than the one before, and its
+  version, which names the count: the remaining weight entered there last,
+  or the amount a Batch Move brought where the batch had none. That weight
+  is all that is kept of it there: the batch's Remaining Weight there is
+  worked out from it as it is read, less the dose of each Shot linked to the
+  batch that was pulled there after that time, plus what Batch Moves have
+  brought since and less what they have taken away (ADR-0037, Remaining
+  Weight, below).
+- `batch_moves`: each Batch Move (#704, ADR-0037): its batch, the Location it left and the one it joined, each null
+  once deleted, the weight moved, null for a batch with no weight where it
+  was, whether it was all of it, its time, its version in the batch's
+  history, and the count it was taken from and the one it was added to, by
+  the version that started each (`from_count_version_id`,
+  `to_count_version_id`). A move counts at a Location while the count it
+  found there is still that Location's. A weight entered that is timed
+  before moves of an amount there and replaces their count, as one entered
+  on a tablet while it was offline does, takes them on as its own.
+- A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
   edit wins (ADR-0020), with when that was last decided by PostgreSQL's clock.
   An edit from a tablet whose record of the batch had seen that decision
@@ -390,7 +404,9 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   server took it in (`received_at`, by PostgreSQL's clock). An edit of the
   item's content has no Location; one of a Location's state of it names that
   Location, and only those fields: `atLocation` and `remainingWeight` for a
-  batch, `shown` for a Profile. Joining the Library is an item's first
+  batch, `shown` for a Profile. A Batch Move is one entry, at the Location
+  joined, with what it set there and the move itself: `movedFrom`, the id of
+  the Location left, `movedAmount` and `movedAll`. Joining the Library is an item's first
   history entry. Each names its item by kind and id (`kind`, `item_id`), and
   goes with it. History entries taken in together keep the order they were
   taken in (`seq`), and so do Lost Edits.
@@ -776,20 +792,42 @@ Lost Edit names is kept, still refused, so history goes on naming it
   (`enterRemainingWeight`), and one given with a create or an add is
   refused as a bad request. Its details are its content.
 
+  **Batch Moves** (#704, ADR-0037). A batch is moved from one Location it is
+  at to another, all of it or part of its weight (`moveBatch` in
+  `library-edits.service.ts`, `moveBatchBetween` in `location-state.ts`), in
+  one transaction under both Locations' locks, taken in id order. An amount
+  is above zero and below what the Location left has, as worked out then
+  (409 otherwise, saying to move all or to enter a corrected weight first),
+  and is kept as a row of `batch_moves` alone where both Locations have a
+  count: neither starts again, so a Shot pulled at the Location left before
+  the move and stored after it still counts there. All takes what the
+  Location left has, finishes the batch there as a finish does, and leaves
+  its count there at zero. At the Location joined, the batch is added, or
+  added again where it is already, so a finish there timed before the move
+  and received after it loses to the move; where it has no weight there, was not there, or Shots had used more
+  than its count held, the amount arriving is where its count starts. A
+  batch with no weight at the Location left moves as all or as `"some"`,
+  changing no weight; some to a Location it is at already is refused. The
+  move is one version of the batch (History, above). Adding a batch at a
+  Location without moving it, as the placement route, a tablet's un-archive
+  and a Recipe taking a batch from another Location do, moves no weight.
+
   **Remaining Weight** (ADR-0037). A batch's Remaining Weight at a Location
-  is the weight last entered there less the dose of each Shot linked to the
-  batch (`shots.library_batch_id`) whose Location is that one
-  (`shots.location_id`) and that was pulled after the entry
+  is the weight its count there starts from less the dose of each Shot
+  linked to the batch (`shots.library_batch_id`) whose Location is that one
+  (`shots.location_id`) and that was pulled after the count started
   (`pulled_at > remaining_weight_at`), each by its measured dose, else the
-  dose its Workflow was set to, else nothing, and never below zero. It is
-  worked out as it is read (`usedSince`, `remainingAfter` in
-  `server/src/library/bean-batches.service.ts`), for every batch of a list
-  in one query, and nothing is written as a Shot is stored: a Shot edited,
-  linked to another batch, deleted or arriving late changes the next read.
-  A batch with no weight entered at a Location is untracked there, null and
-  never zero, and reaching zero through Shots finishes nothing. What a
-  tablet's record holds is still the weight entered (`holdings.ts`), which
-  #705 changes.
+  dose its Workflow was set to, else nothing, plus the amounts Batch Moves
+  have brought to that count and less those they have taken from it, and
+  never below zero. It is worked out as it is read (`usedSince`,
+  `movedSince`, `remainingAfter` in
+  `server/src/library/remaining-weight.ts`), for every batch of a list in
+  one query for the Shots and one for the moves, and nothing is written as
+  a Shot is stored: a Shot edited, linked to another batch, deleted or
+  arriving late changes the next read. A batch with no weight at a Location
+  is untracked there, null and never zero, and reaching zero through Shots
+  finishes nothing. What a tablet's record holds is still the weight its
+  Location's count starts from (`holdings.ts`), which #705 changes.
 - **Grinders.** A Grinder is created belonging to a Location, which never
   changes; its Archived state and its content are edited under that
   Location's lock, as a tablet's are. Its form and page have its range and
@@ -1109,7 +1147,8 @@ Lost Edit names is kept, still refused, so history goes on naming it
   never linked to one Archived.
 - **Who.** An Admin does everything. Staff edit the Library's shared content
   anywhere (a Bean, a batch's details, a Basket, a Tool) and Archive and
-  restore items, but add and finish batches, set their remaining weight,
+  restore items, and move a batch between two Locations when either is
+  theirs, but add and finish batches, set their remaining weight,
   create and edit Grinders, create Baskets and Tools, show and hide
   Profiles, Baskets and Tools, and create, edit, slot, Archive and restore
   Recipes and choose and clear their Reference Shots, and copy a Recipe
@@ -3263,12 +3302,17 @@ Every endpoint requires the account session; Staff read them as Admins do.
   and the spaces around it: at most one that is not Archived, and any
   Archived that held it. `locations`
   lists the Locations it is at, by name, each `{ location, remainingWeight,
-  entered, used, since }`: its Remaining Weight there, in grams, worked out
-  (ADR-0037), or null where none was entered or it was cleared; `entered`,
-  the weight last entered there, when (`at`) and who entered it (`by`, as a
-  version's `source`, its account named to Admins alone), and `used`, the
-  `shots` pulled there since and the `weight` they used, both null where it
-  is untracked; and when it was last added there, which a tablet
+  entered, used, moved, since }`: its Remaining Weight there, in grams,
+  worked out (ADR-0037), or null where it has none or it was cleared;
+  `entered`, the weight its count there starts from, when (`at`), who
+  entered or moved it (`by`, as a version's `source`, its account named to
+  Admins alone) and, for a count that started with a Batch Move, the
+  Location it arrived from (`arrivedFrom`, null for a weight entered);
+  `used`, the `shots` pulled there since and the `weight` they used; and
+  `moved`, what Batch Moves have brought there (`in`) and taken from there
+  (`away`) since, each with the amounts by the other Location (`from`, `to`,
+  each `{ location, weight }`), all three null where it is untracked; and
+  when it was last added there, which a tablet
   adding it again while it is there moves. `totalRemainingWeight` is the
   sum over the Locations that track it, null where none does.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
@@ -3449,8 +3493,18 @@ Every endpoint requires the account session; Staff read them as Admins do.
   remainingWeight }`, either or both, adds it at the Location (true) or
   finishes it there (false), and enters its weight there, null to
   clear it and zero to finish it there; 409 for a weight where it is not
-  and is not added, 400 for zero with an add. Each returns
-  `{ batch }`. 403 for Staff at a Location they do not work at.
+  and is not added, 400 for zero with an add. It moves no weight from any
+  other Location. `POST /api/bean-batches/:id/moves`, with
+  `{ fromLocationId, toLocationId, amount }`, is a Batch Move from one
+  Location the batch is at to another: `amount` a number of grams above zero
+  and below what the Location left has, or `"all"`, which finishes it there,
+  or, for a batch with no weight there, `"some"`; 400 for an amount of zero
+  or below and for a Location moved to itself, 404 for a Location or batch
+  that does not exist, and 409, saying why, for one the batch is not at, an
+  amount equal to or above what is there, and an amount or `"some"` where
+  that does not apply. Each returns
+  `{ batch }`, the move with 200. 403 for Staff at a Location they do not
+  work at, and for a move, where neither Location is one they work at.
 - `POST /api/grinders`, with `{ locationId, content }`, its model required,
   creates a Grinder belonging to that Location, and returns `{ grinder }`
   with 201. `PATCH /api/grinders/:id` and `PUT /api/grinders/:id/archived` edit
@@ -3562,7 +3616,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ versions, lostEdits }`, the item's history (`HistoryView` in
   `server/src/library/history.service.ts`): its history entries (ADR-0020)
   and its Lost Edits (ADR-0033, below). `versions` are the history entries, the latest taken
-  in first, each `{ id, fields, location, source, editedAt, receivedAt }`:
+  in first, each `{ id, fields, location, source, editedAt, receivedAt,
+  move }` (`move`, for a Batch Move, `{ from, to, amount, all }`
+  with both Locations by name, and null for any other entry):
   the fields it set, with their values, of the item's content, or of its
   state at
   `location` (`atLocation`, `remainingWeight`, `shown`), null for its
@@ -3633,9 +3689,12 @@ at each and its total, the Grinders and the Location each belongs to, and the Pr
 where each is shown. Each Bean's page shows its content, where it is
 offered, its batches and its likely duplicates, each batch's page its roast,
 the Locations it is at with its remaining weight at each, a line saying
-what that count starts from and what Shots have used since
-(`web/src/lib/remaining-weight.ts`), its total, and where it was
-finished, each Grinder's page its Location and what it is, and each
+what that count starts from and what Shots have used and Batch Moves have
+brought and taken since (`web/src/lib/remaining-weight.ts`), each with
+**Move to…**, whose dialog moves all of it or part of its weight to another
+Location and says first what each will hold (`MoveBatchDialog` in
+`web/src/components/library-forms.tsx`, `web/src/lib/batch-moves.ts`), its
+total, and where it was finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. It opens on its Recipes (`/library/recipes`,
 `web/src/pages/RecipesPage.tsx`, #547), the first of its lists: every

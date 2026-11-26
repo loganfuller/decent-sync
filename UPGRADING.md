@@ -27,6 +27,43 @@ Releasing).
 
 ## Unreleased
 
+### A Bean Batch is now moved between Locations
+
+A batch is taken from one Location to another by a Batch Move, all of it or
+part of its weight
+([ADR-0037](docs/adr/0037-a-batchs-remaining-weight-is-per-location-and-worked-out-from-shots.md)).
+Nothing is migrated: a batch that is at several Locations stays at each, with
+the weight entered at each. There is nothing to do before or after deploying,
+but the batch's page changes:
+
+- **Move to… replaces Add it at.** Each Location in a batch's **Where it is**
+  card has **Move to…**. Moving part lowers the weight at the Location it
+  leaves and raises the weight at the Location it joins by the same amount.
+  Moving all takes everything left and finishes the batch at the Location it
+  left, as **Finish here** does. The page no longer adds a batch at a second
+  Location without moving it; a batch at no Location is still offered one to
+  add it at.
+- **A batch with no weight entered moves as all of it or some of it**, and no
+  weight changes. To move a known amount, enter its weight first.
+- **Staff move a batch when the Location it leaves or the one it joins is one
+  they work at.** Entering a weight, finishing a batch and adding one without
+  moving it still need that Location.
+- **Assistants move weight with `move_bean_batch`.** `set_location_offering`
+  still adds a batch at a Location, and moves no weight from any other. Over
+  the REST API a move is `POST /api/bean-batches/:id/moves`, and
+  `PUT /api/bean-batches/:id/locations/:locationId` adds, finishes and enters
+  a weight as before.
+- **On tablets, a batch's remaining weight is still the weight its count
+  starts from.** A tablet at a Location a move brought the batch to holds the
+  amount that arrived. It does not rise or fall on the tablet with later
+  moves or Shots yet.
+
+While the upgrade runs, a page still open from the previous release shows a
+batch's weight without the moves made since it was entered, and its **Add**
+still adds a batch at a Location, moving no weight. Reload the page. A new
+page that reaches a server still on the previous release can't move a batch
+until the upgrade is done, and says so.
+
 ### A Bean Batch's remaining weight now falls with each Shot
 
 A batch's remaining weight at a Location is now worked out: the weight last
@@ -44,8 +81,8 @@ what you see changes:
   management interface, over the REST API, through an assistant and on a
   tablet. A weight that reaches zero through Shots finishes nothing.
 - **A new batch is created at exactly one Location.** The `create_bean_batch`
-  assistant tool and the New Batch dialog take one: create it at one, then add
-  it at the others. So that a page still open from the previous release goes on
+  assistant tool and the New Batch dialog take one: create it at one, then
+  move it to the others. So that a page still open from the previous release goes on
   working, the REST API still takes no Location or several in this release,
   each Location then starting at the weight given for it or untracked; the
   next release refuses them there too. A batch created at one Location with a

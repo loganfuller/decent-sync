@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BatchAtLocation, EditSource } from "../src/lib/api";
 import { atText, dayText, enteredBy, totalText, weightLine, weightText } from "../src/lib/remaining-weight";
 
-// What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706).
+// What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706), with what Batch Moves have brought and taken since its count started (#704).
 
 const location = { id: "l1", name: "Downtown", timeZone: "America/Chicago" };
 const sam: EditSource = { machine: null, tabletId: null, account: { id: "a1", name: "Sam" }, connectedApp: null };
@@ -46,6 +46,32 @@ describe("a batch's Remaining Weight in words", () => {
     expect(dayText(at, later)).toMatch(/2026/);
     expect(weightLine(here({}), undefined, later)).toBe(`4180 g entered ${dayText(at, later)} by Sam. Since: 38 Shots used 760 g.`);
     expect(weightLine(here({ remainingWeight: null, entered: null, used: null }), undefined, now)).toBe("No weight entered.");
+  });
+
+  it("says where a count that started with a move arrived from, and what moves have brought and taken since, by Location", () => {
+    const day = dayText(at, now);
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    const lab = { ...location, id: "l3", name: "Roastery Lab" };
+    expect(weightLine(here({ moved: { in: 0, from: [], away: 500, to: [{ location: riverside, weight: 500 }] } }), undefined, now)).toBe(
+      `4180 g entered ${day} by Sam. Since: 38 Shots used 760 g, 500 g moved to Riverside.`,
+    );
+    expect(weightLine(here({ entered: { weight: 500, at, by: sam, arrivedFrom: location }, used: { shots: 4, weight: 72 }, moved: { in: 0, from: [], away: 0, to: [] } }), undefined, now)).toBe(
+      `500 g arrived from Downtown ${day}. Since: 4 Shots used 72 g.`,
+    );
+    // No Shots, and moves both ways: each other Location has its amount.
+    expect(
+      weightLine(
+        here({ used: { shots: 0, weight: 0 }, moved: { in: 320.5, from: [{ location: lab, weight: 320.5 }], away: 600, to: [{ location: riverside, weight: 500 }, { location: lab, weight: 100 }] } }),
+        undefined,
+        now,
+      ),
+    ).toBe(`4180 g entered ${day} by Sam. Since: 320.5 g moved from Roastery Lab, 500 g moved to Riverside, 100 g moved to Roastery Lab.`);
+    // An amount whose other Location has been deleted since is still counted, and said.
+    expect(weightLine(here({ used: { shots: 0, weight: 0 }, moved: { in: 50, from: [], away: 0, to: [] } }), undefined, now)).toBe(
+      `4180 g entered ${day} by Sam. Since: 50 g moved from a Location since deleted.`,
+    );
+    // Nothing since reads as it did, and a weight entered through the release that moved nothing has no `moved`.
+    expect(weightLine(here({ used: { shots: 0, weight: 0 }, moved: { in: 0, from: [], away: 0, to: [] } }), undefined, now)).toBe(`4180 g entered ${day} by Sam. No Shots since.`);
   });
 
   it("writes no line where the release before answers, which says none of it", () => {

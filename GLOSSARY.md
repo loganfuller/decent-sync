@@ -120,7 +120,7 @@ A person who can change everything on the server, including machines, tokens and
 The person who pulled a shot, as named on the tablet. A barista doesn't need an account. Names that differ only in case or the spaces around them are one barista.
 
 **Staff**:
-A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and enter remaining weights there.
+A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and enter remaining weights there. They can move a bean batch between two locations when either is theirs.
 _Avoid_: User (when the role matters), barista (a barista may not have an account)
 
 **Viewer**:
@@ -138,7 +138,7 @@ A coffee as sold by a roaster, identified by roaster and name. It is offered at 
 _Avoid_: Coffee (when the product is meant), blend
 
 **Bean Batch**:
-One roast of a bean that baristas pick: a single roaster run if you roast, or one roast date from your supplier if you buy. A batch is at a location from when it's added there until it's finished there, and can be at several locations at once.
+One roast of a bean that baristas pick: a single roaster run if you roast, or one roast date from your supplier if you buy. A batch is at a location from when it's added there until it's finished there, and can be at several locations at once. It reaches another location by a batch move, or by being added there, which moves no weight.
 _Avoid_: Roast (as a record), run, bag, bucket, lot
 
 **Batch Code**:
@@ -146,8 +146,12 @@ The roaster's own identifier for a bean batch, as on its label: free text with n
 _Avoid_: Lot number, batch number, batch id (the global id is another thing), SKU
 
 **Remaining Weight**:
-How much of a bean batch is left at one location: the weight last entered there, less the dose of each shot pulled there with the batch since, never below zero. It is worked out, not kept. A batch with no weight entered at a location is untracked there, which is not zero, and entering zero finishes the batch there.
+How much of a bean batch is left at one location: the weight its count there starts from, less the dose of each shot pulled there with the batch since, plus what batch moves have brought there since, less what they have taken away, never below zero. The count starts from the weight last entered there, or, where the batch had none when a batch move brought some, from the amount that arrived. It is worked out, not kept. A batch with no weight at a location is untracked there, which is not zero, and entering zero finishes the batch there.
 _Avoid_: Stock, inventory, count, balance
+
+**Batch Move**:
+A bean batch taken from one location it is at to another: all of it, or part of its weight. Moving part lowers the remaining weight at the location it leaves by the amount and raises it at the location it joins by the same amount, so a move never changes how much of the batch there is. Moving all takes everything left and finishes the batch at the location it left. A batch with no weight where it is moves as all of it or some of it, and no weight changes. A wrong move is corrected by moving back.
+_Avoid_: Transfer, delivery, shipment, stock movement
 
 **Profile**:
 A program the machine follows while pulling a shot, such as a pressure or flow curve. Each location shows or hides each profile.

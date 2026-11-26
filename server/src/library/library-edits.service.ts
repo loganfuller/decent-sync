@@ -11,12 +11,14 @@ import { grinderEdit, newGrinderProblem } from "./grinder-range.js";
 import { type EditSource, type Editor, type ItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, batchName, idSql } from "./kinds.js";
-import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showAt } from "./location-state.js";
+import type { BatchMoveRequest } from "./item-input.js";
+import { MoveRefused, type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, moveBatchBetween, showAt } from "./location-state.js";
 import { refuseUnrunnableAt } from "./profile-reach.js";
 
 // Creating and editing Beans, Bean Batches and Grinders in the management
 // interface, Archiving and restoring them, and adding and finishing batches
-// at Locations with their remaining weight there (ticket #87); showing and
+// at Locations with their remaining weight there (ticket #87), and moving
+// them between Locations, all or part of their weight (ticket #704); showing and
 // hiding Profiles at Locations, and Archiving and restoring them (ticket
 // #88); and showing and hiding Baskets and Tools at Locations (ticket #138),
 // and creating, editing, Archiving and restoring them (ticket #139).
@@ -40,7 +42,8 @@ import { refuseUnrunnableAt } from "./profile-reach.js";
 // details, a Basket's, a Tool's and a Profile's title, author and notes) and Archive and restore items, but add
 // and finish batches, set their remaining weight, create and edit Grinders,
 // create Baskets and Tools, and show and hide Profiles, Baskets and Tools
-// only at their own Locations, as a Grinder belongs to one.
+// only at their own Locations, as a Grinder belongs to one. They move a
+// batch between two Locations when either is theirs.
 
 /** A batch at a Location as a request sets it: whether it is there, and its remaining weight there, null to clear it. */
 export interface BatchPlacement {
@@ -219,6 +222,40 @@ export class LibraryEditsService {
       }
       await place(tx, id, locationId, placement, await editTime(tx), accountSource(editor));
       await notify(tx, "library_changes", locationId);
+    }, INTAKE_TRANSACTION);
+  }
+
+  /**
+   * Moves the batch from one Location it is at to another, all of it or part
+   * of its weight (ADR-0037, `moveBatchBetween`): one change, under both
+   * Locations' locks, taken in id order as a batch created at several takes
+   * them, so two moves at once are made one after the other, through any
+   * instance, the second over what the first left. Staff move it when the
+   * Location it leaves or the one it joins is theirs, so whoever sends it or
+   * receives it can record it: 403 where neither is. 404 if there is no such
+   * batch or Location, and 409, saying why, for a move its state refuses: one
+   * from a Location it is not at, an amount equal to or above what is there,
+   * an amount or some where that does not apply.
+   */
+  async moveBatch(id: string, move: BatchMoveRequest, editor: Editor, scope: Scope): Promise<void> {
+    const { fromLocationId, toLocationId, amount } = move;
+    if (!includesLocation(scope, fromLocationId) && !includesLocation(scope, toLocationId)) {
+      throw new ForbiddenException("Staff move a batch only from or to a Location they work at");
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const locationIds = [fromLocationId, toLocationId].sort((a, b) => a.localeCompare(b));
+      await this.checkLocations(tx, locationIds);
+      for (const locationId of locationIds) await lockLocation(tx, locationId);
+      // Under its key's lock, so it is not hard-deleted until its state at both changes.
+      const batch = await tx.$queryRaw<unknown[]>`SELECT 1 FROM bean_batches WHERE id = ${id}::uuid FOR KEY SHARE`;
+      if (batch.length === 0) throw notFound("beanBatch");
+      try {
+        await moveBatchBetween(tx, id, fromLocationId, toLocationId, amount, await editTime(tx), accountSource(editor));
+      } catch (error) {
+        if (error instanceof MoveRefused) throw new ConflictException(error.message);
+        throw error;
+      }
+      await notify(tx, "library_changes", id);
     }, INTAKE_TRANSACTION);
   }
 

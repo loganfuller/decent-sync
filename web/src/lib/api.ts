@@ -1277,21 +1277,48 @@ export interface BatchAtLocation {
   location: Location;
   /**
    * Its Remaining Weight there, in grams, worked out by the server: the
-   * weight last entered there less the dose of each Shot linked to the batch
-   * that was pulled there since, never below zero. Null where it is
-   * untracked: none was entered, or it was cleared.
+   * weight its count there starts from, less the dose of each Shot linked to
+   * the batch that was pulled there since, plus what Batch Moves have
+   * brought there since, less what they have taken away, never below zero.
+   * Null where it is untracked: none was entered and none arrived by a move,
+   * or it was cleared.
    */
   remainingWeight: number | null;
   /**
-   * The weight last entered there, when, and who entered it, where known;
-   * null where it is untracked. The release before answers without it, as it
-   * may during a deploy (ADR-0025).
+   * The weight its count there starts from, and when: the one last entered
+   * there, with who entered it, where known, or, for a count that started
+   * with a Batch Move, the amount that arrived, with the Location it arrived
+   * from (`arrivedFrom`, null for a weight entered). Null where it is
+   * untracked. The release before answers without it, and the one that
+   * entered weights without `arrivedFrom`, as either may during a deploy
+   * (ADR-0025).
    */
-  entered?: { weight: number; at: string; by: EditSource | null } | null;
-  /** The Shots pulled there since that weight was entered, and the coffee they used, in grams; null where it is untracked. Absent as `entered` is. */
+  entered?: { weight: number; at: string; by: EditSource | null; arrivedFrom?: Location | null } | null;
+  /** The Shots pulled there since its count started, and the coffee they used, in grams; null where it is untracked. Absent as `entered` is. */
   used?: { shots: number; weight: number } | null;
+  /**
+   * What Batch Moves have brought there (`in`) and taken from there (`away`)
+   * since its count started, in grams, each with the amounts by the other
+   * Location; null where it is untracked. Absent from the release before
+   * (ADR-0025), which moves nothing.
+   */
+  moved?: { in: number; from: MovedWith[]; away: number; to: MovedWith[] } | null;
   /** When it was added there. */
   since: string;
+}
+
+/** An amount moved between a Location and another since its count started, in grams, by that other Location. */
+export interface MovedWith {
+  location: Location;
+  weight: number;
+}
+
+/** A Batch Move as a batch's history holds it: the Location left and the one joined, each null if deleted since, the weight moved, null for a batch with no weight where it was, and whether it was all of it. */
+export interface BatchMoveView {
+  from: Location | null;
+  to: Location | null;
+  amount: number | null;
+  all: boolean;
 }
 
 /** A Bean Batch in the Library, as the Bean Batches list shows it. */
@@ -1317,7 +1344,7 @@ export interface BeanBatchSummary {
 /** A Bean Batch with its content: Decaid's record fields, as the tablet that created it sent them. */
 export interface BeanBatch extends BeanBatchSummary {
   content: Record<string, unknown>;
-  /** The Locations it was at and has been finished at since, with when and the weight last entered there. */
+  /** The Locations it was at and has been finished at since, with when and the weight its count there last started from: zero where a Batch Move took all of it. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
 }
 
@@ -1695,6 +1722,8 @@ export interface ItemVersion {
    * gone, and its Location then, if it still exists. Null otherwise.
    */
   copiedFrom: { id: string; name: string | null; location: Location | null } | null;
+  /** For a Batch Move, one entry of a Bean Batch's history, the move; null for any other version, and absent from the release before (ADR-0025). */
+  move?: BatchMoveView | null;
 }
 
 /**

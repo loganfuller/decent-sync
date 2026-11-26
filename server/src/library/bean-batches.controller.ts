@@ -7,7 +7,7 @@ import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type HistoryView, HistoryService, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
-import { readArchived, readContentEdit, readNewBatch, readPlacement } from "./item-input.js";
+import { readArchived, readBatchMove, readContentEdit, readNewBatch, readPlacement } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBatchCodeFilter, readBeanBatchId } from "./bean-batches.service.js";
 
@@ -15,8 +15,8 @@ import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBatc
  * The Library's Bean Batches, the Locations each is at and its remaining
  * weight there. Staff read them, create them and edit their details, and
  * Archive and restore them, as Admins do, but add and finish them, and set
- * their remaining weight, only at their own Locations; only an Admin
- * hard-deletes one.
+ * their remaining weight, only at their own Locations, and move one between
+ * two Locations when either is theirs; only an Admin hard-deletes one.
  */
 @Controller("api/bean-batches")
 export class BeanBatchesController {
@@ -72,7 +72,11 @@ export class BeanBatchesController {
     return { batch: await this.batches.get(batchId, session.scope) };
   }
 
-  /** Adds it at the Location or finishes it there, and sets its remaining weight there: `{ atLocation, remainingWeight }`, either or both. */
+  /**
+   * Adds it at the Location or finishes it there, and sets its remaining
+   * weight there: `{ atLocation, remainingWeight }`, either or both. It moves
+   * no weight from any other Location: a Batch Move does (`move`).
+   */
   @AllowStaff()
   @Put(":id/locations/:locationId")
   async place(
@@ -83,6 +87,21 @@ export class BeanBatchesController {
   ): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
     await this.edits.placeBatch(batchId, readLocationId(locationId).toLowerCase(), readPlacement(body), managementEditor(session.account.id), session.scope);
+    return { batch: await this.batches.get(batchId, session.scope) };
+  }
+
+  /**
+   * Moves it from one Location it is at to another, a Batch Move (ADR-0037):
+   * `{ fromLocationId, toLocationId, amount }`, `amount` a number of grams
+   * above zero and below what the Location left has, or `"all"`, which
+   * finishes it there, or, for a batch with no weight there, `"some"`.
+   */
+  @AllowStaff()
+  @Post(":id/moves")
+  @HttpCode(200)
+  async move(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
+    const batchId = readBeanBatchId(id);
+    await this.edits.moveBatch(batchId, readBatchMove(body), managementEditor(session.account.id), session.scope);
     return { batch: await this.batches.get(batchId, session.scope) };
   }
 

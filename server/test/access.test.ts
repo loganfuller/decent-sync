@@ -54,6 +54,7 @@ const STAFF = [
   "PATCH /api/bean-batches/:id",
   "PUT /api/bean-batches/:id/archived",
   "PUT /api/bean-batches/:id/locations/:locationId",
+  "POST /api/bean-batches/:id/moves",
   "GET /api/bean-batches/:id/history",
   "GET /api/grinders",
   "POST /api/grinders",
