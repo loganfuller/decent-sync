@@ -53,7 +53,7 @@ For the site and the README:
 
 ## Keeping notes
 
-- Update `docs/AI_REPO_MAP.md` only when a change adds, moves or removes a file or folder, or changes what one is for: one short line per entry, saying what lives there. Its Task routing changes when an ADR or topic doc is added. An added ADR also gets its line on the site's Architecture page, and an ADR amended or superseded has its line there changed where the line no longer holds, and an added topic doc, note or agent convention its row on the Internals page (`site/src/content/docs/technical/`); the site's tests fail until they do.
+- Update `docs/AI_REPO_MAP.md` only when a change adds, moves or removes a file or folder, or changes what one is for: one short line per entry, saying what lives there. Its Task routing changes when an ADR or topic doc is added. An added ADR also gets its line on the site's Architecture page, and an added topic doc, note or agent convention its row on the Internals page (`site/src/content/docs/technical/`); the site's tests fail until they do. An ADR amended or superseded has its Architecture line changed where the line no longer holds, which no test checks.
 - In the `docs/AI_*_NOTES.md` notes, write one fact per line under a heading naming its topic, and update or delete the line a change makes stale. Behaviour belongs in the topic docs, history in the ticket and git.
 
 ## External sources

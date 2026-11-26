@@ -29,13 +29,13 @@ plugin catches up when it is back.
 | Grinders, Recipes and Recipe Slots | The Machines at one Location. |
 | What a Machine is using: its profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings | Nothing. Each Machine has its own, which loading a Recipe sets, steam turned on or off as the Recipe holds it. Turning steam off at the Machine never changes the Recipe. |
 
-A tablet reports to the server what it records: its Shots and Steam
+A tablet reports to the server everything it records: its Shots and Steam
 Records, its Workflow changes and Machine States, and its settings, paired
 devices, plugins and Skins. The server stores each as Decaid sent it, and
-checks only the message that carries it. None of these is shared with other
-tablets. The server writes back to the tablet only where someone asks it to:
-a Recipe loaded into its Workflow, a Settings Edit, a Software Action, or a
-Shot's rating and note ([The protocol in outline](#the-protocol-in-outline)).
+checks only the message that carries it.
+[The protocol in outline](#the-protocol-in-outline) says what travels back
+to tablets: the Library's writes, a Loaded Recipe's changes, Settings Edits,
+Software Actions, a Shot's rating and note, and what a Skin is served.
 
 A few rules shape the rest:
 
@@ -82,8 +82,8 @@ carries on.
 The routes of Shots, Steam Records, Workflows and Machine States, what a
 tablet reports of itself and the Library are documented in the behaviour
 spec of each, which [Internals](../../technical/internals/) links. Those of
-accounts, invites, first-run setup, adopting Machines and Connected Apps have
-no spec of their own: they are in the server's controllers, under
+accounts, invites, first-run setup, Locations, Machines (listing, adopting
+and moving them) and Connected Apps have no spec of their own: they are in the server's controllers, under
 `server/src/`. There is no separate REST reference.
 
 ### The MCP endpoint
