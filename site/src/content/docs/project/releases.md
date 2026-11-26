@@ -17,7 +17,8 @@ One version covers the server, the management interface and the plugin.
   [Upgrading](../../self-hosting/upgrading/) says how to move to it.
 - **The plugin**, as a ZIP attached to the release. Decaid installs each new
   one on a tablet that installed the plugin from a GitHub release, unless the
-  update asks for a new permission or the tablet's update checks are off
+  update asks for a new permission, the tablet's update checks are off, or the
+  plugin is Pinned
   ([The tablet plugin](../../reference/tablet-plugin/#updates)).
 
 ## What each release added

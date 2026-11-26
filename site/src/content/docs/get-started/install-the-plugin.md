@@ -27,6 +27,10 @@ tablet:
 2. Open the menu at the top of the page and choose **Install plugin**, then
    **GitHub Release**.
 3. Enter `loganfuller/decent-sync` as the repository.
+4. Decaid asks whether to allow Decent Sync to manage plugins and skins, as
+   the plugin asks for `manage.extensions`
+   ([Permissions](../../reference/tablet-plugin/#permissions)). Choose
+   **Allow and install**. **Cancel** installs nothing.
 
 Or, from a computer on the same network, with a
 [token for managing plugins](../../reference/tablet-plugin/#a-token-for-managing-plugins):
@@ -37,8 +41,8 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
   -H 'content-type: application/json' -d '{"repo": "loganfuller/decent-sync"}'
 ```
 
-Either way, Decaid installs a plugin without starting it. Connecting it to the
-server, below, ends by loading it.
+Installed that way, Decaid asks nothing. Either way, it installs a plugin
+without starting it. Connecting it to the server, below, ends by loading it.
 
 ## Connecting to the server
 
@@ -48,8 +52,8 @@ server, below, ends by loading it.
    URL and the Machine's token once, with copy buttons.
 2. On the tablet, under **Plugins**, open the menu beside Decent Sync, choose
    **Settings**, and enter both.
-3. In the same menu choose **Load**, and turn on **Auto-load on startup** for
-   it. A newly installed plugin is neither: it runs only once loaded, and
+3. In the same menu choose **Load**, then turn on the **Auto-load on startup**
+   switch on Decent Sync's card. A newly installed plugin is neither: it runs only once loaded, and
    without auto-load it stays stopped the next time Decaid starts. From a
    computer, this request does both, with the same token as the install:
 

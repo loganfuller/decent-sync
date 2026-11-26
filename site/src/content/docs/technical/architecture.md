@@ -194,7 +194,7 @@ with why it was made and what it rules out. In one line each:
 
 ### Connections and running it
 
-- [ADR-0009](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0009-websocket-for-plugin-rest-for-everything-else.md): one WebSocket for the plugin, and the REST API for everything else.
+- [ADR-0009](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0009-websocket-for-plugin-rest-for-everything-else.md): one WebSocket for the plugin, and the REST API for everything else. Amended: the Live View streams over Server-Sent Events (ADR-0024), the MCP endpoint is a second public interface (ADR-0026), and a Skin reads through the plugin (ADR-0030).
 - [ADR-0016](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0016-instances-share-only-postgresql.md): server instances share state only through PostgreSQL.
 - [ADR-0017](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md): only the newest versions of Decaid, DYE2 and Streamline are supported, with Decent Sync's current and previous release. The Decaid minimum and the plugin's protocol are enforced at `hello`.
 - [ADR-0024](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0024-live-view-streams-over-sse-relayed-through-postgresql.md): the Live View streams over Server-Sent Events, relayed between instances through PostgreSQL.

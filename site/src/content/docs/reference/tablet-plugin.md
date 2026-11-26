@@ -370,8 +370,6 @@ Decaid's Shots.
   `bounded_request_body.dart`, read at v0.9.1 and v0.9.2), and Decaid holds a
   plugin's whole storage in memory. Such a Shot is read from the server each
   time, and can't be read while the server can't be reached.
-- **Older releases.** A server of 1.9.0 sends no copies, and a 1.9.0 plugin
-  is sent none.
 
 ### A Shot's rating and note
 
@@ -411,8 +409,6 @@ write the same two fields of the tablet's own Shot
   Shot made since, and when the tablet next connects.
 - **Capture-only Machines** are written their Shots' edits too: a Shot's
   rating is no part of the Library.
-- **Older releases.** A 1.9.0 plugin is sent no edit: one waits until the
-  tablet's plugin is updated. A server of 1.9.0 sends none.
 
 ### Refused writes
 
