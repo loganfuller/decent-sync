@@ -312,8 +312,10 @@ interface MovePlace {
  *   held would give less than arrived, and the batch's total would fall.
  * - **With no weight at the Location left,** all finishes it there and adds
  *   it at the Location joined, and some adds it there and leaves it. Neither
- *   changes a weight. Some to a Location it is at already would change
- *   nothing, and is refused.
+ *   moves any weight. Where either adds it at a Location it was finished at,
+ *   it is untracked there, as nothing arrived: the weight that count was
+ *   left with is cleared, not taken up again. Some to a Location it is at
+ *   already would change nothing, and is refused.
  *
  * It is one version of the batch, at the Location joined, naming the
  * Location left, the amount and whether it was all (`movedFrom`,
@@ -346,7 +348,8 @@ export async function moveBatchBetween(
   const counts = [left, joined].flatMap((place): Count[] =>
     place.there && place.weight !== null && place.countAt !== null ? [{ batchId, locationId: place.locationId, at: place.countAt, versionId: place.countVersionId }] : [],
   );
-  const [used, moved] = await Promise.all([usedSince(tx, counts), movedSince(tx, counts)]);
+  const used = await usedSince(tx, counts);
+  const moved = await movedSince(tx, counts);
   /** What the Location's count holds, below zero where Shots have used more than it had; null where the batch has no weight there. */
   const held = (place: MovePlace): number | null => {
     if (!counts.some((count) => count.locationId === place.locationId)) return null;
@@ -371,9 +374,11 @@ export async function moveBatchBetween(
   const joinedHeld = held(joined);
   // The amount arriving is where the joined Location's count starts, where it had none or Shots had overdrawn it.
   const starts = moving !== null && (joinedHeld === null || joinedHeld < 0);
+  // A batch added where it was finished, by a move of no weight, is untracked there, whatever its count there was left with.
+  const clears = moving === null && !joined.there && joined.weight !== null;
 
   const item: ItemRef = { kind: "beanBatch", id: batchId };
-  const fields = { movedFrom: fromLocationId, movedAmount: moving, movedAll: all, ...(joined.there ? {} : { atLocation: true }), ...(starts ? { remainingWeight: moving } : {}) };
+  const fields = { movedFrom: fromLocationId, movedAmount: moving, movedAll: all, ...(joined.there ? {} : { atLocation: true }), ...(starts || clears ? { remainingWeight: moving } : {}) };
   const versionId = await recordVersion(tx, item, toLocationId, fields, source, at);
   await tx.batchMove.create({
     data: {
@@ -390,7 +395,7 @@ export async function moveBatchBetween(
   });
   const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
   if (!joined.there) await addBatchAt(tx, batchId, toLocationId, at, seenAt, source, undefined, versionId);
-  if (starts) await startCount(tx, batchId, toLocationId, moving, at, versionId);
+  if (starts || clears) await startCount(tx, batchId, toLocationId, moving, at, versionId);
   if (all) {
     await finishBatchAt(tx, batchId, fromLocationId, at, seenAt, source, undefined, {}, versionId);
     // Everything it had went with the move.
@@ -399,8 +404,8 @@ export async function moveBatchBetween(
   return { amount: moving, all };
 }
 
-/** Starts the Location's count of the batch at the weight, as a Batch Move does, by its version. Its time is never earlier than the one known, as a weight entered's is not. */
-async function startCount(tx: Prisma.TransactionClient, batchId: string, locationId: string, weight: number, at: Date, versionId: string): Promise<void> {
+/** Starts the Location's count of the batch at the weight, as a Batch Move does, by its version, or, given null, leaves it untracked there. Its time is never earlier than the one known, as a weight entered's is not. */
+async function startCount(tx: Prisma.TransactionClient, batchId: string, locationId: string, weight: number | null, at: Date, versionId: string): Promise<void> {
   await tx.$executeRaw`
     UPDATE batch_locations
     SET remaining_weight = ${weight}::double precision, remaining_weight_at = GREATEST(${at}::timestamptz, remaining_weight_at),

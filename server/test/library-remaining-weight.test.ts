@@ -469,22 +469,29 @@ describe("A Bean Batch's Remaining Weight at a Location", { timeout: 120_000 }, 
     url.pathname = `/${server.database}`;
     const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url.href }) });
     try {
-      // The batch's row is read, then 800 g is entered before the Shots are counted.
-      const raced = new Proxy(prisma, {
-        get(target, key) {
-          if (key === "beanBatch") {
-            return {
-              findUnique: async (args: Parameters<typeof target.beanBatch.findUnique>[0]) => {
-                const row = await target.beanBatch.findUnique(args);
-                expect((await put(id, lab, { remainingWeight: 800 })).status).toBe(200);
-                return row;
-              },
-            };
-          }
-          const value: unknown = Reflect.get(target, key, target);
-          return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-        },
-      });
+      // The batch's row is read, then 800 g is entered before the Shots are counted, within the read's transaction.
+      const entering = <T extends object>(db: T): T =>
+        new Proxy(db, {
+          get(target, key) {
+            if (key === "beanBatch") {
+              const batches = (target as unknown as typeof prisma).beanBatch;
+              return {
+                findUnique: async (args: Parameters<typeof batches.findUnique>[0]) => {
+                  const row = await batches.findUnique(args);
+                  expect((await put(id, lab, { remainingWeight: 800 })).status).toBe(200);
+                  return row;
+                },
+              };
+            }
+            if (key === "$transaction") {
+              return (fn: (tx: object) => Promise<unknown>, options: unknown) =>
+                (target as unknown as { $transaction: (fn: (tx: object) => Promise<unknown>, options: unknown) => Promise<unknown> }).$transaction((tx) => fn(entering(tx)), options);
+            }
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+          },
+        });
+      const raced = entering(prisma);
       const batch = await new BeanBatchesService(raced as unknown as PrismaService).get(id, { kind: "everything" });
       // The read gives the entry it read, with the Shot pulled since it, not that entry with none of the Shots the next one has.
       expect(at(batch as unknown as BatchView, lab)).toMatchObject({ remainingWeight: 800, entered: { weight: 1000 }, used: { shots: 1, weight: 200 } });

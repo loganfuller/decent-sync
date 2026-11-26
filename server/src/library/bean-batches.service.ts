@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Scope } from "../accounts/scope.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type SourceView, viewSource, withSource } from "./history.service.js";
@@ -98,32 +98,47 @@ export class BeanBatchesService {
    * at most one that is not Archived, and any Archived that held it.
    */
   async list(scope: Scope, batchCode?: string): Promise<BeanBatchSummary[]> {
-    const holding =
-      batchCode === undefined
-        ? undefined
-        : (
-            await this.prisma.$queryRaw<{ id: string }[]>`
-              SELECT id::text AS id FROM bean_batches WHERE lower(btrim(content ->> 'batchCode')) = lower(btrim(${batchCode.trim()}::text))`
-          ).map((batch) => batch.id);
-    return sorted(await this.summaries(await this.prisma.beanBatch.findMany({ ...(holding ? { where: { id: { in: holding } } } : {}), include: withPlaces }), scope));
+    return this.read(async (db) => {
+      const holding =
+        batchCode === undefined
+          ? undefined
+          : (
+              await db.$queryRaw<{ id: string }[]>`
+                SELECT id::text AS id FROM bean_batches WHERE lower(btrim(content ->> 'batchCode')) = lower(btrim(${batchCode.trim()}::text))`
+            ).map((batch) => batch.id);
+      return sorted(await this.summaries(db, await db.beanBatch.findMany({ ...(holding ? { where: { id: { in: holding } } } : {}), include: withPlaces }), scope));
+    });
   }
 
   /** The Bean's batches, the latest roasted first. */
   async ofBean(beanId: string, scope: Scope): Promise<BeanBatchSummary[]> {
-    return sorted(await this.summaries(await this.prisma.beanBatch.findMany({ where: { beanId }, include: withPlaces }), scope));
+    return this.read(async (db) => sorted(await this.summaries(db, await db.beanBatch.findMany({ where: { beanId }, include: withPlaces }), scope)));
   }
 
   async get(id: string, scope: Scope): Promise<BeanBatchView> {
-    const batch = await this.prisma.beanBatch.findUnique({ where: { id }, include: withPlaces });
-    if (!batch) throw new NotFoundException("No such Bean Batch");
-    const finished = batch.locations
-      .flatMap((here) =>
-        here.addedAt !== null && here.finishedAt !== null
-          ? [{ location: viewLocation(here.location), remainingWeight: here.remainingWeight, finishedAt: here.finishedAt.toISOString() }]
-          : [],
-      )
-      .sort((a, b) => a.location.name.localeCompare(b.location.name));
-    return { ...(await this.summaries([batch], scope))[0]!, content: object(batch.content), finished };
+    return this.read(async (db) => {
+      const batch = await db.beanBatch.findUnique({ where: { id }, include: withPlaces });
+      if (!batch) throw new NotFoundException("No such Bean Batch");
+      const finished = batch.locations
+        .flatMap((here) =>
+          here.addedAt !== null && here.finishedAt !== null
+            ? [{ location: viewLocation(here.location), remainingWeight: here.remainingWeight, finishedAt: here.finishedAt.toISOString() }]
+            : [],
+        )
+        .sort((a, b) => a.location.name.localeCompare(b.location.name));
+      return { ...(await this.summaries(db, [batch], scope))[0]!, content: object(batch.content), finished };
+    });
+  }
+
+  /**
+   * Reads in one snapshot (REPEATABLE READ): the batches' Locations, the
+   * Shots and the Batch Moves since each count started, so a move committed
+   * while they are read is in all of them or none, and a total read as one
+   * is made is the one before it or the one after it, never short of what
+   * one Location gave and the other had not yet been read to have.
+   */
+  private read<T>(fn: (db: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   /**
@@ -133,16 +148,15 @@ export class BeanBatchesService {
    * for the moves and one for who started the counts, however many batches
    * there are.
    */
-  private async summaries(batches: ListedBatch[], scope: Scope): Promise<BeanBatchSummary[]> {
+  private async summaries(db: Prisma.TransactionClient, batches: ListedBatch[], scope: Scope): Promise<BeanBatchSummary[]> {
     const counts = batches.flatMap((batch) =>
       batch.locations.flatMap((here): Count[] => (tracked(here) ? [{ batchId: batch.id, locationId: here.locationId, at: here.remainingWeightAt, versionId: here.remainingWeightVersionId }] : [])),
     );
     const versionIds = counts.flatMap((count) => (count.versionId === null ? [] : [count.versionId]));
-    const [used, moved, versions] = await Promise.all([
-      usedSince(this.prisma, counts),
-      movedSince(this.prisma, counts),
-      versionIds.length === 0 ? [] : this.prisma.itemVersion.findMany({ where: { id: { in: versionIds } }, include: withSource }),
-    ]);
+    // One after another, as a transaction's queries go over its one connection.
+    const used = await usedSince(db, counts);
+    const moved = await movedSince(db, counts);
+    const versions = versionIds.length === 0 ? [] : await db.itemVersion.findMany({ where: { id: { in: versionIds } }, include: withSource });
     const startedBy = new Map(versions.map((version) => [version.id, viewSource(version, scope)]));
     return batches.map((batch) => summary(batch, used, moved, startedBy));
   }

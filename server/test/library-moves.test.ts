@@ -395,6 +395,17 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
     const weighed = await batchAt(lab, { remainingWeight: null });
     expect((await put(weighed, cafe, { atLocation: true, remainingWeight: 120 })).status).toBe(200);
     expect(await move(weighed, lab, cafe, "all")).toMatchObject({ totalRemainingWeight: 120, locations: [{ remainingWeight: 120, entered: { weight: 120, arrivedFrom: null }, moved: { in: 0 } }] });
+
+    // One that brings it back to a Location it was finished at leaves it untracked there, not with the weight that count was left with.
+    for (const amount of ["some", "all"] as const) {
+      const back = await batchAt(lab, { remainingWeight: null });
+      expect((await put(back, cafe, { atLocation: true, remainingWeight: 120 })).status).toBe(200);
+      expect((await put(back, cafe, { atLocation: false })).status).toBe(200);
+      const moved = await move(back, lab, cafe, amount);
+      expect(moved.totalRemainingWeight, amount).toBeNull();
+      expect(at(moved, cafe), amount).toMatchObject({ remainingWeight: null, entered: null, moved: null });
+      expect((await versions(back))[0], amount).toMatchObject({ fields: { movedAmount: null, atLocation: true, remainingWeight: null } });
+    }
   });
 
   it("keeps a move apart from a weight entered: a Shot pulled at the Location left before the move and stored after it still lowers that Location's weight", async () => {
@@ -627,5 +638,47 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
     } finally {
       await prisma.$disconnect();
     }
+  });
+
+  it("reads a batch in one snapshot: a move made between reading its Locations and reading the moves since is in neither, so the total is never short", async () => {
+    const id = await batchAt(lab, { remainingWeight: 1000 });
+    const url = new URL(adminDatabaseUrl());
+    url.pathname = `/${server.database}`;
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url.href }) });
+    let moveBetween = true;
+    // Each transaction's client, whose read of the batch's row makes the move, once, before it answers.
+    const inTransaction = (tx: Record_) =>
+      new Proxy(tx, {
+        get: (target, key) =>
+          key !== "beanBatch"
+            ? Reflect.get(target, key)
+            : {
+                findUnique: async (args: unknown) => {
+                  const row = await (target.beanBatch as { findUnique: (args: unknown) => Promise<unknown> }).findUnique(args);
+                  if (moveBetween) {
+                    moveBetween = false;
+                    await move(id, lab, cafe, 600);
+                  }
+                  return row;
+                },
+              },
+      });
+    const prismaWithMove = new Proxy(prisma, {
+      get: (target, key) =>
+        key !== "$transaction"
+          ? Reflect.get(target, key)
+          : (fn: (tx: Record_) => Promise<unknown>, options: unknown) => (target.$transaction as (fn: unknown, options: unknown) => Promise<unknown>)((tx: Record_) => fn(inTransaction(tx)), options),
+    });
+    try {
+      const during = await new BeanBatchesService(prismaWithMove as unknown as PrismaService).get(id, { kind: "everything" });
+      expect(moveBetween).toBe(false);
+      expect(during.totalRemainingWeight).toBe(1000);
+      expect(during.locations.map((here) => [here.location.id, here.remainingWeight])).toEqual([[lab.location.id, 1000]]);
+    } finally {
+      await prisma.$disconnect();
+    }
+    const after = await getBatch(id);
+    expect(after.totalRemainingWeight).toBe(1000);
+    expect([await weightAt(id, lab), await weightAt(id, cafe)]).toEqual([400, 600]);
   });
 });
