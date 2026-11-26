@@ -828,8 +828,11 @@ Lost Edit names is kept, still refused, so history goes on naming it
     keeps one to a batch compares it (`lower(btrim(...))`). Second, the text
     is a URL, with a scheme and `//`, or JSON, and its last path segment,
     one of its query values, its fragment, or one of its string values at
-    any depth is one (`codeCandidates`, at most 50 of them, each no longer
-    than a Batch Code). Third, the text names a Bean (`namesBean`): every
+    any depth is one (`codeCandidates`: all of them, the text's length
+    bounding how many, each no longer than a Batch Code and one PostgreSQL
+    stores). Where a code those two read is an Archived batch's, or a
+    batch's of an Archived Bean, the text matches none, and the third is
+    not tried (`retired`). Third, the text names a Bean (`namesBean`): every
     word of the text is a word of the Bean's roaster and name, or every word
     of the Bean's name is a word of the text, a word being a run of letters
     and digits, in lower case. That matches the Bean's batches, or, where

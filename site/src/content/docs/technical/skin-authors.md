@@ -438,7 +438,9 @@ Beans that are not, stopping at the first step that finds any:
    the batches roasted that day, where it is written year first
    (`2026-11-20`) or with its month by name (`20 Nov 2026`). A date of
    numbers with the year last is not read, as its day and month would be
-   guessed.
+   guessed. This step is not taken where the text holds the code of an
+   Archived batch, or of a batch of an Archived Bean: a label for a retired
+   batch matches nothing, though it names the Bean too.
 
 Every answer is 200 with an `outcome`:
 

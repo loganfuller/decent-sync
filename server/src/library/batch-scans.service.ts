@@ -78,7 +78,9 @@ export class BatchScansService {
  * read before the locks, to know which to take, and again under them: a
  * batch that came to be at another single Location meanwhile would need a
  * lock not held, perhaps one before those held, so the caller tries again.
- * A batch Archived meanwhile, or its Bean, is brought nowhere.
+ * A batch found Archived under them, or its Bean, is brought nowhere. An
+ * archive committed after that read is not waited for, as an account's
+ * Batch Move does not wait for one (`moveBatch`).
  */
 async function bringTo(tx: Prisma.TransactionClient, batchId: string, tablet: ScanningTablet): Promise<"moved" | "added" | "alreadyThere" | "noMatch" | typeof TRY_AGAIN> {
   const here = tablet.locationId;
@@ -161,6 +163,11 @@ async function chosen(tx: Prisma.TransactionClient, batchId: string): Promise<Sk
  *    the text holds a date read without guessing, those with that roast
  *    date. A date none of them was roasted on leaves none.
  *
+ * Step 3 is not taken where a code the first two read is an Archived
+ * batch's, or that of a batch of an Archived Bean: the label is a retired
+ * batch's, and is no match, rather than one for another batch of the Bean
+ * its words name, as a URL of the Bean's name and the code does.
+ *
  * A Batch Code is compared as the index that keeps one to a batch compares
  * it, ignoring case and the spaces around it (`refuseTakenCode`).
  */
@@ -170,11 +177,10 @@ async function matching(tx: Prisma.TransactionClient, scannedText: string): Prom
   const byCodes = (codes: readonly string[]) =>
     offered(tx, Prisma.sql`lower(btrim(batch.content ->> 'batchCode')) IN (SELECT lower(btrim(code)) FROM unnest(${[...codes]}::text[]) AS code)`);
 
+  const codes = [text, ...codeCandidates(text)];
   let rows = await byCodes([text]);
-  if (rows.length === 0) {
-    const candidates = codeCandidates(text);
-    if (candidates.length > 0) rows = await byCodes(candidates);
-  }
+  if (rows.length === 0 && codes.length > 1) rows = await byCodes(codes.slice(1));
+  if (rows.length === 0 && (await retired(tx, codes))) return [];
   if (rows.length === 0) {
     const scanned = scannedWords(text);
     const beans = await tx.$queryRaw<{ id: string; content: unknown }[]>`SELECT id::text AS id, content FROM beans WHERE NOT archived`;
@@ -185,6 +191,17 @@ async function matching(tx: Prisma.TransactionClient, scannedText: string): Prom
     }
   }
   return rows.map(matchOf).sort((a, b) => latestFirst(a.roastDate, b.roastDate) || a.id.localeCompare(b.id));
+}
+
+/** Whether one of the codes is the Batch Code of a batch that is Archived, or of an Archived Bean, compared as `matching` compares one. */
+async function retired(tx: Prisma.TransactionClient, codes: readonly string[]): Promise<boolean> {
+  const [{ found }] = await tx.$queryRaw<[{ found: boolean }]>`
+    SELECT EXISTS (
+      SELECT FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
+      WHERE (batch.archived OR bean.archived)
+        AND lower(btrim(batch.content ->> 'batchCode')) IN (SELECT lower(btrim(code)) FROM unnest(${[...codes]}::text[]) AS code)
+    ) AS found`;
+  return found;
 }
 
 function matchOf(row: BatchRow): SkinBatchMatch {

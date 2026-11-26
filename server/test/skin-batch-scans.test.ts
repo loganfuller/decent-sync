@@ -393,6 +393,12 @@ describe("A Bean Batch brought to the Machine's Location by a scan", { timeout: 
     for (const body of [{ match: retired }, { match: orphan }, { match: randomUUID() }, { text: retiredCode }, { text: orphanCode }, { text: "Scanned Retired" }, { text: "Scanned Withdrawn" }]) {
       expect(await scan(cafe.tablet, body), JSON.stringify(body)).toEqual(noMatch);
     }
+    // A label holding the Archived batch's code beside its Bean's name is that batch's, not one for another batch of the Bean.
+    const sibling = await batchAt(lab, bean, {});
+    for (const text of [`https://roux.example/scanned-retired/${retiredCode}`, JSON.stringify({ bean: "Scanned Retired", code: retiredCode })]) {
+      expect(await scan(cafe.tablet, { text }), text).toEqual(noMatch);
+    }
+    expect(Object.keys(await where(sibling))).not.toContain("Scan cafe");
     // Text that matches nothing, and none at all.
     for (const text of ["no such label", "SC-9999", "https://roaster.example/batches/SC-9999", "{not json", "", "   "]) expect(await scan(cafe.tablet, { text }), text).toEqual(noMatch);
     // Nothing was brought, created or un-archived.
