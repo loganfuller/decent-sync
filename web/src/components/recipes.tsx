@@ -30,6 +30,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import {
   ApiError,
   api,
+  type BatchRecipe,
   type BeanBatchSummary,
   type BeanSummary,
   type EquipmentSummary,
@@ -187,6 +188,63 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
             <h3 className="text-sm font-medium">In no slot</h3>
             <p className="text-sm text-muted-foreground">Found on each tablet here in DYE2's Select Recipe page.</p>
             <RecipesTable label="Recipes in no slot" recipes={unslotted} slots={false} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The Recipes that name a Bean Batch, on the batch's page (#707): each not
+ * Archived, at any Location, with its Location, its Recipe Slot there or
+ * "No slot", and its dose and yield, linked to its page. One at a Location
+ * the batch was finished at or moved away from is still listed, marked
+ * "Batch finished there": what a move or a finish affects.
+ */
+export function BatchRecipesCard({ recipes }: { recipes: BatchRecipe[] }) {
+  const { pages } = LIBRARY_KINDS.recipe;
+  return (
+    <Card role="region" aria-label="Recipes" className="min-w-0">
+      <CardHeader>
+        <CardTitleWithInfo title="Recipes">
+          <p>The Recipes that name this batch, not Archived, at any Location, each with its Location and Recipe Slot.</p>
+          <p>A Recipe keeps naming the batch after it is finished at the Recipe's Location or moved away from it, until someone picks another batch for it.</p>
+        </CardTitleWithInfo>
+      </CardHeader>
+      <CardContent>
+        {recipes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No Recipe names this batch.</p>
+        ) : (
+          <div className="min-w-0 rounded-lg border">
+            <Table aria-label="Recipes naming this batch">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Recipe</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Recipe Slot</TableHead>
+                  <TableHead>Dose and yield</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recipes.map((recipe) => (
+                  <TableRow key={recipe.id}>
+                    <TableCell className="font-medium">
+                      <ItemLink to={`${pages}/${recipe.id}`}>{recipeName(recipe)}</ItemLink>
+                    </TableCell>
+                    <TableCell>
+                      {recipe.location ? <ItemLink to={`/locations/${recipe.location.id}`}>{recipe.location.name}</ItemLink> : <OrNone>{undefined}</OrNone>}
+                    </TableCell>
+                    <TableCell>{recipe.slot === null ? <span className="text-muted-foreground">No slot</span> : String(recipe.slot)}</TableCell>
+                    <TableCell>
+                      <OrNone>{dialText({ dose: recipe.dose, yield: recipe.yield })}</OrNone>
+                    </TableCell>
+                    <TableCell>{recipe.batchFinished && <Badge variant="destructive">Batch finished there</Badge>}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
       </CardContent>

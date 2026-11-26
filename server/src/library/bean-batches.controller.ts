@@ -9,7 +9,7 @@ import { type HistoryView, HistoryService, readHistoryField } from "./history.se
 import { managementEditor } from "./history.js";
 import { readArchived, readBatchMove, readContentEdit, readNewBatch, readPlacement } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
-import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBatchCodeFilter, readBeanBatchId } from "./bean-batches.service.js";
+import { type BatchHere, type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBatchCodeFilter, readBeanBatchId } from "./bean-batches.service.js";
 
 /**
  * The Library's Bean Batches, the Locations each is at and its remaining
@@ -117,5 +117,26 @@ export class BeanBatchesController {
   @Get(":id/history")
   async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<HistoryView> {
     return this.history.history({ kind: "beanBatch", id: readBeanBatchId(id) }, scope, readHistoryField(query));
+  }
+}
+
+/**
+ * The Bean Batches at a Location, as its page lists them, which Staff and
+ * Viewers read of every Location, as Admins do.
+ */
+@Controller("api/locations")
+export class LocationBatchesController {
+  constructor(private readonly batches: BeanBatchesService) {}
+
+  /**
+   * The batches at the Location, not finished there or Archived, each with
+   * its Remaining Weight there, what its count there starts from, the Shots
+   * pulled and the Batch Moves made there since, and the Recipes there that
+   * name it (`BeanBatchesService.atLocation`). 404 for no such Location.
+   */
+  @AllowStaff()
+  @Get(":id/bean-batches")
+  async atLocation(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ batches: BatchHere[] }> {
+    return { batches: (await this.batches.atLocation(readLocationId(id).toLowerCase(), scope)).batches };
   }
 }

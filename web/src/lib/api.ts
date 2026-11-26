@@ -1346,6 +1346,36 @@ export interface BeanBatch extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, with when and the weight its count there last started from: zero where a Batch Move took all of it. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
+  /** The Recipes, not Archived, that name it, at any Location, by Location, slot and name. Absent from the release before (ADR-0025). */
+  recipes?: BatchRecipe[];
+}
+
+/** A Recipe that names a batch, as the batch's page lists it. */
+export interface BatchRecipe {
+  id: string;
+  name: string | null;
+  /** The Location it belongs to. */
+  location: Location | null;
+  /** Its Recipe Slot there, 1 to 9, or null for none. */
+  slot: number | null;
+  /** Its dose and its yield, in grams; null for none. */
+  dose: number | null;
+  yield: number | null;
+  /** Whether the batch is not at the Recipe's Location now: finished there, moved away from it entirely, or Archived. */
+  batchFinished: boolean;
+}
+
+/**
+ * A Bean Batch at one Location, as the Location's page lists it: what names
+ * it, the Location's own state of it, and the Recipes there, not Archived,
+ * that name it, in slot order, then those in no slot.
+ */
+export interface BatchHere extends Omit<BatchAtLocation, "location"> {
+  id: string;
+  bean: { id: string; roaster: string | null; name: string | null };
+  roastDate: string | null;
+  batchCode: string | null;
+  recipes: { id: string; name: string | null; slot: number | null }[];
 }
 
 /** A Location showing a Profile. */

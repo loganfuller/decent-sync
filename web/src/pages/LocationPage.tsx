@@ -1,17 +1,19 @@
 import { useCallback } from "react";
 import { Link, useParams } from "react-router";
 import { useStaffLocationIds } from "@/auth";
+import { LocationBatchesCard } from "@/components/bean-batches";
 import { LocationOverviewCard } from "@/components/overview";
 import { LocationRecipesCard } from "@/components/recipes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { ApiError, api, type Location, type Machine, type Recipe } from "@/lib/api";
+import { ApiError, api, type BatchHere, type Location, type Machine, type Recipe } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
 
 /**
  * One Location: its block of the Overview (#471, #543), whose status cards
  * are its Machines, each with the Recipe it has loaded, and its Recipes, in
- * its Recipe Slots and in none. Loaded every 5 s, so a change made on a
+ * its Recipe Slots and in none, and the Bean Batches there, each with its
+ * Remaining Weight there (#707). Loaded every 5 s, so a change made on a
  * tablet shows; the Overview's numbers are read every 30 s.
  */
 export function LocationPage() {
@@ -24,13 +26,21 @@ function LocationDetails({ id }: { id: string }) {
   // Null once the Location is found gone.
   const load = useCallback(async () => {
     try {
-      const [{ locations }, { recipes }, { machines }] = await Promise.all([
+      const [{ locations }, { recipes }, { machines }, batches] = await Promise.all([
         api<{ locations: Location[] }>("GET", "/locations"),
         api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(id)}/recipes`),
         api<{ machines: Machine[] }>("GET", "/machines"),
+        // A server of the release before has no such list, as during a deploy (ADR-0025): the page goes without the card.
+        api<{ batches: BatchHere[] }>("GET", `/locations/${encodeURIComponent(id)}/bean-batches`).then(
+          ({ batches }) => batches,
+          (caught: unknown) => {
+            if (caught instanceof ApiError && caught.status === 404) return undefined;
+            throw caught;
+          },
+        ),
       ]);
       // Every Machine: the Overview shows one that pulled Shots here and has since moved.
-      return { location: locations.find((location) => location.id === id), recipes, machines };
+      return { location: locations.find((location) => location.id === id), recipes, machines, batches };
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 404) return null;
       throw caught;
@@ -63,7 +73,7 @@ function LocationDetails({ id }: { id: string }) {
       </section>
     );
   }
-  const { location, recipes, machines } = data;
+  const { location, recipes, machines, batches } = data;
 
   return (
     // One column no wider than the page, so a wide table scrolls rather than widening it.
@@ -84,6 +94,7 @@ function LocationDetails({ id }: { id: string }) {
       )}
       {location && <LocationOverviewCard location={location} machines={machines} />}
       {location && <LocationRecipesCard location={location} recipes={recipes} onChanged={reload} />}
+      {location && batches && <LocationBatchesCard locationId={location.id} batches={batches} />}
     </section>
   );
 }

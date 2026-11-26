@@ -13,7 +13,7 @@ import {
 } from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
-import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBeanBatchId } from "../library/bean-batches.service.js";
+import { type BatchAtLocation, type BatchHere, type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBeanBatchId } from "../library/bean-batches.service.js";
 import { type BeanSummary, type BeanView, BeansService, readBeanId } from "../library/beans.service.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "../library/equipment.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
@@ -371,6 +371,38 @@ export const beanBatchItem = batchSummary.extend({
   finished: z
     .array(z.object({ location, remainingWeight: z.number().nullable().describe("The weight its count there last started from, in grams, which went with it: 0 where a Batch Move took all of it."), finishedAt: time("When it was finished there.") }))
     .describe("The Locations it was at and has been finished at since, by name."),
+  recipes: z
+    .array(
+      z.object({
+        id,
+        name: z.string().nullable(),
+        location: location.nullable().describe("The Location it belongs to."),
+        slot: z.number().int().nullable().describe("Its Recipe Slot at its Location; null for none."),
+        dose: z.number().nullable().describe("Its dose, in grams; null for none."),
+        yield: z.number().nullable().describe("Its yield, in grams; null for none."),
+        batchFinished: z.boolean().describe("Whether the batch isn't at the Recipe's Location now, as one finished there or moved away from it entirely: a Recipe whose dial needs the next roast."),
+      }),
+    )
+    .describe("The Recipes, not Archived, that name it, at any Location, the batch there now or not, by Location, slot and name, as its page lists them. None names another batch of its Bean. get_library_item reads each whole."),
+});
+
+const locationBatchesInput = z.object({ locationId: id.describe("The Location whose Bean Batches to list, as list_locations gives it."), ...page });
+
+const locationBatchesOutput = z.object({
+  ...pageOutput,
+  beanBatches: z
+    .array(
+      batchSummary.shape.locations.element.omit({ location: true }).extend({
+        id,
+        bean: batchSummary.shape.bean,
+        roastDate: batchSummary.shape.roastDate,
+        batchCode: batchSummary.shape.batchCode,
+        recipes: z
+          .array(z.object({ id, name: z.string().nullable(), slot: z.number().int().nullable().describe("Its Recipe Slot at the Location; null for none.") }))
+          .describe("The Recipes at the Location, not Archived, that name it, in slot order, then those in no slot, by name."),
+      }),
+    )
+    .describe("The batches at the Location, the latest roasted first, each with the Location's own Remaining Weight, count and moves, never another Location's."),
 });
 
 /** One Library item, under its kind's key, as get_library_item reads it and the tools changing one return it. */
@@ -471,7 +503,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "find_library_items",
     title: "Find Library items",
-    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived, and a Bean Batch by its Batch Code: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot. ${ITEMS} ${PAGED} ${TIMES}`,
+    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived, and a Bean Batch by its Batch Code: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot. list_location_batches lists one Location's Bean Batches with the Recipes there that name each. ${ITEMS} ${PAGED} ${TIMES}`,
     inputSchema: findInput,
     outputSchema: findOutput,
     annotations: { readOnlyHint: true },
@@ -532,7 +564,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "get_library_item",
     title: "Get a Library item",
-    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history, such as what changed on a Recipe today and who changed it. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; a Lost Edit among them (lost) gives the value of a field that did not apply and the edit it lost to (lostTo). historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history. ${PAGED} ${TIMES}`,
+    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history, such as what changed on a Recipe today and who changed it. A Bean Batch comes with the Recipes that name it (recipes), at any Location, each with its Location and Recipe Slot: what a Batch Move or a finish affects. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; a Lost Edit among them (lost) gives the value of a field that did not apply and the edit it lost to (lostTo). historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history. ${PAGED} ${TIMES}`,
     inputSchema: getInput,
     outputSchema: getOutput,
     annotations: { readOnlyHint: true },
@@ -569,6 +601,22 @@ export class LibraryTools {
     const versions = await this.profiles.versions(id, callerOf(context).scope);
     const recipes = await this.recipes.namingProfile(id);
     return { versions: versions.map(profileVersionOf), recipes: recipes.map(recipeOnProfileOf) };
+  }
+
+  @BudgetedTool({
+    name: "list_location_batches",
+    title: "List a Location's Bean Batches",
+    description: `Lists the Bean Batches at one Location, a page at a time, as the Location's page in the management interface lists them: those there now, none finished there or moved away from it entirely, Archived or of an Archived Bean, the latest roasted first. Each has its Bean, roast date and Batch Code; its Remaining Weight there (remainingWeight), null where it is untracked there, which is not 0; the weight its count there starts from (entered); the Shots pulled there since and the coffee they used (used); what Batch Moves have brought there and taken away since (moved); and the Recipes at the Location that name it, with each one's Recipe Slot. Every number is that Location's own: a batch at two Locations is in each one's list with that Location's weight, Shots and moves. find_shots with beanBatchId and locationId lists a batch's Shots there, get_library_item reads a batch at every Location it is at, with every Recipe that names it, and find_library_items lists batches across Locations. ${PAGED} Times are ISO 8601 with the Location's offset.`,
+    inputSchema: locationBatchesInput,
+    outputSchema: locationBatchesOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: { rest: "get_library_item reads one batch with more of it." },
+  })
+  async listLocationBatches(input: z.infer<typeof locationBatchesInput>, context: McpContext): Promise<z.infer<typeof locationBatchesOutput>> {
+    const { location, batches } = await this.batches.atLocation(readLocationId(input.locationId).toLowerCase(), callerOf(context).scope);
+    const shown = batches.slice(input.offset, input.offset + input.limit);
+    return { ...pageOf(batches.length, input.offset, shown.length), beanBatches: shown.map((batch) => batchHereOf(batch, location)) };
   }
 
   /** One item as get_library_item reads it, without its history: 404's message, as the REST API's, for none. */
@@ -679,27 +727,43 @@ function batchOf(batch: BeanBatchSummary | BeanBatchView): z.infer<typeof batchS
     roastDate: batch.roastDate,
     batchCode: batch.batchCode,
     archived: batch.archived,
-    locations: batch.locations.map((here) => ({
-      location: locationOf(here.location),
-      remainingWeight: here.remainingWeight,
-      entered: here.entered && {
-        weight: here.entered.weight,
-        at: timeAt(here.entered.at, here.location),
-        by: here.entered.by && sourceOf(here.entered.by),
-        arrivedFrom: maybeLocation(here.entered.arrivedFrom),
-      },
-      used: here.used,
-      moved: here.moved && {
-        in: here.moved.in,
-        from: here.moved.from.map((other) => ({ location: locationOf(other.location), weight: other.weight })),
-        away: here.moved.away,
-        to: here.moved.to.map((other) => ({ location: locationOf(other.location), weight: other.weight })),
-      },
-      since: timeAt(here.since, here.location),
-    })),
+    locations: batch.locations.map((here) => ({ location: locationOf(here.location), ...stateOf(here, here.location) })),
     totalRemainingWeight: batch.totalRemainingWeight,
     createdAt: timeAt(batch.createdAt, batch.createdLocation),
     createdLocation: maybeLocation(batch.createdLocation),
+  };
+}
+
+/** A Location's state of a batch, its times with that Location's offset. */
+function stateOf(here: Omit<BatchAtLocation, "location">, where: LocationView): Omit<z.infer<typeof batchSummary>["locations"][number], "location"> {
+  return {
+    remainingWeight: here.remainingWeight,
+    entered: here.entered && {
+      weight: here.entered.weight,
+      at: timeAt(here.entered.at, where),
+      by: here.entered.by && sourceOf(here.entered.by),
+      arrivedFrom: maybeLocation(here.entered.arrivedFrom),
+    },
+    used: here.used,
+    moved: here.moved && {
+      in: here.moved.in,
+      from: here.moved.from.map((other) => ({ location: locationOf(other.location), weight: other.weight })),
+      away: here.moved.away,
+      to: here.moved.to.map((other) => ({ location: locationOf(other.location), weight: other.weight })),
+    },
+    since: timeAt(here.since, where),
+  };
+}
+
+/** A batch at a Location as list_location_batches lists it. */
+function batchHereOf(batch: BatchHere, where: LocationView): z.infer<typeof locationBatchesOutput>["beanBatches"][number] {
+  return {
+    id: batch.id,
+    bean: { id: batch.bean.id, roaster: batch.bean.roaster, name: batch.bean.name },
+    roastDate: batch.roastDate,
+    batchCode: batch.batchCode,
+    ...stateOf(batch, where),
+    recipes: batch.recipes.map(({ id, name, slot }) => ({ id, name, slot })),
   };
 }
 
@@ -708,6 +772,7 @@ function batchViewOf(batch: BeanBatchView): NonNullable<GetOutput["beanBatch"]> 
     ...batchOf(batch),
     content: batch.content,
     finished: batch.finished.map((here) => ({ location: locationOf(here.location), remainingWeight: here.remainingWeight, finishedAt: timeAt(here.finishedAt, here.location) })),
+    recipes: batch.recipes.map((recipe) => ({ ...recipe, location: maybeLocation(recipe.location) })),
   };
 }
 

@@ -151,6 +151,7 @@ describe("connecting an assistant", () => {
         "get_shot_samples",
         "get_steam_record",
         "list_drafts",
+        "list_location_batches",
         "list_locations",
         "list_machines",
         "list_settings_edits",

@@ -3332,7 +3332,24 @@ Every endpoint requires the account session; Staff read them as Admins do.
   sum over the Locations that track it, null where none does.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
   `content` and `finished`, the Locations it was at and has been finished at
-  since, each `{ location, remainingWeight, finishedAt }`; or 404.
+  since, each `{ location, remainingWeight, finishedAt }`, and its `recipes`
+  (#707), the Recipes, not Archived, whose content names it, at any Location,
+  by their Location's name, then in slot order, then by name, each `{ id,
+  name, location, slot, dose, yield, batchFinished }`: `batchFinished`
+  whether the batch is not at the Recipe's Location now, as a Recipe's own
+  says; or 404. A Recipe naming another batch of its Bean is not among them.
+- `GET /api/locations/:id/bean-batches` (#707) returns `{ batches }`, the
+  batches at the Location: those added there and not finished there, neither
+  Archived nor of an Archived Bean, the latest roasted first, then by Bean
+  name and roaster. Each is `{ id, bean, roastDate, batchCode,
+  remainingWeight, entered, used, moved, since, recipes }`: that Location's
+  own state of it, as an entry of a batch's `locations` gives it without its
+  `location`, never another Location's, and `recipes`, the Recipes at the
+  Location, not Archived, that name it, in slot order, then those in no
+  slot, each `{ id, name, slot }`. 404 for no such Location. Staff and
+  Viewers read every Location's. It is read as the list is, in one snapshot,
+  with one more query for the Recipes of them all, so with no query per
+  batch (`BeanBatchesService.atLocation`).
 - `GET /api/grinders` returns `{ grinders }`, each `{ id, model, burrs,
   burrType, archived, location, createdAt }`, by model, ignoring case, then
   by their Location's name. `model`, `burrs` and `burrType` are its
@@ -3709,7 +3726,10 @@ brought and taken since (`web/src/lib/remaining-weight.ts`), each with
 **Move to…**, whose dialog moves all of it or part of its weight to another
 Location and says first what each will hold (`MoveBatchDialog` in
 `web/src/components/library-forms.tsx`, `web/src/lib/batch-moves.ts`), its
-total, and where it was finished, each Grinder's page its Location and what it is, and each
+total, where it was finished, and the Recipes that name it, at any Location,
+each with its Location, Recipe Slot, dose and yield, and "Batch finished
+there" where the batch is no longer at the Recipe's Location
+(`BatchRecipesCard` in `web/src/components/recipes.tsx`, #707), each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. It opens on its Recipes (`/library/recipes`,
 `web/src/pages/RecipesPage.tsx`, #547), the first of its lists: every
@@ -3732,7 +3752,15 @@ with a "Lost Edit" badge and a line saying what it lost to, "Lost to" the
 value, by whom, and when
 (`web/src/components/item-history.tsx`). Nothing is done to one there, and
 the Library has no page of them. Each Location's page
-(`/locations/:id`) lists its Machines, a capture-only one flagged. A
+(`/locations/:id`) has its block of the Overview, its Recipes, and the Bean
+Batches there (`LocationBatchesCard` in
+`web/src/components/bean-batches.tsx`, #707): each not finished there or
+Archived, with its Batch Code, its Remaining Weight there or "Not tracked",
+what its count starts from, the coffee and Shots there since, what was
+moved in and away, and the Recipes there that name it, linked to the batch,
+each Recipe and the batch's Shots at the Location
+(`/shots?beanBatchId=&locationId=`, every Shot of the batch there, not only
+those since its count started). Nothing is changed from it. A
 Machine's page says whether it shares the Library at its Location or is capture-only, and why, with a
 switch an Admin turns its sharing off and on with, once they confirm, and
 its sharing status, loaded as often as its own status: the changes waiting

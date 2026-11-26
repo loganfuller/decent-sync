@@ -74,7 +74,7 @@ export function weightLine(here: BatchAtLocation, readerId: string | undefined, 
 }
 
 /** What Batch Moves have brought to a Location and taken from it since its count started, an amount for each other Location, and one for any whose Location has been deleted since. */
-function movedText(moved: BatchAtLocation["moved"]): string[] {
+export function movedText(moved: BatchAtLocation["moved"]): string[] {
   if (!moved) return [];
   const named = (amounts: { weight: number }[]) => amounts.reduce((sum, amount) => sum + amount.weight, 0);
   const gone = (total: number, amounts: { weight: number }[]) => Math.round((total - named(amounts)) * 10) / 10;
@@ -84,4 +84,21 @@ function movedText(moved: BatchAtLocation["moved"]): string[] {
     ...moved.to.map((other) => `${grams(other.weight)} moved to ${other.location.name}`),
     ...(gone(moved.away, moved.to) > 0 ? [`${grams(gone(moved.away, moved.to))} moved to a Location since deleted`] : []),
   ];
+}
+
+/**
+ * What a batch's count at a Location starts from, as the Location's list of
+ * batches says it under the weight: "of 4180 g entered 25 Nov", or, for a
+ * count that started with a Batch Move, "of 6000 g arrived 20 Nov", and
+ * "No weight entered" where it is untracked there.
+ */
+export function startText(here: Pick<BatchAtLocation, "entered">, now: Date = new Date()): string {
+  if (!here.entered) return "No weight entered";
+  return `of ${grams(here.entered.weight)} ${here.entered.arrivedFrom ? "arrived" : "entered"} ${dayText(here.entered.at, now)}`;
+}
+
+/** What Batch Moves have brought to a Location and taken from it since a batch's count there started, as the Location's list says it; "Nothing moved" for none. */
+export function movedLine(moved: BatchAtLocation["moved"]): string {
+  const amounts = movedText(moved);
+  return amounts.length === 0 ? "Nothing moved" : amounts.join(", ");
 }
