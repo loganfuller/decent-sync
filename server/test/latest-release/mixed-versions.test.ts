@@ -960,38 +960,41 @@ describe("the latest release beside the change", () => {
       }
     });
 
-    // The change drops a Lost Edit's `state` (#653), which the latest release names in no query (#642): it still keeps
-    // an edit that loses, and both read it in the item's history.
-    it("keeps an edit that loses through the latest release's instance, on the change's schema, in the item's history read through either", async () => {
-      const location = await apis.change.createLocation("Lost, on both", "America/Chicago");
-      const onRelease = await connected("Lost, on the latest release", "latest release", "latest release", { location });
-      const onChange = await connected("Lost, on the change", "latest release", "change", { location });
-      const { grinder } = await apis.change.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model: "Lost EK43", burrs: "98mm" } }, 201);
-      for (const { tablet } of [onRelease, onChange]) await expect.poll(() => heldGrinder(tablet, grinder.id)).toMatchObject({ burrs: "98mm" });
+    // The change drops a Lost Edit's `state` (#653), which the latest release names in no query (#642): each still keeps
+    // an edit that loses, the change through Prisma and the latest release in SQL, and both read it in the item's history.
+    for (const [keeping, losing] of [["latest release", "change"], ["change", "latest release"]] as const) {
+      it(`keeps an edit that loses through the ${keeping}'s instance, on the change's schema, in the item's history read through either`, async () => {
+        const location = await apis.change.createLocation(`Lost, kept through the ${keeping}`, "America/Chicago");
+        const winner = await connected(`Lost, winning on the ${keeping}`, "latest release", keeping, { location });
+        const loser = await connected(`Lost, losing on the ${losing}`, "latest release", losing, { location });
+        const { grinder } = await apis.change.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model: "Lost EK43", burrs: "98mm" } }, 201);
+        for (const { tablet } of [winner, loser]) await expect.poll(() => heldGrinder(tablet, grinder.id)).toMatchObject({ burrs: "98mm" });
 
-      // Both edit it offline; the change's comes back first, and loses to the latest release's, which it had not seen.
-      onRelease.tablet.loseNetwork();
-      onChange.tablet.loseNetwork();
-      await onChange.tablet.editGrinder(heldGrinder(onChange.tablet, grinder.id)!.id, { burrs: "98mm Turkish" });
-      await delay(20);
-      await onRelease.tablet.editGrinder(heldGrinder(onRelease.tablet, grinder.id)!.id, { burrs: "98mm Coffee" });
-      const burrs = async () => (await apis.change.get<{ grinder: { content: Record<string, unknown> } }>(`/grinders/${grinder.id}`)).grinder.content.burrs;
-      onChange.tablet.restoreNetwork();
-      await expect.poll(burrs).toBe("98mm Turkish");
-      onRelease.tablet.restoreNetwork();
-      await expect.poll(burrs).toBe("98mm Coffee");
+        // Both edit it offline; the loser's comes back first, and loses to the winner's, which it had not seen, so the
+        // winner's instance, taking the later edit, keeps the earlier as a Lost Edit.
+        winner.tablet.loseNetwork();
+        loser.tablet.loseNetwork();
+        await loser.tablet.editGrinder(heldGrinder(loser.tablet, grinder.id)!.id, { burrs: "98mm Turkish" });
+        await delay(20);
+        await winner.tablet.editGrinder(heldGrinder(winner.tablet, grinder.id)!.id, { burrs: "98mm Coffee" });
+        const burrs = async () => (await apis.change.get<{ grinder: { content: Record<string, unknown> } }>(`/grinders/${grinder.id}`)).grinder.content.burrs;
+        loser.tablet.restoreNetwork();
+        await expect.poll(burrs).toBe("98mm Turkish");
+        winner.tablet.restoreNetwork();
+        await expect.poll(burrs).toBe("98mm Coffee");
 
-      for (const through of ["change", "latest release"] as const) {
-        const lostEdits = async () => (await apis[through].get<{ lostEdits: Record<string, unknown>[] }>(`/grinders/${grinder.id}/history`)).lostEdits;
-        await expect.poll(async () => (await lostEdits()).length, { message: through }).toBe(1);
-        expect((await lostEdits())[0], through).toMatchObject({
-          field: "burrs",
-          value: "98mm Turkish",
-          source: { machine: { id: onChange.machine.machine.id } },
-          lostTo: { value: "98mm Coffee", source: { machine: { id: onRelease.machine.machine.id } } },
-        });
-      }
-    });
+        for (const through of ["change", "latest release"] as const) {
+          const lostEdits = async () => (await apis[through].get<{ lostEdits: Record<string, unknown>[] }>(`/grinders/${grinder.id}/history`)).lostEdits;
+          await expect.poll(async () => (await lostEdits()).length, { message: through }).toBe(1);
+          expect((await lostEdits())[0], through).toMatchObject({
+            field: "burrs",
+            value: "98mm Turkish",
+            source: { machine: { id: loser.machine.machine.id } },
+            lostTo: { value: "98mm Coffee", source: { machine: { id: winner.machine.machine.id } } },
+          });
+        }
+      });
+    }
 
     // What publishing a Draft (#580) makes is a Library Profile as any other: the latest release's plugin takes it, saved
     // from the one before, through either release's server.
