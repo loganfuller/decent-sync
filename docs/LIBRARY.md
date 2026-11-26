@@ -253,7 +253,10 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
 - `batch_locations`: each batch's state at a Location, each part a field of
   its own (ADR-0020): when it was last added there and when it was finished
   there since, if it was, and the remaining weight entered there last, in
-  grams, with that edit's time, never earlier than the one before. A batch is at a Location while it was added
+  grams, with that edit's time, never earlier than the one before. That
+  weight is all that is kept: the batch's Remaining Weight there is worked
+  out from it as it is read, less the dose of each Shot linked to the batch
+  that was pulled there after that time (ADR-0037, Remaining Weight, below). A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
   edit wins (ADR-0020), with when that was last decided by PostgreSQL's clock.
   An edit from a tablet whose record of the batch had seen that decision
@@ -761,13 +764,37 @@ Lost Edit names is kept, still refused, so history goes on naming it
   instance, nor one beside a tablet's new bean. An edit that gives a Bean
   another's roaster and name is not refused: it is a likely duplicate, as a
   tablet's rename makes one (ADR-0018).
-- **Bean Batches.** A batch is created of a Bean, not Archived, at the
-  Locations chosen, each with its remaining weight there if one is entered,
-  as edits of each Location's state of it (`addBatchAt`,
-  `enterRemainingWeight`), under those Locations' locks, taken in id order.
-  Adding it at a Location, finishing it there and setting its remaining
-  weight there are each such an edit; a remaining weight is set only where
-  the batch is, or is added. Its details are its content.
+- **Bean Batches.** A batch is created of a Bean, not Archived, at exactly
+  one Location (`readNewBatch`), so its roasted weight is counted once, with
+  the weight its count starts from there: the remaining weight given, else
+  its roasted `weight`, else none, which leaves it untracked. For this
+  release only, the REST API still takes none or several, as the previous
+  release's New Batch dialog sends them (ADR-0025): each Location then starts
+  at the weight given for it, or untracked, never at the roasted weight
+  (until #716). These are
+  edits of that Location's state of it (`addBatchAt`,
+  `enterRemainingWeight`), under the Location's lock.
+  Adding it at a Location, finishing it there and entering its weight there
+  are each such an edit; a weight is entered only where the batch is, or is
+  added. A weight of zero entered where it is finishes it there, as one
+  version of its history, `{ remainingWeight: 0, atLocation: false }`
+  (`enterRemainingWeight`), and one given with a create or an add is
+  refused as a bad request. Its details are its content.
+
+  **Remaining Weight** (ADR-0037). A batch's Remaining Weight at a Location
+  is the weight last entered there less the dose of each Shot linked to the
+  batch (`shots.library_batch_id`) whose Location is that one
+  (`shots.location_id`) and that was pulled after the entry
+  (`pulled_at > remaining_weight_at`), each by its measured dose, else the
+  dose its Workflow was set to, else nothing, and never below zero. It is
+  worked out as it is read (`usedSince`, `remainingAfter` in
+  `server/src/library/bean-batches.service.ts`), for every batch of a list
+  in one query, and nothing is written as a Shot is stored: a Shot edited,
+  linked to another batch, deleted or arriving late changes the next read.
+  A batch with no weight entered at a Location is untracked there, null and
+  never zero, and reaching zero through Shots finishes nothing. What a
+  tablet's record holds is still the weight entered (`holdings.ts`), which
+  #705 changes.
 - **Grinders.** A Grinder is created belonging to a Location, which never
   changes; its Archived state and its content are edited under that
   Location's lock, as a tablet's are. Its form and page have its range and
@@ -1308,7 +1335,9 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   as a bean's does, and also when, as old, it differs at the Location. What changed since the record known is what the tablet did
   at its Location (ADR-0008): un-archived, the batch is added there;
   archived, it is finished there; a changed `weightRemaining`, cleared
-  included, is its remaining weight there. Adding or finishing it there is an
+  included, is a weight entered there, and one changed to zero finishes the
+  batch there (ADR-0037), unless the same change added or finished it, as a
+  record un-archived holding zero. Adding or finishing it there is an
   edit timed by the record, which loses to a later one the tablet had not
   seen (`batch_locations`, above; ADR-0020). A remaining weight replaces the
   one known when the tablet had that value, none was ever entered there, or
@@ -3239,9 +3268,14 @@ Every endpoint requires the account session; Staff read them as Admins do.
   and the spaces around it: at most one that is not Archived, and any
   Archived that held it. `locations`
   lists the Locations it is at, by name, each `{ location, remainingWeight,
-  since }`: the remaining weight entered there last, in grams, or null if none
-  was or it was cleared, and when it was last added there, which a tablet
-  adding it again while it is there moves.
+  entered, used, since }`: its Remaining Weight there, in grams, worked out
+  (ADR-0037), or null where none was entered or it was cleared; `entered`,
+  the weight last entered there, when (`at`) and who entered it (`by`, as a
+  version's `source`, its account named to Admins alone), and `used`, the
+  `shots` pulled there since and the `weight` they used, both null where it
+  is untracked; and when it was last added there, which a tablet
+  adding it again while it is there moves. `totalRemainingWeight` is the
+  sum over the Locations that track it, null where none does.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
   `content` and `finished`, the Locations it was at and has been finished at
   since, each `{ location, remainingWeight, finishedAt }`; or 404.
@@ -3406,15 +3440,21 @@ Every endpoint requires the account session; Staff read them as Admins do.
   clear it, edits one; `PUT /api/beans/:id/archived`, with `{ archived }`,
   Archives or restores one; each returns `{ bean }`. 400 for a field that is
   not Decaid's or a value Decaid would refuse.
-- `POST /api/bean-batches`, with `{ beanId, content, locations }`, each
-  Location `{ locationId, remainingWeight }`, the weight optional, creates a
-  batch at them, and returns `{ batch }` with 201; 409 if its Bean is
-  Archived. `PATCH /api/bean-batches/:id` and `PUT
+- `POST /api/bean-batches`, with `{ beanId, content, locations }`, the one
+  Location it is created at as `[{ locationId, remainingWeight }]`, creates a
+  batch there, and returns `{ batch }` with 201; 400 for a remaining weight
+  of zero, and 409 if its Bean is Archived. With no `remainingWeight` its
+  count starts at its roasted `weight`, if it has one, and null leaves it
+  untracked. For this release it still takes no Location or several, as the
+  previous release's page sends them, each starting at the weight given for
+  it or untracked, never at the roasted weight; the next release refuses
+  them with 400 (#716). `PATCH /api/bean-batches/:id` and `PUT
   /api/bean-batches/:id/archived` edit its details and Archive or restore it.
   `PUT /api/bean-batches/:id/locations/:locationId`, with `{ atLocation,
   remainingWeight }`, either or both, adds it at the Location (true) or
-  finishes it there (false), and sets its remaining weight there, null to
-  clear it; 409 for a weight where it is not and is not added. Each returns
+  finishes it there (false), and enters its weight there, null to
+  clear it and zero to finish it there; 409 for a weight where it is not
+  and is not added, 400 for zero with an add. Each returns
   `{ batch }`. 403 for Staff at a Location they do not work at.
 - `POST /api/grinders`, with `{ locationId, content }`, its model required,
   creates a Grinder belonging to that Location, and returns `{ grinder }`
@@ -3593,11 +3633,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
   for no such Machine.
 
 The management interface's Library section lists the Beans and where each is
-offered, the Bean Batches, the Locations each is at and its remaining weight
-at each, the Grinders and the Location each belongs to, and the Profiles and
+offered, the Bean Batches, the Locations each is at, its remaining weight
+at each and its total, the Grinders and the Location each belongs to, and the Profiles and
 where each is shown. Each Bean's page shows its content, where it is
 offered, its batches and its likely duplicates, each batch's page its roast,
-the Locations it is at with its remaining weight at each, and where it was
+the Locations it is at with its remaining weight at each, a line saying
+what that count starts from and what Shots have used since
+(`web/src/lib/remaining-weight.ts`), its total, and where it was
 finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. It opens on its Recipes (`/library/recipes`,
@@ -3629,8 +3671,9 @@ for its tablet, the last it applied, and those it refused, with Decaid's
 answer (`web/src/components/machine-sharing.tsx`). The Beans, Bean Batches,
 Grinders, Baskets and Tools lists create them, and each item's page edits it, Archives or
 restores it, and, for an Admin, deletes it; a batch's page adds it at each
-Location and finishes it there, and sets its remaining weight there
-(`web/src/components/library-forms.tsx`). A Bean refused as one the Library
+Location and finishes it there, and enters its weight there in a dialog
+that says a weight of zero finishes it and that an empty one leaves it
+untracked (`web/src/components/library-forms.tsx`). A Bean refused as one the Library
 has links to that Bean. Each Profile's page lists every Location, each with
 a switch that shows or hides the Profile there, for an Admin or Staff
 working there (`ProfileLocationsCard` in `web/src/components/profiles.tsx`),

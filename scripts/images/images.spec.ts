@@ -249,12 +249,14 @@ test("README and site images", async ({ page }) => {
   // The Library, as an Admin enters it.
   const bean = async (name: string, extra: Record<string, unknown> = {}) =>
     (await post<{ bean: { id: string } }>(page, "/api/beans", { content: { roaster: ROASTER, name, ...extra } })).bean.id;
-  const batch = async (beanId: string, roastDate: string, weight: number, at: [string, number][]) =>
-    (await post<{ batch: { id: string } }>(page, "/api/bean-batches", {
-      beanId,
-      content: { roastDate, weight, roastLevel: "Medium" },
-      locations: at.map(([locationId, remainingWeight]) => ({ locationId, remainingWeight })),
-    })).batch.id;
+  // Created at its first Location, as a batch is at one, and added at each other with its weight there.
+  const batch = async (beanId: string, roastDate: string, weight: number, [[locationId, remainingWeight], ...added]: [[string, number], ...[string, number][]]) => {
+    const { id } = (await post<{ batch: { id: string } }>(page, "/api/bean-batches", { beanId, content: { roastDate, weight, roastLevel: "Medium" }, locations: [{ locationId, remainingWeight }] })).batch;
+    for (const [addedAt, weightThere] of added) {
+      expect((await page.request.put(`/api/bean-batches/${id}/locations/${addedAt}`, { data: { atLocation: true, remainingWeight: weightThere } })).status()).toBe(200);
+    }
+    return id;
+  };
   const house = await bean("House Espresso", { notes: "Chocolate, hazelnut, ripe plum" });
   const guji = await bean("Ethiopia Guji Natural", { country: "Ethiopia", region: "Guji", processing: "Natural", altitude: [2100] });
   const kenya = await bean("Kenya Nyeri AA", { country: "Kenya", region: "Nyeri", processing: "Washed" });

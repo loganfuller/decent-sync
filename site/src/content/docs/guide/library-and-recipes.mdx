@@ -18,7 +18,7 @@ Machines share by Location. What a barista enters on one tablet joins the Librar
 | Item | Which Machines get it |
 |---|---|
 | Bean | Those at each Location where one of its Bean Batches is. Until a batch is added there, also those where a tablet created the Bean, linked a Bean of its own to it, or restored it. |
-| Bean Batch | Those at each Location it was added at, with its own remaining weight at each. |
+| Bean Batch | Those at each Location it was added at, each with the weight last entered there. |
 | Grinder | Those at the one Location it belongs to. |
 | Profile, Basket, Tool | Those at each Location that shows it. |
 | Recipe | Those at the one Location it belongs to. |
@@ -39,11 +39,29 @@ DYE2's lists on a tablet, its recipes, baskets and tools, are different, because
 A Bean Batch is at a Location from when it is added there until it is finished there, and it can be at several at once.
 
 1. Open **Library**, then **Bean Batches**, and open the batch.
-2. In its **Locations** card, choose a Location under **Add it at** and press **Add**.
-3. To record what is left, type the remaining weight in the Location's row and press **Set**.
-4. When the batch runs out there, press **Finish here**. It is archived on that Location's tablets and stays in the Library.
+2. In its **Where it is** card, choose a Location under **Add it at** and press **Add**.
+3. When the batch runs out there, press **Finish here**. It is archived on that Location's tablets and stays in the Library.
 
-<Still name="bean-batches" alt="The Library's Bean Batches, each with the Locations it is at and its remaining weight at each" />
+<Still name="bean-batches" alt="The Library's Bean Batches, each with the Locations it is at, its remaining weight at each and its total" />
+
+### Track how much of a batch is left
+
+A batch's remaining weight at a Location keeps itself. It is the weight last entered there, less the dose of each Shot pulled there with the batch since. Nobody has to subtract anything, and a number that drifts is corrected by weighing the bucket.
+
+1. Open the batch, and in its **Where it is** card press **Enter weight** beside the Location.
+2. Type what is left there, in grams, and press **Save**.
+
+Each Location has one line under its weight, such as "4180 g entered 25 Nov by Sam. Since: 38 Shots used 760 g.", and the card's **Total remaining** adds up the Locations that track the batch. The Bean Batches list shows the same weights.
+
+- Each Location has its own weight. A Shot lowers only the weight at the Location it was pulled at. A sample kept at the lab and the bucket at a cafe are one batch with two weights.
+- Every Shot pulled with the batch at that Location after the weight was entered, Unfinished Shots and Trial Shots too, counts, since the coffee was ground. A Shot from before the entry is already in the weight you entered. A Shot counts its measured dose where it recorded one, otherwise the dose its Workflow was set to, otherwise nothing.
+- The weight follows the Shots. A Shot that arrives late from a tablet that was offline still counts, and correcting a Shot's dose corrects the weight.
+- A batch with no weight entered at a Location reads **Not tracked** there, never zero, and Shots take nothing from it. It can be tracked at one Location and not at another. To stop tracking, press **Enter weight**, leave the field empty and save.
+- Shots never take a weight below zero, and reaching zero that way finishes nothing: the batch stays where it is, as the weight entered was too low. Entering a weight of zero yourself says the bucket is empty, so it finishes the batch there, as **Finish here** does. The dialog says so before you save, and the batch's history keeps it as a finish made by a weight of zero.
+- A barista who changes a batch's remaining weight on a tablet enters it for that tablet's Location, and one who sets it to zero finishes the batch there. The tablet shows the weight last entered, which does not fall there as Shots are pulled.
+- Coffee used outside a Shot is not counted, such as purging a grinder or a bag sold over the counter. Weigh the bucket and enter the weight to correct for it.
+
+Staff enter a weight and finish a batch only at the Locations they work at.
 
 A Bean has no setting of its own for this. It is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there. A Bean with no batch at a Location yet is also offered there where a tablet created it, linked a Bean of its own to it, or restored it, until a batch is added.
 
@@ -66,9 +84,9 @@ Anything a barista enters on a tablet joins the Library by itself. You can enter
 
 1. Open **Library**, then **Beans**, and press **New Bean**.
 2. Fill in its **Roaster** and **Name**, and what else you know about it, then press **Create**.
-3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, and under **At** the Locations it is at, with the remaining weight at each if you track it. Press **Create**.
+3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, the **Location** it is at, and its **Weight (g)** as roasted. Press **Create**.
 
-The batch, with its Bean, is written to the tablets at each Location you chose.
+The batch, with its Bean, is written to the tablets at that Location. Given a roasted weight, its remaining weight there starts at that weight; type another under **Remaining weight (g)** if some of it is already gone. A batch is created at one Location, so its weight is counted once, and reaches another by being added there.
 
 ### Give a batch its Batch Code
 

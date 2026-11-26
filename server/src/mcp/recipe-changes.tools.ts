@@ -86,7 +86,7 @@ export class RecipeChangesTools {
   async createRecipe({ locationId, slot: chosen, ...fields }: z.infer<typeof newRecipeInput>, context: McpContext): Promise<ItemOutput> {
     const created = readNewRecipe({ locationId, slot: chosen, content: fields });
     const recipe = await this.edits.create(created.locationId, created.content, created.slot, editorOf(context), callerOf(context).scope);
-    return this.library.read("recipe", recipe);
+    return this.library.read("recipe", recipe, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -102,7 +102,7 @@ export class RecipeChangesTools {
     const values = changed(fields);
     const recipe = readRecipeId(given);
     await this.edits.edit(recipe, readContentEdit("recipe", { content: values }), editorOf(context), callerOf(context).scope);
-    return this.library.read("recipe", recipe);
+    return this.library.read("recipe", recipe, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -117,7 +117,7 @@ export class RecipeChangesTools {
   async setRecipeSlot({ id: given, slot: chosen }: z.infer<typeof slotInput>, context: McpContext): Promise<ItemOutput> {
     const recipe = readRecipeId(given);
     await this.edits.place(recipe, readSlot({ slot: chosen }), editorOf(context), callerOf(context).scope);
-    return this.library.read("recipe", recipe);
+    return this.library.read("recipe", recipe, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -132,7 +132,7 @@ export class RecipeChangesTools {
   async setReferenceShot({ id: given, shotId }: z.infer<typeof referenceShotInput>, context: McpContext): Promise<ItemOutput> {
     const recipe = readRecipeId(given);
     await this.edits.setReferenceShot(recipe, readReferenceShot({ shotId }), editorOf(context), callerOf(context).scope);
-    return this.library.read("recipe", recipe);
+    return this.library.read("recipe", recipe, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -149,6 +149,6 @@ export class RecipeChangesTools {
     // Left out, the copy keeps the Recipe's batch; null, it has none.
     const copy = readRecipeCopy({ ...to, ...(beanBatchId === undefined ? {} : { beanBatchId }) });
     const copied = await this.edits.copy(recipe, copy, editorOf(context), callerOf(context).scope);
-    return this.library.read("recipe", copied);
+    return this.library.read("recipe", copied, callerOf(context).scope);
   }
 }

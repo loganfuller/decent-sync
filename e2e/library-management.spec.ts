@@ -31,14 +31,17 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   const newBatch = page.getByRole("dialog", { name: "New Batch of Uptown Gesha" });
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-10-03");
   await newBatch.getByLabel("Weight (g)", { exact: true }).fill("1000");
-  await newBatch.getByLabel("Uptown", { exact: true }).check();
-  await newBatch.getByLabel("Remaining weight at Uptown (g)").fill("850");
+  // It is created at one Location, chosen from a list: nothing ticks several.
+  await expect(newBatch.getByRole("checkbox", { name: /Uptown|Downtown/ })).toHaveCount(0);
+  await newBatch.getByLabel("Location", { exact: true }).click();
+  await page.getByRole("option", { name: "Uptown" }).click();
+  await newBatch.getByLabel("Remaining weight (g)", { exact: true }).fill("850");
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Uptown Gesha, roasted 2026-10-03", level: 1 })).toBeVisible();
   await expect(field(page.getByLabel("Roast", { exact: true }), "Weight")).toHaveText("1000 g");
   const where = page.getByRole("table", { name: "Locations" });
   await expect(where.getByRole("row", { name: /^Uptown 850 g/ })).toBeVisible();
-  await expect(where.getByLabel("Remaining weight at Uptown (g)")).toHaveValue("850");
+  await expect(where.getByRole("row", { name: /^Uptown/ })).toContainText(/850 g entered .+ by you\. No Shots since\./);
   await expect(where.getByRole("row", { name: /^Downtown/ })).toHaveCount(0);
 
   // Its Bean, edited here.
@@ -68,14 +71,19 @@ test("a lab batch is added at a cafe, given a remaining weight there and finishe
   await page.getByRole("option", { name: "Belmont" }).click();
   await adding.getByRole("button", { name: "Add" }).click();
   const where = page.getByRole("table", { name: "Locations" });
-  await expect(where.getByRole("row", { name: /^Belmont no weight entered/ })).toBeVisible();
+  await expect(where.getByRole("row", { name: /^Belmont Not tracked/ })).toBeVisible();
+  // Created with a roasted weight and no remaining weight, it starts at that weight at the lab.
+  await expect(where.getByRole("row", { name: /^Roastery lab 250 g/ })).toBeVisible();
 
-  await where.getByLabel("Remaining weight at Belmont (g)").fill("200");
-  await where.getByRole("button", { name: "Set the remaining weight at Belmont" }).click();
+  await where.getByRole("button", { name: "Enter its weight at Belmont" }).click();
+  const entering = page.getByRole("dialog", { name: "Enter weight at Belmont" });
+  await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("200");
+  await entering.getByRole("button", { name: "Save" }).click();
   await expect(where.getByRole("row", { name: /^Belmont 200 g/ })).toBeVisible();
+  await expect(field(page.getByRole("region", { name: "Where it is" }), "Total remaining")).toHaveText("450 g");
 
   await where.getByRole("button", { name: "Finish it at Belmont" }).click();
-  await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("with 200 g");
+  await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("Finished");
   await expect(where.getByRole("row", { name: /^Belmont/ })).toHaveCount(0);
   // The lab still has it.
   await expect(where.getByRole("row", { name: /^Roastery lab/ })).toBeVisible();

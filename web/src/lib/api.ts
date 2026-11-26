@@ -1275,8 +1275,21 @@ export interface Bean extends BeanSummary {
 /** A Bean Batch at a Location. */
 export interface BatchAtLocation {
   location: Location;
-  /** The remaining weight entered there last, in grams: null if none was, or it was cleared. */
+  /**
+   * Its Remaining Weight there, in grams, worked out by the server: the
+   * weight last entered there less the dose of each Shot linked to the batch
+   * that was pulled there since, never below zero. Null where it is
+   * untracked: none was entered, or it was cleared.
+   */
   remainingWeight: number | null;
+  /**
+   * The weight last entered there, when, and who entered it, where known;
+   * null where it is untracked. The release before answers without it, as it
+   * may during a deploy (ADR-0025).
+   */
+  entered?: { weight: number; at: string; by: EditSource | null } | null;
+  /** The Shots pulled there since that weight was entered, and the coffee they used, in grams; null where it is untracked. Absent as `entered` is. */
+  used?: { shots: number; weight: number } | null;
   /** When it was added there. */
   since: string;
 }
@@ -1293,6 +1306,8 @@ export interface BeanBatchSummary {
   archived: boolean;
   /** The Locations it is at, by name, with its remaining weight at each. */
   locations: BatchAtLocation[];
+  /** The sum of its remaining weights over the Locations that track it, in grams; null where none does. Absent from the release before (ADR-0025). */
+  totalRemainingWeight?: number | null;
   /** When it joined the Library. */
   createdAt: string;
   /** The Location of the tablet that created it. */
@@ -1302,7 +1317,7 @@ export interface BeanBatchSummary {
 /** A Bean Batch with its content: Decaid's record fields, as the tablet that created it sent them. */
 export interface BeanBatch extends BeanBatchSummary {
   content: Record<string, unknown>;
-  /** The Locations it was at and has been finished at since, with when and the remaining weight last entered there. */
+  /** The Locations it was at and has been finished at since, with when and the weight last entered there. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
 }
 

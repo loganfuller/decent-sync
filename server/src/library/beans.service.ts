@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { Scope } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -59,10 +60,10 @@ export class BeansService {
     return views.sort((a, b) => compareText(a.name, b.name) || compareText(a.roaster, b.roaster) || a.id.localeCompare(b.id));
   }
 
-  async get(id: string): Promise<BeanView> {
+  async get(id: string, scope: Scope): Promise<BeanView> {
     const bean = await this.prisma.bean.findUnique({ where: { id }, include: withPlaces });
     if (!bean) throw beanNotFound();
-    return { ...(await this.views([bean]))[0]!, content: content(bean), batches: await this.batches.ofBean(bean.id) };
+    return { ...(await this.views([bean]))[0]!, content: content(bean), batches: await this.batches.ofBean(bean.id, scope) };
   }
 
   private async views(beans: ListedBean[]): Promise<BeanSummary[]> {

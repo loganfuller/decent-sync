@@ -1,13 +1,12 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { useIsAdmin, useStaffLocationIds } from "@/auth";
-import { weightText } from "@/components/bean-batches";
+import { useAuth, useIsAdmin, useStaffLocationIds } from "@/auth";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api, type BeanBatch, type BeanSummary, type Location } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { totalText, weightLine, weightText } from "@/lib/remaining-weight";
 
 // Creating and editing the Library's Beans, Bean Batches, Grinders, Baskets
 // and Tools, Archiving and restoring them and Profiles, adding and finishing
@@ -612,9 +612,10 @@ export function NewBeanDialog() {
 }
 
 /**
- * Creates a batch of a Bean, at the Locations chosen, each with its
- * remaining weight there: Staff only at their own. Without a Bean given,
- * one is chosen from the Library's, but those Archived.
+ * Creates a batch of a Bean at one Location, so its roasted weight is
+ * counted once: Staff only at their own. Its remaining weight there starts
+ * at the weight entered, or, left empty, at its roasted weight. Without a
+ * Bean given, one is chosen from the Library's, but those Archived.
  */
 export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: string | null }; beans?: BeanSummary[] }) {
   const navigate = useNavigate();
@@ -623,22 +624,24 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
   const [open, setOpen] = useState(false);
   const [beanId, setBeanId] = useState(bean?.id ?? "");
   const [values, setValues] = useState<Values>(() => valuesOf(BATCH_FIELDS, {}));
-  const [at, setAt] = useState<Record<string, string>>({});
+  const [chosen, setChosen] = useState("");
+  const [remaining, setRemaining] = useState("");
   const [error, setError] = useState<ReactNode>();
   const [saving, setSaving] = useState(false);
   const id = useId();
+  const allowed = (locations ?? []).filter((location) => mayChangeAt(location.id));
+  // With one Location to create it at, that one is chosen.
+  const locationId = chosen !== "" ? chosen : allowed.length === 1 ? allowed[0]!.id : "";
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (beanId === "") return setError("Choose its Bean");
+    if (locationId === "") return setError("Choose the Location it is at");
     setSaving(true);
     setError(undefined);
     try {
-      const placed = Object.entries(at).map(([locationId, weight]) => ({
-        locationId,
-        ...(weight.trim() === "" ? {} : { remainingWeight: Number(weight) }),
-      }));
-      const { batch } = await api<{ batch: BeanBatch }>("POST", "/bean-batches", { beanId, content: newContent(BATCH_FIELDS, values), locations: placed });
+      const at = { locationId, ...(remaining.trim() === "" ? {} : { remainingWeight: Number(remaining) }) };
+      const { batch } = await api<{ batch: BeanBatch }>("POST", "/bean-batches", { beanId, content: newContent(BATCH_FIELDS, values), locations: [at] });
       setOpen(false);
       void navigate(`/library/bean-batches/${batch.id}`);
     } catch (caught) {
@@ -656,7 +659,7 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New Batch{bean ? ` of ${bean.name ?? "Unnamed Bean"}` : ""}</DialogTitle>
-          <DialogDescription>A roast of a Bean, written with its Bean to the tablets at each Location it is added at.</DialogDescription>
+          <DialogDescription>A roast of a Bean, written with its Bean to the tablets at the Location it is at.</DialogDescription>
         </DialogHeader>
         <form aria-label="New Batch" className="grid gap-4" onSubmit={create}>
           {error && <FormError error={error} />}
@@ -681,42 +684,36 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
             </div>
           )}
           <ContentInputs fields={BATCH_FIELDS} values={values} onChange={(field, value) => setValues((current) => ({ ...current, [field]: value }))} />
-          <fieldset className="grid gap-2">
-            <legend className="mb-2 text-sm font-medium">At</legend>
-            {locationsError && <FormError error={locationsError} />}
-            {locations?.map((location) => {
-              const checked = location.id in at;
-              const allowed = mayChangeAt(location.id);
-              return (
-                <div key={location.id} className="grid grid-cols-[auto_1fr_10rem] items-center gap-3">
-                  <Checkbox
-                    id={`${id}-at-${location.id}`}
-                    checked={checked}
-                    disabled={!allowed}
-                    onCheckedChange={(value) =>
-                      setAt((current) => {
-                        const next = { ...current };
-                        if (value === true) next[location.id] = typeof values.weight === "string" ? values.weight : "";
-                        else delete next[location.id];
-                        return next;
-                      })
-                    }
-                  />
-                  <Label htmlFor={`${id}-at-${location.id}`}>{location.name}</Label>
-                  <Input
-                    aria-label={`Remaining weight at ${location.name} (g)`}
-                    type="number"
-                    min={0}
-                    step="any"
-                    placeholder="Remaining (g)"
-                    disabled={!checked}
-                    value={at[location.id] ?? ""}
-                    onChange={(event) => setAt((current) => ({ ...current, [location.id]: event.target.value }))}
-                  />
-                </div>
-              );
-            })}
-          </fieldset>
+          {locationsError && <FormError error={locationsError} />}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor={`${id}-location`}>Location</Label>
+              <Select value={locationId} onValueChange={setChosen}>
+                <SelectTrigger id={`${id}-location`} className="w-full">
+                  <SelectValue placeholder="Choose a Location" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allowed.map((location) => (
+                    <SelectItem key={location.id} value={location.id}>
+                      {location.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={`${id}-remaining`}>Remaining weight (g)</Label>
+              <Input
+                id={`${id}-remaining`}
+                type="number"
+                min={0}
+                step="any"
+                placeholder={typeof values.weight === "string" && values.weight.trim() !== "" ? values.weight : "Not tracked"}
+                value={remaining}
+                onChange={(event) => setRemaining(event.target.value)}
+              />
+            </div>
+          </div>
           <div>
             <Button type="submit" disabled={saving}>
               Create
@@ -897,31 +894,30 @@ export function NewGrinderDialog() {
 }
 
 /**
- * Where a batch is: the Locations it is at, each with its remaining weight
- * there and when it was added there, and those it was finished at. An Admin,
- * or Staff working there, adds it at another Location, finishes it at one,
- * or sets its remaining weight there.
+ * Where a batch is: its total over the Locations that track it, and each
+ * Location it is at with its remaining weight there and one line saying
+ * what that count starts from and what Shots have used since (ADR-0037),
+ * and the Locations it was finished at. An Admin, or Staff working there,
+ * enters its weight at a Location, finishes it there, or adds it at
+ * another.
  */
 export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onChanged(): Promise<void> | void }) {
   const mayChangeAt = useMayChangeAt();
+  const { state } = useAuth();
+  const readerId = state.status === "signed-in" ? state.account.id : undefined;
   const { locations, error: locationsError } = useLocations();
-  const [weights, setWeights] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const id = useId();
   const addable = (locations ?? []).filter((location) => mayChangeAt(location.id) && !batch.locations.some((here) => here.location.id === location.id));
+  const total = totalText(batch);
 
   async function place(location: Location, body: { atLocation?: boolean; remainingWeight?: number | null }) {
     setBusy(true);
     setError(undefined);
     try {
       await api("PUT", `/bean-batches/${batch.id}/locations/${location.id}`, body);
-      setWeights((current) => {
-        const next = { ...current };
-        delete next[location.id];
-        return next;
-      });
       setAdding("");
       await onChanged();
     } catch (caught) {
@@ -932,14 +928,11 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
   }
 
   return (
-    <Card>
+    <Card role="region" aria-label="Where it is">
       <CardHeader>
-        <CardTitleWithInfo title="Locations">
-          <p>
-            Where it is, from when it was added there until it is finished there, and the remaining weight entered last at each.
-            Each Location's tablets hold it with that Location's weight; finished there, it is archived on them.
-          </p>
-        </CardTitleWithInfo>
+        <CardTitle>
+          <h2>Where it is</h2>
+        </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
         {error && <FormError error={error} />}
@@ -947,69 +940,58 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
         {batch.locations.length === 0 ? (
           <p className="text-sm text-muted-foreground">It is at no Location.</p>
         ) : (
-          <Table aria-label="Locations">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Location</TableHead>
-                <TableHead>Remaining weight</TableHead>
-                <TableHead>Added</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {batch.locations.map((here) => {
-                const { location } = here;
-                const weight = weights[location.id] ?? (here.remainingWeight === null ? "" : String(here.remainingWeight));
-                return (
-                  <TableRow key={location.id}>
-                    <TableCell className="font-medium">{location.name}</TableCell>
-                    <TableCell>{weightText(here.remainingWeight)}</TableCell>
-                    <TableCell>{formatTime(here.since)}</TableCell>
-                    <TableCell>
-                      {mayChangeAt(location.id) && (
-                        <form
-                          className="flex items-center justify-end gap-2"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void place(location, { remainingWeight: weight.trim() === "" ? null : Number(weight) });
-                          }}
-                        >
-                          <Input
-                            aria-label={`Remaining weight at ${location.name} (g)`}
-                            className="w-28"
-                            type="number"
-                            min={0}
-                            step="any"
-                            value={weight}
-                            onChange={(event) => setWeights((current) => ({ ...current, [location.id]: event.target.value }))}
-                          />
-                          <Button type="submit" variant="outline" size="sm" disabled={busy} aria-label={`Set the remaining weight at ${location.name}`}>
-                            Set
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={busy}
-                            aria-label={`Finish it at ${location.name}`}
-                            onClick={() => void place(location, { atLocation: false })}
-                          >
-                            Finish here
-                          </Button>
-                        </form>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <>
+            <Fields label="Total">
+              <Field term="Total remaining">{total}</Field>
+            </Fields>
+            <Table aria-label="Locations">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Remaining weight</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {batch.locations.map((here) => {
+                  const { location } = here;
+                  const line = weightLine(here, readerId);
+                  return (
+                    <TableRow key={location.id}>
+                      <TableCell className="font-medium">{location.name}</TableCell>
+                      <TableCell className="whitespace-normal">
+                        <div className={here.remainingWeight === null ? "text-muted-foreground" : "font-medium"}>{weightText(here.remainingWeight)}</div>
+                        {line !== undefined && here.entered !== null && <p className="text-sm text-muted-foreground">{line}</p>}
+                      </TableCell>
+                      <TableCell>
+                        {mayChangeAt(location.id) && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <EnterWeightDialog batchId={batch.id} here={here} onChanged={onChanged} />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={`Finish it at ${location.name}`}
+                              onClick={() => void place(location, { atLocation: false })}
+                            >
+                              Finish here
+                            </Button>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
         )}
         {batch.finished.length > 0 && (
           <Fields label="Finished">
             {batch.finished.map((here) => (
               <Field key={here.location.id} term={here.location.name}>
-                Finished {formatTime(here.finishedAt)}, with {weightText(here.remainingWeight)}
+                Finished {formatTime(here.finishedAt)}
               </Field>
             ))}
           </Fields>
@@ -1046,5 +1028,78 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Enters a batch's weight at a Location, which its count there starts from
+ * again. A weight of zero finishes the batch there, which the dialog says
+ * before it is saved; left empty, it clears the weight, and the batch is not
+ * tracked there. There is no other control that clears one.
+ */
+function EnterWeightDialog({ batchId, here, onChanged }: { batchId: string; here: BeanBatch["locations"][number]; onChanged(): Promise<void> | void }) {
+  const { location } = here;
+  const [open, setOpen] = useState(false);
+  const [weight, setWeight] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const id = useId();
+  const entered = weight.trim();
+  const finishes = entered !== "" && Number(entered) === 0;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api("PUT", `/bean-batches/${batchId}/locations/${location.id}`, { remainingWeight: entered === "" ? null : Number(entered) });
+      setOpen(false);
+      await onChanged();
+    } catch (caught) {
+      setError(failure(caught, "The weight could not be entered"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // Opened on the weight as it reads now, to be corrected.
+        if (next) {
+          setWeight(here.remainingWeight === null ? "" : String(here.remainingWeight));
+          setError(undefined);
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" aria-label={`Enter its weight at ${location.name}`}>
+          Enter weight
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Enter weight at {location.name}</DialogTitle>
+          <DialogDescription>What is left of the batch there now, as weighed.</DialogDescription>
+        </DialogHeader>
+        <form aria-label={`Enter weight at ${location.name}`} className="grid gap-4" onSubmit={save}>
+          {error && <FormError error={error} />}
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-weight`}>Remaining weight (g)</Label>
+            <Input id={`${id}-weight`} type="number" min={0} step="any" value={weight} onChange={(event) => setWeight(event.target.value)} />
+          </div>
+          <p role="status" className="min-h-5 text-sm text-muted-foreground">
+            {finishes ? `A weight of 0 finishes the batch at ${location.name}.` : entered === "" ? `Left empty, the batch is not tracked at ${location.name}.` : ""}
+          </p>
+          <div>
+            <Button type="submit" disabled={saving}>
+              {finishes ? "Finish here" : "Save"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

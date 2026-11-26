@@ -25,6 +25,43 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### A Bean Batch's remaining weight now falls with each Shot
+
+A batch's remaining weight at a Location is now worked out: the weight last
+entered there, less the dose of each Shot pulled there with the batch since
+([ADR-0037](docs/adr/0037-a-batchs-remaining-weight-is-per-location-and-worked-out-from-shots.md)).
+Nothing is migrated, and there is nothing to do before or after deploying, but
+what you see changes:
+
+- **A weight already entered falls at once.** A weight entered before this
+  release is read less the Shots pulled at its Location since it was entered,
+  so an old entry may read much lower than it did, or zero. Weigh the bucket
+  and enter the weight again to correct it. A batch with no weight entered
+  stays as it was, and reads "Not tracked".
+- **Entering a weight of zero finishes the batch at that Location**, in the
+  management interface, over the REST API, through an assistant and on a
+  tablet. A weight that reaches zero through Shots finishes nothing.
+- **A new batch is created at exactly one Location.** The `create_bean_batch`
+  assistant tool and the New Batch dialog take one: create it at one, then add
+  it at the others. So that a page still open from the previous release goes on
+  working, the REST API still takes no Location or several in this release,
+  each Location then starting at the weight given for it or untracked; the
+  next release refuses them there too. A batch created at one Location with a
+  roasted weight and no remaining weight starts at that weight; send
+  `remainingWeight: null` to leave it untracked.
+- **A create or an add with a remaining weight of zero is refused.**
+- **On tablets, a batch's remaining weight is still the weight last entered.**
+  It does not fall on the tablet as Shots are pulled yet.
+
+While the upgrade runs, a page still open from the previous release may show
+a batch's weight as entered where a new page shows it worked out, and its
+**Set** finishes a batch whose weight field reads 0, as a zero entered now
+does, without saying so first. Reload the page. A zero entered through a
+server still on the previous release is kept as a weight and finishes
+nothing: finish the batch there afterwards if it stays at 0 g.
+
 ## 1.13.1
 
 ### Check every tablet runs the 1.13.0 plugin before deploying

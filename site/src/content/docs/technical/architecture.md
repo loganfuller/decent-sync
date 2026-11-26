@@ -25,7 +25,7 @@ plugin catches up when it is back.
 
 | What | Shared with |
 |---|---|
-| Beans, Bean Batches, Profiles, Baskets and Tools | Every Location. Each Location offers its own part: the Profiles, Baskets and Tools shown there, the batches there with their Beans, and its own stock of each batch. |
+| Beans, Bean Batches, Profiles, Baskets and Tools | Every Location. Each Location offers its own part: the Profiles, Baskets and Tools shown there, the batches there with their Beans, and its own remaining weight of each batch. |
 | Grinders, Recipes and Recipe Slots | The Machines at one Location. |
 | What a Machine is using: its profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings | Nothing. Each Machine has its own, which loading a Recipe sets, steam turned on or off as the Recipe holds it. Turning steam off at the Machine never changes the Recipe. |
 
@@ -216,7 +216,7 @@ with why it was made and what it rules out. In one line each:
 - [ADR-0003](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0003-server-is-source-of-truth.md): the server is the source of truth, and tablets can still edit.
 - [ADR-0005](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0005-interim-recipe-sync-through-dye2-storage.md): Recipes, Baskets and Tools sync by writing DYE2's storage. Interim, until Decaid has resources of its own for them.
 - [ADR-0006](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0006-global-ids-stored-on-tablet-records.md): a shared item carries its global id on the tablet's own record, but a Profile, which keeps Decaid's id.
-- [ADR-0008](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0008-per-location-state-on-shared-items.md): an item is the same everywhere, and each Location keeps whether it is shown, which batches are there and their stock.
+- [ADR-0008](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0008-per-location-state-on-shared-items.md): an item is the same everywhere, and each Location keeps whether it is shown, which batches are there and the weight entered for each.
 - [ADR-0014](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0014-steam-hot-water-rinse-settings-shared-per-location.md): steam and rinse settings shared by a Location's Machines. Superseded: a Recipe holds them now (ADR-0022).
 - [ADR-0018](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0018-new-tablet-items-join-the-library.md): a new item from a tablet joins the Library, and a Bean is matched by its roaster and name.
 - [ADR-0019](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0019-tablet-deletes-act-at-its-location.md): a delete on a tablet acts only at that tablet's Location.
@@ -225,6 +225,7 @@ with why it was made and what it rules out. In one line each:
 - [ADR-0030](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0030-the-plugin-serves-a-skin-what-the-server-holds.md): the plugin serves a Skin what the server holds, and a tablet may choose a Reference Shot.
 - [ADR-0032](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0032-the-server-authors-profiles-as-drafts-published-under-decaids-id.md): the server authors Profiles, as Drafts published under the id Decaid would give them.
 - [ADR-0036](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0036-interim-a-batch-code-in-the-records-extras.md): a Bean Batch's Batch Code is kept in its tablet record's `extras`, under a key of Decent Sync's own. Interim, until Decaid's record has a field for it.
+- [ADR-0037](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0037-a-batchs-remaining-weight-is-per-location-and-worked-out-from-shots.md): a Bean Batch's Remaining Weight is held per Location and worked out, as it is read, from the weight last entered there and the Shots pulled there since.
 - [ADR-0033](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0033-an-edit-that-loses-is-kept-in-the-items-history.md): an edit that loses is kept in the item's history as a Lost Edit, with nothing to settle.
 
 ### Assistants

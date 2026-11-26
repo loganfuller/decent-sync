@@ -35,13 +35,13 @@ export class BeansController {
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ bean: BeanView }> {
     const id = await this.edits.createBean(readNewContent("bean", body), managementEditor(session.account.id));
-    return { bean: await this.beans.get(id) };
+    return { bean: await this.beans.get(id, session.scope) };
   }
 
   @AllowStaff()
   @Get(":id")
-  async get(@Param("id") id: string): Promise<{ bean: BeanView }> {
-    return { bean: await this.beans.get(readBeanId(id)) };
+  async get(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ bean: BeanView }> {
+    return { bean: await this.beans.get(readBeanId(id), scope) };
   }
 
   /** Edits its content: `{ content }`, each field to change, null to clear it. */
@@ -50,7 +50,7 @@ export class BeansController {
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ bean: BeanView }> {
     const beanId = readBeanId(id);
     await this.edits.editBean(beanId, readContentEdit("bean", body), managementEditor(session.account.id));
-    return { bean: await this.beans.get(beanId) };
+    return { bean: await this.beans.get(beanId, session.scope) };
   }
 
   /** Archives it or restores it: `{ archived }`. */
@@ -59,7 +59,7 @@ export class BeansController {
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ bean: BeanView }> {
     const beanId = readBeanId(id);
     await this.edits.archiveBean(beanId, readArchived(body), managementEditor(session.account.id));
-    return { bean: await this.beans.get(beanId) };
+    return { bean: await this.beans.get(beanId, session.scope) };
   }
 
   /** Deletes it, with its batches, from the Library and every tablet that holds it, unless a Shot names one of its batches. Admins only. */

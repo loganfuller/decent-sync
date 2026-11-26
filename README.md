@@ -172,7 +172,8 @@ In production at its author's cafe. See
 [the releases](https://loganfuller.github.io/decent-sync/project/releases/) for
 what each added, and the
 [roadmap](https://loganfuller.github.io/decent-sync/project/roadmap/) for what
-is planned: monitoring and alerts, calibration checks, and stock.
+is planned: monitoring and alerts, calibration checks, and moving a Bean Batch
+between Locations.
 
 ## License
 

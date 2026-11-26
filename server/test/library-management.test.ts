@@ -142,7 +142,8 @@ describe("Editing the Library in the management interface", () => {
     const north = await locationWith("North", [21021]);
     const south = await locationWith("South", [21022]);
     const bean = await createBean({ roaster: "Roux", name: "Edited Kenya", notes: "Blackcurrant" });
-    await createBatch(bean.id, [{ locationId: north.location.id }, { locationId: south.location.id }]);
+    const shared = await createBatch(bean.id, [{ locationId: north.location.id }]);
+    expect((await place(shared.id, south.location, { atLocation: true })).status).toBe(200);
     for (const tablet of [...north.tablets, ...south.tablets]) await expect.poll(() => heldBean(tablet, bean.id)?.notes).toBe("Blackcurrant");
 
     const edited = await api.send<{ bean: BeanView }>("PATCH", `/beans/${bean.id}`, { content: { notes: "Blackcurrant, cola", region: "Nyeri", processing: null } });
@@ -216,7 +217,7 @@ describe("Editing the Library in the management interface", () => {
     await expect.poll(() => heldBatch(tablet, batch.id)?.archived).toBe(false);
     // A batch of an Archived Bean is not added.
     await api.send("PUT", `/beans/${bean.id}/archived`, { archived: true });
-    expect((await api.call("POST", "/bean-batches", { beanId: bean.id, locations: [] })).status).toBe(409);
+    expect((await api.call("POST", "/bean-batches", { beanId: bean.id, locations: [{ locationId: cafe.location.id }] })).status).toBe(409);
   });
 
   it("refuses to hard-delete an item a Shot names", async () => {
