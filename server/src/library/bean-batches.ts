@@ -290,7 +290,8 @@ function weightHeld(
     count = written !== undefined && written.count !== undefined ? written.count : (shown?.count ?? known?.weightCount ?? null);
     if (shown) index = kept.lastIndexOf(shown);
   }
-  const before = entered !== null ? [] : kept.slice(0, index).filter((other) => other.count === count);
+  // One weight of a count is kept once, as the record goes back to it, so the latest of the count fit in the few kept.
+  const before = entered !== null ? [] : kept.slice(0, index).filter((other) => other.count === count && other.weight !== weight);
   return { count, written: [...before, { weight, count }, ...kept.slice(index + 1)].slice(-WRITTEN_WEIGHTS_KEPT) };
 }
 
@@ -313,9 +314,10 @@ async function saveWeightHeld(tx: Prisma.TransactionClient, tabletId: string, ba
  */
 export async function noteWeightWritten(prisma: PrismaService, tabletId: string, batchId: string, weight: number | null, count: string | null): Promise<void> {
   const entry: WrittenWeight = { weight, count };
-  await prisma.$transaction(async (tx) => {
-    await lockTablet(tx, tabletId);
-    await tx.$executeRaw`
+  // One statement, which waits for the tablet's lock, as intake holds it, before it reads what is kept: so it adds to
+  // what an intake kept, and no transaction of its own waits for a connection or times out.
+  await prisma.$executeRaw`
+    WITH tablet AS (SELECT id FROM tablets WHERE id = ${tabletId}::uuid FOR NO KEY UPDATE)
     UPDATE tablet_bean_batches SET written_weights = (
       SELECT COALESCE(jsonb_agg(kept.entry ORDER BY kept.position), '[]'::jsonb)
       FROM (
@@ -324,8 +326,7 @@ export async function noteWeightWritten(prisma: PrismaService, tabletId: string,
         ORDER BY listed.position DESC LIMIT ${WRITTEN_WEIGHTS_KEPT}
       ) AS kept
     )
-    WHERE tablet_id = ${tabletId}::uuid AND batch_id = ${batchId}::uuid`;
-  });
+    WHERE tablet_id = ${tabletId}::uuid AND batch_id = ${batchId}::uuid AND EXISTS (SELECT 1 FROM tablet)`;
 }
 
 /**
@@ -343,8 +344,8 @@ export async function noteWeightWritten(prisma: PrismaService, tabletId: string,
  * write did not set that differs from the record known was edited on the
  * tablet since, and is merged as a report's edit would be (ADR-0020). A
  * weight the write carried was worked out from the count `weightCount`,
- * which the record has then seen; undefined for a write that carried none,
- * or one no longer awaited. A write that carried a weight and set none, as
+ * which the record has then seen, and `weightSent` is that weight; both
+ * undefined for a write that carried none, or one no longer awaited. A write that carried a weight and set none, as
  * the tablet's barista changed it first, holds no weight of the server's: a
  * change of it to the weight the write carried is the barista's entry.
  */
@@ -358,6 +359,7 @@ export async function recordBatchWritten(
   seen: SeenDecision | null,
   contentSeen: Date | null,
   weightCount?: string | null,
+  weightSent?: number | null,
 ): Promise<AnswerRecorded> {
   if (!isRecordId(record.id) || globalIdOf(record) !== batchId.toLowerCase()) return "notTheItem";
   const localId = record.id;
@@ -375,10 +377,15 @@ export async function recordBatchWritten(
         written_weights AS written, weight_count_version_id::text AS "weightCount",
         CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
       FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${batchId}::uuid`;
-    // The weight this write carried was kept last as it was sent (`noteWeightWritten`); an answer setting none shows it never landed.
-    const unwritten = weightCount !== undefined && !written.has("weightRemaining");
+    // The weight this write carried was kept as it was sent (`noteWeightWritten`), the latest of its weight and count;
+    // an answer setting none shows it never landed. A report taken in since may have kept others after it.
     const pending = row ? readWrittenWeights(row.written) : [];
-    const known = row ? { ...row, writtenWeights: unwritten ? pending.slice(0, -1) : pending } : undefined;
+    let noted = -1;
+    if (weightCount !== undefined && !written.has("weightRemaining")) {
+      for (let index = pending.length - 1; index >= 0 && noted < 0; index--) if (pending[index]!.weight === (weightSent ?? null) && pending[index]!.count === weightCount) noted = index;
+    }
+    const unwritten = noted >= 0;
+    const known = row ? { ...row, writtenWeights: unwritten ? pending.filter((_kept, index) => index !== noted) : pending } : undefined;
     const at = updatedAt === null ? null : new Date(updatedAt);
     const edits = editsInAnswer(known ?? null, record, written);
     const source = tabletSource(tablet);

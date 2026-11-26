@@ -89,6 +89,8 @@ export interface WrittenAnswer {
   linked: boolean;
   /** For a batch's write that set its weight, the count the weight was worked out from (`PlannedWrite.weightCount`); undefined for any other, or one no longer awaited. */
   weightCount?: string | null;
+  /** For such a write, the weight it carried, null for one cleared (`LibraryWrite.fields`); undefined where `weightCount` is. */
+  weightSent?: number | null;
 }
 
 /** What the server says of every kind it writes to tablets. */
@@ -494,7 +496,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     itemNames: (db, ids) => namesOf(KINDS.beanBatch, db, ids),
     takeIn: (tx, tablet, value, updatedAt) => takeInBatches(tx, tablet, value, updatedAt),
     recordWritten: (prisma, tablet, answer) =>
-      recordBatchWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen, answer.weightCount),
+      recordBatchWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen, answer.weightCount, answer.weightSent),
   },
   grinder: {
     name: "Grinder",

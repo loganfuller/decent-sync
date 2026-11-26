@@ -63,10 +63,10 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
   let serials = 70500;
   let shots = 0;
 
-  async function machineAt(location: LocationView, name: string, instance: TestServer, decaidClockOffsetMs?: number): Promise<Bar> {
+  async function machineAt(location: LocationView, name: string, instance: TestServer, options: { decaidClockOffsetMs?: number; timeScale?: number } = {}): Promise<Bar> {
     const machine = await api.createMachine(name, location.id);
     const serial = String(++serials);
-    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(serial), ...(decaidClockOffsetMs === undefined ? {} : { decaidClockOffsetMs }) });
+    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(serial), ...options });
     await api.waitForOnline(machine);
     return { location, machine, tablet, serial };
   }
@@ -186,7 +186,7 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
 
   it("takes a barista's change made on a record written from the Location's current count though the tablet's clock times it before that count started", async () => {
     // Its Decaid's clock is ten minutes behind, so its change is timed before the count below started, and is not the weight that count started from.
-    const slow = await machineAt(one.location, "Held bar slow", server, -10 * 60_000);
+    const slow = await machineAt(one.location, "Held bar slow", server, { decaidClockOffsetMs: -10 * 60_000 });
     const id = await batchAtBar(400);
     await holds(id, 400, slow);
     pull(one, id, 18);
@@ -236,12 +236,61 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
     // Entered on the tablet: the form opened on the weight its barista had just entered there.
     await two.tablet.editBatch(held(two.tablet, id)!.id, { weightRemaining: 450 });
     await expect.poll(async () => at(await getBatch(id), one)?.entered?.weight, WAIT).toBe(450);
+    const entered = at(await getBatch(id), one)!.entered;
     pull(one, id, 20, minutes(3));
     await holds(id, 430, one, two);
     await two.tablet.editBatch(held(two.tablet, id)!.id, { weightRemaining: 450, notes: "again" });
     await expect.poll(() => held(one.tablet, id)?.notes, WAIT).toBe("again");
     await holds(id, 430, two, one);
-    expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 430, entered: { weight: 450 }, used: { shots: 1, weight: 20 } });
+    // The count is the one the barista's entry started, at its time.
+    expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 430, entered, used: { shots: 1, weight: 20 } });
+    expect((await history(id)).versions.filter((version) => "remainingWeight" in version.fields)[0]).toMatchObject({ fields: { remainingWeight: 450 } });
+  });
+
+  it("keeps the weight a barista entered as a write to it found it changed, so a form opened on it and saved after a later Shot enters nothing", async () => {
+    // Slower than the bar's, so that its reads can be held for a few seconds before Decaid's fetch gives up.
+    const slow = await machineAt(one.location, "Held bar held", other, { timeScale: 5 });
+    const id = await batchAtBar(300);
+    await holds(id, 300, slow);
+    pull(one, id, 18, new Date());
+    await holds(id, 282, one, two, slow);
+
+    // Its next report reads the batches only once the barista has weighed 250, and the write of the next Shot's weight,
+    // which expects 282, waits behind that read, so the report is taken in first and the write then sets nothing.
+    const list = slow.tablet.holdRequests("GET", "/bean-batches");
+    await expect.poll(() => list.arrived, WAIT).toBeGreaterThan(0);
+    const pulledAt = new Date();
+    await slow.tablet.editBatch(held(slow.tablet, id)!.id, { weightRemaining: 250 });
+    pull(one, id, 18, pulledAt);
+    await holds(id, 264, one);
+    const writing = (frame: unknown) => {
+      const write = frame as { type?: unknown; globalId?: unknown; fields?: { weightRemaining?: unknown } };
+      return write.type === "write" && write.globalId === id && write.fields?.weightRemaining === 264;
+    };
+    await expect.poll(() => slow.tablet.received.some(writing), WAIT).toBe(true);
+    list.release();
+    await expect.poll(async () => at(await getBatch(id), one)?.entered?.weight, WAIT).toBe(250);
+    const entered = at(await getBatch(id), one)!.entered;
+
+    pull(one, id, 20, minutes(2));
+    await holds(id, 230, one, slow);
+    await slow.tablet.editBatch(held(slow.tablet, id)!.id, { weightRemaining: 250, notes: "weighed" });
+    await expect.poll(() => held(one.tablet, id)?.notes, WAIT).toBe("weighed");
+    await holds(id, 230, slow, one);
+    expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 230, entered });
+  });
+
+  it("finishes the batch for a barista's zero once the Location's count started again after the server wrote zero", async () => {
+    const id = await batchAtBar(30);
+    // Pulled now, so that the weight entered below, by PostgreSQL's clock, is entered after them.
+    pull(one, id, 18, new Date());
+    pull(one, id, 18, new Date());
+    await holds(id, 0, one, two);
+    // Weighed in the management interface, which starts the count again from 30.
+    expect((await put(id, one, { remainingWeight: 30 })).status).toBe(200);
+    await holds(id, 30, one, two);
+    await two.tablet.editBatch(held(two.tablet, id)!.id, { weightRemaining: 0 });
+    await expect.poll(async () => (await getBatch(id)).finished.map((here) => here.location.id), WAIT).toEqual([one.location.id]);
   });
 
   it("writes a tablet that was offline while Shots were pulled on another Machine at its Location the current weight when it returns", async () => {
