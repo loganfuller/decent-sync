@@ -503,7 +503,8 @@ describe("Bean Batches at Locations", () => {
     await holds(() => heldBatch(three, batch.id), { archived: false });
 
     // The lab counts it, which reaches the lab's other tablets.
-    await one.editBatch(heldBatch(one, batch.id)[0]!.id, { weightRemaining: 180.5 });
+    const entered = await holds(() => heldBatch(one, batch.id), { archived: false });
+    await one.editBatch(entered.id, { weightRemaining: 180.5 });
     await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed lab", 180.5]]);
     await holds(() => heldBatch(three, batch.id), { weightRemaining: 180.5 });
     await holds(() => heldBatch(two, batch.id), { weightRemaining: 180.5 });

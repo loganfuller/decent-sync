@@ -141,10 +141,12 @@ export async function whileNotBusy<T>(change: () => Promise<T>): Promise<T> {
  * left keeps it as what decided its presence, so a later edit there that
  * loses knows what it lost to. Nothing a move replaces at a Location left is
  * kept as a Lost Edit: the move's entry says it. A batch that was not at the
- * Location takes the weight entered for it where it was added last of those
- * it leaves, with when it was entered and the version that entered it, none
- * if none was entered there, so the weight is the batch's wherever it is; a
- * weight the edit gives is entered over it by its caller. An add that loses
+ * Location takes the weight entered for it where it was last (`lastAt`): the
+ * Location it leaves, the one it was added at last of several, or, for a
+ * batch at none, the one it was finished at last. It comes with when it was
+ * entered and the version that entered it, none if none was entered there,
+ * so the weight is the batch's wherever it is; a weight the edit gives is
+ * entered over it by its caller. An add that loses
  * moves nothing. The caller holds the Location's lock, and takes those of
  * the Locations left first where it can (`lockForAdding`).
  */
@@ -159,6 +161,7 @@ export async function addBatchAt(
 ): Promise<Date | null> {
   await lockBatchPlace(tx, batchId);
   const before = await presenceAt(tx, batchId, locationId);
+  const from = before?.at === true ? null : await lastAt(tx, batchId);
   const [added] = await tx.$queryRaw<{ decidedAt: Date }[]>`
     INSERT INTO batch_locations (batch_id, location_id, added_at, presence_decided_at)
     VALUES (${batchId}::uuid, ${locationId}::uuid, ${at}::timestamptz, clock_timestamp())
@@ -172,7 +175,7 @@ export async function addBatchAt(
     RETURNING presence_decided_at AS "decidedAt"`;
   const left = added ? await leaveOthers(tx, batchId, locationId, at) : [];
   const versionId = await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at, held, left);
-  if (versionId !== null && left.length > 0) await arriveFrom(tx, batchId, locationId, left, versionId, before?.at !== true);
+  if (versionId !== null) await arriveFrom(tx, batchId, locationId, left, versionId, from !== null && from !== locationId ? from : null);
   await tx.$executeRaw`
     DELETE FROM bean_origins
     WHERE location_id = ${locationId}::uuid AND bean_id = (SELECT bean_id FROM bean_batches WHERE id = ${batchId}::uuid AND NOT archived)
@@ -211,22 +214,36 @@ async function leaveOthers(tx: Prisma.TransactionClient, batchId: string, locati
 }
 
 /**
- * Has each Location a move left (`left`, the one the batch was added at last
- * first) keep the move's version as what decided the batch's presence there,
- * and, with `carrying`, the Location joined take the weight entered at the
- * first of them.
+ * The Location the batch was at last: the one it is at, the one it was added
+ * at last if it is at several, or else the one it was finished at last; null
+ * for a batch that has been nowhere.
  */
-async function arriveFrom(tx: Prisma.TransactionClient, batchId: string, locationId: string, left: readonly string[], versionId: string, carrying: boolean): Promise<void> {
-  await tx.$executeRaw`
-    UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ANY(${[...left]}::uuid[])`;
-  if (!carrying) return;
+async function lastAt(tx: Prisma.TransactionClient, batchId: string): Promise<string | null> {
+  const [last] = await tx.$queryRaw<{ id: string }[]>`
+    SELECT location_id::text AS id FROM batch_locations WHERE batch_id = ${batchId}::uuid AND added_at IS NOT NULL
+    ORDER BY (finished_at IS NULL) DESC, COALESCE(finished_at, added_at) DESC, location_id LIMIT 1`;
+  return last?.id ?? null;
+}
+
+/**
+ * Has each Location a move left (`left`) keep the move's version as what
+ * decided the batch's presence there, and the Location joined take the
+ * weight entered at the Location the batch was at last (`from`), if it was
+ * at another.
+ */
+async function arriveFrom(tx: Prisma.TransactionClient, batchId: string, locationId: string, left: readonly string[], versionId: string, from: string | null): Promise<void> {
+  if (left.length > 0) {
+    await tx.$executeRaw`
+      UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ANY(${[...left]}::uuid[])`;
+  }
+  if (from === null) return;
   await tx.$executeRaw`
     UPDATE batch_locations AS here SET
       remaining_weight = origin.remaining_weight, remaining_weight_at = origin.remaining_weight_at,
       remaining_weight_version_id = origin.remaining_weight_version_id
     FROM batch_locations AS origin
     WHERE here.batch_id = ${batchId}::uuid AND here.location_id = ${locationId}::uuid
-      AND origin.batch_id = here.batch_id AND origin.location_id = ${left[0]}::uuid`;
+      AND origin.batch_id = here.batch_id AND origin.location_id = ${from}::uuid`;
 }
 
 /**
@@ -248,7 +265,7 @@ export async function settleBatch(tx: Prisma.TransactionClient, batchId: string,
   const left = await leaveOthers(tx, batchId, kept.id, at);
   if (left.length === 0) return false;
   const versionId = await recordVersion(tx, { kind: "beanBatch", id: batchId }, kept.id, { atLocation: true, movedFrom: left, settled: true }, SERVER_ITSELF, at);
-  await arriveFrom(tx, batchId, kept.id, left, versionId, false);
+  await arriveFrom(tx, batchId, kept.id, left, versionId, null);
   return true;
 }
 

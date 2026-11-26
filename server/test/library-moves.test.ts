@@ -165,6 +165,14 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
     await expect.poll(() => held(lab.tablets[0]!, created.id)).toMatchObject({ archived: false, weightRemaining: 640 });
     for (const tablet of cafe.tablets) await expect.poll(() => held(tablet, created.id)?.archived).toBe(true);
 
+    // Finished there and then added at the cafe, it is no move, and takes the weight it had where it was last.
+    expect((await place(created.id, lab.location, { atLocation: false })).status).toBe(200);
+    expect(await at(created.id)).toEqual([]);
+    expect((await place(created.id, cafe.location, { atLocation: true })).status).toBe(200);
+    expect(await batch(created.id)).toMatchObject({ locations: [{ location: { id: cafe.location.id }, remainingWeight: 640 }], movedFrom: [] });
+    expect((await entered(created.id))["Moves cafe"]).toEqual(reweighed);
+    expect((await place(created.id, lab.location, { atLocation: true })).status).toBe(200);
+
     // Added again where it is, it moves nowhere.
     expect((await place(created.id, lab.location, { atLocation: true })).status).toBe(200);
     expect(await at(created.id)).toEqual(["Moves lab"]);

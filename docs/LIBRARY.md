@@ -179,8 +179,9 @@ copied there with it.
   and keeps nothing it replaces there as a Lost Edit. An add that loses on
   time moves nothing, and is a Lost Edit as before.
 - **The weight.** A batch that was not at the Location takes the remaining
-  weight entered at the Location it left, the one it was added at last if it
-  left several, with when it was entered and the entry that entered it
+  weight entered at the Location it was at last (`lastAt`): the one it left,
+  the one it was added at last if it left several, or, for a batch at no
+  Location, the one it was finished at last, with when it was entered and the entry that entered it
   (`remaining_weight`, `remaining_weight_at`, `remaining_weight_version_id`),
   and none if none was entered there. A weight the edit gives is then entered
   over it as any weight is. The row of the Location left keeps what it held.
