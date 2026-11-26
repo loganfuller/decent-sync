@@ -245,9 +245,11 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   content, Decaid's record fields as the tablet that created it sent them,
   but its id, its bean's id there, its times and `extras`, which are that
   record's, and `archived` and `weightRemaining`, which are each
-  Location's, as edited since. Also whether it is Archived, the Location of
+  Location's, as edited since, and its Batch Code, which is Decent Sync's
+  own. Also whether it is Archived, the Location of
   the tablet that created it, when it joined the Library, and its fields'
-  latest edits.
+  latest edits. A unique index keeps a Batch Code to one batch that is not
+  Archived (Content, below).
 - `batch_locations`: each batch's state at a Location, each part a field of
   its own (ADR-0020): when it was last added there and when it was finished
   there since, if it was, and the remaining weight entered there last, in
@@ -696,6 +698,47 @@ Lost Edit names is kept, still refused, so history goes on naming it
   server takes none in, so one a tablet's record holds that its Grinder
   never had is taken in at its next report, as a note is (`heldInExtras` in
   `grinders.ts`).
+
+  A Bean Batch also holds its **Batch Code**, `batchCode`, the roaster's own
+  identifier for it (#703, ADR-0036): free text kept trimmed, none where
+  nothing is left, of at most 100 characters (`MAX_BATCH_CODE_LENGTH`). It
+  is Decent Sync's own, not Decaid's.
+  - **Unique among the batches that are not Archived**, compared ignoring
+    case and the spaces around it, by a unique index on the content's
+    lower-cased, trimmed text over those batches
+    (`bean_batches_batch_code_key`, an expression index, so only its
+    migration declares it). A create, an edit and a restore that would
+    repeat one are refused with 409, the message naming the batch that
+    holds it and its id, and the body giving it as `existing: { id, name,
+    batchCode }` (`refuseTakenCode` in `library-edits.service.ts`, which
+    compares in SQL exactly as the index does). The check is made before
+    the write; of two changes made at once, through any instance, the index
+    refuses the one that commits second, which is answered the same way
+    outside its transaction (`keepingCodesApart`). An Archived batch keeps
+    its code, which is free for another batch, and may be given one another
+    holds; it is restored only while no other batch holds its code.
+  - **On a tablet** the record holds it in `extras` under
+    `decentSyncBatchCode` (BATCH_CODE_KEY), beside its global id, as Decaid
+    drops one at the record's top. A write names it `batchCode`, with the
+    batch's other content, and the plugin places it (`Route.inExtras`,
+    BATCH_EXTRAS_KEYS), writing null to clear it. The server reads the key
+    only to plan that write (`batchRecordValues` in `batch-intake.ts`, as
+    whatever the record holds there, since a write expects exactly it).
+  - **A tablet is not a source of it.** `batchContent`, what a tablet's
+    record gives the batch's content, leaves it out, wherever the record
+    holds one, its top included, should Decaid come to keep one there. So a
+    code changed on a tablet is no edit, keeps no version or Lost Edit, and
+    is written over: a report or a write's answer whose record holds another
+    code than the record known announces the Location, so the writer looks
+    again.
+  - **Beside the previous release** (ADR-0025): its plugin writes the field
+    at the record's top, which Decaid drops, so its tablet holds no code
+    until Decaid updates the plugin, the write listed among its refusals as
+    a Grinder's range was. Its server writes no code, so the index refuses
+    none of its writes of a batch's content; it restores an Archived batch
+    whose code another holds with an error, not a conflict; and for a batch
+    that holds a code it may list the same refusal, as it reads none from a
+    record.
 
   A Basket's fields are those DYE2's baskets
   page saves, its name, `size` (one of the sizes the page offers),
@@ -3188,9 +3231,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `batches`, as the Bean Batches list shows them, the latest roasted first;
   or 404.
 - `GET /api/bean-batches` returns `{ batches }`, each `{ id, bean: { id,
-  roaster, name }, roastDate, archived, locations, createdAt, createdLocation
-  }`, by their Bean's name and roaster, ignoring case, then the latest roast
-  date first. `roastDate` is the content's, as Decaid recorded it. `locations`
+  roaster, name }, roastDate, batchCode, archived, locations, createdAt,
+  createdLocation }`, by their Bean's name and roaster, ignoring case, then
+  the latest roast date first. `roastDate` is the content's, as Decaid
+  recorded it, and `batchCode` its Batch Code, null for none. With
+  `?batchCode=`, only the batches holding exactly that code, ignoring case
+  and the spaces around it: at most one that is not Archived, and any
+  Archived that held it. `locations`
   lists the Locations it is at, by name, each `{ location, remainingWeight,
   since }`: the remaining weight entered there last, in grams, or null if none
   was or it was cleared, and when it was last added there, which a tablet

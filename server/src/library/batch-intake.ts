@@ -1,4 +1,4 @@
-import { globalIdOf, isRecordId } from "@decent-sync/protocol";
+import { BATCH_CODE_FIELD, BATCH_CODE_KEY, globalIdOf, isRecordId, sameValue } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { changedFields } from "./merge.js";
 
@@ -113,21 +113,46 @@ export function weightOf(record: Record<string, unknown>): number | null {
 }
 
 /**
- * A Bean Batch's content, from a tablet's record of it: Decaid's fields,
- * those this server does not know included, but its id, its bean's id on
- * that tablet, its times and `extras`, which belong to that tablet's record,
- * and `archived` and `weightRemaining`, which are each Location's (ADR-0008).
+ * A Bean Batch's content, from a tablet's record of it, as a tablet's edit
+ * gives it: Decaid's fields, those this server does not know included, but
+ * its id, its bean's id on that tablet, its times and `extras`, which belong
+ * to that tablet's record, and `archived` and `weightRemaining`, which are
+ * each Location's (ADR-0008). And no Batch Code, wherever the record holds
+ * one: a tablet is not a source of Batch Code edits (ADR-0036), so one
+ * changed there is no edit, and is written over (`batchRecordValues`).
  */
 export function batchContent(record: Record<string, unknown>): Record<string, unknown> {
-  const { id, beanId, createdAt, updatedAt, archived, weightRemaining, extras, ...content } = record;
+  const { id, beanId, createdAt, updatedAt, archived, weightRemaining, extras, [BATCH_CODE_FIELD]: batchCode, ...content } = record;
   return content;
+}
+
+/**
+ * What a tablet's record of a Bean Batch holds of the batch's content, as
+ * the server compares it with the batch's to plan a write: `batchContent`,
+ * and the Batch Code it holds in its `extras` (`heldBatchCode`).
+ */
+export function batchRecordValues(record: Record<string, unknown>): Record<string, unknown> {
+  const code = heldBatchCode(record);
+  return code === null ? batchContent(record) : { ...batchContent(record), [BATCH_CODE_FIELD]: code };
+}
+
+/**
+ * What a tablet's record of a Bean Batch holds as its Batch Code, in its
+ * `extras` under BATCH_CODE_KEY, where the plugin writes it (ADR-0036):
+ * whatever is there, as a write of it expects the record to hold exactly
+ * that, or null for none.
+ */
+export function heldBatchCode(record: Record<string, unknown>): unknown {
+  const { extras } = record;
+  return isObject(extras) ? (extras[BATCH_CODE_KEY] ?? null) : null;
 }
 
 /**
  * What a report changes, as `planIntake` decides it for beans. A record the
  * tablet's map holds by its local id stays that batch whatever global id it
  * carries; its record replaces the one known when it is newer, or as old but
- * changed at the Location within the millisecond the plugin reads times to,
+ * changed within the millisecond the plugin reads times to (at the Location,
+ * in its content, or in the Batch Code it holds, which is written over),
  * or when it no longer carries the batch's global id while the one known
  * does, whatever its time. Each such record brings the changes made to it since the one
  * known: un-archived, the batch is added at the tablet's Location; archived,
@@ -170,9 +195,9 @@ export function planBatchIntake(
       const edits = editsSince(mine, batch);
       const content = changedFields(batchContent(mine.record), batchContent(batch.record));
       const newer = mine.updatedAt === null || batch.updatedAt.getTime() > mine.updatedAt.getTime();
-      // Times are read to the millisecond, so one as old that was changed since was changed within it.
-      const sameTime =
-        mine.updatedAt !== null && batch.updatedAt.getTime() === mine.updatedAt.getTime() && (edits.length > 0 || Object.keys(content).length > 0);
+      // Times are read to the millisecond, so one as old that was changed since was changed within it, its Batch Code included, to be written over.
+      const changed = edits.length > 0 || Object.keys(content).length > 0 || !sameValue(heldBatchCode(mine.record), heldBatchCode(batch.record));
+      const sameTime = mine.updatedAt !== null && batch.updatedAt.getTime() === mine.updatedAt.getTime() && changed;
       const lostId = batch.globalId !== mine.batchId && mine.globalId === mine.batchId;
       if (newer || sameTime || lostId) steps.push({ kind: "update", batchId: mine.batchId, batch, edits, content });
       continue;

@@ -165,7 +165,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | Shots and Steam Records: capture, links, filters, Shot Summaries, out of spec | ADR-0015, ADR-0029; `SHOTS.md`; `STEAM_RECORDS.md`; milestone 7's spec |
 | A Shot's rating and note edited away from its tablet | ADR-0031; `SHOTS.md`, A rating and note edited through the server; `AI_PROTOCOL_NOTES.md`, A Shot's edits |
 | Workflow, machine states, the Loaded Recipe, Machine Activity | ADR-0021, ADR-0022 (interim); `WORKFLOW-AND-STATE.md`; `AI_PROTOCOL_NOTES.md`, The Loaded Recipe on the wire |
-| The Library: Beans, Bean Batches, Grinders, Profiles, sharing, Lost Edits | ADR-0003, ADR-0006, ADR-0008, ADR-0016, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0032, ADR-0033; `LIBRARY.md`; milestone 2's spec |
+| The Library: Beans, Bean Batches, Grinders, Profiles, sharing, Lost Edits | ADR-0003, ADR-0006, ADR-0008, ADR-0016, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0032, ADR-0033, ADR-0036 (interim, a Bean Batch's Batch Code); `LIBRARY.md`; milestone 2's spec |
 | Writing Profiles: Drafts, Profile Versions, the simulation, a Machine following a Draft, Trial Shots | ADR-0032, ADR-0003, ADR-0006, ADR-0008, ADR-0020; `LIBRARY.md`; milestone 9's spec |
 | Recipes, Recipe Slots, Baskets, Tools, DYE2's lists | ADR-0005 (interim), ADR-0006, ADR-0008, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022 (interim); `LIBRARY.md`; milestone 3's spec; `server/test/support/simulated-dye2.ts`, `simulated-streamline.ts` |
 | A Recipe's Reference Shot | ADR-0029, ADR-0030; `LIBRARY.md`; `AI_PROTOCOL_NOTES.md`, Reference Shot copies |

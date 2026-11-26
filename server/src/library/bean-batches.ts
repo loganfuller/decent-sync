@@ -1,10 +1,10 @@
-import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
+import { BATCH_CODE_FIELD, GLOBAL_ID_KEY, globalIdOf, isRecordId, sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkShots } from "../shots/links.js";
-import { type LocationEdit, type ReportedBatch, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
+import { type LocationEdit, type ReportedBatch, batchContent, batchRecordValues, editsInAnswer, heldBatchCode, planBatchIntake, readReportedBatches } from "./batch-intake.js";
 import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
 import {
@@ -160,6 +160,8 @@ export async function takeInBatches(
       const known = knownRecords.get(batchId);
       const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null, ...(known ? { held: heldIn(batchContent(known.record), step.content) } : {}) };
       writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)).writesDue || writesDue;
+      // A Batch Code changed on the tablet is no edit (ADR-0036): the batch's is written over it.
+      if (known && !sameValue(heldBatchCode(known.record), heldBatchCode(batch.record))) writesDue = true;
     }
     const applied =
       step.kind === "map" || (step.kind === "update" && joining)
@@ -277,9 +279,11 @@ export async function recordBatchWritten(
       const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, held: heldIn(batchContent(known.record), values) };
       edited = await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source);
       changed = edited.writesDue || changed;
+      // A Batch Code changed on the tablet before Decaid answered, which the write left as it was, is written over (ADR-0036).
+      if (!written.has(BATCH_CODE_FIELD) && !sameValue(heldBatchCode(known.record), heldBatchCode(record))) changed = true;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchContent(record), edited, contentSeen));
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchRecordValues(record), edited, contentSeen));
     await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);

@@ -1,6 +1,6 @@
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { type MappedBatch, type ReportedBatch, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "../src/library/batch-intake.js";
+import { type MappedBatch, type ReportedBatch, batchContent, batchRecordValues, editsInAnswer, heldBatchCode, planBatchIntake, readReportedBatches } from "../src/library/batch-intake.js";
 
 // Taking a tablet's report of its bean batches into the Library, through the
 // pure module's interface: which records are new, mapped by the global id
@@ -83,6 +83,40 @@ describe("batchContent", () => {
       notes: "Bright",
       tastingWheel: ["jasmine"],
     });
+  });
+});
+
+describe("a Batch Code on a tablet's record (ADR-0036)", () => {
+  const coded = (code: unknown) => record(LOCAL[0], { extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: code, other: "kept" } });
+
+  it("is read from the record's extras to plan a write, as whatever the record holds there, and is no part of what a tablet's edit gives", () => {
+    expect(batchRecordValues(coded("PR-0470"))).toEqual({ ...batchContent(record(LOCAL[0])), batchCode: "PR-0470" });
+    expect(heldBatchCode(coded(470))).toBe(470);
+    expect(batchContent(coded("PR-0470"))).not.toHaveProperty("batchCode");
+    // None, where the record holds no key, null, or no extras at all.
+    for (const none of [coded(undefined), coded(null), record(LOCAL[0])]) {
+      expect(heldBatchCode(none)).toBeNull();
+      expect(batchRecordValues(none)).toEqual(batchContent(record(LOCAL[0])));
+    }
+    // One at the record's top, where Decaid may come to keep one, is not taken in as content.
+    expect(batchContent(record(LOCAL[0], { batchCode: "TOP-1" }))).toEqual(batchContent(record(LOCAL[0])));
+    expect(batchRecordValues(record(LOCAL[0], { batchCode: "TOP-1" }))).not.toHaveProperty("batchCode");
+  });
+
+  it("changed on the tablet is no edit of the batch's content: the record is taken as the tablet's, with whatever else it changed", () => {
+    const known = mapped(GLOBAL[0], LOCAL[0], { record: coded("PR-0470") });
+    const changed = reported(LOCAL[0], { roastLevel: "light", extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: "TABLET-9" } }, LATER);
+    expect(planBatchIntake([changed], [known], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: changed, edits: [], content: { roastLevel: "light" } }]);
+  });
+
+  it("changed on the tablet within the millisecond times are read to, and nothing else, still replaces the record known, so the batch's is written over it", () => {
+    const known = mapped(GLOBAL[0], LOCAL[0], { record: coded("PR-0470") });
+    for (const held of ["TABLET-9", null]) {
+      const changed = reported(LOCAL[0], { extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: held, other: "kept" } });
+      expect(planBatchIntake([changed], [known], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: changed, edits: [], content: {} }]);
+    }
+    // The same code, as old: nothing changed.
+    expect(planBatchIntake([reported(LOCAL[0], { extras: { decentSyncId: GLOBAL[0], decentSyncBatchCode: "PR-0470", other: "kept" } })], [known], beans, [])).toEqual([]);
   });
 });
 

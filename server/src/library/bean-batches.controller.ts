@@ -9,7 +9,7 @@ import { type HistoryView, HistoryService, readHistoryField } from "./history.se
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewBatch, readPlacement } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
-import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBeanBatchId } from "./bean-batches.service.js";
+import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBatchCodeFilter, readBeanBatchId } from "./bean-batches.service.js";
 
 /**
  * The Library's Bean Batches, the Locations each is at and its remaining
@@ -27,10 +27,11 @@ export class BeanBatchesController {
     private readonly prisma: PrismaService,
   ) {}
 
+  /** Every batch, or with `?batchCode=`, those holding exactly that Batch Code, ignoring case and the spaces around it. */
   @AllowStaff()
   @Get()
-  async list(): Promise<{ batches: BeanBatchSummary[] }> {
-    return { batches: await this.batches.list() };
+  async list(@Query() query: Record<string, unknown>): Promise<{ batches: BeanBatchSummary[] }> {
+    return { batches: await this.batches.list(readBatchCodeFilter(query)) };
   }
 
   /** Creates a batch of a Bean: `{ beanId, content, locations }`, each Location it is added at `{ locationId, remainingWeight? }`. */

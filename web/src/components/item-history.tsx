@@ -46,6 +46,7 @@ function itemApiPath(kind: ItemKind, id: string): string {
  * and earlier hold; and a Recipe's Reference Shot, which is not its content.
  */
 const FIELD_LABELS: Readonly<Record<string, string>> = {
+  batchCode: "Batch Code",
   diameterMm: "Diameter (mm)",
   custom: "Attributes",
   settingMin: "Lowest setting",

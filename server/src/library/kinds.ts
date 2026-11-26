@@ -2,6 +2,7 @@ import {
   LIBRARY_ITEM_KINDS,
   type LibraryKind,
   type LibraryList,
+  BATCH_CODE_FIELD,
   DRAFT_KIND,
   LOADED_RECIPE_KIND,
   STEAM_ON_FROM,
@@ -16,7 +17,7 @@ import {
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
 import { shotLinkedSql, shotLinkedToRecipesSql, stepsKeySql } from "../shots/links.js";
-import { batchContent } from "./batch-intake.js";
+import { batchRecordValues } from "./batch-intake.js";
 import { recordBatchWritten, takeInBatches } from "./bean-batches.js";
 import { beanContent } from "./bean-intake.js";
 import { type EquipmentKind, recordEquipmentWritten, takeInEquipment } from "./equipment.js";
@@ -218,6 +219,8 @@ const BEAN_FIELDS: Readonly<Record<string, FieldType>> = {
 };
 
 const BATCH_FIELDS: Readonly<Record<string, FieldType>> = {
+  // Decent Sync's own, which a tablet's record holds in its `extras` (ADR-0036).
+  [BATCH_CODE_FIELD]: "batchCode",
   roastDate: "date",
   roastLevel: "text",
   harvestDate: "text",
@@ -431,7 +434,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     archivedIsContent: false,
     editedIn: null,
     values: (content) => content,
-    recordValues: (record) => batchContent(record),
+    recordValues: (record) => batchRecordValues(record),
     keptColumns: () => Prisma.empty,
     editable: { fields: BATCH_FIELDS, defaults: { frozen: false } },
     shotLink: { local: "bean_batch_id", link: "library_batch_id" },
@@ -941,7 +944,7 @@ function beanName(content: unknown): string | null {
 }
 
 /** A batch as the Bean Batches list names it: its Bean, and the day a barista picked as its roast date. */
-function batchName(content: unknown, beanContent: unknown): string | null {
+export function batchName(content: unknown, beanContent: unknown): string | null {
   const bean = text(fields(beanContent).name);
   const roastDate = text(fields(content).roastDate);
   const roasted = roastDate !== null && /^\d{4}-\d\d-\d\d/.test(roastDate) ? `roasted ${roastDate.slice(0, 10)}` : null;

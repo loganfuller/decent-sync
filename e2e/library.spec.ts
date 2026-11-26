@@ -102,17 +102,18 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expect(page.getByRole("heading", { name: "Bean Batches", level: 1 })).toBeVisible();
   await expectTip(page.getByRole("main"), "Bean Batches", /^The Bean Batches in the Library\./);
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "Roux Bakehouse", "Batch cafe (no weight entered), Batch lab (180.5 g)", "Batch lab", ""].join(""),
-    ["Batch Heirloom, no roast date", "Sandbox Coffee Roasters", "Batch cafe (no weight entered)", "Batch cafe", ""].join(""),
+    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe (no weight entered), Batch lab (180.5 g)", "Batch lab", ""].join(""),
+    ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe (no weight entered)", "Batch cafe", ""].join(""),
   ]);
 
   await page.getByRole("link", { name: "Batch Guji, roasted 2026-10-01" }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji, roasted 2026-10-01", level: 1 })).toBeVisible();
   await expectTip(page.getByRole("main"), "Locations", /^Where it is, from when it was added there until it is finished there/);
-  await expectTip(page.getByRole("main"), "Roast", "As it was created, with the edits made since, on tablets or here.");
+  await expectTip(page.getByRole("main"), "Roast", /^As it was created, with the edits made since, on tablets or here\.The Batch Code is your own identifier for this roast/);
   const locations = page.getByRole("table", { name: "Locations" });
   await expect(rows(locations).locator("td:nth-child(-n+2)")).toHaveText(["Batch cafe", "no weight entered", "Batch lab", "180.5 g"]);
   const roast = page.getByLabel("Roast", { exact: true });
+  await expect(field(roast, "Batch Code")).toHaveText("-");
   await expect(field(roast, "Roasted")).toHaveText("2026-10-01");
   await expect(field(roast, "Roast level")).toHaveText("light");
   await expect(field(roast, "Weight")).toHaveText("250 g");

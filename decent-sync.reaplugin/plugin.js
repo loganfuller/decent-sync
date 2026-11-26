@@ -1146,6 +1146,9 @@ var __decentSync = (() => {
   var GLOBAL_ID_KEY = "decentSyncId";
   var GRINDER_RANGE_FIELDS = ["settingMin", "settingMax", "settingDefault", "rpmMin", "rpmMax", "rpmDefault"];
   var GRINDER_EXTRAS_FIELDS = ["feedRate", ...GRINDER_RANGE_FIELDS];
+  var BATCH_CODE_KEY = "decentSyncBatchCode";
+  var BATCH_CODE_FIELD = "batchCode";
+  var BATCH_EXTRAS_KEYS = { [BATCH_CODE_FIELD]: BATCH_CODE_KEY };
   function beanMatchKey(roaster, name) {
     return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
   }
@@ -2930,7 +2933,8 @@ var __decentSync = (() => {
       deferred: ["archived", "weightRemaining"],
       sameItem: () => false,
       namedByShots: true,
-      listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`
+      listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`,
+      inExtras: BATCH_EXTRAS_KEYS
     },
     grinder: {
       list: "/grinders?includeArchived=true",
@@ -2939,7 +2943,7 @@ var __decentSync = (() => {
       deferred: ["archived"],
       sameItem: () => false,
       namedByShots: true,
-      inExtras: GRINDER_EXTRAS_FIELDS
+      inExtras: Object.fromEntries(GRINDER_EXTRAS_FIELDS.map((field) => [field, field]))
     }
   };
   var WRITERS = {
@@ -3498,8 +3502,10 @@ var __decentSync = (() => {
     const parsedRecord = parsed3(current.text);
     const record3 = isObject6(parsedRecord) ? parsedRecord : {};
     const extras = isObject6(record3.extras) ? record3.extras : {};
-    const inExtras = new Set(route.inExtras ?? []);
-    const fields = settable(write, (field) => inExtras.has(field) ? extras[field] : record3[field]);
+    const fields = settable(write, (field) => {
+      const key2 = extrasKey(route, field);
+      return key2 === void 0 ? record3[field] : extras[key2];
+    });
     const placedFields = placed(route, fields);
     return {
       answer: await request("PUT", path, { ...placedFields.own, extras: { ...extras, ...placedFields.extras, [GLOBAL_ID_KEY]: write.globalId } }),
@@ -3507,11 +3513,18 @@ var __decentSync = (() => {
     };
   }
   function placed(route, fields) {
-    const inExtras = new Set(route.inExtras ?? []);
     const own = {};
     const extras = {};
-    for (const [field, value] of Object.entries(fields)) (inExtras.has(field) ? extras : own)[field] = value;
+    for (const [field, value] of Object.entries(fields)) {
+      const key2 = extrasKey(route, field);
+      if (key2 === void 0) own[field] = value;
+      else extras[key2] = value;
+    }
     return { own, extras };
+  }
+  function extrasKey(route, field) {
+    const keys = route.inExtras;
+    return keys && Object.prototype.hasOwnProperty.call(keys, field) ? keys[field] : void 0;
   }
   function answerTo(write, answer, writtenFields) {
     const record3 = answer.ok ? parsed3(answer.text) : void 0;

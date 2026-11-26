@@ -293,6 +293,9 @@ full detail.
   at the Location.
 - It writes each bean's, batch's and grinder's Library id into the record's
   `extras`, keeping what other plugins store there.
+- It writes each batch's Batch Code there too, under `decentSyncBatchCode`,
+  as Decaid's record has no field for one yet. A code changed on the tablet
+  is written over with the Library's.
 - It sets each batch's remaining weight to the weight at its Location.
 - It shows each Profile its Location shows.
 - It sets the profile of a Draft its Machine follows as the Workflow's

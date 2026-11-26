@@ -1337,7 +1337,11 @@ model BeanBatch {
   /// Decaid's record fields, those it does not know included, as the tablet
   /// that created it sent them: all but its id, its Bean's id on that tablet,
   /// its times, `archived`, `weightRemaining` and `extras`, which belong to
-  /// each tablet's record or to each Location.
+  /// each tablet's record or to each Location. And its Batch Code
+  /// (`batchCode`), which is Decent Sync's own (ADR-0036): unique among the
+  /// batches not Archived, ignoring case and the spaces around it, by the
+  /// index `bean_batches_batch_code_key`, which is on an expression, so only
+  /// its migration declares it (20261125000000_batch_codes).
   content           Json      @db.JsonB
   /// Retired everywhere: offered nowhere, but kept so past Shots still name it.
   archived          Boolean   @default(false)

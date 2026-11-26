@@ -360,6 +360,11 @@ describe("plannedWrites", () => {
       { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { notes: "New" }, expected: { notes: "Old" }, decidedAt: DECIDED, contentDecidedAt: EDITED },
       { kind: "grinder", globalId: GRINDERS[0], localId: LOCAL_GRINDER, fields: { burrs: "Fixture 63mm" }, expected: { burrs: "Fixture 64mm" }, decidedAt: null, contentDecidedAt: EDITED },
     ]);
+    // A batch's Batch Code is expected where the plugin writes it, in the record's extras (ADR-0036), never at its top.
+    const coded = { ...heldBatch(BATCHES[0], { batchCode: "TOP-1" }), content: { ...batchContent, batchCode: "PR-0470" } };
+    expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), holding([heldBean(BEANS[0])], [coded]))).toEqual([
+      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { batchCode: "PR-0470" }, expected: { batchCode: null }, decidedAt: DECIDED, contentDecidedAt: EDITED },
+    ]);
   });
 
   it("writes a user's Profile's title, author and notes to every record the tablet holds of it, beside its visibility, and none to a bundled one", () => {

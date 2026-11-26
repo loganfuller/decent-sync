@@ -224,6 +224,7 @@ with why it was made and what it rules out. In one line each:
 - [ADR-0029](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0029-a-recipes-reference-shot-is-chosen-and-held-by-the-server.md): a Recipe's Reference Shot is chosen by a person and held by the server, outside DYE2's recipes. Amended: each tablet keeps a copy and may choose one (ADR-0030).
 - [ADR-0030](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0030-the-plugin-serves-a-skin-what-the-server-holds.md): the plugin serves a Skin what the server holds, and a tablet may choose a Reference Shot.
 - [ADR-0032](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0032-the-server-authors-profiles-as-drafts-published-under-decaids-id.md): the server authors Profiles, as Drafts published under the id Decaid would give them.
+- [ADR-0036](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0036-interim-a-batch-code-in-the-records-extras.md): a Bean Batch's Batch Code is kept in its tablet record's `extras`, under a key of Decent Sync's own. Interim, until Decaid's record has a field for it.
 - [ADR-0033](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0033-an-edit-that-loses-is-kept-in-the-items-history.md): an edit that loses is kept in the item's history as a Lost Edit, with nothing to settle.
 
 ### Assistants

@@ -1,4 +1,4 @@
-import { type LibraryKind, beanMatchKey, equipmentMatchKey } from "@decent-sync/protocol";
+import { BATCH_CODE_FIELD, type LibraryKind, beanMatchKey, equipmentMatchKey } from "@decent-sync/protocol";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -10,7 +10,7 @@ import { type EquipmentKind, lockMatching } from "./equipment.js";
 import { grinderEdit, newGrinderProblem } from "./grinder-range.js";
 import { type EditSource, type Editor, type ItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
-import { KINDS, idSql } from "./kinds.js";
+import { KINDS, batchName, idSql } from "./kinds.js";
 import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showAt } from "./location-state.js";
 import { refuseUnrunnableAt } from "./profile-reach.js";
 
@@ -99,7 +99,8 @@ export class LibraryEditsService {
    * Creates a batch of the Bean, added at each of the Locations, each with
    * its remaining weight there if one is given. 404 if there is no such
    * Bean or Location, 409 if the Bean is Archived, 403 for Staff at a
-   * Location they do not work at.
+   * Location they do not work at. 409, naming the batch, if another batch
+   * that is not Archived holds its Batch Code (`refuseTakenCode`).
    */
   async createBatch(
     beanId: string,
@@ -109,7 +110,8 @@ export class LibraryEditsService {
     scope: Scope,
   ): Promise<string> {
     for (const here of at) if (!includesLocation(scope, here.locationId)) throw staffElsewhere("add a batch");
-    return this.prisma.$transaction(async (tx) => {
+    const code = content[BATCH_CODE_FIELD];
+    return this.keepingCodesApart(() => code, null, () => this.prisma.$transaction(async (tx) => {
       const places = [...at].sort((a, b) => a.locationId.localeCompare(b.locationId));
       await this.checkLocations(tx, places.map((here) => here.locationId));
       for (const here of places) await lockLocation(tx, here.locationId);
@@ -117,6 +119,7 @@ export class LibraryEditsService {
       const [bean] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM beans WHERE id = ${beanId}::uuid FOR SHARE`;
       if (!bean) throw new NotFoundException("No such Bean");
       if (bean.archived) throw new ConflictException("This Bean is Archived: restore it before adding a batch of it");
+      await refuseTakenCode(tx, code, null);
       const created = await tx.beanBatch.create({ data: { beanId, content: content as Prisma.InputJsonObject }, select: { id: true } });
       const source = accountSource(editor);
       const when = await editTime(tx);
@@ -124,23 +127,73 @@ export class LibraryEditsService {
       for (const here of places) await place(tx, created.id, here.locationId, { atLocation: true, remainingWeight: here.remainingWeight }, when, source);
       if (places.length > 0) await notify(tx, "library_changes", created.id);
       return created.id;
-    }, INTAKE_TRANSACTION);
+    }, INTAKE_TRANSACTION));
   }
 
-  /** Edits a batch's details, anywhere: its content, not its state at any Location. */
+  /**
+   * Edits a batch's details, anywhere: its content, not its state at any
+   * Location. 409, naming the batch, for a Batch Code another batch that is
+   * not Archived holds, unless this one is Archived, whose code is free for
+   * others (`refuseTakenCode`).
+   */
   async editBatch(id: string, values: Record<string, unknown>, editor: Editor): Promise<void> {
-    await this.editShared({ kind: "beanBatch", id }, values, editor, null);
+    const code = values[BATCH_CODE_FIELD];
+    await this.keepingCodesApart(() => code, id, () =>
+      this.editShared({ kind: "beanBatch", id }, values, editor, null, async (_content, _row, tx) => {
+        if (typeof code === "string") {
+          const [batch] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM bean_batches WHERE id = ${id}::uuid`;
+          if (batch && !batch.archived) await refuseTakenCode(tx, code, id);
+        }
+        return values;
+      }),
+    );
   }
 
-  /** Archives a batch, so it is offered nowhere, or restores it, at the Locations it is at. */
+  /**
+   * Archives a batch, so it is offered nowhere and its Batch Code is free for
+   * another batch, or restores it, at the Locations it is at. 409, naming the
+   * batch, for restoring one whose Batch Code another batch has taken since
+   * (`refuseTakenCode`).
+   */
   async archiveBatch(id: string, archived: boolean, editor: Editor): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    /** The code a batch restored takes back, read under its row lock. */
+    let code: unknown;
+    await this.keepingCodesApart(() => code, id, () => this.prisma.$transaction(async (tx) => {
       await lockItems(tx, "beanBatch", [id]);
+      if (!archived) {
+        const [batch] = await tx.$queryRaw<{ code: string | null }[]>`
+          SELECT content ->> ${BATCH_CODE_FIELD}::text AS code FROM bean_batches WHERE id = ${id}::uuid AND archived`;
+        code = batch?.code ?? undefined;
+        await refuseTakenCode(tx, code, id);
+      }
       const changed = await tx.beanBatch.updateMany({ where: { id, archived: !archived }, data: { archived } });
       if (changed.count === 0) return void (await found(tx, "beanBatch", id));
       await recordVersion(tx, { kind: "beanBatch", id }, null, { archived }, accountSource(editor), await editTime(tx));
       await notify(tx, "library_changes", id);
-    }, INTAKE_TRANSACTION);
+    }, INTAKE_TRANSACTION));
+  }
+
+  /**
+   * Makes a change that gives the batch `except`, or a new one, a Batch Code
+   * (`code`, read once the change has failed, as a restore learns its batch's
+   * only under its lock), refusing it as `refuseTakenCode` does where the
+   * database refused it: the index that keeps a code to one batch not
+   * Archived (BATCH_CODE_INDEX) decides between two changes made at once,
+   * through any instance, which the check before the write, made by each
+   * before the other commits, lets through. The one that waited on the
+   * other's index entry fails once it commits, and is answered here, outside
+   * its transaction, naming the batch that got the code.
+   */
+  private async keepingCodesApart<T>(code: () => unknown, except: string | null, change: () => Promise<T>): Promise<T> {
+    try {
+      return await change();
+    } catch (error) {
+      const taken = code();
+      if (typeof taken !== "string" || !violatesBatchCodeIndex(error)) throw error;
+      await refuseTakenCode(this.prisma, taken, except);
+      // Whoever held it let go of it meanwhile.
+      throw new ConflictException(`Another Bean Batch held the Batch Code ${taken} as this was saved: try again`);
+    }
   }
 
   /**
@@ -421,6 +474,44 @@ async function place(tx: Prisma.TransactionClient, batchId: string, locationId: 
       SELECT remaining_weight AS weight FROM batch_locations WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
     await enterRemainingWeight(tx, batchId, locationId, { value: placement.remainingWeight, had: here?.weight ?? null }, at, source);
   }
+}
+
+/** The unique index that keeps a Batch Code to one batch that is not Archived (migration `20261125000000_batch_codes`). */
+const BATCH_CODE_INDEX = "bean_batches_batch_code_key";
+
+/**
+ * Refuses a Batch Code another batch that is not Archived holds, compared
+ * ignoring case and the spaces around it, exactly as BATCH_CODE_INDEX
+ * compares them, so the two never disagree: 409, with a message naming that
+ * batch and its id, and the batch as `existing`, so the management
+ * interface links to it. `except` is the batch taking the code, which may
+ * hold it already. Nothing for a value that is no code, as one being
+ * cleared.
+ */
+async function refuseTakenCode(db: Pick<Prisma.TransactionClient, "$queryRaw">, code: unknown, except: string | null): Promise<void> {
+  if (typeof code !== "string") return;
+  const [holder] = await db.$queryRaw<{ id: string; content: unknown; beanContent: unknown }[]>`
+    SELECT batch.id::text AS id, batch.content, bean.content AS "beanContent"
+    FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
+    WHERE NOT batch.archived AND lower(btrim(batch.content ->> 'batchCode')) = lower(btrim(${code}::text))
+      AND (${except}::uuid IS NULL OR batch.id <> ${except}::uuid)
+    LIMIT 1`;
+  if (!holder) return;
+  const held = (holder.content as { batchCode?: unknown } | null)?.batchCode;
+  const batchCode = typeof held === "string" ? held : code;
+  const name = batchName(holder.content, holder.beanContent) ?? "an unnamed Bean Batch";
+  throw new ConflictException({
+    statusCode: 409,
+    error: "Conflict",
+    message: `Another Bean Batch that is not Archived holds the Batch Code ${batchCode}: ${name} (id ${holder.id})`,
+    existing: { id: holder.id, name, batchCode },
+  });
+}
+
+/** Whether a change failed on BATCH_CODE_INDEX: Prisma's unique violation (P2002) from its own writes, or PostgreSQL's (23505) from a raw one, naming the index. */
+function violatesBatchCodeIndex(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  return `${error.message} ${JSON.stringify(error.meta ?? {})}`.includes(BATCH_CODE_INDEX);
 }
 
 /** When an edit made now is timed: PostgreSQL's clock (ADR-0016), to the millisecond it keeps. */
