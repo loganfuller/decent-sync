@@ -237,6 +237,11 @@ describe("Bean Batches at Locations", () => {
     await holds(() => heldBatch(two, batch.id), { archived: true });
     await expect.poll(() => batchPushes(two)).toEqual([held.id]);
 
+    // Notes reaching the other tablet while the batch is finished leave it archived there: nothing more is said.
+    await one.editBatch(record.id, { notes: "Told while finished" });
+    await holds(() => heldBatch(two, batch.id), { notes: "Told while finished", archived: true });
+    expect(batchPushes(two)).toEqual([held.id]);
+
     await one.editBatch(record.id, { archived: false });
     await holds(() => heldBatch(two, batch.id), { archived: false });
     await expect.poll(() => batchPushes(two)).toEqual([held.id, held.id]);

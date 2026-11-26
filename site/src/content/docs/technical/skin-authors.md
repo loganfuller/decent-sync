@@ -476,7 +476,8 @@ Recipe if it is the one on screen.
 
 It is sent when the plugin archives a Bean Batch's record on the tablet, or
 brings it back: the batch was finished at the Machine's Location, archived
-in the Library, or moved to another Location, or was added back or
+in the Library, or moved to another Location, or the Machine joined or
+moved to a Location that does not offer it, or it was added back or
 restored. `batch` is the id of Decaid's record of it, as the Workflow's
 `beanBatchId` names it. The push says nothing of the record: read it again
 from Decaid (`GET /api/v1/bean-batches/{id}`) if the batch is on screen, as
