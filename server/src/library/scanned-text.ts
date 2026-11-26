@@ -22,9 +22,24 @@ import { MAX_BATCH_CODE_LENGTH } from "./item-input.js";
  * or a string; a number alone is not a string value.
  */
 export function codeCandidates(text: string): string[] {
-  const found = urlValues(text) ?? jsonStrings(text) ?? [];
+  return mayBeCodes(urlValues(text) ?? jsonStrings(text) ?? []);
+}
+
+/**
+ * The parts of plain text, neither a URL nor JSON, set off by white space,
+ * kept as `codeCandidates` keeps a value: what in a label such as
+ * `Roux Guji Natural PR-0470` may be a retired batch's code. They are not
+ * looked up as a batch's code, so the whole text alone is one (step 1 of
+ * matching), and none for text that is a URL or JSON.
+ */
+export function plainParts(text: string): string[] {
+  return urlValues(text) === null && jsonStrings(text) === null ? mayBeCodes(text.split(/\s+/)) : [];
+}
+
+/** The values trimmed, without repeats, each kept that is not empty, no longer than a Batch Code, and stored by PostgreSQL. */
+function mayBeCodes(values: readonly string[]): string[] {
   const candidates = new Set<string>();
-  for (const value of found) {
+  for (const value of values) {
     const trimmed = value.trim();
     if (trimmed !== "" && trimmed.length <= MAX_BATCH_CODE_LENGTH && isShotNote(trimmed)) candidates.add(trimmed);
   }

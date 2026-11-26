@@ -7,7 +7,7 @@ import type { ReportingTablet } from "./intake.js";
 import { editTime } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
 import { addBatchAt, lockLocation, moveBatchBetween, startCount } from "./location-state.js";
-import { codeCandidates, namesBean, scannedWords } from "./scanned-text.js";
+import { codeCandidates, namesBean, plainParts, scannedWords } from "./scanned-text.js";
 
 // A Bean Batch brought to a Machine's Location by a scan (ticket #708,
 // ADR-0030, ADR-0008): a Skin on a tablet read a QR code and its plugin sent
@@ -163,10 +163,11 @@ async function chosen(tx: Prisma.TransactionClient, batchId: string): Promise<Sk
  *    the text holds a date read without guessing, those with that roast
  *    date. A date none of them was roasted on leaves none.
  *
- * Step 3 is not taken where a code the first two read is an Archived
- * batch's, or that of a batch of an Archived Bean: the label is a retired
- * batch's, and is no match, rather than one for another batch of the Bean
- * its words name, as a URL of the Bean's name and the code does.
+ * Step 3 is not taken where a code the first two read, or a part of plain
+ * text set off by white space (`plainParts`), is an Archived batch's, or
+ * that of a batch of an Archived Bean: the label is a retired batch's, and
+ * is no match, rather than one for another batch of the Bean its words
+ * name, as a label of the Bean's name and the code is.
  *
  * A Batch Code is compared as the index that keeps one to a batch compares
  * it, ignoring case and the spaces around it (`refuseTakenCode`).
@@ -180,7 +181,7 @@ async function matching(tx: Prisma.TransactionClient, scannedText: string): Prom
   const codes = [text, ...codeCandidates(text)];
   let rows = await byCodes([text]);
   if (rows.length === 0 && codes.length > 1) rows = await byCodes(codes.slice(1));
-  if (rows.length === 0 && (await retired(tx, codes))) return [];
+  if (rows.length === 0 && (await retired(tx, [...codes, ...plainParts(text)]))) return [];
   if (rows.length === 0) {
     const scanned = scannedWords(text);
     const beans = await tx.$queryRaw<{ id: string; content: unknown }[]>`SELECT id::text AS id, content FROM beans WHERE NOT archived`;

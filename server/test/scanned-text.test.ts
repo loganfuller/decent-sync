@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeCandidates, datesIn, namesBean, scannedWords } from "../src/library/scanned-text.js";
+import { codeCandidates, datesIn, namesBean, plainParts, scannedWords } from "../src/library/scanned-text.js";
 
 // How the text of a scanned QR code is read (ticket #708): what in it may be
 // a Batch Code, the dates in it, and whether it names a Bean. Matching
@@ -38,6 +38,14 @@ describe("What in scanned text may be a Batch Code", () => {
     expect(codeCandidates(JSON.stringify(many))).toEqual(many);
     const deep = JSON.stringify(Array.from({ length: 20 }).reduce<unknown>((inner) => [inner], "PR-0470"));
     expect(codeCandidates(deep)).toEqual(["PR-0470"]);
+  });
+});
+
+describe("The parts of plain scanned text a retired batch's code may be", () => {
+  it("are its runs set off by white space, kept as a code is, and none for a URL or JSON", () => {
+    expect(plainParts(" Roux  Guji\nPR-0470 Guji ")).toEqual(["Roux", "Guji", "PR-0470"]);
+    expect(plainParts(`Roux ${"x".repeat(101)} a\u0000b`)).toEqual(["Roux"]);
+    for (const text of ["https://roaster.example/guji PR-0470", '{"code":"PR-0470"}']) expect(plainParts(text), text).toEqual([]);
   });
 });
 

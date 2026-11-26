@@ -395,7 +395,7 @@ describe("A Bean Batch brought to the Machine's Location by a scan", { timeout: 
     }
     // A label holding the Archived batch's code beside its Bean's name is that batch's, not one for another batch of the Bean.
     const sibling = await batchAt(lab, bean, {});
-    for (const text of [`https://roux.example/scanned-retired/${retiredCode}`, JSON.stringify({ bean: "Scanned Retired", code: retiredCode })]) {
+    for (const text of [`https://roux.example/scanned-retired/${retiredCode}`, JSON.stringify({ bean: "Scanned Retired", code: retiredCode }), `Roux Scanned Retired ${retiredCode}`]) {
       expect(await scan(cafe.tablet, { text }), text).toEqual(noMatch);
     }
     expect(Object.keys(await where(sibling))).not.toContain("Scan cafe");
@@ -404,6 +404,11 @@ describe("A Bean Batch brought to the Machine's Location by a scan", { timeout: 
     // Nothing was brought, created or un-archived.
     expect({ retired: await versions(retired), orphan: await versions(orphan) }).toEqual(before);
     for (const id of [retired, orphan]) expect(Object.keys(await where(id))).not.toContain("Scan cafe");
+    expect(held(cafe.tablet, retired)).toBeUndefined();
+
+    // An Archived batch's code, taken up since by a live batch, is that batch's.
+    const reused = await batchAt(lab, bean, { batchCode: retiredCode });
+    expect(await scan(cafe.tablet, { text: `https://roux.example/scanned-retired/${retiredCode}` })).toEqual(brought("moved", reused));
     expect(held(cafe.tablet, retired)).toBeUndefined();
   });
 

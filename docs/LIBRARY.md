@@ -830,12 +830,15 @@ Lost Edit names is kept, still refused, so history goes on naming it
     one of its query values, its fragment, or one of its string values at
     any depth is one (`codeCandidates`: all of them, the text's length
     bounding how many, each no longer than a Batch Code and one PostgreSQL
-    stores). Where a code those two read is an Archived batch's, or a
-    batch's of an Archived Bean, the text matches none, and the third is
-    not tried (`retired`). Third, the text names a Bean (`namesBean`): every
-    word of the text is a word of the Bean's roaster and name, or every word
-    of the Bean's name is a word of the text, a word being a run of letters
-    and digits, in lower case. That matches the Bean's batches, or, where
+    stores). Where a code those two read, or a part of plain text set off
+    by white space (`plainParts`), is an Archived batch's, or a batch's of
+    an Archived Bean, the text matches none, and the third is not tried
+    (`retired`): any value of a URL or JSON counts, so a label holding a
+    retired lot number among its values names no batch by its Bean until
+    the new batch is given its code. Third, the text names a Bean
+    (`namesBean`): every word of the text is a word of the Bean's roaster
+    and name, or every word of the Bean's name is a word of the text, a
+    word being a run of letters and digits, in lower case. That matches the Bean's batches, or, where
     the text holds a date read without guessing (`datesIn`: year first, or
     with its month by name), those roasted on one of those days; a day none
     was roasted on leaves none. Matches are listed newest roast first, at
