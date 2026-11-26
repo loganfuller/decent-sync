@@ -807,8 +807,9 @@ Lost Edit names is kept, still refused, so history goes on naming it
   count: neither starts again, so a Shot pulled at the Location left before
   the move and stored after it still counts there. All takes what the
   Location left has, finishes the batch there as a finish does, and leaves
-  its count there at zero. At the Location joined, a batch not there is
-  added; where it has no weight there, was not there, or Shots had used more
+  its count there at zero. At the Location joined, the batch is added, or
+  added again where it is already, so a finish there timed before the move
+  and received after it loses to the move; where it has no weight there, was not there, or Shots had used more
   than its count held, the amount arriving is where its count starts. A
   batch with no weight at the Location left moves as all or as `"some"`,
   changing no weight; some to a Location it is at already is refused. The
