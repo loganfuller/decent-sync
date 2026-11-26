@@ -186,7 +186,8 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
   plugin is installed disabled;
 - enable or disable a plugin;
 - change a plugin's settings, from a form built from what its manifest
-  declares, secrets included; saving has Decaid load that plugin again;
+  declares, secrets included; saving has Decaid load that plugin again, where
+  it is loaded;
 - check the plugins for updates, with a result for each, and approve an
   update that waits on new permissions;
 - remove a plugin with its settings;
@@ -303,8 +304,11 @@ full detail.
   tablet afterwards stays loaded: the plugin sets the Draft again only once
   someone has the Machine follow it again.
 
-What the Location no longer offers, such as a batch finished there or a
-Profile hidden there, is archived or hidden on the tablet, never deleted.
+What the Location no longer offers of these, such as a batch finished there
+or a Profile hidden there, is archived or hidden on the tablet, never deleted.
+Recipes, Baskets and Tools differ: one Archived is removed from DYE2's lists,
+and stays in the Library
+([Library and Recipes](../../guide/library-and-recipes/#what-is-shared-with-which-machines)).
 
 A bean entered on a tablet may turn out to be a Bean already in the Library,
 with the same roaster and name. A profile with the same steps as a Library

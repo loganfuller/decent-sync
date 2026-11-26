@@ -28,7 +28,7 @@ const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: fa
 
 /** What a Draft is, for the tools' descriptions. */
 const DRAFTS =
-  "A Draft is a profile being written or changed here, held by Decent Sync alone and on no tablet until publish_draft makes it a Profile. Admins and Staff may read, change, publish and discard any Draft, the later save winning, Staff publishing only to the Locations they work at; a Viewer sees none. Its times are UTC.";
+  "A Draft is a profile being written or changed here, held by Decent Sync alone and offered on no tablet until publish_draft makes it a Profile, though a Machine following it runs its steps. Admins and Staff may read, change, publish and discard any Draft, the later save winning, Staff publishing only to the Locations they work at; a Viewer sees none. Its times are UTC.";
 
 const newerShape = z.object({ id, title: z.string().nullable(), savedAt: z.string().describe("When the Library gained it.") });
 
