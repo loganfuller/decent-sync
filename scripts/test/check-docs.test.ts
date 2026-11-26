@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { brokenLinks, markdownFiles } from "../check-docs.mjs";
+import { brokenLinks, markdownFiles, README_WORD_BUDGET, readmeOverBudget, readmeWords } from "../check-docs.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-check-docs-"));
@@ -140,5 +140,67 @@ describe("the docs check", () => {
     const result = run();
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
+  });
+});
+
+describe("the README's word budget", () => {
+  /** A README of this many words, over several lines, with an image as the README writes one. */
+  const readme = (words: number) => {
+    const image = '<img src="docs/images/one.png" alt="One picture" width="800">';
+    const markup = image.split(/\s+/).length;
+    return `${image}\n\n${Array.from({ length: words - markup }, (_, index) => (index % 12 === 11 ? "word\n" : "word")).join(" ")}\n`;
+  };
+
+  it("is 1,500 words", () => {
+    expect(README_WORD_BUDGET).toBe(1500);
+  });
+
+  it("passes a README of exactly its budget, counting its markup as words, and says how much of it is used", () => {
+    const root = repository({ "README.md": readme(README_WORD_BUDGET), "docs/images/one.png": "" });
+
+    expect(readmeWords(root)).toBe(README_WORD_BUDGET);
+    expect(readmeOverBudget(root)).toEqual([]);
+    const result = run(root);
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("README.md holds 1500 of the 1500 words of its budget.");
+  });
+
+  it("fails a README one word over its budget, saying by how much and where the detail belongs", () => {
+    const root = repository({ "README.md": readme(README_WORD_BUDGET + 1), "docs/images/one.png": "" });
+
+    expect(brokenLinks(root)).toEqual([]);
+    const result = run(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("README.md holds 1501 words, 1 over its budget of 1500");
+    expect(result.stderr).toContain("the documentation site's page for its area");
+    expect(result.stdout).toBe("");
+  });
+
+  it("reports a README over its budget beside a link that does not resolve", () => {
+    const root = repository({ "README.md": `${readme(README_WORD_BUDGET + 40)}\nSee [the guide](docs/GIUDE.md).\n`, "docs/images/one.png": "" });
+
+    const result = run(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("1 relative link in the Markdown does not resolve");
+    expect(result.stderr).toContain("README.md holds 1543 words, 43 over its budget of 1500");
+  });
+
+  it("holds no other Markdown to it, and passes a folder with no README", () => {
+    const long = `# Guide\n\n${"word ".repeat(README_WORD_BUDGET * 2)}\n`;
+    const root = repository({ "README.md": "# Thing\n\nSee [the guide](docs/GUIDE.md).\n", "docs/GUIDE.md": long, "docs/README.md": long });
+    expect(readmeOverBudget(root)).toEqual([]);
+    expect(run(root).status).toBe(0);
+
+    const bare = repository({ "docs/GUIDE.md": long });
+    expect(readmeWords(bare)).toBeUndefined();
+    const result = run(bare);
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("README.md");
+  });
+
+  it("passes this repository's README", () => {
+    expect(readmeWords(repo)).toBeLessThanOrEqual(README_WORD_BUDGET);
+    expect(readmeOverBudget(repo)).toEqual([]);
   });
 });

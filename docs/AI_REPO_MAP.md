@@ -7,6 +7,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 ### Root
 
 - `package.json`: the npm workspaces and the commands; `docs/DEVELOPMENT.md` lists them.
+- `README.md`: the pitch, for someone deciding whether to try Decent Sync, within a budget of 1,500 words; what people do with Decent Sync is described on the documentation site (`site/`).
 - `vitest.config.ts`, `vitest.durations.json`: Vitest's projects, workers and timeouts; the durations shards are dealt by.
 - `playwright.config.ts`: the e2e suite's config.
 - `Dockerfile`, `docker-compose.yml`: the server image, and the self-hosting stack with PostgreSQL (`npm run db:up` starts only its `db`).
@@ -136,10 +137,10 @@ Where things live, and what to read for each kind of task. Each file says what i
 
 - `e2e/`: Playwright specs (Seam 2); `e2e/support/` holds their seeding and helpers.
 - `scripts/`: repo checks, release packaging, the test PostgreSQL, stale builds, the latest release's build and suite; tests in `scripts/test/`.
-- `scripts/images/`: the one generator of the management interface's images, the README's committed in `docs/images/` (`npm run readme-images`) and the site's built at deploy (`npm run site-images`), with its sample of recorded Shots.
+- `scripts/images/`: the one generator of the management interface's images, the README's four committed in `docs/images/` (`npm run readme-images`) and the site's built at deploy (`npm run site-images`), with its sample of recorded Shots.
 - `scripts/simulation/`: the simulation's scorecard (`npm run simulation-scorecard`), the read-only puller of an instance's Shots and the scrubber that makes corpus Shots of them.
 - `scripts/simulation/corpus/`: scrubbed real Shots the scorecard's test runs on, and the levels its test holds the simulation at on them (`levels.json`).
-- `scripts/check-docs.mjs`: fails on a relative link in the repository's Markdown that does not resolve (`npm run check:docs`); CI runs it on every pull request.
+- `scripts/check-docs.mjs`: fails on a relative link in the repository's Markdown that does not resolve, and on a README over its budget of 1,500 words (`npm run check:docs`); CI runs it on every pull request.
 - `scripts/deploy-site.mjs`: places a build of the documentation site in a checkout of the `gh-pages` branch, a path for each minor release, and writes the `versions.json` the site's version selector reads.
 - `.github/workflows/ci.yml`: CI on pull requests and `main`, with the documentation site's build and the docs check on docs-only ones too.
 - `.github/workflows/release.yml`: the release on a `vX.Y.Z` tag, then the documentation site's deploy to GitHub Pages, which also runs by hand.
@@ -175,7 +176,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `site/src/content/docs/self-hosting/internet.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |
 | What the plugin serves a Skin on its tablet | ADR-0030, ADR-0031; `AI_PROTOCOL_NOTES.md`, Requests for a Skin; `site/src/content/docs/technical/skin-authors.md`; `AI_RUNTIME_NOTES.md`, Skins; milestone 8's spec |
 | The management interface's pages and components | ADR-0011; `AI_WEB_NOTES.md`; the topic doc of the data a page shows; `docs/agents/pull-requests.md`, Screenshots |
-| Docs people read to run and use Decent Sync | `README.md`; the documentation site's pages in `site/src/content/docs/`: `get-started/` (the quick start, Locations and Machines, installing the plugin, inviting people), `self-hosting/` (deploying, upgrading, and every setting in `configuration.md`), `guide/` (a page per area, `assistants.md` and `accounts-and-roles.md` among them), `reference/tablet-plugin.md` (the tablet plugin) and `technical/skin-authors.md` (what the plugin answers a Skin); the Assistant tools reference, written from the server's tool definitions (`site/src/assistant-tools.mjs`), so a tool's description is its documentation; `GLOSSARY.md` and `UPGRADING.md`, which the site renders from the root (`site/src/root-pages.mjs`); `DEVELOPMENT.md`, with The documentation site; for the README's and the site's images, `scripts/images/README.md`; `scripts/check-docs.mjs` checks the repository's relative Markdown links; its spec (#680) |
+| Docs people read to run and use Decent Sync | `AGENTS.md`, Documentation, for what a change documents and where; the documentation site's pages in `site/src/content/docs/`: `get-started/` (the quick start, Locations and Machines, installing the plugin, inviting people), `guide/` (a page per area, `assistants.md` and `accounts-and-roles.md` among them), `self-hosting/` (deploying, upgrading, and every setting in `configuration.md`), `reference/tablet-plugin.md` (the tablet plugin), `technical/` (`architecture.md`, with each ADR in a line, `internals.md`, the index of the topic docs and these notes, `skin-authors.md`, what the plugin answers a Skin, and `development.md`) and `project/` (`roadmap.md`, what is planned, and `releases.md`, what each release added); the Assistant tools reference, written from the server's tool definitions (`site/src/assistant-tools.mjs`), so a tool's description is its documentation; `GLOSSARY.md` and `UPGRADING.md`, which the site renders from the root (`site/src/root-pages.mjs`); `README.md`, the pitch, touched only when the pitch changes; `DEVELOPMENT.md`, with The documentation site; for the README's and the site's images, `scripts/images/README.md`; `scripts/check-docs.mjs` checks the repository's relative Markdown links and the README's word budget; its spec (#680) |
 
 For upstream paths and checkout conventions, see `AGENTS.md`, External sources.
 

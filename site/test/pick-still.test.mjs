@@ -7,7 +7,7 @@ import { describe, test } from "node:test";
 import { byFile, pickStill } from "../src/pick-still.mjs";
 
 const generated = byFile({ "/generated/overview-light.png": "generated overview" });
-const committed = byFile({ "../../../docs/images/overview-light.png": "committed overview", "../../../docs/images/phone-light.png": "committed phone" });
+const committed = byFile({ "../../../docs/images/overview-light.png": "committed overview", "../../../docs/images/shot-light.png": "committed shot" });
 
 describe("a still on the site", () => {
     test("is the generated image where there is one", () => {
@@ -16,7 +16,7 @@ describe("a still on the site", () => {
     });
 
     test("is the README's committed copy in a build without generated images", () => {
-        assert.equal(pickStill("phone-light.png", { generated, committed, required: false }), "committed phone");
+        assert.equal(pickStill("shot-light.png", { generated, committed, required: false }), "committed shot");
     });
 
     test("is none in that build when the README commits no copy", () => {
@@ -24,6 +24,6 @@ describe("a still on the site", () => {
     });
 
     test("fails the deploy's build when the generator did not make it", () => {
-        assert.throws(() => pickStill("phone-light.png", { generated, committed, required: true }), /phone-light\.png is not among the generated images/);
+        assert.throws(() => pickStill("shot-light.png", { generated, committed, required: true }), /shot-light\.png is not among the generated images/);
     });
 });

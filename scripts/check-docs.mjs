@@ -8,6 +8,11 @@
 // link to each other by address, not by file, and the site's build checks
 // those (site/check-links.mjs). A link into them from elsewhere is checked.
 //
+// It also holds README.md to its word budget. The README is the pitch, for
+// someone deciding whether to try Decent Sync, and what a change adds for
+// people to read or do belongs on the documentation site's page for its area
+// (AGENTS.md, Documentation). The budget keeps it from growing back.
+//
 // Usage: node scripts/check-docs.mjs [directory]
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +24,9 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // builds and test output.
 const SKIPPED_NAMES = new Set(["node_modules", "dist", "generated", "test-results", "playwright-report"]);
 const SKIPPED_PATHS = new Set(["site/src/content"]);
+
+/** The most words README.md may hold, counted as `wc -w` counts them: its markup and its images' alt text included. */
+export const README_WORD_BUDGET = 1500;
 
 const MARKDOWN = /\.mdx?$/;
 const FENCE = /^\s*(`{3,}|~{3,})/;
@@ -158,13 +166,46 @@ export function brokenLinks(root) {
     return problems;
 }
 
+/**
+ * How many words the README at `root` holds, as `wc -w` counts them: every
+ * run of characters between spaces or line ends, markup included. Undefined
+ * where `root` has no README.md.
+ *
+ * @param {string} root
+ * @returns {number | undefined}
+ */
+export function readmeWords(root) {
+    const readme = path.join(root, "README.md");
+    if (!fs.existsSync(readme)) return undefined;
+    return fs.readFileSync(readme, "utf8").split(/\s+/).filter((word) => word !== "").length;
+}
+
+/**
+ * What is wrong with the README's length: one line saying how far over its
+ * budget it is and where its detail belongs. Empty within the budget.
+ *
+ * @param {string} root
+ * @returns {string[]}
+ */
+export function readmeOverBudget(root) {
+    const words = readmeWords(root);
+    if (words === undefined || words <= README_WORD_BUDGET) return [];
+    return [
+        `README.md holds ${words} words, ${words - README_WORD_BUDGET} over its budget of ${README_WORD_BUDGET}: it is the pitch, so move the detail to the documentation site's page for its area (site/src/content/docs/) and link to it`,
+    ];
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const root = path.resolve(process.argv[2] ?? repo);
-    const problems = brokenLinks(root);
-    if (problems.length > 0) {
-        console.error(`${problems.length} relative link${problems.length === 1 ? "" : "s"} in the Markdown ${problems.length === 1 ? "does" : "do"} not resolve:`);
-        for (const problem of problems) console.error(`  ${problem}`);
-        process.exit(1);
+    const links = brokenLinks(root);
+    const length = readmeOverBudget(root);
+    if (links.length > 0) {
+        console.error(`${links.length} relative link${links.length === 1 ? "" : "s"} in the Markdown ${links.length === 1 ? "does" : "do"} not resolve:`);
+        for (const problem of links) console.error(`  ${problem}`);
     }
+    for (const problem of length) console.error(problem);
+    if (links.length > 0 || length.length > 0) process.exit(1);
     console.log(`Every relative link in ${markdownFiles(root).length} Markdown files resolves.`);
+    const words = readmeWords(root);
+    if (words !== undefined) console.log(`README.md holds ${words} of the ${README_WORD_BUDGET} words of its budget.`);
 }
