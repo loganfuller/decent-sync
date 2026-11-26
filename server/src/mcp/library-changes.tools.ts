@@ -122,7 +122,7 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
     beverage: "The drink it makes, such as Espresso or Cappuccino.",
     beanId:
       "The id of the Bean it uses, as find_library_items gives it, not Archived, for a Bean it is to name without choosing a batch: it keeps its batch if that is of this Bean, or else takes the Bean's batch most recently added at its Location, or none, the Bean then offered there. null clears its Bean and its batch. Given with beanBatchId, the batch decides its Bean.",
-    beanBatchId: "The id of the Bean Batch it uses, as find_library_items gives it, not Archived; its Bean is the batch's. A batch not at the Recipe's Location is added there. null for none, which clears its Bean too.",
+    beanBatchId: "The id of the Bean Batch it uses, as find_library_items gives it, not Archived; its Bean is the batch's. A batch not at the Recipe's Location is moved there, as a Bean Batch is at one Location at a time: it is finished wherever else it is, whose tablets archive it, and the weight entered for it goes with it. null for none, which clears its Bean too.",
     profileId: "The id of the Profile it uses, as find_library_items gives it, not Archived. One not shown at the Recipe's Location is shown there.",
     dose: "Its dose, in grams.",
     yield: "Its yield, in grams: 0 for stop-at-weight off.",

@@ -215,7 +215,8 @@ async function leaveOthers(tx: Prisma.TransactionClient, batchId: string, locati
 
 /**
  * The Location the batch was at last: the one it is at, the one it was added
- * at last if it is at several, or else the one it arrived at last, by the
+ * at last if it is at several, ties broken by Location id as reads, settling
+ * and the upgrade break them, or else the one it arrived at last, by the
  * order the server took in the versions that added it (`seq`). Neither when
  * a finish was timed, which a tablet's clock may run ahead, nor when it was
  * decided, which a later finish of a batch already finished there moves on,
@@ -228,6 +229,7 @@ async function lastAt(tx: Prisma.TransactionClient, batchId: string): Promise<st
     SELECT here.location_id::text AS id FROM batch_locations AS here
     WHERE here.batch_id = ${batchId}::uuid AND here.added_at IS NOT NULL
     ORDER BY (here.finished_at IS NULL) DESC, CASE WHEN here.finished_at IS NULL THEN here.added_at END DESC,
+      CASE WHEN here.finished_at IS NULL THEN here.location_id END,
       (SELECT max(version.seq) FROM item_versions AS version
        WHERE version.kind = 'beanBatch' AND version.item_id = here.batch_id::text AND version.location_id = here.location_id
          AND version.fields @> '{"atLocation": true}') DESC NULLS LAST,

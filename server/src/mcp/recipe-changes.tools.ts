@@ -54,13 +54,13 @@ const copyInput = z.strictObject({
   beanBatchId: id
     .nullable()
     .optional()
-    .describe("The id of the Bean Batch the copy uses instead of the Recipe's, null for none, or left out to keep the Recipe's. One not at that Location is added there."),
+    .describe("The id of the Bean Batch the copy uses instead of the Recipe's, null for none, or left out to keep the Recipe's. A Bean Batch is at one Location at a time, so one not at that Location is moved there: it is finished wherever else it is, the Recipe's own Location too, whose tablets archive it, and the weight entered for it goes with it. A copy that keeps the Recipe's batch moves it so."),
 });
 
 const recipeOutput = z.object({ recipe: itemOutput.shape.recipe.unwrap() });
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const USES =
-  "What it uses must be offered at its Location: its Grinder is one of the Location's, and a Bean Batch, Profile, Basket or Tool not offered there is offered there from then on. None may be Archived, and a Profile newly named must be one every Machine there can run: a DE1 is held to Streamline's ranges, as a step's flow up to 15 ml/s and a flow limit or flow exit up to 8, and a Bengle to the same but with each of those up to 20; one it can't run is refused, naming the Machines and values.";
+  "What it uses must be offered at its Location: its Grinder is one of the Location's, a Profile, Basket or Tool not offered there is offered there from then on, and a Bean Batch at another Location is moved there, finished wherever else it is, with the weight entered for it, as a Bean Batch is at one Location at a time. None may be Archived, and a Profile newly named must be one every Machine there can run: a DE1 is held to Streamline's ranges, as a step's flow up to 15 ml/s and a flow limit or flow exit up to 8, and a Bengle to the same but with each of those up to 20; one it can't run is refused, naming the Machines and values.";
 
 /**
  * Recipes changed through an assistant: each tool calls the service its

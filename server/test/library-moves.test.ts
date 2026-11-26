@@ -365,6 +365,21 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
     expect(moved.versions[0]).toMatchObject({ location: { id: to.id }, movedFrom: [{ id: reached.id }, { id: from.id }] });
   });
 
+  it("moves a batch the previous release left at two Locations, added at both at once, with the weight of the one reads name first", async () => {
+    const [first, second, third] = [await api.createLocation("Tied first", "America/Chicago"), await api.createLocation("Tied second", "America/Chicago"), await api.createLocation("Tied third", "America/Chicago")];
+    const created = await batchAt("Tied Guji", first, 100);
+    expect((await place(created.id, second, { atLocation: true, remainingWeight: 200 })).status).toBe(200);
+    const database = await server.connectDatabase();
+    try {
+      await database.query(`UPDATE batch_locations SET finished_at = NULL, added_at = '2026-11-25T12:00:00Z' WHERE batch_id = $1`, [created.id]);
+    } finally {
+      await database.end();
+    }
+    const [named] = (await batch(created.id)).locations;
+    expect((await place(created.id, third, { atLocation: true })).status).toBe(200);
+    expect((await batch(created.id)).locations).toMatchObject([{ location: { id: third.id }, remainingWeight: named!.remainingWeight }]);
+  });
+
   it("settles a batch found at several Locations at the one it was added at last, as an instance starts, without a request failing meanwhile", async () => {
     const first = await locationWith("Settle first", [server]);
     const last = await locationWith("Settle last", [other]);
