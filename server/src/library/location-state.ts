@@ -204,9 +204,13 @@ function unseen(before: { decidedAt: Date | null; tabletId: string | null }, see
  * Records a remaining weight entered for the batch at the Location (ADR-0020):
  * it replaces the one known if the tablet that entered it had that value, or
  * no value was ever entered there, or it was entered later than the value
- * known, which the tablet had not seen. Its time is never earlier than the
- * one known, so an entry timed between the two cannot undo it. Says whether
- * it did.
+ * known, which the tablet had not seen. A tablet's record holds the weight
+ * worked out when the server last wrote it, which is seldom the weight the
+ * count started from, so it had the value known too where it was written
+ * from the Location's current count, or started it (`hadCount`). Its time is
+ * never earlier than the one known, so an entry timed between the two cannot
+ * undo it. Says whether it did, and with which version, which names the
+ * count it started.
  *
  * It is where the Location's count starts (ADR-0037): the batch's Remaining
  * Weight there is this weight less the doses of the Shots pulled there after
@@ -228,11 +232,11 @@ export async function enterRemainingWeight(
   tx: Prisma.TransactionClient,
   batchId: string,
   locationId: string,
-  weight: { value: number | null; had: number | null },
+  weight: { value: number | null; had: number | null; hadCount?: string | null },
   at: Date,
   source: EditSource,
   finishing?: { seenAt: Date | null; held?: boolean },
-): Promise<{ entered: boolean; finished: Date | null }> {
+): Promise<{ entered: boolean; finished: Date | null; versionId: string | null }> {
   const [before] = await tx.$queryRaw<{ value: number | null; enteredAt: Date | null; versionId: string | null; tabletId: string | null; there: boolean }[]>`
     SELECT here.remaining_weight AS value, here.remaining_weight_at AS "enteredAt", here.remaining_weight_version_id AS "versionId",
       version.tablet_id AS "tabletId", here.added_at IS NOT NULL AND here.finished_at IS NULL AS there
@@ -246,12 +250,13 @@ export async function enterRemainingWeight(
       remaining_weight_at = GREATEST(EXCLUDED.remaining_weight_at, batch_locations.remaining_weight_at)
       WHERE batch_locations.remaining_weight_at IS NULL
         OR batch_locations.remaining_weight IS NOT DISTINCT FROM ${weight.had}::double precision
+        OR batch_locations.remaining_weight_version_id = ${weight.hadCount ?? null}::uuid
         OR batch_locations.remaining_weight_at < EXCLUDED.remaining_weight_at`;
   const item: ItemRef = { kind: "beanBatch", id: batchId };
   const known = before?.enteredAt ? before : null;
   if (entered === 0) {
     if (known && !sameValue(known.value, weight.value)) await recordLostEdit(tx, item, locationId, "remainingWeight", weight.value, source, at, known.versionId);
-    return { entered: false, finished: null };
+    return { entered: false, finished: null, versionId: null };
   }
   const finished = weight.value === 0 && finishing && before?.there ? await finishBatchAt(tx, batchId, locationId, at, finishing.seenAt, source, finishing.held, { remainingWeight: 0 }) : null;
   const versionId =
@@ -278,10 +283,11 @@ export async function enterRemainingWeight(
         AND to_count_version_id IS NOT DISTINCT FROM ${known.versionId}::uuid AND version_id IS DISTINCT FROM ${known.versionId}::uuid`;
   }
   // A value the tablet had not had, entered by another tablet before this one, is replaced without either seeing the other.
-  if (known && !sameValue(known.value, weight.had) && !sameValue(known.value, weight.value) && known.tabletId !== source.tabletId) {
+  const sawCount = weight.hadCount != null && known?.versionId === weight.hadCount;
+  if (known && !sawCount && !sameValue(known.value, weight.had) && !sameValue(known.value, weight.value) && known.tabletId !== source.tabletId) {
     await recordReplaced(tx, item, locationId, "remainingWeight", known.value, known.versionId, versionId);
   }
-  return { entered: true, finished };
+  return { entered: true, finished, versionId };
 }
 
 /** How much of a batch a Batch Move takes: an amount in grams, all of it, or, of a batch with no weight where it is, some of it. */

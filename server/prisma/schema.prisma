@@ -1474,6 +1474,19 @@ model TabletBeanBatch {
   /// The Location of that decision: it says nothing of another's. No foreign
   /// key: it is only compared with the tablet's Location now.
   seenLocationId  String?   @map("seen_location_id") @db.Uuid
+  /// Each weight the server has written to the record's `weightRemaining`
+  /// that no answer or report has shown it to hold yet, oldest first, as
+  /// `{ weight, count }`: the weight, null for one cleared, and the count it
+  /// was worked out from (`BatchLocation.remainingWeightVersionId`). A
+  /// report or an answer showing one of them is no weight a barista entered
+  /// (ADR-0037; `WrittenWeight` in batch-intake.ts). The previous release
+  /// neither reads nor writes it (ADR-0025).
+  writtenWeights  Json      @default("[]") @map("written_weights") @db.JsonB
+  /// The Location's count the weight the record holds was worked out from,
+  /// as the server wrote it, or that the record's own entry started: an
+  /// entry made on it has seen that count (`enterRemainingWeight`). Null if
+  /// none is known. No foreign key: versions go only with their item.
+  weightCountVersionId String? @map("weight_count_version_id") @db.Uuid
 
   /// The latest edit of the item's content that the record has seen
   /// (`fieldEdits` `decidedAt`): when the edits it held were decided, by

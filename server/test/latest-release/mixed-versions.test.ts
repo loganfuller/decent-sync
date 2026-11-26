@@ -944,6 +944,61 @@ describe("the latest release beside the change", () => {
       expect(history.versions[0]!.fields).toEqual({ remainingWeight: 0, atLocation: false });
     });
 
+    // A tablet's record holding its Location's Remaining Weight (#705, ADR-0037): the weight is a field of a `write`'s
+    // opaque `fields` as it always was, so the latest release's plugin carries it out unchanged, and what the server
+    // wrote is kept in columns of its own, which the latest release neither reads nor writes. The latest release's
+    // server goes on writing the weight a count starts from to the tablets connected to it, for as long as a deploy lasts.
+    it("writes a tablet running the latest release's plugin its Location's weight after a Shot, as no weight entered, beside the latest release's server, which writes its own tablets the weight the count starts from and takes a barista's entry in as before", async () => {
+      const bar = await apis.change.createLocation("Held, the bar", "America/Chicago");
+      const machineSerial = String(serial);
+      const mine = await connected("Held, the latest release's plugin", "latest release", "change", { location: bar });
+      const theirs = await connected("Held, the latest release's server", "change", "latest release", { location: bar });
+      type Batch = { id: string; locations: { location: { id: string }; remainingWeight: number | null; entered?: { weight: number } | null }[]; finished: unknown[] };
+      const read = async (id: string) => (await apis.change.get<{ batch: Batch }>(`/bean-batches/${id}`)).batch;
+      const versions = async (id: string) => (await apis.change.get<{ versions: { fields: Record<string, unknown> }[] }>(`/bean-batches/${id}/history`)).versions;
+      const held = (tablet: SimulatedTablet, id: string) => tablet.batches().find((record) => globalIdOf(record) === id);
+
+      const { bean } = await apis.change.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Held" } }, 201);
+      const created = await apis.change.send<{ batch: Batch }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: bar.id, remainingWeight: 36 }] }, 201);
+      const id = created.batch.id;
+      for (const { tablet } of [mine, theirs]) await expect.poll(() => held(tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(36);
+      const before = await versions(id);
+
+      // Two Shots on the Machine connected to the change's server, which use more than the batch had: its tablet is written
+      // each new weight, the last of them zero, by the latest release's plugin.
+      const fixture = shotFixture();
+      const workflow = fixture.workflow as Record<string, unknown>;
+      // Each pulled now: after the weight was entered, and before the one a barista enters below.
+      const pull = (shotId: string) =>
+        mine.tablet.pullShot({
+          ...fixture,
+          id: shotId,
+          timestamp: new Date().toISOString(),
+          annotations: { actualDoseWeight: 19 },
+          workflow: { ...workflow, machine: { ...(workflow.machine as Record<string, unknown>), serialNumber: machineSerial }, context: { ...(workflow.context as Record<string, unknown>), beanBatchId: held(mine.tablet, id)!.id } },
+        });
+      pull("mixed-held-1");
+      await expect.poll(() => held(mine.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(17);
+      pull("mixed-held-2");
+      await expect.poll(() => held(mine.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(0);
+      // A later change on that tablet is taken in with the zero the server wrote it, which is no weight entered and finishes nothing.
+      await mine.tablet.editBatch(held(mine.tablet, id)!.id, { roastLevel: "light" });
+      await expect.poll(() => held(theirs.tablet, id)?.roastLevel, { timeout: 15_000 }).toBe("light");
+      expect(await read(id)).toMatchObject({ finished: [], locations: [{ remainingWeight: 0, entered: { weight: 36 } }] });
+      expect((await versions(id)).filter((version) => "remainingWeight" in version.fields || "atLocation" in version.fields)).toEqual(
+        before.filter((version) => "remainingWeight" in version.fields || "atLocation" in version.fields),
+      );
+      // The latest release's server writes its tablet the weight the count starts from, as it always did.
+      expect(held(theirs.tablet, id)).toMatchObject({ archived: false, weightRemaining: 36 });
+
+      // A barista weighs the bucket on the tablet connected to the latest release's server, which takes the entry in as it
+      // always did: the count starts again, and the change writes its own tablet the new weight.
+      await theirs.tablet.editBatch(held(theirs.tablet, id)!.id, { weightRemaining: 120 });
+      await expect.poll(async () => (await read(id)).locations[0]?.entered?.weight, { timeout: 15_000 }).toBe(120);
+      await expect.poll(() => held(mine.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(120);
+      expect((await read(id)).finished).toEqual([]);
+    });
+
     // A Batch Move (#704, ADR-0037): a new route and a new table, which the latest release neither calls nor reads. It
     // goes on adding and finishing batches at Locations and entering weights, each stored as it always was: a weight
     // it enters is a new version, and so a new count, which no move made before it bears on.

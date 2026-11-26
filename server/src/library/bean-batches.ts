@@ -4,7 +4,22 @@ import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkShots } from "../shots/links.js";
-import { type LocationEdit, type ReportedBatch, batchContent, batchRecordValues, editsInAnswer, heldBatchCode, planBatchIntake, readReportedBatches } from "./batch-intake.js";
+import {
+  type LocationEdit,
+  type ReportedBatch,
+  WRITTEN_WEIGHTS_KEPT,
+  type WrittenWeight,
+  batchContent,
+  batchRecordValues,
+  editsInAnswer,
+  heldBatchCode,
+  planBatchIntake,
+  readReportedBatches,
+  readWrittenWeights,
+  weightOf,
+  writtenWeightHeld,
+  writtenWeightsAfter,
+} from "./batch-intake.js";
 import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
 import {
@@ -37,7 +52,9 @@ import { changedFields } from "./merge.js";
 // tablet, a batch's `archived` says it is not at the tablet's Location and
 // its `weightRemaining` is the remaining weight there: un-archiving one adds
 // it there, archiving or deleting it finishes it there, and a new
-// `weightRemaining` is the remaining weight there (location-state.ts). The
+// `weightRemaining` is the remaining weight there (location-state.ts), but
+// one the server wrote it, which is the Remaining Weight worked out as it was
+// written and no entry (`noteWeightWritten`, ADR-0037). The
 // server keeps, per tablet, each batch's local id there and the record as
 // the tablet last had it, as for Beans (beans.ts), under the same locks. An
 // edit of a batch's content is merged per field, as a Bean's is.
@@ -73,17 +90,19 @@ export async function takeInBatches(
       record: Record<string, unknown>;
       seenAt: Date | null;
       contentSeenAt: Date | null;
+      written: unknown;
+      weightCount: string | null;
     }[]
   >`
     SELECT batch_id AS "batchId", local_id AS "localId", record_updated_at AS "updatedAt", ${seenAtSql(locationId)} AS "seenAt", record,
-      content_seen_at AS "contentSeenAt",
+      content_seen_at AS "contentSeenAt", written_weights AS written, weight_count_version_id::text AS "weightCount",
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived,
       CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
     FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The Location's latest decision of each batch that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((batch) => [batch.batchId, batch.seenAt]));
   /** The tablet's last known record of each batch, which its edit is worked out from. */
-  const knownRecords = new Map(mapped.map((batch) => [batch.batchId, batch]));
+  const knownRecords = new Map(mapped.map((batch) => [batch.batchId, { ...batch, writtenWeights: readWrittenWeights(batch.written) }]));
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((batch) => [batch.batchId, batch.contentSeenAt]));
   // The Library Beans the tablet's records of its beans are, by their ids there.
@@ -111,7 +130,7 @@ export async function takeInBatches(
   const reported = screened.kept.filter((batch) => mappedIds.has(batch.localId) || kept.has(batch));
   const named = reported.flatMap((batch) => (batch.globalId !== null && !mappedIds.has(batch.localId) ? [batch.globalId] : []));
   const library = named.length === 0 ? [] : await tx.beanBatch.findMany({ where: { id: { in: named } }, select: { id: true } });
-  const steps = planBatchIntake(reported, mapped, new Map(beans.map((bean) => [bean.localId, bean.beanId])), library, listedIds(value));
+  const steps = planBatchIntake(reported, [...knownRecords.values()], new Map(beans.map((bean) => [bean.localId, bean.beanId])), library, listedIds(value));
   if (steps.length === 0) {
     if (screened.due || leftOutDue) await notify(tx, "library_changes", locationId);
     return takenInAt;
@@ -171,6 +190,7 @@ export async function takeInBatches(
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
     const decided = applied?.decidedAt ?? null;
     await saveRecord(tx, tablet.tabletId, batchId, batch.localId, batch.record, batch.updatedAt, decided === null ? null : { at: decided, locationId }, null);
+    await saveWeightHeld(tx, tablet.tabletId, batchId, weightHeld(step.kind === "update" ? knownRecords.get(batchId) : undefined, batch.weightRemaining, applied?.count ?? null));
     // A record whose global id is lost has it written back.
     if (batch.globalId !== batchId) writesDue = true;
   }
@@ -195,8 +215,9 @@ function leftOutRecord(batch: ReportedBatch): { localId: string; setAside: boole
  * lost, as a Lost Edit (location-state.ts). `held` is whether the tablet's
  * last known record of the batch had it at the Location, absent where the
  * server holds no such record. Says whether any changed the
- * Location's state, and when the edit decided the batch's presence there,
- * which the tablet's record has seen then; null if it did not.
+ * Location's state, when the edit decided the batch's presence there,
+ * which the tablet's record has seen then, null if it did not, and the count
+ * a weight it entered started (`count`), null if it entered none.
  */
 async function applyEdits(
   tx: Prisma.TransactionClient,
@@ -207,9 +228,10 @@ async function applyEdits(
   seenAt: Date | null,
   source: EditSource,
   held?: boolean,
-): Promise<{ changed: boolean; decidedAt: Date | null }> {
+): Promise<{ changed: boolean; decidedAt: Date | null; count: string | null }> {
   let changed = false;
   let decidedAt: Date | null = null;
+  let count: string | null = null;
   for (const edit of edits) {
     if (edit.field === "at") {
       decidedAt = edit.value ? await addBatchAt(tx, batchId, locationId, at, seenAt, source, held) : await finishBatchAt(tx, batchId, locationId, at, seenAt, source, held);
@@ -219,10 +241,77 @@ async function applyEdits(
       // a record created or un-archived holding zero is added, as its tablet has it. The tablet's record has not seen that
       // finish, which is written to it as to the Location's other tablets, so it is no decision of its own.
       const finishing = edits.some((other) => other.field === "at") ? undefined : { seenAt, ...(held === undefined ? {} : { held }) };
-      changed = (await enterRemainingWeight(tx, batchId, locationId, edit, at, source, finishing)).entered || changed;
+      const entry = await enterRemainingWeight(tx, batchId, locationId, edit, at, source, finishing);
+      changed = entry.entered || changed;
+      count = entry.versionId ?? count;
     }
   }
-  return { changed, decidedAt };
+  return { changed, decidedAt, count };
+}
+
+/** What a tablet's row of a batch is to hold of the server's writes of its weight: the count the record's weight is of, and the writes not yet shown to be held. */
+interface WeightHeld {
+  count: string | null;
+  written: readonly WrittenWeight[];
+}
+
+/**
+ * What the row is to hold once the tablet's record is known to hold `weight`
+ * (ADR-0037), or null where nothing changes:
+ *
+ * - a weight its barista entered that started the Location's count
+ *   (`entered`, the count) has seen that count;
+ * - one the server's write just set (`written`, with the count it was worked
+ *   out from where the write was awaited) has seen that write's count, and
+ *   holds none of the writes before it;
+ * - one that is otherwise a write of the server's not yet shown to be held,
+ *   as its answer was lost, the same.
+ *
+ * The writes not shown are kept through a barista's entry: one made as the
+ * connection was lost may still have landed after it.
+ */
+function weightHeld(
+  known: { weightRemaining: number | null; writtenWeights: readonly WrittenWeight[]; weightCount: string | null } | undefined,
+  weight: number | null,
+  entered: string | null,
+  written?: { count: string | null | undefined },
+): WeightHeld | null {
+  const pending = known?.writtenWeights ?? [];
+  if (entered !== null) return { count: entered, written: pending };
+  const shown = written !== undefined || weight !== known?.weightRemaining ? writtenWeightHeld(pending, weight) : null;
+  if (written !== undefined) return { count: written.count !== undefined ? written.count : (shown?.count ?? known?.weightCount ?? null), written: shown ? writtenWeightsAfter(pending, shown) : [] };
+  return shown ? { count: shown.count, written: writtenWeightsAfter(pending, shown) } : null;
+}
+
+async function saveWeightHeld(tx: Prisma.TransactionClient, tabletId: string, batchId: string, held: WeightHeld | null): Promise<void> {
+  if (held === null) return;
+  await tx.$executeRaw`
+    UPDATE tablet_bean_batches SET weight_count_version_id = ${held.count}::uuid, written_weights = ${JSON.stringify(held.written)}::jsonb
+    WHERE tablet_id = ${tabletId}::uuid AND batch_id = ${batchId}::uuid`;
+}
+
+/**
+ * Keeps that the server is about to write the weight to the tablet's record
+ * of the batch, worked out from the count given, before the write is sent
+ * (ADR-0037): should its answer be lost, as with the connection, the
+ * tablet's next report shows the weight, which is then known for the
+ * server's own and no weight a barista entered. In PostgreSQL, as the report
+ * may reach another instance. The latest few are kept
+ * (WRITTEN_WEIGHTS_KEPT), and each goes once an answer or a report shows the
+ * record to hold it or a later one (`weightHeld`).
+ */
+export async function noteWeightWritten(prisma: PrismaService, tabletId: string, batchId: string, weight: number | null, count: string | null): Promise<void> {
+  const entry: WrittenWeight = { weight, count };
+  await prisma.$executeRaw`
+    UPDATE tablet_bean_batches SET written_weights = (
+      SELECT COALESCE(jsonb_agg(kept.entry ORDER BY kept.position), '[]'::jsonb)
+      FROM (
+        SELECT listed.entry, listed.position
+        FROM jsonb_array_elements(written_weights || ${JSON.stringify([entry])}::jsonb) WITH ORDINALITY AS listed(entry, position)
+        ORDER BY listed.position DESC LIMIT ${WRITTEN_WEIGHTS_KEPT}
+      ) AS kept
+    )
+    WHERE tablet_id = ${tabletId}::uuid AND batch_id = ${batchId}::uuid`;
 }
 
 /**
@@ -238,7 +327,9 @@ async function applyEdits(
  * (`holdsWrittenContent`); null says nothing new,
  * as for an answer to a write no longer awaited. A field of its content the
  * write did not set that differs from the record known was edited on the
- * tablet since, and is merged as a report's edit would be (ADR-0020).
+ * tablet since, and is merged as a report's edit would be (ADR-0020). A
+ * weight the write set was worked out from the count `weightCount`, which
+ * the record has then seen; undefined for a write no longer awaited.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
@@ -249,6 +340,7 @@ export async function recordBatchWritten(
   updatedAt: string | null,
   seen: SeenDecision | null,
   contentSeen: Date | null,
+  weightCount?: string | null,
 ): Promise<AnswerRecorded> {
   if (!isRecordId(record.id) || globalIdOf(record) !== batchId.toLowerCase()) return "notTheItem";
   const localId = record.id;
@@ -259,21 +351,25 @@ export async function recordBatchWritten(
     const other = await tx.tabletBeanBatch.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { batchId: true } });
     if (other && other.batchId !== batchId) return "notTheItem";
     const locationId = await sharingLocation(tx, tablet.machineId);
-    const [known] = await tx.$queryRaw<
-      { archived: boolean; weightRemaining: number | null; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null }[]
+    const [row] = await tx.$queryRaw<
+      { archived: boolean; weightRemaining: number | null; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null; written: unknown; weightCount: string | null }[]
     >`
       SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt",
+        written_weights AS written, weight_count_version_id::text AS "weightCount",
         CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
       FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${batchId}::uuid`;
+    const known = row ? { ...row, writtenWeights: readWrittenWeights(row.written) } : undefined;
     const at = updatedAt === null ? null : new Date(updatedAt);
     const edits = editsInAnswer(known ?? null, record, written);
     const source = tabletSource(tablet);
     let decided: SeenDecision | null = null;
     let changed = false;
+    let entered: string | null = null;
     if (locationId !== null && edits.length > 0) {
       await lockLocation(tx, locationId);
       const applied = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null, source, heldThere(known));
       changed = applied.changed;
+      entered = applied.count;
       decided = applied.decidedAt === null ? null : { at: applied.decidedAt, locationId };
     }
     let edited: EditOutcome | null = null;
@@ -289,6 +385,7 @@ export async function recordBatchWritten(
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
     const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchRecordValues(record), edited, contentSeen));
     await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null), holds ? contentSeen : null);
+    await saveWeightHeld(tx, tablet.tabletId, batchId, weightHeld(known, weightOf(record), entered, written.has("weightRemaining") ? { count: weightCount } : undefined));
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
@@ -323,6 +420,7 @@ async function saveRecord(
       ${keepContentSeenSql("tablet_bean_batches")}`;
   // The Shots and Workflow changes that name the record by this id are linked to the item, if they were not yet
   // (shots/links.ts, machine-events/workflow-links.ts).
-  await linkShots(tx, "beanBatch", tabletId, batchId, localId);
+  // A Shot so linked counts against the batch's weight where it was pulled, which that Location's tablets are then written.
+  if ((await linkShots(tx, "beanBatch", tabletId, batchId, localId)) > 0) await notify(tx, "library_changes", batchId);
   await linkWorkflowChanges(tx, "beanBatch", tabletId, batchId, localId);
 }

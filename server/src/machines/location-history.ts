@@ -1,4 +1,5 @@
 import { Prisma } from "../generated/prisma/client.js";
+import { notify } from "../notifications.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import type { Hardware } from "../sync/identity.js";
 import { announceReferenceShots } from "../shots/reference-announcements.js";
@@ -90,6 +91,8 @@ export async function creditLocations(tx: Prisma.TransactionClient, machineId: s
     const until = span.until === null ? Prisma.empty : Prisma.sql`AND ${recordedAt} < ${span.until}::timestamptz`;
     await credit(tx, records, Prisma.sql`machine_id = ${machineId}::uuid AND ${recordedAt} >= ${span.from}::timestamptz ${until}`);
   }
+  // Its Shots count against their batches' weights where they are now credited, which those Locations' tablets hold (ADR-0037).
+  await notify(tx, "library_changes", machineId);
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   type WrittenKind,
   childLists,
 } from "@decent-sync/protocol";
+import { noteWeightWritten } from "../library/bean-batches.js";
 import { writeKey } from "../library/holdings.js";
 import { writtenKind } from "../library/kinds.js";
 import type { SeenDecision } from "../library/intake.js";
@@ -37,6 +38,8 @@ export interface AwaitedWrite {
   write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut;
   seen: SeenDecision | null;
   contentSeen: Date | null;
+  /** For a batch's write that sets its weight, the count the weight was worked out from (`PlannedWrite.weightCount`). */
+  weightCount?: string | null;
   change: TabletChange & { signature: string };
 }
 
@@ -293,8 +296,8 @@ export class TabletWriter {
   /** The write with this id, if it awaits its answer, and what its answer has seen. */
   awaited(id: string): AwaitedWrite | undefined {
     if (this.waiting?.write.id !== id) return undefined;
-    const { write, seen, contentSeen, change } = this.waiting;
-    return { write, seen, contentSeen, change };
+    const { write, seen, contentSeen, change, weightCount } = this.waiting;
+    return { write, seen, contentSeen, change, ...(weightCount === undefined ? {} : { weightCount }) };
   }
 
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
@@ -448,7 +451,14 @@ export class TabletWriter {
       // What the write carries was decided at the Location it was planned for.
       const plannedFor = found?.locationId ?? null;
       const seen = due.decidedAt === null || plannedFor === null ? null : { at: due.decidedAt, locationId: plannedFor };
-      const outcome = await this.ask({ write, seen, contentSeen: due.contentDecidedAt, change });
+      const weighed = due.kind === "beanBatch" && "weightRemaining" in due.fields;
+      if (weighed && due.localId !== null) {
+        // Kept before it is sent: a weight the server wrote is no weight a barista entered, even where its answer is lost (ADR-0037).
+        const weight = due.fields.weightRemaining;
+        await noteWeightWritten(this.prisma, this.tablet.tabletId, due.globalId, typeof weight === "number" ? weight : null, due.weightCount ?? null);
+        if (this.stopped) return;
+      }
+      const outcome = await this.ask({ write, seen, contentSeen: due.contentDecidedAt, change, ...(weighed ? { weightCount: due.weightCount ?? null } : {}) });
       if (outcome === "stopped") return;
       if (outcome === "again") continue;
       if (outcome === "timedOut") {

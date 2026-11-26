@@ -15,7 +15,8 @@ import type { Prisma } from "./generated/prisma/client.js";
  * - `library_changes`, a Location's id: what the Library offers there, or
  *   what its tablets must be written, has changed; or a Library item's id:
  *   its content changed in the management interface, which every
- *   Location's tablets may hold;
+ *   Location's tablets may hold; or a Machine's id: its Shots were credited
+ *   to other Locations, whose tablets hold the weights they count against;
  * - `machine_locations`, a Machine's id: the Location it is at now has
  *   changed, or its sharing was turned off or on, so its tablet's Library is
  *   to be taken in afresh, or no longer; or its hardware was entered, so its

@@ -895,7 +895,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       }
     } else if (awaited && write?.type === "write") {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
-      if (await this.recordAnswer(session, write.kind, write.globalId, answer, awaited.change, awaited.seen, awaited.contentSeen)) outcome = "written";
+      if (await this.recordAnswer(session, write.kind, write.globalId, answer, awaited.change, awaited.seen, awaited.contentSeen, awaited.weightCount)) outcome = "written";
     } else if (session.writer && isWrittenKind(answer.kind)) {
       // What the item's content its write carried the answer repeats; which Location's decision it carried is not known.
       const contentSeen = answer.contentDecidedAt === undefined ? null : new Date(answer.contentDecidedAt);
@@ -916,7 +916,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * its write carried (`seen`), and the latest edit of the item's content it
    * carried (`contentSeen`), by PostgreSQL's clock; one of a write no longer
    * awaited says nothing new of the decision, but its content's time it
-   * repeats (`contentDecidedAt`).
+   * repeats (`contentDecidedAt`). A batch's weight it set was worked out
+   * from the count `weightCount`.
    */
   private async recordAnswer(
     session: Session,
@@ -926,6 +927,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     awaited: AwaitedWrite["change"] | null,
     seen: SeenDecision | null,
     contentSeen: Date | null,
+    weightCount?: string | null,
   ): Promise<boolean> {
     // Only a kind the server writes is ever answered for.
     if (!isWrittenKind(kind)) return false;
@@ -935,7 +937,16 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const { record, updatedAt } = answer;
     try {
       const written = new Set(answer.writtenFields);
-      const recorded = await description.recordWritten(this.prisma, tablet, { globalId, written, record, updatedAt, seen, contentSeen, linked: answer.linked === true });
+      const recorded = await description.recordWritten(this.prisma, tablet, {
+        globalId,
+        written,
+        record,
+        updatedAt,
+        seen,
+        contentSeen,
+        linked: answer.linked === true,
+        ...(weightCount === undefined ? {} : { weightCount }),
+      });
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
         // A Profile's id is Decaid's hash of it, so a record under another id says Decaid hashes it otherwise than the server (ADR-0032), which its page reports. The tablet keeps that record, and its next report adds it to the Library (writeProfile in the plugin).

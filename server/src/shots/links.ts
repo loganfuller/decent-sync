@@ -151,11 +151,11 @@ export async function linkShotTools(tx: Prisma.TransactionClient, tabletId: stri
  * Links each Shot not linked yet that the tablet reported naming its record
  * by its id there to the item: called as the tablet's map comes to hold the
  * record under that id, with the tablet's row lock held, which storing a
- * Shot's metadata waits for.
+ * Shot's metadata waits for. Returns how many it linked.
  */
-export async function linkShots(tx: Prisma.TransactionClient, kind: LibraryKind, tabletId: string, itemId: string, localId: string): Promise<void> {
+export async function linkShots(tx: Prisma.TransactionClient, kind: LibraryKind, tabletId: string, itemId: string, localId: string): Promise<number> {
   const { local, link } = shotLinkOf(kind);
-  await tx.$executeRaw`
+  return tx.$executeRaw`
     UPDATE shots AS s SET ${Prisma.raw(link)} = ${itemId}::uuid
     WHERE s.${Prisma.raw(local)} = ${localId} AND s.${Prisma.raw(link)} IS NULL AND s.tablet_id = ${tabletId}::uuid`;
 }

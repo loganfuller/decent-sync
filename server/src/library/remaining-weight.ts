@@ -1,4 +1,5 @@
 import type { Prisma } from "../generated/prisma/client.js";
+import { notify } from "../notifications.js";
 
 // A Bean Batch's Remaining Weight at a Location, worked out as it is read
 // (ADR-0037): the weight its count there starts from, less the dose of each
@@ -132,4 +133,56 @@ export function remainingAfter(start: number, used: number, moved: Pick<Moved, "
 /** A weight to the tenth of a gram, as doses are measured, so a sum of them shows no floating-point remainder. */
 export function grams(weight: number): number {
   return Math.round(weight * 10) / 10;
+}
+
+/** What a Shot counts as against a batch's weight: its batch, where and when it was pulled, and its dose, as `usedSince` reads them. */
+export interface CountedShot {
+  batchId: string | null;
+  locationId: string | null;
+  pulledAt: Date | null;
+  dose: number;
+}
+
+/** What the Shot counts as now, or null if it is not stored. */
+export async function countedShot(tx: Pick<Prisma.TransactionClient, "$queryRaw">, shotId: string): Promise<CountedShot | null> {
+  const [shot] = await tx.$queryRaw<CountedShot[]>`
+    SELECT library_batch_id::text AS "batchId", location_id::text AS "locationId", pulled_at AS "pulledAt",
+      COALESCE(actual_dose, target_dose, 0)::double precision AS dose
+    FROM shots WHERE id = ${shotId}`;
+  return shot ?? null;
+}
+
+/**
+ * Has each tablet written its Location's new weight of a batch once a Shot
+ * was stored or changed (ADR-0037), given what it counted as before and what
+ * it counts as now: a notification of `library_changes` for each Location
+ * whose count of its batch the Shot counts against, or did, in the
+ * transaction storing it. Nothing is kept of the weight: each tablet's
+ * writer works it out as it looks (`remainingAt` in kinds.ts), so Shots
+ * stored together, as a tablet catches up, may be written as one change.
+ * None for a Shot that changes no weight: one unchanged in what it counts
+ * as, with no batch or Location, at a Location its batch is untracked at, or
+ * pulled before the count there started, as most of a new tablet's Shots
+ * were.
+ */
+export async function announceWeights(tx: Prisma.TransactionClient, before: CountedShot | null, after: CountedShot | null): Promise<void> {
+  const same =
+    before !== null &&
+    after !== null &&
+    before.batchId === after.batchId &&
+    before.locationId === after.locationId &&
+    before.pulledAt?.getTime() === after.pulledAt?.getTime() &&
+    before.dose === after.dose;
+  if (same) return;
+  const told = new Set<string>();
+  for (const shot of [before, after]) {
+    if (!shot || shot.batchId === null || shot.locationId === null || shot.pulledAt === null || told.has(shot.locationId)) continue;
+    const counted = await tx.$queryRaw<unknown[]>`
+      SELECT 1 FROM batch_locations
+      WHERE batch_id = ${shot.batchId}::uuid AND location_id = ${shot.locationId}::uuid
+        AND remaining_weight IS NOT NULL AND remaining_weight_at < ${shot.pulledAt}::timestamptz`;
+    if (counted.length === 0) continue;
+    told.add(shot.locationId);
+    await notify(tx, "library_changes", shot.locationId);
+  }
 }

@@ -14,10 +14,10 @@ In no fixed order, and with no dates:
 - **Monitoring**: noticing lost Shots, low water and dropped scale or Machine
   connections, with alerts.
 - **Calibration**: checks of stop-at-weight, flow and temperature.
-- **Bean Batches by Location**: a batch's remaining weight on tablets, and
-  scanning a batch's QR code in the cafe Skin. A batch's remaining weight at
-  a Location already falls with each Shot pulled there, and all or part of a
-  batch is already moved between Locations.
+- **Bean Batches by Location**: scanning a batch's QR code in the cafe Skin.
+  A batch's remaining weight at a Location already falls with each Shot
+  pulled there, on its tablets too, and all or part of a batch is already
+  moved between Locations.
 
 ## Following the work
 

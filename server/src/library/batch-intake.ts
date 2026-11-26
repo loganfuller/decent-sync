@@ -28,6 +28,21 @@ export interface ReportedBatch {
   record: Record<string, unknown>;
 }
 
+/**
+ * A weight the server wrote to a tablet's record of a batch, as its
+ * `weightRemaining` (ADR-0037): the batch's Remaining Weight at the tablet's
+ * Location as it was worked out then, null for one cleared, and the count it
+ * was worked out from (`remaining_weight_version_id`), null where none is
+ * known.
+ */
+export interface WrittenWeight {
+  weight: number | null;
+  count: string | null;
+}
+
+/** How many weights written to a record are kept while none is shown to be held: the latest. */
+export const WRITTEN_WEIGHTS_KEPT = 8;
+
 /** A Library Bean Batch the tablet's map holds a record of: the record as the tablet last had it. */
 export interface MappedBatch {
   batchId: string;
@@ -40,6 +55,15 @@ export interface MappedBatch {
   weightRemaining: number | null;
   /** The record known, as the tablet reported it or Decaid returned the plugin's write of it. */
   record: Record<string, unknown>;
+  /**
+   * The weights the server has written to the record that no answer or
+   * report has shown it to hold yet, oldest first: a record holding one of
+   * them holds the server's write, as when the answer to it was lost with
+   * the connection, and no weight a barista entered.
+   */
+  writtenWeights?: readonly WrittenWeight[];
+  /** The count the weight the record known holds was written from, or that its own entry started; null or absent where none is known. */
+  weightCount?: string | null;
 }
 
 /** A Library Bean Batch the report may name by the global id a record carries. */
@@ -58,8 +82,12 @@ export interface LibraryBatch {
 export type LocationEdit =
   /** Un-archived on the tablet, it is added there (true); archived or deleted, it is finished there (false). */
   | { field: "at"; value: boolean }
-  /** Its remaining weight there, null when cleared, changed from `had`. */
-  | { field: "remainingWeight"; value: number | null; had: number | null };
+  /**
+   * Its remaining weight there, null when cleared, changed from `had`, which
+   * the server wrote from the count `hadCount` or the tablet's own entry
+   * started it, where that is known: the tablet had seen that count.
+   */
+  | { field: "remainingWeight"; value: number | null; had: number | null; hadCount?: string | null };
 
 /** One thing a report changes. */
 export type BatchIntakeStep =
@@ -157,7 +185,8 @@ export function heldBatchCode(record: Record<string, unknown>): unknown {
  * does, whatever its time. Each such record brings the changes made to it since the one
  * known: un-archived, the batch is added at the tablet's Location; archived,
  * finished there; its `weightRemaining` changed, its remaining weight there
- * (ADR-0008); any other field changed, an edit of the batch's content. Otherwise a record carrying a Library batch's global id is
+ * (ADR-0008), unless it holds a weight the server wrote it (`writtenWeightHeld`),
+ * which is no entry (ADR-0037); any other field changed, an edit of the batch's content. Otherwise a record carrying a Library batch's global id is
  * that batch, and changes nothing at the Location: the Location's state is
  * then written to it.
  *
@@ -196,7 +225,12 @@ export function planBatchIntake(
       const content = changedFields(batchContent(mine.record), batchContent(batch.record));
       const newer = mine.updatedAt === null || batch.updatedAt.getTime() > mine.updatedAt.getTime();
       // Times are read to the millisecond, so one as old that was changed since was changed within it, its Batch Code included, to be written over.
-      const changed = edits.length > 0 || Object.keys(content).length > 0 || !sameValue(heldBatchCode(mine.record), heldBatchCode(batch.record));
+      // So is one whose weight is the server's write, which is no edit but is the record held now.
+      const changed =
+        edits.length > 0 ||
+        batch.weightRemaining !== mine.weightRemaining ||
+        Object.keys(content).length > 0 ||
+        !sameValue(heldBatchCode(mine.record), heldBatchCode(batch.record));
       const sameTime = mine.updatedAt !== null && batch.updatedAt.getTime() === mine.updatedAt.getTime() && changed;
       const lostId = batch.globalId !== mine.batchId && mine.globalId === mine.batchId;
       if (newer || sameTime || lostId) steps.push({ kind: "update", batchId: mine.batchId, batch, edits, content });
@@ -231,10 +265,13 @@ export function planBatchIntake(
  * fields it is not sent, so a change made on the tablet since its last
  * report reaches the server in the answer, not in a later report, which
  * holds the record as answered. Without a record known, as for one the
- * write created, there is none.
+ * write created, there is none. A weight the write left as it found it is
+ * none either where it is one the server wrote before (`writtenWeightHeld`),
+ * as when that write's answer was lost and this one expected the weight
+ * before it.
  */
 export function editsInAnswer(
-  known: Pick<MappedBatch, "archived" | "weightRemaining"> | null,
+  known: Pick<MappedBatch, "archived" | "weightRemaining" | "writtenWeights" | "weightCount"> | null,
   record: Record<string, unknown>,
   written: ReadonlySet<string>,
 ): LocationEdit[] {
@@ -244,10 +281,46 @@ export function editsInAnswer(
   );
 }
 
+/**
+ * The server's write that a record holding this weight holds, of those not
+ * yet shown to be held (`MappedBatch.writtenWeights`): the latest of that
+ * weight, or null if the server wrote it none such. Only a weight that
+ * differs from what the server wrote the tablet is a barista's entry
+ * (ADR-0037), so a zero the server wrote after Shots finishes nothing.
+ */
+export function writtenWeightHeld(written: readonly WrittenWeight[] | undefined, weight: number | null): WrittenWeight | null {
+  for (let index = (written?.length ?? 0) - 1; index >= 0; index--) if (written![index]!.weight === weight) return written![index]!;
+  return null;
+}
+
+/**
+ * The writes still not shown to be held once the record holds `shown`: those
+ * made after it. Every one before it was written over by it.
+ */
+export function writtenWeightsAfter(written: readonly WrittenWeight[], shown: WrittenWeight): WrittenWeight[] {
+  return written.slice(written.lastIndexOf(shown) + 1);
+}
+
+/** A row's `written_weights` as read from the database: its entries that are well formed. */
+export function readWrittenWeights(value: unknown): WrittenWeight[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown): WrittenWeight[] => {
+    if (!isObject(entry)) return [];
+    const { weight, count } = entry;
+    if (weight !== null && (typeof weight !== "number" || !Number.isFinite(weight))) return [];
+    return [{ weight, count: typeof count === "string" ? count : null }];
+  });
+}
+
 /** What a tablet changed at its Location between the record known and one it holds now. */
-function editsSince(known: Pick<MappedBatch, "archived" | "weightRemaining">, now: Pick<ReportedBatch, "archived" | "weightRemaining">): LocationEdit[] {
+function editsSince(
+  known: Pick<MappedBatch, "archived" | "weightRemaining" | "writtenWeights" | "weightCount">,
+  now: Pick<ReportedBatch, "archived" | "weightRemaining">,
+): LocationEdit[] {
   const edits: LocationEdit[] = [];
   if (now.archived !== known.archived) edits.push({ field: "at", value: !now.archived });
-  if (now.weightRemaining !== known.weightRemaining) edits.push({ field: "remainingWeight", value: now.weightRemaining, had: known.weightRemaining });
+  if (now.weightRemaining !== known.weightRemaining && writtenWeightHeld(known.writtenWeights, now.weightRemaining) === null) {
+    edits.push({ field: "remainingWeight", value: now.weightRemaining, had: known.weightRemaining, ...(known.weightCount ? { hadCount: known.weightCount } : {}) });
+  }
   return edits;
 }

@@ -826,8 +826,12 @@ Lost Edit names is kept, still refused, so history goes on naming it
   a Shot is stored: a Shot edited, linked to another batch, deleted or
   arriving late changes the next read. A batch with no weight at a Location
   is untracked there, null and never zero, and reaching zero through Shots
-  finishes nothing. What a tablet's record holds is still the weight its
-  Location's count starts from (`holdings.ts`), which #705 changes.
+  finishes nothing. Each tablet's record of the batch holds its own
+  Location's Remaining Weight, worked out as its writes are planned
+  (`remainingAt` in `kinds.ts`): a Shot stored that changes what counts
+  against a tracked batch notifies `library_changes` (`announceWeights`),
+  as a move does, and each writer then writes the weight where the record
+  holds another (Writing to tablets, below).
 - **Grinders.** A Grinder is created belonging to a Location, which never
   changes; its Archived state and its content are edited under that
   Location's lock, as a tablet's are. Its form and page have its range and
@@ -1373,11 +1377,18 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   batch there (ADR-0037), unless the same change added or finished it, as a
   record un-archived holding zero. Adding or finishing it there is an
   edit timed by the record, which loses to a later one the tablet had not
-  seen (`batch_locations`, above; ADR-0020). A remaining weight replaces the
-  one known when the tablet had that value, none was ever entered there, or
+  seen (`batch_locations`, above; ADR-0020). A `weightRemaining` the server
+  wrote the record is no weight entered (ADR-0037): one a write's answer
+  names, or, where that answer was lost, one of the weights kept as written
+  and not yet shown to be held (`tablet_bean_batches.written_weights`,
+  `writtenWeightHeld`), a zero among them, which finishes nothing. A
+  remaining weight replaces the
+  one known when the tablet had that value, or its record's weight was
+  written from the Location's current count or started it
+  (`weight_count_version_id`), none was ever entered there, or
   it was entered later than the value known, which the tablet had not seen;
   otherwise it is kept as a Lost Edit, and so is a value replaced that the
-  tablet had not had, entered by another tablet. Any other field changed is
+  tablet had not had or seen, entered by another tablet. Any other field changed is
   an edit of the batch's content (Edits, above).
 - A record carrying a Library batch's global id is that batch, changing
   nothing at the Location, as a bean's, and so written the Location's state
@@ -1942,10 +1953,12 @@ each update also writing the item's content where the record differs from it
    with the Bean's content; or that it holds archived, which is un-archived;
    or whose record lacks its global id, which is written.
 2. Each batch the Location offers that the tablet lacks, created under the
-   tablet's record of its Bean, with the Location's remaining weight if one
-   was entered there, once the tablet holds that record; each it holds
-   archived, un-archived; each whose `weightRemaining` is not the
-   Location's, where one was entered there, set to it; then each batch the
+   tablet's record of its Bean, with its Remaining Weight at the Location
+   if one was entered there, once the tablet holds that record; each it holds
+   archived, un-archived; each whose `weightRemaining` is not its Remaining
+   Weight at the Location as worked out now, where one was entered there, set
+   to it, the weight kept as written before the write is sent
+   (`noteWeightWritten`, ADR-0037); then each batch the
    tablet holds that the Location does not offer, archived.
 3. Each Bean the tablet holds that the Location does not offer, archived.
 4. Each Grinder the Location offers that the tablet lacks, created with the
