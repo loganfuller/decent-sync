@@ -195,10 +195,12 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
   or to a commit, or for a Skin to a URL. Decaid records where an item came
   from only as it installs it, so the plugin installs it again from the
   source chosen, which may bring another version: a plugin keeps its
-  settings and whether it is enabled, and a Skin stays the default. Nothing
-  is changed where that source holds another plugin or Skin, which the
-  plugin removes again, or a plugin build older than the one installed,
-  which Decaid refuses. A Skin that comes with Decaid is not changed, as
+  settings and whether it is enabled, and a Skin stays the default. The
+  item chosen is not changed where that source holds another plugin or
+  Skin, or a plugin build older than the one installed, which Decaid
+  refuses. The plugin removes the other item again, unless it was on the
+  tablet already: that one stays, installed from the source. The result
+  says which, and says so where a new one could not be removed. A Skin that comes with Decaid is not changed, as
   Decaid restores it from its own repository each time it starts
   ([ADR-0035](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0035-how-an-installed-plugin-or-skin-updates-is-changed-by-installing-it-again.md));
 - install a Skin from a GitHub repository's latest release, a branch, or a
@@ -322,8 +324,10 @@ Profile is that Profile.
 
 A Machine takes on its Location's Library when it is adopted at the Location,
 moved there, or has its sharing turned back on by an Admin. What its tablet
-held of its own stays out of the Library, archived or hidden on the tablet,
-unless the Location had none of that kind yet.
+held of its own stays out of the Library, unless the Location had none of that
+kind yet. Its own Beans, Bean Batches and Grinders are archived on the tablet
+and its own Profiles hidden. Its own Recipes, Baskets and Tools are removed
+from DYE2's lists, and not kept.
 
 ### Capture-only Machines
 
