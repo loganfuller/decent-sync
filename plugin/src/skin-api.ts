@@ -377,6 +377,22 @@ export function tellReference(host: PluginHost, log: (message: string) => void, 
 }
 
 /**
+ * Tells the Skins listening on `changes` that a write of the plugin's
+ * archived the tablet's record of a Bean Batch, or brought it back, naming
+ * the record by Decaid's id. The push carries no state: a Skin showing that
+ * batch reads Decaid's record again. Interim, until Decaid tells of a
+ * batch's record changing itself, asked for in decentespresso/decaid#1271
+ * (ADR-0037). It never throws: a push Decaid refuses is logged.
+ */
+export function tellBatch(host: PluginHost, log: (message: string) => void, batch: string): void {
+  try {
+    host.emit(CHANGES_ENDPOINT, { what: "batch", batch });
+  } catch (error) {
+    log(`Could not tell Skins that a Bean Batch was archived or brought back: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
  * Tells the Skins listening on `changes` that the plugin's connection to the
  * server came or went, so one need not poll `status`. Decaid sends a push
  * only to the sockets open at the time. It never throws: a push Decaid

@@ -34,7 +34,7 @@ import { SoftwareActions } from "./software-actions.js";
 import { ShotEdits } from "./shot-edits.js";
 import { ShotCapture } from "./shots.js";
 import { ReferenceCopies } from "./reference-copies.js";
-import { tellConnection, tellReference } from "./skin-api.js";
+import { tellBatch, tellConnection, tellReference } from "./skin-api.js";
 import { SkinRequests } from "./skin-requests.js";
 import { tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
@@ -313,6 +313,7 @@ export class SyncConnection {
       log,
       skins,
       this.shot,
+      (batch) => tellBatch(host, log, batch),
     );
     this.tabletId = new TabletId(this.storage, log);
     this.liveView = new LiveView(log, localTransports, findMilkProbe);

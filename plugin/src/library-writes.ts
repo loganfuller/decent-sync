@@ -98,7 +98,9 @@ import { randomUuid } from "./tablet-id.js";
 // and its Recipe Slot its `stripSlot`, which one record holds at a time.
 // Once Decaid takes a post of DYE2's recipes, or a write into the Workflow
 // that changes it, the skins listening for changes are told (`ListPosted`,
-// skins.ts).
+// skins.ts). Once Decaid takes a write that archives a Bean Batch's record or
+// brings it back, a Skin listening on `changes` is told, as Decaid tells of
+// no record changing (ADR-0037, `tellBatch` in skin-api.ts).
 
 /** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
@@ -176,6 +178,13 @@ export interface ListPosted {
   workflowWritten: Skins["workflowWritten"];
   /** For a write into the Workflow, told of each Workflow Decaid answers it with, and the body it answered (`LoadedRecipeWrites.ownWrite`). It must not throw. */
   answered?: Answered;
+  /**
+   * Told of each Bean Batch record whose `archived` a write of the plugin's
+   * changed, either way, by Decaid's id of the record, once Decaid answered
+   * it (`tellBatch` in skin-api.ts). Interim, until Decaid tells of a batch's
+   * record changing itself (ADR-0037). It must not throw.
+   */
+  batchArchived: (batch: string) => void;
 }
 
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
@@ -266,14 +275,34 @@ export function libraryListPath(kind: LibraryKind): string {
 function recordWriter(kind: LibraryKind, route: Route): LibraryKindWriter {
   return {
     list: route.list,
-    write: async (write) => {
+    write: async (write, _log, posted) => {
+      // A record created was shown by no page before, and is created unarchived, as the server writes only the batches its Location offers.
       if (write.localId === null) return await create(route, write);
       const updated = await update(route, write, write.localId);
-      return answerTo(write, updated.answer, updated.written);
+      const answer = answerTo(write, updated.answer, updated.written);
+      if (answer.type === "written") archivedChanged(kind, posted, updated.before, answer.record);
+      return answer;
     },
     remove: (remove, namedByShot) => deleteRecord(kind, route, remove, namedByShot),
-    setAside: (leave) => readThen(route.records, leave, archiveRecord),
+    setAside: (leave, posted) =>
+      readThen(route.records, leave, async (_leave, record, path) => {
+        const outcome = await archiveRecord(record, path);
+        // Already archived, it is set aside with nothing written.
+        if (outcome === "setAside" && record.archived !== true) archivedChanged(kind, posted, record, { ...record, archived: true });
+        return outcome;
+      }),
   };
+}
+
+/**
+ * Tells of a Bean Batch record whose `archived` a write changed, from the
+ * record before it to the one Decaid answered, either way
+ * (`ListPosted.batchArchived`). A record of another kind, or a write that
+ * left `archived` as it was, is not told of.
+ */
+function archivedChanged(kind: LibraryKind, posted: ListPosted, before: Record<string, unknown>, after: Record<string, unknown>): void {
+  if (kind !== "beanBatch" || typeof after.id !== "string") return;
+  if ((before.archived === true) !== (after.archived === true)) posted.batchArchived(after.id);
 }
 
 /** What becomes of a write: the record Decaid returned, or why it did not write one. */
@@ -358,8 +387,10 @@ export class LibraryWrites {
     skins: Skins,
     /** Whether the Machine is pulling a Shot, which every change the server asks for waits out. */
     private readonly shot: ShotGate,
+    /** Told of each Bean Batch record whose `archived` a write changed (`ListPosted.batchArchived`). */
+    batchArchived: (batch: string) => void = () => {},
   ) {
-    this.posted = Object.assign((key: Dye2Key) => skins.listPosted(key), { loaded, workflowWritten: skins.workflowWritten });
+    this.posted = Object.assign((key: Dye2Key) => skins.listPosted(key), { loaded, workflowWritten: skins.workflowWritten, batchArchived });
     outbox.watch((delivery) => {
       if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
     });
@@ -668,7 +699,7 @@ async function readThen(
  * changes: its `extras` are written back as read, since Decaid replaces them
  * whole.
  */
-async function archiveRecord(_leave: LeaveOut, record: Record<string, unknown>, path: string): Promise<ItemLeftOut["outcome"] | Answer> {
+async function archiveRecord(record: Record<string, unknown>, path: string): Promise<ItemLeftOut["outcome"] | Answer> {
   if (globalIdOf(record) !== null) return "taken";
   if (record.archived === true) return "setAside";
   const archived = await request("PUT", path, { archived: true, extras: isObject(record.extras) ? record.extras : {} });
@@ -1082,12 +1113,13 @@ async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
  * Updates the record's fields that it still holds as the server expects, and
  * writes the global id beside the other keys in its `extras`, which Decaid
  * replaces whole, with the fields it holds there (`Route.inExtras`).
- * Answers with what Decaid answered last, and the fields set.
+ * Answers with what Decaid answered last, the fields set, and the record as
+ * read before the write.
  */
-async function update(route: Route, write: LibraryWrite, localId: string): Promise<{ answer: Answer; written: string[] }> {
+async function update(route: Route, write: LibraryWrite, localId: string): Promise<{ answer: Answer; written: string[]; before: Record<string, unknown> }> {
   const path = `${route.records}/${encodeURIComponent(localId)}`;
   const current = await request("GET", path);
-  if (!current.ok) return { answer: current, written: [] };
+  if (!current.ok) return { answer: current, written: [], before: {} };
   const parsedRecord = parsed(current.text);
   const record = isObject(parsedRecord) ? parsedRecord : {};
   const extras = isObject(record.extras) ? record.extras : {};
@@ -1099,6 +1131,7 @@ async function update(route: Route, write: LibraryWrite, localId: string): Promi
   return {
     answer: await request("PUT", path, { ...placedFields.own, extras: { ...extras, ...placedFields.extras, [GLOBAL_ID_KEY]: write.globalId } }),
     written: Object.keys(fields),
+    before: record,
   };
 }
 
