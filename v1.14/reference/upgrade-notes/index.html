@@ -1,0 +1,956 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-toc data-has-sidebar data-astro-cid-hsy6p7hu><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Upgrade notes | Decent Sync</title><link rel="canonical" href="https://loganfuller.github.io/decent-sync/reference/upgrade-notes/"/><link rel="sitemap" href="/decent-sync/v1.14/sitemap-index.xml"/><link rel="shortcut icon" href="/decent-sync/v1.14/favicon.svg" type="image/svg+xml"/><meta name="generator" content="Astro v7.4.13"/><meta name="generator" content="Starlight v0.43.1"/><meta property="og:title" content="Upgrade notes"/><meta property="og:type" content="article"/><meta property="og:url" content="https://loganfuller.github.io/decent-sync/reference/upgrade-notes/"/><meta property="og:locale" content="en"/><meta property="og:description" content="What each release needs of you before you pull its image."/><meta property="og:site_name" content="Decent Sync"/><meta name="twitter:card" content="summary_large_image"/><meta name="description" content="What each release needs of you before you pull its image."/><script>
+	(() => {
+		const storedTheme =
+			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const theme =
+			storedTheme ||
+			(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+	})();
+</script><link rel="stylesheet" href="/decent-sync/v1.14/_astro/print.C9eyqPGL.css" media="print"><link rel="stylesheet" href="/decent-sync/v1.14/_astro/common.Dm36lMVD.css"><style>.still-missing[data-astro-cid-4d4q5uj2]{border:1px dashed var(--sl-color-gray-5);color:var(--sl-color-gray-3);text-align:center;border-radius:.5rem;padding:2rem 1rem}
+</style><script type="module" src="/decent-sync/v1.14/_astro/page.cNngjUgL.js"></script></head><body data-astro-cid-hsy6p7hu><a class="sl-skip-link" href="#_top" data-astro-cid-3bdlu56p>Skip to content</a><div class="page sl-flex" data-astro-cid-iiqvlvlq><header class="header" data-astro-cid-iiqvlvlq><div class="header" data-astro-cid-z4apupk7><div class="title-wrapper sl-flex" data-astro-cid-z4apupk7><a href="/decent-sync/v1.14/" class="site-title sl-flex" data-astro-cid-aykkcnbh><img class="light:sl-hidden print:hidden" alt src="/decent-sync/v1.14/_astro/decent-sync-logo-dark.DuFi8Vk0.svg" width="2030" height="443" data-astro-cid-aykkcnbh><img class="dark:sl-hidden print:block" alt src="/decent-sync/v1.14/_astro/decent-sync-logo.CVPBBWOq.svg" width="2030" height="443" data-astro-cid-aykkcnbh><span class="sr-only" translate="no" data-astro-cid-aykkcnbh>Decent Sync</span></a></div><div class="sl-flex print:hidden" data-astro-cid-z4apupk7><site-search data-translations="{&quot;placeholder&quot;:&quot;Search&quot;}" data-astro-cid-azluiua7="true"><button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K" data-astro-cid-azluiua7><svg data-astro-cid-azluiua7="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg><span class="sl-hidden md:sl-block" aria-hidden="true" data-astro-cid-azluiua7>Search</span><kbd class="sl-hidden md:sl-flex" style="display: none" data-astro-cid-azluiua7><kbd data-astro-cid-azluiua7>Ctrl</kbd><kbd data-astro-cid-azluiua7>K</kbd></kbd></button><dialog style="padding: 0" aria-label="Search" data-astro-cid-azluiua7><div class="dialog-frame sl-flex" data-astro-cid-azluiua7><button data-close-modal class="sl-flex md:sl-hidden" data-astro-cid-azluiua7>Cancel</button><div class="search-container" data-astro-cid-azluiua7><div id="starlight__search" data-astro-cid-azluiua7></div></div></div></dialog></site-search><script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script><script type="module" src="/decent-sync/v1.14/_astro/Search.astro_astro_type_script_index_0_lang.Dq5UU-7a.js"></script></div><div class="sl-hidden md:sl-flex print:hidden right-group" data-astro-cid-z4apupk7><div class="sl-flex social-icons" data-astro-cid-z4apupk7><ds-version-select data-current="v1.14"><label style="--sl-select-width: 6.25em" data-astro-cid-22zrohm3><span class="sr-only" data-astro-cid-22zrohm3>Version</span><span class="icon label-icon" data-astro-cid-22zrohm3><svg data-astro-cid-22zrohm3="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21.17 2.06A13.1 13.1 0 0 0 19 1.87a12.94 12.94 0 0 0-7 2.05 12.94 12.94 0 0 0-7-2 13.1 13.1 0 0 0-2.17.19 1 1 0 0 0-.83 1v12a1 1 0 0 0 1.17 1 10.9 10.9 0 0 1 8.25 1.91l.12.07h.11a.91.91 0 0 0 .7 0h.11l.12-.07A10.899 10.899 0 0 1 20.83 16 1 1 0 0 0 22 15V3a1 1 0 0 0-.83-.94ZM11 15.35a12.87 12.87 0 0 0-6-1.48H4v-10c.333-.02.667-.02 1 0a10.86 10.86 0 0 1 6 1.8v9.68Zm9-1.44h-1a12.87 12.87 0 0 0-6 1.48V5.67a10.86 10.86 0 0 1 6-1.8c.333-.02.667-.02 1 0v10.04Zm1.17 4.15a13.098 13.098 0 0 0-2.17-.19 12.94 12.94 0 0 0-7 2.05 12.94 12.94 0 0 0-7-2.05c-.727.003-1.453.066-2.17.19A1 1 0 0 0 2 19.21a1 1 0 0 0 1.17.79 10.9 10.9 0 0 1 8.25 1.91 1 1 0 0 0 1.16 0A10.9 10.9 0 0 1 20.83 20a1 1 0 0 0 1.17-.79 1 1 0 0 0-.83-1.15Z"/></svg></span><select autocomplete="off" data-astro-cid-22zrohm3><option value="v1.14" selected data-astro-cid-22zrohm3>v1.14</option></select><svg class="icon caret" data-astro-cid-22zrohm3="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></ds-version-select><script type="module" src="/decent-sync/v1.14/_astro/VersionSelect.astro_astro_type_script_index_0_lang.CIITDMZC.js"></script><a href="https://github.com/loganfuller/decent-sync" rel="me" class="sl-flex" data-astro-cid-exweaxrw><span class="sr-only" data-astro-cid-exweaxrw>GitHub</span><svg data-astro-cid-exweaxrw="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-select data-astro-cid-upy64w42="true"><label style="--sl-select-width: 6.25em" data-astro-cid-22zrohm3><span class="sr-only" data-astro-cid-22zrohm3>Select theme</span><span class="icon label-icon" data-astro-cid-22zrohm3><svg class="sl-theme-icon-dark" data-astro-cid-upy64w42="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg class="sl-theme-icon-light" data-astro-cid-upy64w42="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg class="sl-theme-icon-auto" data-astro-cid-upy64w42="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></span><select autocomplete="off" data-astro-cid-22zrohm3><option value="dark" data-astro-cid-22zrohm3>Dark</option><option value="light" data-astro-cid-22zrohm3>Light</option><option value="auto" selected data-astro-cid-22zrohm3>Auto</option></select><svg class="icon caret" data-astro-cid-22zrohm3="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>(() => {
+		const theme = (typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme'));
+		if (theme) document.querySelectorAll('starlight-theme-select select').forEach((s) => { s.value = theme; });
+	})();</script><script type="module">var e=`starlight-theme`,t=e=>e===`auto`||e===`dark`||e===`light`?e:`auto`,n=()=>t(typeof localStorage<`u`&&localStorage.getItem(e));function r(t){typeof localStorage<`u`&&localStorage.setItem(e,t===`light`||t===`dark`?t:``)}var i=()=>matchMedia(`(prefers-color-scheme: light)`).matches?`light`:`dark`;function a(e){document.querySelectorAll(`starlight-theme-select select`).forEach(t=>{t.value=e}),document.documentElement.dataset.theme=e===`auto`?i():e,r(e)}matchMedia(`(prefers-color-scheme: light)`).addEventListener(`change`,()=>{n()===`auto`&&a(`auto`)});var o=class extends HTMLElement{constructor(){super(),a(n()),this.querySelector(`select`)?.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&a(t(e.currentTarget.value))})}};customElements.define(`starlight-theme-select`,o);</script><script type="module">var e=class extends HTMLElement{constructor(){super();let e=this.querySelector(`select`);e&&(e.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&(window.location.pathname=e.currentTarget.value)}),window.addEventListener(`pageshow`,t=>{if(!t.persisted)return;let n=e.querySelector(`option[selected]`)?.index;n!==e.selectedIndex&&(e.selectedIndex=n??0)}))}};customElements.define(`starlight-lang-select`,e);</script></div></div></header><nav class="sidebar print:hidden" aria-label="Main" data-astro-cid-iiqvlvlq><button popovertarget="starlight__sidebar" class="sl-menu-button sl-flex md:sl-hidden print:hidden" data-astro-cid-k3qvwo73><svg class="open-menu" data-astro-cid-k3qvwo73="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M3 8h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm18 8H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Zm0-5H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Z"/></svg><svg class="close-menu" data-astro-cid-k3qvwo73="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="m13.41 12 6.3-6.29a1.004 1.004 0 1 0-1.42-1.42L12 10.59l-6.29-6.3a1.004 1.004 0 0 0-1.42 1.42l6.3 6.29-6.3 6.29a1 1 0 0 0 0 1.42.998.998 0 0 0 1.42 0l6.29-6.3 6.29 6.3a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.42L13.41 12Z"/></svg><span class="sr-only" data-astro-cid-k3qvwo73>Menu</span></button><script type="module">var e=class extends HTMLElement{constructor(){super();let e=matchMedia(`(min-width: 50em)`),t=()=>{this.popover=e.matches?null:`auto`};t(),e.addEventListener(`change`,()=>t()),this.addEventListener(`toggle`,({newState:e})=>this.trapFocus(e===`open`))}trapFocus(e){document.querySelectorAll(`.main-frame, .sl-skip-link`).forEach(t=>{t.toggleAttribute(`inert`,e)})}};customElements.define(`sl-sidebar-pane`,e);</script><sl-sidebar-pane popover id="starlight__sidebar" class="sidebar-pane" data-astro-cid-iiqvlvlq="true"><div class="sidebar-content sl-flex" data-astro-cid-iiqvlvlq><sl-sidebar-state-persist data-hash="1mxcifg" data-astro-cid-r5tbc2w6="true"><script aria-hidden="true">
+		(() => {
+			try {
+				if (!matchMedia('(min-width: 50em)').matches) return;
+				/** @type {HTMLElement | null} */
+				const target = document.querySelector('sl-sidebar-state-persist');
+				const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+				if (!target || !state || target.dataset.hash !== state.hash) return;
+				window._starlightScrollRestore = state.scroll;
+				customElements.define(
+					'sl-sidebar-restore',
+					class SidebarRestore extends HTMLElement {
+						connectedCallback() {
+							try {
+								const idx = parseInt(this.dataset.index || '');
+								const details = this.closest('details');
+								if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+							} catch {}
+						}
+					}
+				);
+			} catch {}
+		})();
+	</script><ul class="top-level" data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><details open data-astro-cid-vp2z5zvh><summary data-astro-cid-vp2z5zvh><span class="group-label" data-astro-cid-vp2z5zvh><span class="large" data-astro-cid-vp2z5zvh>Get started</span></span><svg class="caret" data-astro-cid-vp2z5zvh="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="0"></sl-sidebar-restore><ul data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/get-started/what-decent-sync-is/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>What Decent Sync is</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/get-started/quick-start/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Quick start</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/get-started/locations-and-machines/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Locations and Machines</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/get-started/install-the-plugin/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Install the plugin</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/get-started/invite-people/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Invite people</span></a></li></ul></details></li><li data-astro-cid-vp2z5zvh><details open data-astro-cid-vp2z5zvh><summary data-astro-cid-vp2z5zvh><span class="group-label" data-astro-cid-vp2z5zvh><span class="large" data-astro-cid-vp2z5zvh>Guide</span></span><svg class="caret" data-astro-cid-vp2z5zvh="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="1"></sl-sidebar-restore><ul data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/guide/library-and-recipes/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Library and Recipes</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/guide/profiles-and-drafts/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Profiles and Drafts</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/guide/shots/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Shots and out of spec</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/guide/machines/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Machines</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/guide/assistants/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Assistants</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/guide/accounts-and-roles/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Accounts and roles</span></a></li></ul></details></li><li data-astro-cid-vp2z5zvh><details open data-astro-cid-vp2z5zvh><summary data-astro-cid-vp2z5zvh><span class="group-label" data-astro-cid-vp2z5zvh><span class="large" data-astro-cid-vp2z5zvh>Self-hosting</span></span><svg class="caret" data-astro-cid-vp2z5zvh="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="2"></sl-sidebar-restore><ul data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/self-hosting/docker-compose/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Docker Compose</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/self-hosting/local-network/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>On a local network</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/self-hosting/internet/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>On the internet</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/self-hosting/fly-io/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>fly.io</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/self-hosting/upgrading/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Upgrading</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/self-hosting/configuration/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Configuration</span></a></li></ul></details></li><li data-astro-cid-vp2z5zvh><details open data-astro-cid-vp2z5zvh><summary data-astro-cid-vp2z5zvh><span class="group-label" data-astro-cid-vp2z5zvh><span class="large" data-astro-cid-vp2z5zvh>Reference</span></span><svg class="caret" data-astro-cid-vp2z5zvh="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="3"></sl-sidebar-restore><ul data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/reference/glossary/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Glossary</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/reference/tablet-plugin/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>The tablet plugin</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/reference/assistant-tools/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Assistant tools</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/reference/upgrade-notes/" aria-current="page" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Upgrade notes</span></a></li></ul></details></li><li data-astro-cid-vp2z5zvh><details open data-astro-cid-vp2z5zvh><summary data-astro-cid-vp2z5zvh><span class="group-label" data-astro-cid-vp2z5zvh><span class="large" data-astro-cid-vp2z5zvh>Technical</span></span><svg class="caret" data-astro-cid-vp2z5zvh="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="4"></sl-sidebar-restore><ul data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/technical/architecture/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Architecture</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/technical/internals/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Internals</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/technical/skin-authors/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>For a Skin&#39;s author</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/technical/development/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Development</span></a></li></ul></details></li><li data-astro-cid-vp2z5zvh><details open data-astro-cid-vp2z5zvh><summary data-astro-cid-vp2z5zvh><span class="group-label" data-astro-cid-vp2z5zvh><span class="large" data-astro-cid-vp2z5zvh>Project</span></span><svg class="caret" data-astro-cid-vp2z5zvh="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="5"></sl-sidebar-restore><ul data-astro-cid-vp2z5zvh><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/project/roadmap/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Roadmap</span></a></li><li data-astro-cid-vp2z5zvh><a href="/decent-sync/v1.14/project/releases/" data-astro-cid-vp2z5zvh><span data-astro-cid-vp2z5zvh>Releases</span></a></li></ul></details></li></ul><script aria-hidden="true">
+		(() => {
+			const scroller = document.getElementById('starlight__sidebar');
+			if (!window._starlightScrollRestore || !scroller) return;
+			scroller.scrollTop = window._starlightScrollRestore;
+			delete window._starlightScrollRestore;
+		})();
+	</script></sl-sidebar-state-persist><div class="md:sl-hidden"><div class="mobile-preferences sl-flex" data-astro-cid-kxidgl5u><div class="social-icons" data-astro-cid-kxidgl5u><ds-version-select data-current="v1.14"><label style="--sl-select-width: 6.25em" data-astro-cid-22zrohm3><span class="sr-only" data-astro-cid-22zrohm3>Version</span><span class="icon label-icon" data-astro-cid-22zrohm3><svg data-astro-cid-22zrohm3="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21.17 2.06A13.1 13.1 0 0 0 19 1.87a12.94 12.94 0 0 0-7 2.05 12.94 12.94 0 0 0-7-2 13.1 13.1 0 0 0-2.17.19 1 1 0 0 0-.83 1v12a1 1 0 0 0 1.17 1 10.9 10.9 0 0 1 8.25 1.91l.12.07h.11a.91.91 0 0 0 .7 0h.11l.12-.07A10.899 10.899 0 0 1 20.83 16 1 1 0 0 0 22 15V3a1 1 0 0 0-.83-.94ZM11 15.35a12.87 12.87 0 0 0-6-1.48H4v-10c.333-.02.667-.02 1 0a10.86 10.86 0 0 1 6 1.8v9.68Zm9-1.44h-1a12.87 12.87 0 0 0-6 1.48V5.67a10.86 10.86 0 0 1 6-1.8c.333-.02.667-.02 1 0v10.04Zm1.17 4.15a13.098 13.098 0 0 0-2.17-.19 12.94 12.94 0 0 0-7 2.05 12.94 12.94 0 0 0-7-2.05c-.727.003-1.453.066-2.17.19A1 1 0 0 0 2 19.21a1 1 0 0 0 1.17.79 10.9 10.9 0 0 1 8.25 1.91 1 1 0 0 0 1.16 0A10.9 10.9 0 0 1 20.83 20a1 1 0 0 0 1.17-.79 1 1 0 0 0-.83-1.15Z"/></svg></span><select autocomplete="off" data-astro-cid-22zrohm3><option value="v1.14" selected data-astro-cid-22zrohm3>v1.14</option></select><svg class="icon caret" data-astro-cid-22zrohm3="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></ds-version-select><a href="https://github.com/loganfuller/decent-sync" rel="me" class="sl-flex" data-astro-cid-exweaxrw><span class="sr-only" data-astro-cid-exweaxrw>GitHub</span><svg data-astro-cid-exweaxrw="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-select data-astro-cid-upy64w42="true"><label style="--sl-select-width: 6.25em" data-astro-cid-22zrohm3><span class="sr-only" data-astro-cid-22zrohm3>Select theme</span><span class="icon label-icon" data-astro-cid-22zrohm3><svg class="sl-theme-icon-dark" data-astro-cid-upy64w42="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg class="sl-theme-icon-light" data-astro-cid-upy64w42="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg class="sl-theme-icon-auto" data-astro-cid-upy64w42="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></span><select autocomplete="off" data-astro-cid-22zrohm3><option value="dark" data-astro-cid-22zrohm3>Dark</option><option value="light" data-astro-cid-22zrohm3>Light</option><option value="auto" selected data-astro-cid-22zrohm3>Auto</option></select><svg class="icon caret" data-astro-cid-22zrohm3="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;" data-astro-cid-3c6alhf3><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>(() => {
+		const theme = (typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme'));
+		if (theme) document.querySelectorAll('starlight-theme-select select').forEach((s) => { s.value = theme; });
+	})();</script></div></div></div></sl-sidebar-pane></nav><div class="main-frame" data-astro-cid-iiqvlvlq><script type="module">var e=document.getElementById(`starlight__sidebar`),t=e?.querySelector(`sl-sidebar-state-persist`),n=`sl-sidebar-state`,r=()=>{let r=[],i=t?.dataset.hash||``;try{let e=sessionStorage.getItem(n),t=JSON.parse(e||`{}`);Array.isArray(t.open)&&t.hash===i&&(r=t.open)}catch{}return{hash:i,open:r,scroll:e?.scrollTop||0}},i=e=>{try{sessionStorage.setItem(n,JSON.stringify(e))}catch{}},a=()=>i(r()),o=(e,t)=>{let n=r();n.open[t]=e,i(n)};t?.addEventListener(`click`,e=>{if(!(e.target instanceof Element))return;let t=e.target.closest(`summary`)?.closest(`details`);if(!t)return;let n=t.querySelector(`sl-sidebar-restore`),r=parseInt(n?.dataset.index||``);isNaN(r)||o(!t.open,r)}),addEventListener(`visibilitychange`,()=>{document.visibilityState===`hidden`&&a()});</script><div class="lg:sl-flex" data-astro-cid-rxevcvtx><aside class="right-sidebar-container print:hidden" data-astro-cid-rxevcvtx><div class="right-sidebar" data-astro-cid-rxevcvtx><div class="lg:sl-hidden" data-astro-cid-l6jo52ic><mobile-starlight-toc data-min-h="2" data-max-h="3" data-astro-cid-3uh6rils="true"><nav aria-labelledby="starlight__on-this-page--mobile" data-astro-cid-3uh6rils><details id="starlight__mobile-toc" data-astro-cid-3uh6rils><summary id="starlight__on-this-page--mobile" class="sl-flex" data-astro-cid-3uh6rils><span class="toggle sl-flex" data-astro-cid-3uh6rils>On this page<svg class="caret" data-astro-cid-3uh6rils="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;" data-astro-cid-3c6alhf3><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></span><span class="display-current" data-astro-cid-3uh6rils></span></summary><div class="dropdown" data-astro-cid-3uh6rils><ul class="isMobile" style="--depth: 0;" data-astro-cid-hzfq3aad><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#_top" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>Overview</span></a></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1131" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.13.1</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-1130-plugin-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.13.0 plugin before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#changing-how-a-plugin-or-skin-updates" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Changing how a plugin or Skin updates</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1130" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.13.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-conflict-routes-are-gone" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The Conflict routes are gone</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-decaid-v093" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Decaid v0.9.3</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-1120-plugin-or-later-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.12.0 plugin or later before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-plugins-update-waits-for-approval-on-each-tablet-once" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The plugin’s update waits for approval on each tablet once</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-machines-software-tab-manages-its-tablets-software" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Machine’s Software tab manages its tablet’s software</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#automatic-update-checks-are-changed-on-the-software-tab-by-admins" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Automatic update checks are changed on the Software tab, by Admins</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1122" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.12.2</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-streamline-v0231" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Streamline v0.2.31</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-dye2-v0142" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need DYE2 v0.1.42</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-grind-setting-of-0-is-a-recipes" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A grind setting of 0 is a Recipe’s</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-basket-archived-in-dye2-is-hidden-at-its-location" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Basket archived in DYE2 is hidden at its Location</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#loading-a-recipe-turns-steam-on-or-off" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Loading a Recipe turns steam on or off</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#four-settings-renamed" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Four settings renamed</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#lost-edits-replace-conflicts" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Lost Edits replace Conflicts</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1121" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.12.1</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-time-to-first-drip-reads-earlier" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The time to first drip reads earlier</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1120" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.12.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-1100-plugin-or-later-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.10.0 plugin or later before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-machine-follows-a-draft-only-once-its-plugin-is-this-releases" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Machine follows a Draft only once its plugin is this release’s</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-profile-a-machine-cant-run-is-no-longer-written-to-it" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Profile a Machine can’t run is no longer written to it</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1111" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.11.1</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-shot-summary-no-longer-gives-stoppedonweight" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Shot Summary no longer gives stoppedOnWeight</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1101" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.10.1</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-decaid-v092-dye2-v0140-and-streamline-v0227" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-recipe-is-the-whole-shot" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Recipe is the whole Shot</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-grinders-range-and-defaults-are-shared-across-its-locations-tablets" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Grinder’s range and defaults are shared across its Location’s Tablets</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#automatic-update-checks-are-shown-and-changed-on-the-tablet" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Automatic update checks are shown, and changed on the tablet</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-flow-multiplier-edit-lasts-over-one-set-elsewhere" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A flow multiplier edit lasts, over one set elsewhere</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#managing-a-tablets-plugins-from-the-network-needs-a-token" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Managing a tablet’s plugins from the network needs a token</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1100" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.10.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-190-plugin-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.9.0 plugin before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-next-free-recipe-slot-may-be-one-of-6-to-9" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The next free Recipe Slot may be one of 6 to 9</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-tablets-network-can-read-its-locations-shots" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A tablet’s network can read its Location’s Shots</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-plugins-update-needs-no-approval" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The plugin’s update needs no approval</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-rating-reads-in-stars" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A rating reads in stars</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#190" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.9.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#stored-shots-get-their-new-numbers-in-the-background" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Stored Shots get their new numbers in the background</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-home-page-is-the-overview" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The home page is the Overview</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-barista-filter-finds-every-spelling-of-a-name" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The Barista filter finds every spelling of a name</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#182" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.8.2</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#streamline-v0224-and-dye2-v0136-are-the-minimums" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Streamline v0.2.24 and DYE2 v0.1.36 are the minimums</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#180" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.8.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#settings-history-starts-with-this-release" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Settings History starts with this release</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#who-made-each-workflow-change" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Who made each Workflow change</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#170" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.7.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#assistants-connect-through-apimcp-on-by-default" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Assistants connect through /api/mcp, on by default</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#163" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.3</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#update-tablets-to-streamline-v0223-once-this-release-is-deployed" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Update Tablets to Streamline v0.2.23 once this release is deployed</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#update-tablets-to-dye2-v0135-once-this-release-is-deployed" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Update Tablets to DYE2 v0.1.35 once this release is deployed</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#162" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.2</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-dye2-v0133-and-streamline-v0221" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need DYE2 v0.1.33 and Streamline v0.2.21</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#161" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.1</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-recipe-is-shown-on-the-strip-by-its-slot-alone" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Recipe is shown on the strip by its slot alone</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-decaid-v091-and-dye2-v0132" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Decaid v0.9.1 and DYE2 v0.1.32</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#160" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#make-viewers-once-every-instance-runs-this-release" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Make Viewers once every instance runs this release</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#150" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.5.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-140-plugin-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.4.0 plugin before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#run-the-server-from-source-on-nodejs-26" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Run the server from source on Node.js 26</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#140" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.4.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#upgrade-without-going-offline-from-now-on" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Upgrade without going offline from now on</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-health-check-reports-the-database-in-its-body" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The health check reports the database in its body</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#110" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.1.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#update-dye2-and-streamline-on-every-tablet" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Update DYE2 and Streamline on every tablet</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-migration-keeps-the-database" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The migration keeps the database</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#apply-each-machines-recipe-again" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Apply each Machine’s recipe again</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#100" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.0.0</span></a><ul class="isMobile" style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#start-the-server-on-an-empty-database" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Start the server on an empty database</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#install-the-plugin-afresh-on-every-tablet" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Install the plugin afresh on every tablet</span></a></li></ul></li></ul></div></details></nav></mobile-starlight-toc><script type="module" src="/decent-sync/v1.14/_astro/MobileTableOfContents.astro_astro_type_script_index_0_lang.C3fM4Kra.js"></script></div><div class="right-sidebar-panel sl-hidden lg:sl-block" data-astro-cid-l6jo52ic><div class="sl-container" data-astro-cid-l6jo52ic><starlight-toc data-min-h="2" data-max-h="3"><nav aria-labelledby="starlight__on-this-page"><h2 id="starlight__on-this-page">On this page</h2><ul style="--depth: 0;" data-astro-cid-hzfq3aad><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#_top" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>Overview</span></a></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1131" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.13.1</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-1130-plugin-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.13.0 plugin before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#changing-how-a-plugin-or-skin-updates" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Changing how a plugin or Skin updates</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1130" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.13.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-conflict-routes-are-gone" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The Conflict routes are gone</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-decaid-v093" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Decaid v0.9.3</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-1120-plugin-or-later-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.12.0 plugin or later before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-plugins-update-waits-for-approval-on-each-tablet-once" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The plugin’s update waits for approval on each tablet once</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-machines-software-tab-manages-its-tablets-software" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Machine’s Software tab manages its tablet’s software</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#automatic-update-checks-are-changed-on-the-software-tab-by-admins" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Automatic update checks are changed on the Software tab, by Admins</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1122" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.12.2</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-streamline-v0231" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Streamline v0.2.31</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-dye2-v0142" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need DYE2 v0.1.42</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-grind-setting-of-0-is-a-recipes" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A grind setting of 0 is a Recipe’s</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-basket-archived-in-dye2-is-hidden-at-its-location" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Basket archived in DYE2 is hidden at its Location</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#loading-a-recipe-turns-steam-on-or-off" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Loading a Recipe turns steam on or off</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#four-settings-renamed" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Four settings renamed</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#lost-edits-replace-conflicts" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Lost Edits replace Conflicts</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1121" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.12.1</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-time-to-first-drip-reads-earlier" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The time to first drip reads earlier</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1120" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.12.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-1100-plugin-or-later-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.10.0 plugin or later before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-machine-follows-a-draft-only-once-its-plugin-is-this-releases" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Machine follows a Draft only once its plugin is this release’s</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-profile-a-machine-cant-run-is-no-longer-written-to-it" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Profile a Machine can’t run is no longer written to it</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1111" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.11.1</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-shot-summary-no-longer-gives-stoppedonweight" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Shot Summary no longer gives stoppedOnWeight</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1101" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.10.1</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-decaid-v092-dye2-v0140-and-streamline-v0227" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-recipe-is-the-whole-shot" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Recipe is the whole Shot</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-grinders-range-and-defaults-are-shared-across-its-locations-tablets" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Grinder’s range and defaults are shared across its Location’s Tablets</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#automatic-update-checks-are-shown-and-changed-on-the-tablet" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Automatic update checks are shown, and changed on the tablet</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-flow-multiplier-edit-lasts-over-one-set-elsewhere" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A flow multiplier edit lasts, over one set elsewhere</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#managing-a-tablets-plugins-from-the-network-needs-a-token" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Managing a tablet’s plugins from the network needs a token</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#1100" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.10.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-190-plugin-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.9.0 plugin before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-next-free-recipe-slot-may-be-one-of-6-to-9" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The next free Recipe Slot may be one of 6 to 9</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-tablets-network-can-read-its-locations-shots" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A tablet’s network can read its Location’s Shots</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-plugins-update-needs-no-approval" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The plugin’s update needs no approval</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-rating-reads-in-stars" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A rating reads in stars</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#190" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.9.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#stored-shots-get-their-new-numbers-in-the-background" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Stored Shots get their new numbers in the background</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-home-page-is-the-overview" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The home page is the Overview</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-barista-filter-finds-every-spelling-of-a-name" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The Barista filter finds every spelling of a name</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#182" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.8.2</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#streamline-v0224-and-dye2-v0136-are-the-minimums" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Streamline v0.2.24 and DYE2 v0.1.36 are the minimums</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#180" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.8.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#settings-history-starts-with-this-release" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Settings History starts with this release</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#who-made-each-workflow-change" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Who made each Workflow change</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#170" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.7.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#assistants-connect-through-apimcp-on-by-default" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Assistants connect through /api/mcp, on by default</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#163" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.3</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#update-tablets-to-streamline-v0223-once-this-release-is-deployed" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Update Tablets to Streamline v0.2.23 once this release is deployed</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#update-tablets-to-dye2-v0135-once-this-release-is-deployed" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Update Tablets to DYE2 v0.1.35 once this release is deployed</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#162" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.2</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-dye2-v0133-and-streamline-v0221" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need DYE2 v0.1.33 and Streamline v0.2.21</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#161" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.1</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#a-recipe-is-shown-on-the-strip-by-its-slot-alone" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>A Recipe is shown on the strip by its slot alone</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#tablets-need-decaid-v091-and-dye2-v0132" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Tablets need Decaid v0.9.1 and DYE2 v0.1.32</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#160" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.6.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#make-viewers-once-every-instance-runs-this-release" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Make Viewers once every instance runs this release</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#150" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.5.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#check-every-tablet-runs-the-140-plugin-before-deploying" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Check every tablet runs the 1.4.0 plugin before deploying</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#run-the-server-from-source-on-nodejs-26" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Run the server from source on Node.js 26</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#140" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.4.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#upgrade-without-going-offline-from-now-on" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Upgrade without going offline from now on</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-health-check-reports-the-database-in-its-body" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The health check reports the database in its body</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#110" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.1.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#update-dye2-and-streamline-on-every-tablet" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Update DYE2 and Streamline on every tablet</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#the-migration-keeps-the-database" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>The migration keeps the database</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#apply-each-machines-recipe-again" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Apply each Machine’s recipe again</span></a></li></ul></li><li style="--depth: 0;" data-astro-cid-hzfq3aad><a href="#100" style="--depth: 0;" data-astro-cid-hzfq3aad><span style="--depth: 0;" data-astro-cid-hzfq3aad>1.0.0</span></a><ul style="--depth: 1;" data-astro-cid-hzfq3aad><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#start-the-server-on-an-empty-database" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Start the server on an empty database</span></a></li><li style="--depth: 1;" data-astro-cid-hzfq3aad><a href="#install-the-plugin-afresh-on-every-tablet" style="--depth: 1;" data-astro-cid-hzfq3aad><span style="--depth: 1;" data-astro-cid-hzfq3aad>Install the plugin afresh on every tablet</span></a></li></ul></li></ul></nav></starlight-toc><script type="module" src="/decent-sync/v1.14/_astro/TableOfContents.astro_astro_type_script_index_0_lang.BpJaGz7G.js"></script></div></div></div></aside><div class="main-pane" data-astro-cid-rxevcvtx><main data-pagefind-body lang="en" dir="ltr" data-astro-cid-hsy6p7hu><ds-older-release class="not-content" data-current="v1.14" data-pagefind-ignore="true" hidden="true" data-astro-cid-uljtwisc="true"><p data-astro-cid-uljtwisc>You are reading the documentation for v1.14, which is not the latest release. <a data-astro-cid-uljtwisc>Read this page for <span data-latest data-astro-cid-uljtwisc></span></a>.</p></ds-older-release><script type="module" src="/decent-sync/v1.14/_astro/Banner.astro_astro_type_script_index_0_lang.DcuGLyfX.js"></script><div class="content-panel" data-astro-cid-plssekbi><div class="sl-container" data-astro-cid-plssekbi><h1 id="_top" data-astro-cid-6ej7vgea>Upgrade notes</h1></div></div><div class="content-panel" data-astro-cid-plssekbi><div class="sl-container" data-astro-cid-plssekbi><div class="sl-markdown-content"><p>What to do when upgrading to a release, beyond running its server image and
+letting Decaid update each tablet’s plugin. From 1.4.0, the
+plugin and server of adjacent releases work together, upgraded in either
+order, and the new server runs beside the old one as it upgrades, so nothing
+here stops the server or recreates the database
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md">ADR-0025</a>).
+Earlier releases’ notes may still ask that. A server that skipped a release
+takes each release in turn
+(<a href="../../self-hosting/upgrading/#if-you-skipped-a-release">Upgrading</a>).</p>
+<p>Where a note has a tablet’s plugin updated or approved through Decaid’s API
+from its network (<code>POST /api/v1/plugins/update</code>,
+<code>POST /api/v1/plugins/decent-sync.reaplugin/update/approve</code>), Decaid v0.9.2
+takes the request only with a token, as v0.9.3 and later do while
+“Require authorization for extension management” is on in Decaid’s Security
+settings on the tablet: send it as <code>Authorization: Bearer &lt;token&gt;</code>, which does
+no harm where none is asked. Make one on the tablet in Decaid, on its
+Decent Account page under API access tokens, with “Manage plugins and skins”
+turned on. It is shown once, and needs no Decent Account sign-in
+(<a href="../../reference/tablet-plugin/#a-token-for-managing-plugins">A token for managing plugins</a>).</p>
+<p>Each release’s notes on GitHub start with its section here. Notes for the next
+release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
+Releasing).</p>
+<h2 id="1131">1.13.1</h2>
+<h3 id="check-every-tablet-runs-the-1130-plugin-before-deploying">Check every tablet runs the 1.13.0 plugin before deploying</h3>
+<p>This release raises the wire revision, for changing how a plugin or Skin
+updates
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md">ADR-0025</a>,
+Deploying). Before deploying, check on each Machine’s page that it runs the
+plugin of 1.13.0. A tablet still on the 1.12.2 plugin or earlier is refused
+as too old until its plugin is updated, at the tablet or through Decaid’s API
+from its network with <code>POST /api/v1/plugins/update</code>. This release’s plugin
+adds no permission, so Decaid installs its update without approval.</p>
+<h3 id="changing-how-a-plugin-or-skin-updates">Changing how a plugin or Skin updates</h3>
+<p>An Admin can now change how an installed plugin or Skin updates, from its
+row’s menu on a Machine’s Software tab
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0035-how-an-installed-plugin-or-skin-updates-is-changed-by-installing-it-again.md">ADR-0035</a>).
+No step is needed, in either order of upgrading:</p>
+<ul>
+<li>A tablet takes the change only once its plugin is this release’s. Until
+then the form says its plugin must update, and every other Software Action
+works as before.</li>
+<li>To offer pinning an item where it is now, the server asks GitHub
+(<code>api.github.com</code> and <code>github.com</code>, over HTTPS, without credentials) as
+the form opens. A server that can’t reach GitHub offers the other choices.</li>
+</ul>
+<h2 id="1130">1.13.0</h2>
+<h3 id="the-conflict-routes-are-gone">The Conflict routes are gone</h3>
+<p>The routes 1.12.2 kept for a page of the release before it, <code>GET /api/conflicts</code>, each item’s <code>GET .../:id/conflicts</code>, and <code>POST /api/conflicts/:id/use</code> and <code>/dismiss</code>, are removed, and answer 404. Lost
+Edits are read in each item’s <code>GET .../history</code>, as in 1.12.2.</p>
+<p>No step is needed. The upgrade deletes the Conflicts that were dismissed
+before 1.12.2, which no release has shown since; every other Lost Edit stays
+in its item’s History.</p>
+<h3 id="tablets-need-decaid-v093">Tablets need Decaid v0.9.3</h3>
+<p>This release follows Decaid v0.9.3
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>), as its plugin manages a
+tablet’s plugins through it
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md">ADR-0034</a>).
+Before deploying, update each tablet’s Decaid to v0.9.3 or later, at the
+tablet: Android asks someone there to confirm the install. Then, once every
+tablet runs the 1.12.0 plugin or later (below), deploy the server. It refuses a tablet on Decaid v0.9.2 or older, and its Machine’s
+page says why, though 1.12.2 still accepts one while it serves beside this
+release. On a tablet that updates to it:</p>
+<ul>
+<li>Decaid turns its protection of plugin and Skin management off as it
+updates, so anything on the tablet’s network can install a plugin there
+until <strong>Require authorization for extension management</strong> is turned on in
+Decaid’s Security settings on the tablet. Turned on, the tablet asks a token as
+v0.9.2 did (docs/PLUGIN.md, A token for managing plugins). Either way,
+v0.9.3 refuses a browser page whose address is not the tablet’s own
+numeric one or <code>localhost</code>, which v0.9.2 did not.</li>
+<li>v0.9.3 bundles 21 more Profiles: Decaid’s calibration and leak tests, a
+forward flush, and espresso Profiles such as the E61 ones. The first tablet
+at a Location to update reports them, and they join the Library shown at
+that Location, those for cleaning and calibration included. Hide the
+unwanted ones at the Location, and its tablets are written the same. A
+tablet still on v0.9.2 lacks them: bundled Profiles are never written.</li>
+<li>v0.9.3 bundles DYE2 v0.1.42 and Streamline v0.2.31, the minimums
+<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a> names, so it puts neither
+over a supported one.</li>
+</ul>
+<h3 id="check-every-tablet-runs-the-1120-plugin-or-later-before-deploying">Check every tablet runs the 1.12.0 plugin or later before deploying</h3>
+<p>This release raises the wire revision, for Software Actions
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md">ADR-0025</a>,
+Deploying). Before deploying, check on each Machine’s page that it runs the
+plugin of 1.12.0 or later, 1.12.2’s among them. A tablet still on the 1.11.1
+plugin or earlier is refused as too old until its plugin is updated, at the
+tablet or through Decaid’s API from its network with
+<code>POST /api/v1/plugins/update</code>.</p>
+<p>A tablet on the 1.12.2 plugin keeps syncing with this server, but is sent no
+Software Action until it runs this release’s plugin: its Machine’s Software
+tab says the plugin must update, and an action made for it is refused. The
+Draft page’s list of Machines no longer has one needing its plugin updated:
+every plugin this server accepts can follow a Draft, and the REST API’s
+<code>needsPluginUpdate</code> is always false.</p>
+<h3 id="the-plugins-update-waits-for-approval-on-each-tablet-once">The plugin’s update waits for approval on each tablet once</h3>
+<p>This release’s plugin adds two permissions: <code>manage.extensions</code>, with which
+it manages the tablet’s plugins and Skins when an Admin asks (docs/PLUGIN.md,
+Permissions), and <code>notifications</code>, with which it says on the tablet why it
+stopped syncing (docs/PLUGIN.md, When the plugin stops syncing).
+Decaid installs an update that adds a permission only once someone approves
+it, so each tablet keeps the plugin it runs until then, which works with this
+server and the previous one. Approve it once on each tablet, before or after
+deploying:</p>
+<ul>
+<li>
+<p>at the tablet, in Decaid’s <strong>Settings</strong>, <strong>Plugins</strong>: <strong>Review</strong>, then
+<strong>Approve and update</strong>; or</p>
+</li>
+<li>
+<p>from the tablet’s network, with a token where the tablet asks one (above):</p>
+<div class="expressive-code"><link rel="stylesheet" href="/decent-sync/v1.14/_astro/ec.w36nc.css"><script type="module" src="/decent-sync/v1.14/_astro/ec.0vx5m.js"></script><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="bash"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">curl</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">-X</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">POST</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">http://&lt;tablet&gt;:8080/api/v1/plugins/decent-sync.reaplugin/update/approve</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#F78C6C;--1:#AA0982">\</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#82AAFF;--1:#3B61B0">-H</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#ECC48D;--1:#984E4D">Authorization: Bearer </span><span style="--0:#C5E478;--1:#3B61B0">$TOKEN</span><span style="--0:#D9F5DD;--1:#111111">"</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="curl -X POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve \  -H &quot;Authorization: Bearer $TOKEN&quot;"><div></div></button></div></figure></div>
+</li>
+</ul>
+<p>Decaid finds the update at its next update check, within 12 hours while its
+automatic update checks are on, or at once with
+<code>POST /api/v1/plugins/update</code> or <strong>Check for updates</strong> under <strong>Plugins</strong>.
+This approval can’t be made from the management interface, as the plugin it
+replaces takes no Software Actions. From the next release that adds a
+permission, an Admin approves the plugin’s own waiting update on the
+Machine’s Software tab.</p>
+<p>With <code>manage.extensions</code>, an Admin’s account, or the server itself, can put
+code on every connected tablet: install any plugin, change any plugin’s
+settings and approve any update’s permissions. Decaid shows no warning on the
+tablet for a plugin installed through its API. Give the Admin role only to
+people trusted with every tablet.</p>
+<h3 id="a-machines-software-tab-manages-its-tablets-software">A Machine’s Software tab manages its tablet’s software</h3>
+<p>Each Machine’s page gains a Software tab, between Settings and Setup, which
+shows its tablet’s Decaid, with the update it offers, every plugin and
+Skin, each with its version and how it updates, and what the tablet shows
+(docs/COLLECTIONS.md, Software Actions). An Admin installs, enables,
+disables, configures, checks for updates, approves and removes plugins
+there; installs, updates and removes Skins and chooses the default one; and
+asks Decaid to check for its own update and starts it, which Android then
+asks someone at the tablet to confirm. Each is a Software Action made once
+while the tablet is connected, and logged on the tab; all but the check for
+Decaid’s update need the Machine idle.
+The Skin on screen is reloaded from the tab, where the Skin reports the page
+it shows (docs/PLUGIN.md, Reloading the Skin), and the Skin view restarted
+from it, which brings back the default Skin: an Admin may ask for either,
+and so may Staff at the Machine’s Location. Staff and Viewers read the tab; the values of
+plugins’ settings show to Admins only, and a secret only as set or not set.
+Assistants read a Machine’s software with <code>get_machine_software</code> and
+<code>list_software_actions</code>, and make no Software Action but reloading the Skin
+or restarting the Skin view, with <code>reload_skin</code>. Each plugin’s settings now join the Machine’s
+Settings History. Nothing is needed.</p>
+<h3 id="automatic-update-checks-are-changed-on-the-software-tab-by-admins">Automatic update checks are changed on the Software tab, by Admins</h3>
+<p>An Admin turns a tablet’s automatic update checks on or off on its Machine’s
+Software tab again, as a Settings Edit, once the tablet runs this release’s
+plugin, which writes them through Decaid’s plugin host. Decaid follows the
+change when it next starts. Staff can’t change them, nor can an assistant:
+<code>edit_machine_settings</code> refuses them. On a tablet still running the previous
+release’s plugin, the edit is refused, and the page says its plugin must
+update.</p>
+<p>While the checks are off nothing on the tablet updates by itself, this
+plugin included, so Decaid finds this release’s plugin there only when
+someone checks for updates, at the tablet or with
+<code>POST /api/v1/plugins/update</code>. Check each Machine’s Software tab for checks
+left off, and turn them on where the tablet should keep up to date.</p>
+<h2 id="1122">1.12.2</h2>
+<h3 id="tablets-need-streamline-v0231">Tablets need Streamline v0.2.31</h3>
+<p>This release follows Streamline v0.2.31
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>). Decaid installs the latest
+Streamline on each tablet within 12 hours by itself. A tablet whose
+Streamline is pinned to an earlier build is moved to v0.2.31 or later by
+hand first, and one running a Skin built on Streamline, such as Streamline
+Cafe, to a build of it on v0.2.31. Then deploy the server. Nothing refuses
+an older Streamline, but nothing is written for what it does: the strip of
+v0.2.28 or earlier applies no steam temperature, so on a tablet still
+running the previous release’s plugin a Recipe loaded from it leaves steam
+off where it was off.</p>
+<p>From v0.2.29, a hold on Streamline’s Sleep button closes Decaid, which
+wakes the Machine as it is opened again. It is a setting of Streamline’s,
+on until turned off (“Hold Sleep to sleep and close the app”, under Sleep
+button on its settings page). While Decaid is closed its Machine shows
+offline in the management interface and nothing reaches its tablet, so turn
+it off on tablets that are to stay reachable.</p>
+<h3 id="tablets-need-dye2-v0142">Tablets need DYE2 v0.1.42</h3>
+<p>This release follows DYE2 v0.1.42
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>). Decaid installs the
+latest DYE2 on each tablet by itself; a tablet whose DYE2 is pinned to an
+earlier build is moved to v0.1.42 or later by hand first. Then deploy the
+server. Nothing refuses an older DYE2, but nothing is written for what it
+does: DYE2 v0.1.41 or earlier applies a Recipe’s grind setting of 0 as none,
+clearing the Machine’s, and DYE2 v0.1.40 or earlier, which knows no archived
+basket, offers in its pickers every Basket hidden at its Location, as such a
+Basket is now archived on its list rather than removed.</p>
+<h3 id="a-grind-setting-of-0-is-a-recipes">A grind setting of 0 is a Recipe’s</h3>
+<p>A grind setting of 0 is now a dial position, as DYE2 v0.1.42 applies one
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md">ADR-0022</a>,
+What 0 means). Saved on a tablet, or set in the management interface or
+through an assistant, it is the Recipe’s: shown, written to the Location’s
+other tablets, and left in a Machine’s Workflow as the Recipe loads. A dose
+or RPM of 0 is still none.</p>
+<p>Nothing puts back the grind settings of 0 that 1.10.1 removed from Recipes:
+no record was kept of which Recipes held one. Where a tablet’s recipe still
+holds a 0 that its Recipe holds none of, the server writes it none, as the
+Recipe holds it; set the 0 again where it was meant.</p>
+<p>As DYE2 v0.1.42 loads, it repairs each of its recipes saved at a grind
+setting of 0 before it, which then cleared the Machine’s grind setting as it
+applied. That is no edit of the Recipe and writes nothing to other tablets.</p>
+<p>While the previous release still serves beside this one during the deploy,
+it takes a grind setting of 0 saved on a tablet it holds as none, as it did,
+and shows a Recipe’s 0 as none. A Recipe set to 0 through this release
+then, from another setting, is written none to the tablets the previous
+release holds, and cleared from the Workflow of each of their Machines that
+has it loaded, so a Shot pulled there names no grind setting. Each is
+written the 0 again as its tablet reconnects to this release.</p>
+<h3 id="a-basket-archived-in-dye2-is-hidden-at-its-location">A Basket archived in DYE2 is hidden at its Location</h3>
+<p>From DYE2 v0.1.41 a barista can archive a Basket in DYE2’s Basket picker.
+Earlier releases took that as part of the Basket itself: it left the picker
+on every tablet at every Location, while the management interface still
+showed it shown and not Archived. Now archiving a Basket on a tablet hides
+it at that tablet’s Location only, as deleting it there does, and UNARCHIVE
+shows it there again. Hiding a Basket at a Location in the management
+interface or through an assistant archives it on that Location’s tablets,
+where it used to be removed from their lists, so a barista can bring it back
+there; showing it again unarchives it. A Basket Archived in the management
+interface is still removed from every tablet, and Tools are unchanged.</p>
+<p>The release’s migration takes the archive earlier releases spread out of
+every Basket, and changes no Location’s state. A Basket archived that way
+before this release therefore reappears on every tablet wherever it is
+shown. Where it was meant to go, archive it again in DYE2 on a tablet at
+that Location, or hide it there in the management interface. A Basket
+removed from a tablet’s list under the old rule is not put back.</p>
+<p>A Machine joining a Location still has its Workflow’s Basket cleared if the
+Location does not show it, though DYE2’s own archive leaves it named.</p>
+<p>While the previous release still serves beside this one during the deploy,
+it takes a Basket archived on a tablet it holds as part of the Basket again,
+and writes that to the tablets it holds; it removes a Basket hidden at a
+Location from those tablets rather than archiving it. This release reads
+such a Basket as not archived, so the tablets it holds are written it
+unarchived wherever it is shown. Archive it again once the deploy is done.</p>
+<h3 id="loading-a-recipe-turns-steam-on-or-off">Loading a Recipe turns steam on or off</h3>
+<p>Steam on and off now follows the Recipe, as DYE2 and Streamline v0.2.31
+apply one
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md">ADR-0022</a>,
+Steam on and off). Nothing is needed, but baristas will see:</p>
+<ul>
+<li><strong>A Recipe holding a steam temperature turns steam on as it loads</strong>, at
+its steam temperature and time, on a Machine whose steam was off. So an
+espresso-only Machine, or one being descaled, has its steam turned on by
+loading such a Recipe. Give the Recipes it loads a steam temperature of
+Off, or none.</li>
+<li><strong>A Recipe can hold Off.</strong> Off saved in DYE2’s recipe editor, or a steam
+temperature of 0 set in the management interface or through an
+assistant, is the Recipe’s: loading it turns a Machine’s steam off, and
+saving it turns steam off on every Machine that has the Recipe loaded.
+Before, the server wrote the Recipe’s earlier steam temperature back over
+it.</li>
+<li><strong>Steam turned off at a Machine still changes nothing else.</strong> Its heater
+switch, or a steam time of 0 set there, changes no Recipe and no other
+Machine, and steam turned back on there takes the Recipe’s steam
+temperature and time.</li>
+<li><strong>Nothing turns a Machine’s steam on from elsewhere.</strong> A Recipe edited
+from Off to a steam temperature reaches a Machine that has it loaded once
+its steam is turned on there, or the Recipe is loaded again. Steam turned
+on at a Machine whose Recipe holds Off makes the Recipe hold the steam
+temperature and time it came on with, and the other Machines stay off.</li>
+<li><strong>A Recipe holding no steam temperature or time</strong> leaves a Machine’s
+steam as it is, as before.</li>
+</ul>
+<p>While the previous release still serves beside this one during the deploy,
+it writes a Recipe’s earlier steam temperature back over Off saved on a
+tablet, as it did, and a tablet running its plugin, until Decaid updates
+it, leaves a Recipe’s steam temperature out of a Workflow whose steam is
+off, so only DYE2’s or Streamline’s own apply turns its steam on.</p>
+<h3 id="four-settings-renamed">Four settings renamed</h3>
+<p>The Machine’s page names four settings as Streamline v0.2.31’s settings
+page does: “Weight look-ahead”, “Volume look-ahead” and “Hot water
+look-ahead”, which were the three flow multipliers, and “Flow calibration”,
+which was “Flow multiplier”. Their values and what they do are unchanged,
+and so are their names in the REST API and for an assistant
+(<code>weightFlowMultiplier</code>, <code>volumeFlowMultiplier</code>, <code>hotWaterFlowMultiplier</code>,
+<code>flowMultiplier</code>).</p>
+<h3 id="lost-edits-replace-conflicts">Lost Edits replace Conflicts</h3>
+<p>An edit to a Library item that loses to another made without seeing it is no
+longer a Conflict waiting for someone to use its value or dismiss it. It is
+a Lost Edit: an entry in the item’s History, on its page and for an
+assistant, marked “Lost Edit”, with its value, who or which Machine made it
+and when, and the change it lost to
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0033-an-edit-that-loses-is-kept-in-the-items-history.md">ADR-0033</a>).
+To bring a value back, edit the item. Which edit wins is unchanged. No Lost
+Edit is kept for a value that the tablet making the change itself held.</p>
+<p>The Conflicts page, its link in the Library’s navigation and the Open
+Conflicts card on item pages are gone, and so are the assistant’s tools
+<code>list_conflicts</code> and <code>resolve_conflict</code>. <code>get_library_item</code> no longer takes
+<code>conflicts</code>: its <code>history</code> lists Lost Edits among the item’s edits, each
+with <code>lost</code> and <code>lostTo</code>. In the REST API, each item’s <code>GET .../history</code>
+returns <code>lostEdits</code> beside <code>versions</code>. The routes that listed, used and
+dismissed Conflicts stay for this release only, for a page of the previous
+one: those that listed them answer an empty list, and using or dismissing
+one answers 410 Gone. They are removed in a later release.</p>
+<p>No step is needed. Each open Conflict becomes a Lost Edit in its item’s
+History, as does each whose value was used. One that was dismissed is not
+shown. A page of the previous release still open during the upgrade lists
+no Conflicts, and asks for a reload if one is used or dismissed from it.</p>
+<h2 id="1121">1.12.1</h2>
+<h3 id="the-time-to-first-drip-reads-earlier">The time to first drip reads earlier</h3>
+<p>A Shot’s time to first drip is now when its coffee first reached the cup, as
+nearly as its scale shows it: the first reading of 0.2 g or more in the
+scale’s rise to 1 g, from its last reading of zero. Until now it was the
+scale’s first reading of 1 g or more, a median 0.6 s later and 1 s or more
+later on a quarter of Shots. Nothing is needed. The REST API’s and the MCP
+tools’ <code>timeToFirstDrip</code> keeps its name and now reads earlier, and a Shot
+whose scale never read 1 g still has none. Stored Shots are computed again
+in the background, 20 at a time, as in 1.9.0, so lists, Shot Summaries and
+trends move together; while a deploy runs this release beside the previous
+one, a Shot an instance of the previous release stores, with the old time,
+is computed again within the hour. A Shot whose cup was put on the scale
+during its Preheat, weighed before Decaid’s tare landed, now reads its first
+drip after the tare, and is an Unfinished Shot where nothing poured. The
+simulation on a Profile’s page reads a run’s first drip by the same rule.</p>
+<h2 id="1120">1.12.0</h2>
+<h3 id="check-every-tablet-runs-the-1100-plugin-or-later-before-deploying">Check every tablet runs the 1.10.0 plugin or later before deploying</h3>
+<p>This release raises the wire revision, for a Machine following a Draft
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md">ADR-0025</a>,
+Deploying). Before deploying, check on each Machine’s page that it runs the
+plugin of 1.10.0 or later, 1.11.1’s among them. A tablet still on the 1.9.0
+plugin or earlier is refused as too old until its plugin is updated, at the
+tablet or through Decaid’s API from its network with
+<code>POST /api/v1/plugins/update</code>.</p>
+<h3 id="a-machine-follows-a-draft-only-once-its-plugin-is-this-releases">A Machine follows a Draft only once its plugin is this release’s</h3>
+<p>A Location can now be marked as one where Drafts may be tried, by an Admin
+on the Locations page, and a Machine there can follow a Draft of a Profile
+from the Draft’s page. Following needs this release’s plugin: a Machine
+whose tablet is still on the previous release’s is listed on the Draft’s
+page as needing its plugin updated, and can’t be chosen until Decaid updates
+it. Nothing else is needed, and nothing changes at a Location that is not
+marked.</p>
+<h3 id="a-profile-a-machine-cant-run-is-no-longer-written-to-it">A Profile a Machine can’t run is no longer written to it</h3>
+<p>Each Profile is now held to the ranges of the Machine models that run it: a
+DE1’s are Streamline’s (pressure up to 12 bar, flow up to 15 ml/s, a flow
+limit up to 8 ml/s, a step up to 127 s, among others), and a Bengle’s are
+the same but for flow targets, limits and exits up to 20 ml/s. A Profile with a value outside them, such as one
+imported from elsewhere with a 9 ml/s flow limit, is no longer written to a
+Machine that can’t run it, as a DE1 would read some such values as others.
+Its write is listed as refused on the Machine’s page, with why, and showing
+it at that Machine’s Location, or naming it in a Recipe there, is refused
+(docs/LIBRARY.md). None of Decaid’s bundled Profiles is affected. Nothing is
+needed beyond looking for such refusals on each Machine’s page after the
+deploy.</p>
+<h2 id="1111">1.11.1</h2>
+<h3 id="a-shot-summary-no-longer-gives-stoppedonweight">A Shot Summary no longer gives stoppedOnWeight</h3>
+<p>The REST API’s <code>GET /api/shots/summary</code> and the MCP endpoint’s
+<code>summarise_shots</code> no longer give <code>stoppedOnWeight</code>, the share of Shots their
+target weight stopped, which the management interface stopped reading in
+1.11.0. A request that names it in <code>numbers</code> is refused, as one naming any
+number the server doesn’t know is. A script or assistant that read it reads
+<code>stoppedAtTarget</code> instead, which counts a stop at the target volume too and
+says how the rest stopped (<code>GLOSSARY.md</code>, Stopped at target).</p>
+<h2 id="1101">1.10.1</h2>
+<h3 id="tablets-need-decaid-v092-dye2-v0140-and-streamline-v0227">Tablets need Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27</h3>
+<p>This release follows Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>). Decaid installs the latest
+DYE2 and Streamline on each tablet within 12 hours by itself. A tablet whose
+DYE2 or Streamline is pinned to an earlier build is moved by hand, before
+deploying, in this order:</p>
+<ol>
+<li>Move its Streamline to v0.2.27 or later, and its DYE2 to v0.1.40 or later.
+Decaid v0.9.2 bundles DYE2 v0.1.37 and puts it over a lower DYE2 as it
+starts, a pinned one included, and every recipe DYE2 saves from v0.1.37
+holds a feed rate that the strip of Streamline v0.2.24 or earlier refuses
+to apply.</li>
+<li>Update its Decaid to v0.9.2 or later.</li>
+</ol>
+<p>Then deploy the server. It refuses a tablet on Decaid v0.9.1 or older, and
+its Machine’s page says why, though 1.10.0 still accepts one while it serves
+beside this release. Nothing refuses an older DYE2 or Streamline, but nothing
+is written for what they do.</p>
+<h3 id="a-recipe-is-the-whole-shot">A Recipe is the whole Shot</h3>
+<p>From DYE2 v0.1.37 and Streamline v0.2.25 a recipe is the whole shot, not an
+overlay on the one applied before it, and Decent Sync follows
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md">ADR-0022</a>).
+Nothing is needed, but baristas will see:</p>
+<ul>
+<li><strong>A recipe leaves the Machine with none of what it names none of.</strong> A
+Machine that loads a Recipe naming no Grinder, grind setting, RPM, feed
+rate, Basket, dose or Bean Batch is left with none, and with stop-at-weight
+off where it names no yield. Before, it kept the last recipe’s, and the
+Recipe took them as its own as it loaded. A Recipe now gains a value only
+as a barista sets or picks it on a Machine that has it loaded. The steam,
+hot water and flush settings are as before: a Machine keeps its own for
+those the Recipe holds none of. Check that each Recipe names what its Shots
+should record, such as its Grinder and Basket.</li>
+<li><strong>A part cleared from a Recipe is cleared on the Machines that have it
+loaded,</strong> as any other edit reaches them. Before, they kept it until the
+Recipe was applied again. A Machine still holding one cleared from its
+Loaded Recipe before this release is cleared of it as its tablet next
+connects.</li>
+<li><strong>A grinder pick moves the grind setting and RPM.</strong> Picking a grinder on a
+tablet, on DYE2’s dashboard, its Grinders page or its grinder picker, sets
+the grind setting and RPM to that grinder’s defaults, or to none where it
+declares neither. With a Recipe loaded, the Recipe takes the Grinder with
+them, on every Machine that has it loaded. A Grinder changed in the
+management interface, or in DYE2’s recipe editor, leaves them as typed.</li>
+<li><strong>Streamline follows the tablet’s theme</strong> wherever a barista never used
+Streamline’s own toggle, so the Theme Tablet Setting now changes its look,
+as it next loads.</li>
+<li><strong>Streamline offers a reload when a newer build is on the tablet:</strong> a
+notice to tap, 30 s after it starts and every 12 hours.</li>
+<li><strong>SAVE TO RECIPE on a favourite adds a Recipe,</strong> in no slot, at the
+tablet’s Location, from DYE2 v0.1.38. Before, it saved a favourite only.
+DYE2 saves it with its profile’s title alone, so the Recipe names no
+Profile until one is picked for it.</li>
+<li><strong>DYE2’s profile picker moves the dose and yield.</strong> Its Confirm writes the
+profile’s yield and the dose at the ratio the Machine held. On the Loaded
+Recipe’s own profile these are the Recipe’s edit, with that profile’s own
+brew temperature; on another profile the Recipe is unloaded, as before.</li>
+</ul>
+<p>A Recipe’s dose, grind setting or RPM of 0 is now none, as DYE2 applies one,
+and DYE2’s editor saves an RPM left blank as 0. The management interface and
+the MCP endpoint refuse a 0 for them: clear the field for none. A yield of 0
+is stop-at-weight off, which a Recipe may hold, and a Shot pulled with it
+shows no target yield. As it starts, this release’s server removes a dose,
+grind setting or RPM of 0 from every Recipe that holds one, a change of a few
+rows per Location kept in each Recipe’s history
+(docs/AI_STORAGE_NOTES.md); tablets’ records are left as they are, where a 0
+reads as none.</p>
+<p>Until 1.10.0’s server is replaced, it may take a tablet’s 0 in again, which
+this release reads as none, and it still takes what a Recipe holds none of
+from a Machine’s Workflow as the Recipe loads: with DYE2 v0.1.40 and
+Streamline v0.2.27, which clear the Workflow as they apply a recipe, that is
+at most a yield of 0. A tablet still on 1.10.0’s plugin is cleared of what
+its Loaded Recipe names none of by this release’s server, where its Skin
+clears nothing.</p>
+<h3 id="a-grinders-range-and-defaults-are-shared-across-its-locations-tablets">A Grinder’s range and defaults are shared across its Location’s Tablets</h3>
+<p>From DYE2 v0.1.37 a grinder may declare the range of its setting and of its
+RPM, and a default for each: a tablet’s steppers stop at the range, and
+picking the grinder brings its default, or the middle of its range. DYE2
+keeps them on the tablet they were typed on. A Grinder now holds them
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md">ADR-0022</a>), so
+its Location’s other tablets are written them, and a pick brings the same
+numbers on every Machine. Nothing is needed.</p>
+<ul>
+<li><strong>Those typed already are taken in.</strong> A range or default a tablet’s record
+holds is taken into its Grinder as the tablet next connects, where the
+Grinder holds none. Where two tablets hold different ones for one Grinder,
+the first to connect gives its value, and the other tablet’s is written
+over, so check each Grinder’s page after deploying if baristas typed them
+on more than one tablet.</li>
+<li><strong>The Grinder’s page and form</strong> show and edit them beside its steps:
+Lowest setting, Highest setting, Default setting, Lowest RPM, Highest RPM
+and Default RPM. Blank is none, and 0 is a value. <code>create_grinder</code> and
+<code>edit_grinder</code> take them through the MCP endpoint, and what reads a
+Grinder gives them.</li>
+<li><strong>The rules are DYE2’s.</strong> A lowest above a highest is refused. A Grinder
+with named positions holds no range or default for its setting, and
+giving one named positions clears them. A default outside the range is
+accepted, and so is a Recipe’s grind setting or RPM outside its Grinder’s
+range: the tablet’s steppers do the bounding.</li>
+</ul>
+<p>A tablet still on 1.10.0’s plugin, until Decaid updates it, cannot write a
+Grinder’s range or default into its record, so one changed elsewhere is
+listed among that tablet’s refusals (“Written, but its record still differs
+as it did”) until the tablet connects with this release’s plugin, which
+writes it. Its own are kept, and taken in. In the minute or so that 1.10.0
+still serves beside this release, it takes none in: one typed in DYE2 then
+stays on its tablet, and is taken in once this release serves it.</p>
+<h3 id="automatic-update-checks-are-shown-and-changed-on-the-tablet">Automatic update checks are shown, and changed on the tablet</h3>
+<p>Decaid v0.9.2 turns its automatic update checks on only for a request
+carrying a token that may manage its plugins and Skins, which the plugin has
+none of. While they are off, Decaid installs no update of a plugin or Skin by
+itself, this plugin’s included. So a Machine’s Settings card now shows
+Automatic update checks without an edit, as managed in Decaid on the Tablet,
+and the MCP endpoint’s <code>edit_machine_settings</code> no longer takes it. Check on
+each Machine’s page that they are on. Where they are off, turn them on in
+Decaid’s settings on the tablet: until then its plugin updates only when
+someone there presses Check for updates.</p>
+<p>Until 1.10.0’s server is replaced, its pages still offer the edit, and it is
+refused: by Decaid, on a tablet still running 1.10.0’s plugin, where it turns
+the checks on, and by this release’s plugin, which writes nothing. 1.10.0’s
+page then says the Tablet’s plugin must update before it takes the change.
+No update brings the edit back: change the setting in Decaid on the tablet.</p>
+<h3 id="a-flow-multiplier-edit-lasts-over-one-set-elsewhere">A flow multiplier edit lasts, over one set elsewhere</h3>
+<p>With Decaid v0.9.2 the Tablet keeps a Machine’s flow multiplier once it is
+written through it, by a Settings Edit or on Streamline’s calibration page,
+and writes it again each time the Machine connects. Decaid’s reset of the
+Machine’s settings now leaves it, where v0.9.1 set it to 1. So an edit lasts,
+and a flow multiplier set from elsewhere afterwards, such as on another
+Tablet or in de1app, lasts only until that Tablet next connects to the
+Machine. The Settings card says so beside the field. Nothing is needed.</p>
+<h3 id="managing-a-tablets-plugins-from-the-network-needs-a-token">Managing a tablet’s plugins from the network needs a token</h3>
+<p>Decaid v0.9.2 refuses a request from the network that installs, updates or
+approves a plugin, unless it carries a token made on the tablet with “Manage
+plugins and skins” turned on (docs/PLUGIN.md, A token for managing plugins).
+Nothing is needed where the plugin is installed from Decaid’s Plugins screen
+and updates by itself, which need none.</p>
+<h2 id="1100">1.10.0</h2>
+<h3 id="check-every-tablet-runs-the-190-plugin-before-deploying">Check every tablet runs the 1.9.0 plugin before deploying</h3>
+<p>This release raises the wire revision, for Recipe Slots 6 to 9
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md">ADR-0025</a>,
+Deploying). Before deploying, check on each Machine’s page that it runs the
+1.9.0 plugin, the previous release’s. A tablet still on the 1.4.0 plugin or
+earlier is refused as too old until its plugin is updated, at the tablet or
+through Decaid’s API from its network with <code>POST /api/v1/plugins/update</code>.</p>
+<h3 id="the-next-free-recipe-slot-may-be-one-of-6-to-9">The next free Recipe Slot may be one of 6 to 9</h3>
+<p>A Location has nine Recipe Slots, and the management interface, the REST API
+and the MCP endpoint now put a Recipe in any of them. Streamline’s strip
+shows slots 1 to 5 only: a Recipe in 6 to 9 is a button on a Skin that shows
+nine, and is listed by DYE2. Nothing is needed, but the next free slot is now
+the lowest free of the nine. Where slots 1 to 5 each hold a Recipe, a Recipe
+created, copied or moved to the next free slot goes in the lowest free of 6
+to 9, off Streamline’s strip. Before, a new one or a copy was kept in no
+slot, and a move was refused. Choose no slot to keep a new Recipe or a copy
+as before.</p>
+<p>This release’s server writes a tablet still on the 1.9.0 plugin a Recipe in
+slots 6 to 9 in no slot, until Decaid updates its plugin, and the Recipe
+keeps its slot meanwhile.</p>
+<h3 id="a-tablets-network-can-read-its-locations-shots">A tablet’s network can read its Location’s Shots</h3>
+<p>The plugin now serves a Skin on its tablet what the server holds: the Shots
+at its Machine’s Location, each of that Location’s Recipes’ Reference Shots,
+the choice of a Reference Shot, and edits of a Shot’s rating and note
+(docs/PLUGIN.md, For a Skin’s author). Decaid checks no caller, so anything
+on a tablet’s network can call the same endpoints. The server holds each
+tablet to its own Machine’s Location. That network can already change the
+Workflow and delete the tablet’s Shots through Decaid, so nothing is needed
+where it is trusted with that. A Capture-only Machine’s tablet is served
+nothing from the server.</p>
+<h3 id="the-plugins-update-needs-no-approval">The plugin’s update needs no approval</h3>
+<p>This release’s plugin adds those endpoints and no permission, and Decaid
+asks for approval only of a new permission, so each tablet installs it by
+itself, as a tablet on Decaid v0.9.1 did on its update check (docs/PLUGIN.md,
+Updates).</p>
+<h3 id="a-rating-reads-in-stars">A rating reads in stars</h3>
+<p>The management interface now gives a Shot’s rating in stars, up to five, as
+DYE2 shows it, where it gave Decaid’s number from 0 to 10: on a Shot’s page,
+in the Shots list, and in the Summary and Trend cards. A star is two points
+of that number. Nothing is needed. The REST API and the MCP endpoint give
+and take the rating from 0 to 10 as before.</p>
+<h2 id="190">1.9.0</h2>
+<h3 id="stored-shots-get-their-new-numbers-in-the-background">Stored Shots get their new numbers in the background</h3>
+<p>This release keeps, with each Shot, what its measurements show of how it
+went: its time to first drip, the profile step it ended in, whether anything
+poured, and its last recorded weight with the flow at the stop. Nothing is
+needed. A Shot stored from now on has them at once. The Shots already stored
+get theirs in the background, 20 at a time, starting as the server does, so
+a large history takes a while. Until a Shot has them, a Shot Summary counts
+it as awaiting its numbers and as poured, and its row gives neither its time
+to first drip nor the step it ended in. While a deploy runs this release
+beside the previous one, a Shot an instance of the previous release stores
+gets them within the hour.</p>
+<h3 id="the-home-page-is-the-overview">The home page is the Overview</h3>
+<p>The management interface now opens on the Overview, a block for each
+Location. The Shots list, with the summary and trend above its rows, is
+under Shots as before. While a deploy runs this release beside the previous
+one, a summary or trend read that reaches an instance of the previous
+release shows an error, which the next read clears.</p>
+<h3 id="the-barista-filter-finds-every-spelling-of-a-name">The Barista filter finds every spelling of a name</h3>
+<p>A Barista is now a name without its case or the blanks around it, so
+“jules” and “Jules” are one choice in the Shots list’s Barista filter, one
+group in a summary and one value for an assistant. Nothing is needed. A
+saved address or an assistant’s filter naming one spelling finds the Shots
+of every spelling, so it may find more Shots than it did.</p>
+<h2 id="182">1.8.2</h2>
+<h3 id="streamline-v0224-and-dye2-v0136-are-the-minimums">Streamline v0.2.24 and DYE2 v0.1.36 are the minimums</h3>
+<p>This release follows Streamline v0.2.24 and DYE2 v0.1.36
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>). It changes nothing the
+plugin or the server does, so update each tablet whose Streamline or DYE2 is
+pinned to an earlier release before or after deploying it. Tablets that
+aren’t pinned run both already, as Decaid installs each release within 12
+hours.</p>
+<ul>
+<li>Streamline v0.2.24’s heater switch turns steam back on at the steam time it
+was turned off at, where v0.2.23 turned it back on at 1 s. So once a tablet
+runs v0.2.24, a Recipe holding no steam time no longer takes 1 s from it,
+and 1.6.3’s ask to give each Recipe a steam time before updating Tablets
+no longer applies. A tablet left on v0.2.23 still turns steam back on at
+1 s. A Recipe
+holding none still takes the time steam comes back with where that is not
+the time the Machine held as the Recipe was applied, as where it was
+applied while steam was off; giving it a steam time avoids that.</li>
+<li>A profile switch in Streamline v0.2.24 leaves the Workflow’s dose and grind
+setting as they were, where Streamline has none saved for the profile. It
+unloads the Recipe as before.</li>
+<li>On DYE2 v0.1.36’s Grinders page, a tap on a grinder picks it for the
+Machine at once, with no confirm, and a hold opens its editor, which the
+tap opened before. With a Recipe loaded, the tap changes the Recipe’s
+Grinder on every Machine with it loaded, as any change of the Grinder on a
+Machine does. Its grind setting stays as it was.</li>
+</ul>
+<h2 id="180">1.8.0</h2>
+<h3 id="settings-history-starts-with-this-release">Settings History starts with this release</h3>
+<p>The server now keeps each Machine’s Settings History: every change its
+Tablet reports to its Machine Settings, Tablet Settings, scale, paired
+devices, sensors, plugins and Skins, and the Settings Edit that made it.
+Nothing is needed. As it starts, it takes each Machine’s baseline from the
+latest values stored, in the background. While a deploy runs this release
+beside the previous one, a change that reaches an instance of the previous
+release isn’t recorded: the next change this release records is compared
+with the value before it. Until a Tablet’s plugin updates to this release,
+its Settings Edits’ changes are recorded as made outside Decent Sync.</p>
+<h3 id="who-made-each-workflow-change">Who made each Workflow change</h3>
+<p>Each Workflow change recorded from this release says whether Decent Sync
+made it, as when it loads a Recipe, or someone else did. Nothing is needed.
+Changes recorded before, those a Tablet’s plugin of the previous release
+sends, and those an instance of the previous release stores during a deploy
+say unknown.</p>
+<h2 id="170">1.7.0</h2>
+<h3 id="assistants-connect-through-apimcp-on-by-default">Assistants connect through <code>/api/mcp</code>, on by default</h3>
+<p>People can now connect AI assistants, such as Claude and ChatGPT, to the
+server by adding its public URL followed by <code>/api/mcp</code>, and signing in to
+approve them (<a href="../../guide/assistants/#connect-an-assistant">Assistants</a>). Nothing is needed to
+offer it. To leave it off, set <code>MCP_ENABLED=false</code>. A reverse proxy that passes
+only some paths to the server passes <code>/.well-known/oauth-authorization-server</code>
+and <code>/.well-known/oauth-protected-resource/api/mcp</code> too. While a deploy moves
+traffic over, an app’s request reaching an instance of the previous release
+fails, once: <code>/api/mcp</code> answers 404 there, and the two <code>/.well-known/</code>
+documents answer with the management interface’s page rather than their JSON.</p>
+<h2 id="163">1.6.3</h2>
+<h3 id="update-tablets-to-streamline-v0223-once-this-release-is-deployed">Update Tablets to Streamline v0.2.23 once this release is deployed</h3>
+<p>This release follows Streamline v0.2.23
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>), in which a steam time of 0
+is steam off. Deploy it first, then update to v0.2.23 each tablet whose
+Streamline is pinned to an earlier release, and its DYE2 to v0.1.35
+(below). On Streamline v0.2.22 or later, the plugin of an earlier release
+has DYE2 save into the Recipe the steam time Streamline picks as steam comes
+back on, which then reaches every Machine with it loaded. Tablets whose
+Streamline isn’t pinned run v0.2.23 already, as Decaid installs each release
+within 12 hours.</p>
+<ul>
+<li>A Recipe’s steam time is 1 to 255 s, or none; a longer one, as DYE2’s
+editor saved before v0.1.35, is taken as 255 s, the DE1’s longest. As it migrates the database,
+this release makes each Recipe holding a steam time of 0 hold none, a
+version of its own in its history, and dismisses each open Conflict
+offering 0. A steam time of 0 saved in DYE2’s editor is no edit: the
+Recipe’s, or none, is written back over it.</li>
+<li>No steam time is written into a Machine’s Workflow while its steam is off,
+as no steam temperature is, since Streamline would show it with the heater
+off. Its steam flow and milk stop still are.</li>
+<li>Turning steam back on takes the Recipe’s steam time as well as its steam
+temperature, so the time Streamline comes back with is no edit. Nor is a
+time picked as steam comes back on, which the Recipe’s is written over: a
+steam time set on Streamline’s main page while the heater is off, or Auto
+Steam choosing a pitcher then, its flow kept. Pick it again once steam is
+on, and it becomes the Recipe’s, as before.</li>
+<li>Once this release is deployed, give each Recipe holding no steam time one,
+those whose 0 the migration removed included, before updating pinned
+Tablets to Streamline v0.2.23. Once Streamline v0.2.23 has turned steam off
+itself, its heater switch turns it back on at 1 s where the recipe holds
+no time, as it then remembers the machine’s 0 as the last steam time. DYE2
+saves that 1 s into a Recipe holding none, and it reaches every Machine
+with the Recipe loaded. A Recipe holding a steam time is put back to it.
+Tablets already on v0.2.23 are exposed until then, and so is a Recipe left
+without a steam time later.</li>
+<li>A fan threshold or refill kit written by a Settings Edit now lasts: on
+Decaid v0.9.1, Streamline’s settings page no longer puts back the value it
+remembers, and the Settings card no longer says it does. A page left open
+from 1.6.2 shows that note until it reloads.</li>
+</ul>
+<p>Deploy it as any release, beside 1.6.2. For the minute or so that 1.6.2
+still serves beside it, a steam time of 0 it takes in from a tablet is read
+as none by this release. A tablet still on 1.6.2’s plugin writes a steam
+time into a Workflow whose steam is off, and puts back only the steam
+temperature as steam comes back on, until Decaid updates its plugin. A tablet
+on this release’s plugin connected to 1.6.2 leaves the Recipe’s steam time out
+of a Workflow whose steam is off, which 1.6.2 lists among that tablet’s
+refusals (“Written, but its record still differs as it did”) until the Recipe
+changes or the tablet connects to this release.</p>
+<h3 id="update-tablets-to-dye2-v0135-once-this-release-is-deployed">Update Tablets to DYE2 v0.1.35 once this release is deployed</h3>
+<p>This release follows DYE2 v0.1.35
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>), which adds a feed rate to
+its recipes and grinders, and changes how it saves steam settings and Auto
+Favourites. Deploy it first, then update to v0.1.35 each tablet whose DYE2 is
+pinned to an earlier release. Tablets whose DYE2 isn’t pinned run v0.1.35
+already, as Decaid installs each release within 12 hours.</p>
+<ul>
+<li>A Recipe holds a feed rate beside its RPM, text as typed: a manual feed
+such as “MF”, or a feeder’s RPM. It follows a Machine’s Workflow as the
+RPM does. Set in DYE2’s recipe editor or the management interface, it
+reaches every Machine at the Location. Changed on a Machine with the
+Recipe loaded, it is saved into the Recipe, and loading a Recipe writes it
+into the Workflow.</li>
+<li>A Grinder holds DYE2’s feed rate note, the feed rates it takes, such as
+“manual FF/MF/SF”. DYE2 keeps it in the grinder record’s <code>extras</code>, where
+this release writes it too. The Grinder’s page shows and edits it.</li>
+<li>DYE2’s Auto Favourites page now saves a favourite rather than a recipe, so
+it adds nothing to the Library. Applying a favourite unloads the Recipe,
+as before.</li>
+<li>DYE2 now saves a steam flow or milk stop changed while steam is off, so it
+becomes the Recipe’s edit then rather than once steam is back on.</li>
+<li>DYE2’s editor shows a steam time of 0 as “Off”, saves a steam temperature
+of “Off” with a steam time of 0, and stops a steam time at 255 s. Saving
+either turns steam off on that Machine, heater included, where a steam
+time of 0 used to leave the heater on. The Recipe keeps its own steam
+temperature and time, as before.</li>
+<li>A steam temperature or time saved in DYE2’s editor on a Machine whose
+steam is off turns steam back on, and is now kept as the Recipe’s edit.
+Before, the plugin could put the Recipe’s previous value back over it.</li>
+</ul>
+<p>A tablet still on 1.6.2’s plugin, until Decaid updates it, can write neither
+a Recipe’s feed rate into its Workflow nor a Grinder’s note into its record.
+So a feed rate changed on a Recipe loaded there, or a Grinder’s note changed
+elsewhere, is listed among that tablet’s refusals (“Written, but its record
+still differs as it did”) until it changes again or the tablet connects with
+this release’s plugin, which then writes it. Its recipe records take the
+feed rate still, which DYE2 applies. In the minute or so that 1.6.2 still
+serves beside this release, it takes in no feed rate, and a Grinder’s note
+this release stored may be listed so among the refusals of a tablet it
+serves. A feed rate or Grinder’s note saved in DYE2 then is kept on the
+tablet, and taken in once this release serves it, where the Recipe or
+Grinder holds none. Where two tablets saved different ones for the same
+Recipe or Grinder, the first to connect gives its value, and the other
+tablet’s is written over.</p>
+<h2 id="162">1.6.2</h2>
+<h3 id="tablets-need-dye2-v0133-and-streamline-v0221">Tablets need DYE2 v0.1.33 and Streamline v0.2.21</h3>
+<p>This release follows DYE2 v0.1.33 and Streamline v0.2.21
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>), so Streamline’s minimum is
+a release again, rather than a build of <code>main</code>. Decaid installs both on
+every tablet within 12 hours of their release. Check that a tablet whose DYE2
+or Streamline is pinned runs them or later.</p>
+<ul>
+<li>A Recipe applied again on a Machine after its Profile was edited in the
+management interface stays loaded there.</li>
+<li>A Profile edit, or a load from an out-of-date copy, reaches a Machine with
+its Recipe loaded in one Workflow write, so a Shot pulled at that moment is
+no longer left linked to no Recipe. A tablet still on 1.6.1’s plugin writes
+it as two until Decaid updates its plugin.</li>
+<li>An edit of a Machine’s steam purge mode or a heater setting lasts: from
+v0.2.20, Streamline’s settings page keeps a setting changed elsewhere. It
+still puts back the value it remembers where the Machine reads a fan
+threshold of 50 or a refill kit of Auto-Detect, which the Settings card now
+says beside those two alone. A page left open from 1.6.1 shows the old
+notes until it reloads.</li>
+</ul>
+<p>Check each tablet’s wake profile. Streamline’s “Load Profile on Wake”
+(Settings, Wake Lock) works again from v0.2.19: a wake onto a profile other
+than the Loaded Recipe’s own sends that profile, which unloads the Recipe each
+time the Machine wakes. Turn it off on a Machine that follows Recipes.</p>
+<h2 id="161">1.6.1</h2>
+<h3 id="a-recipe-is-shown-on-the-strip-by-its-slot-alone">A Recipe is shown on the strip by its slot alone</h3>
+<p>A Recipe no longer keeps a “Shown on the dashboard” setting of its own: it is
+on Streamline’s strip exactly while it is in a Recipe Slot (below). As it
+migrates the database, this release takes each Recipe 1.6.0 left in a slot
+but hidden out of that slot, so each strip still shows that button empty;
+put the Recipe in a slot again to show it. The setting is dropped from every
+Recipe, and each open Conflict over it is dismissed. Past versions in a
+Recipe’s history still show it.</p>
+<p>Deploy it as any release, beside 1.6.0. For the minute or so that 1.6.0
+still serves beside it:</p>
+<ul>
+<li>A recipe hidden by Streamline’s “Clear button” on a tablet connected to
+1.6.0, or with the switch on a 1.6.0 page, is shown again, as this release
+writes a record shown exactly while its Recipe is in a slot. Hide it again
+once the deploy is done.</li>
+<li>A “Shown on the dashboard” value 1.6.0 saves then stays in the Recipe,
+where nothing reads it.</li>
+<li>A tablet still connected to 1.6.0 is written its recipe records without
+whether they are shown, which DYE2 and Streamline read as shown, until it
+connects to this release.</li>
+<li>A page of the management interface left open from 1.6.0 reloads at its
+next navigation. Until then, its Recipe page can’t create a Recipe or use
+the switch, which this release refuses.</li>
+</ul>
+<p>Let each tablet update its plugin promptly, as Decaid does within 12 hours:
+the server writes the records of each Recipe naming no Bean once more, with
+DYE2’s explicit nulls for one (below), and only this release’s plugin makes
+that write.</p>
+<h3 id="tablets-need-decaid-v091-and-dye2-v0132">Tablets need Decaid v0.9.1 and DYE2 v0.1.32</h3>
+<p>This release follows Decaid v0.9.1 and DYE2 v0.1.32
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>). Update Decaid on each
+tablet to v0.9.1 or later before deploying: this release’s server refuses a
+tablet on an older Decaid, and its Machine’s page says why, though 1.6.0
+still accepts one while it serves beside this release. Decaid installs DYE2 on
+every tablet within 12 hours of its release. Check that a tablet whose DYE2 is
+pinned runs v0.1.32 or later.</p>
+<p>With Decaid v0.9.1, an edit of a Machine’s fan threshold or refill kit lasts
+past the Machine reconnecting: the Tablet keeps the value and writes it again
+each time it connects. So the Settings card no longer says they reset then,
+and says instead that a replacement Tablet, or a reset of Decaid’s data, puts
+Decaid’s default back. A page left open from 1.6.0 shows the old note until it
+reloads.</p>
+<p>Three things change with DYE2 v0.1.32:</p>
+<ul>
+<li>A Recipe naming no Bean means no bean as it is loaded: loading it, from
+DYE2 or Streamline’s strip, leaves the Machine with no bean batch, and the
+load no longer gives it the Machine’s. A batch picked once it is loaded is
+saved into it, with its Bean, as before. The server writes such a Recipe’s
+records once more, with DYE2’s explicit nulls for a Bean.</li>
+<li>A Recipe is on Streamline’s strip exactly while it is in a Recipe Slot. The
+Recipe page’s “Shown on the dashboard” switch is gone, and hiding a recipe
+on a tablet, by Streamline’s “Clear button” or DYE2’s switch, takes it out
+of its slot at its Location.</li>
+<li>A grind setting is kept as typed, as a three-dial grinder’s <code>1.1.0</code>, and
+shown and edited so; one that reads as a number stays a number, and <code>.5</code>
+and <code>0.5</code> are one setting.</li>
+</ul>
+<h2 id="160">1.6.0</h2>
+<h3 id="make-viewers-once-every-instance-runs-this-release">Make Viewers once every instance runs this release</h3>
+<p>This release adds the Viewer, an account that sees everything Staff see and
+changes nothing. 1.5.0 can’t read an account or invite with that role: while
+one exists, its Accounts page fails for Admins, and a Viewer’s requests fail
+on it. So invite a Viewer, or change an account to one, only once no 1.5.0
+instance runs. Before rolling back to 1.5.0, change each Viewer to another
+role, deactivated ones included, and revoke any Viewer invite still waiting.
+1.5.0 then still fails to open the link of any other Viewer invite, used,
+revoked or expired, rather than saying it can no longer be used. A Viewer
+invite for an email that has since got an account through another invite
+isn’t listed to revoke, and keeps 1.5.0’s Accounts page failing until it
+expires, 7 days after it was made.</p>
+<h2 id="150">1.5.0</h2>
+<h3 id="check-every-tablet-runs-the-140-plugin-before-deploying">Check every tablet runs the 1.4.0 plugin before deploying</h3>
+<p>This release is the first to raise the wire revision, for the Live View’s
+messages (<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md">ADR-0025</a>,
+Deploying). Before deploying, check on each Machine’s page that it runs the
+1.4.0 plugin, the previous release’s. Where one doesn’t, update it at the
+tablet, or through Decaid’s API from its network with
+<code>POST /api/v1/plugins/update</code>, or approve an update that adds a permission
+with <code>POST /api/v1/plugins/decent-sync.reaplugin/update/approve</code>.</p>
+<p>A Machine’s Live View shows nothing live while its tablet runs the 1.4.0
+plugin, or while an instance of 1.4.0 holds its connection during the deploy.</p>
+<h3 id="run-the-server-from-source-on-nodejs-26">Run the server from source on Node.js 26</h3>
+<p>The server now needs Node.js 26 or newer with Temporal, as nodejs.org’s builds
+have. It refuses to start without Temporal, which Node 24 lacks, as do some
+packaged builds of Node 26, such as Homebrew’s. The server image has it, so
+Docker Compose and fly.io need nothing. Running from source, start this release
+on Node.js 26. 1.4.0 runs on it too, so moving the old instance first is
+optional.</p>
+<h2 id="140">1.4.0</h2>
+<h3 id="upgrade-without-going-offline-from-now-on">Upgrade without going offline from now on</h3>
+<p>This release runs beside 1.3.1, and each release from now on runs beside the
+one before it. Pages opened from 1.3.1 don’t reload into the new release by
+themselves, as later pages do at their next navigation: reload them once after
+upgrading.</p>
+<p>On fly.io, set <code>fly.toml</code> up as docs/SELF-HOSTING.md’s fly.io section now shows: a
+blue-green deploy, a <code>wait_timeout</code>, a 10 s check interval and a
+<code>kill_timeout</code> of 150 s. Deploy this release, then run <code>fly scale count 2</code>.
+That deploy takes nothing offline, though 1.3.1 doesn’t drain as it stops, so
+a request under way on it then may fail.</p>
+<p>A stopping server now still answers requests for 15 s
+(<code>DRAIN_GRACE_SECONDS</code>), which a single instance has no use for. Set it to 0
+there: with Docker Compose, add <code>DRAIN_GRACE_SECONDS: "0"</code> to the server’s
+<code>environment</code> in <code>docker-compose.yml</code>, as this release’s file does. Otherwise
+each later restart waits 10 s, until Docker kills the server.</p>
+<h3 id="the-health-check-reports-the-database-in-its-body">The health check reports the database in its body</h3>
+<p><code>/api/health</code> answers 503 only while the server is stopping. While the server
+can’t reach its database, it answers 200 with <code>"database": "unreachable"</code> in
+its body, so a proxy routing by it sends the server traffic again as soon as
+the database is back, as after a failover. A monitor that took the 503 for the
+database being down reads the body instead.</p>
+<h2 id="110">1.1.0</h2>
+<h3 id="update-dye2-and-streamline-on-every-tablet">Update DYE2 and Streamline on every tablet</h3>
+<p>This release follows DYE2 v0.1.26
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>). A Machine that follows
+Recipes needs DYE2 v0.1.26 or later and, where Streamline is its skin,
+streamline-js from <code>main</code> at <code>cec5664</code> or later, as Streamline v0.2.18, its
+latest release, cannot apply a recipe that holds a grinder or Basket. Decaid
+installs the latest DYE2 and Streamline releases on every tablet within 12
+hours, so DYE2 is likely there already; Streamline needs that build installed
+until a release contains <code>ea04f83</code>.</p>
+<h3 id="the-migration-keeps-the-database">The migration keeps the database</h3>
+<p>The server’s migration (<code>server/prisma/migrations/20261024000000_recipe_record_ids/migration.sql</code>)
+runs as it starts, and keeps every Recipe, its history and its Shots’ links.
+Each Recipe takes a record id, the id of its record on every tablet at its
+Location from now on: a Recipe in a slot keeps its slot’s number, the id its
+records have on the tablets now, and one in no slot is given a new one. A
+Location has five Recipe Slots now, so a Recipe in slot 6 or higher leaves its
+slot and stays at its Location. Every Recipe of a Location that is not
+Archived is written to each of its tablets, those in no slot included, which
+DYE2’s Select Recipe page lists. What the rules this release drops kept is
+dropped with them: each Loaded Recipe’s record of what its load write replaced,
+each tablet’s recipe values from before the server’s writes, the recipe records
+removed from a slot, and whether each Shot’s Workflow named a selection.</p>
+<h3 id="apply-each-machines-recipe-again">Apply each Machine’s recipe again</h3>
+<p>DYE2 v0.1.26 keeps no selection: it clears the field it wrote its selection
+into, and names a recipe in the Workflow only as one is applied. The migration
+also forgets which recipe each tablet’s Workflow last named. So each Machine’s
+Loaded Recipe unloads at its next Workflow, and it has none until a barista
+applies a recipe again, from Streamline’s strip or DYE2’s dashboard or Select
+Recipe page. Shots pulled meanwhile are linked to no Recipe.</p>
+<h2 id="100">1.0.0</h2>
+<h3 id="start-the-server-on-an-empty-database">Start the server on an empty database</h3>
+<p>This release’s database migrations start again, from one that creates the
+whole schema, so it doesn’t upgrade a database an earlier release migrated:
+the server refuses to start on one, as its migration finds the tables there
+already. Drop the database, or give the server a new one, before starting
+this release, then create the first Admin, the Locations and the Machines
+again. The Library ids an earlier database wrote into each tablet’s records
+name nothing in the new one, so each tablet’s report is taken in as its
+first.</p>
+<p>Adopting Machines again joins each to its Location, and the Location’s
+state wins (<code>docs/LIBRARY.md</code>, Joining a Location). At each Location, adopt
+first the Machine whose tablet holds the beans, profiles, grinders, recipes,
+baskets and tools the Location should keep: a kind the Location already has
+is not taken from a Machine adopted after it, whose own are archived or
+hidden on its tablet, and its DYE2 recipes, baskets and tools removed from
+DYE2’s lists. Turn sharing off for a Machine whose tablet’s should stay as
+they are.</p>
+<h3 id="install-the-plugin-afresh-on-every-tablet">Install the plugin afresh on every tablet</h3>
+<p>Remove the plugin on each tablet (<code>DELETE /api/v1/plugins/decent-sync.reaplugin</code>
+on the tablet’s API, or under Decaid’s Settings, Plugins), then install it
+from this release as <a href="../../get-started/install-the-plugin/">Install the plugin</a> says, and give it
+its Machine’s new token. A fresh install takes its permissions, <code>emit</code>
+among them, without the approval an update from 0.3.0 would wait on.
+The plugin needs Decaid v0.9.0 or newer, and a Machine that follows Recipes
+DYE2 built from <code>main</code> at <code>2cf631c</code> or later and, where Streamline is its
+skin, streamline-js from <code>main</code> at <code>c006dac</code> or later
+(<a href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md">ADR-0017</a>).</p>
+</div><footer class="sl-flex" data-astro-cid-lcf4ek7e><div class="meta sl-flex" data-astro-cid-lcf4ek7e></div><div class="pagination-links print:hidden" dir="ltr" data-astro-cid-s2frn2kc><a href="/decent-sync/v1.14/reference/assistant-tools/" rel="prev" data-astro-cid-s2frn2kc><svg data-astro-cid-s2frn2kc="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;" data-astro-cid-3c6alhf3><path d="M17 11H9.41l3.3-3.29a1.004 1.004 0 1 0-1.42-1.42l-5 5a1 1 0 0 0-.21.33 1 1 0 0 0 0 .76 1 1 0 0 0 .21.33l5 5a1.002 1.002 0 0 0 1.639-.325 1 1 0 0 0-.219-1.095L9.41 13H17a1 1 0 0 0 0-2Z"/></svg><span data-astro-cid-s2frn2kc>Previous<br data-astro-cid-s2frn2kc><span class="link-title" data-astro-cid-s2frn2kc>Assistant tools</span></span></a><a href="/decent-sync/v1.14/technical/architecture/" rel="next" data-astro-cid-s2frn2kc><svg data-astro-cid-s2frn2kc="true" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;" data-astro-cid-3c6alhf3><path d="M17.92 11.62a1.001 1.001 0 0 0-.21-.33l-5-5a1.003 1.003 0 1 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1.002 1.002 0 0 0 .325 1.639 1 1 0 0 0 1.095-.219l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z"/></svg><span data-astro-cid-s2frn2kc>Next<br data-astro-cid-s2frn2kc><span class="link-title" data-astro-cid-s2frn2kc>Architecture</span></span></a></div></footer><div class="site-footer not-content" data-astro-cid-jo6i4kqk><p data-astro-cid-jo6i4kqk>MIT license. This site documents <span data-site-version data-astro-cid-jo6i4kqk>v1.14.0</span>.</p><nav aria-label="Project" data-astro-cid-jo6i4kqk><a href="https://github.com/loganfuller/decent-sync" data-astro-cid-jo6i4kqk>GitHub</a><a href="/decent-sync/v1.14/project/releases/" data-astro-cid-jo6i4kqk>Releases</a><a href="/decent-sync/v1.14/project/roadmap/" data-astro-cid-jo6i4kqk>Roadmap</a><a href="/decent-sync/v1.14/reference/upgrade-notes/" data-astro-cid-jo6i4kqk>Upgrade notes</a></nav></div></div></div></main></div></div></div></div></body></html>
