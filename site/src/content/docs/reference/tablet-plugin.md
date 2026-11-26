@@ -296,10 +296,18 @@ full detail.
 - It writes each batch's Batch Code there too, under `decentSyncBatchCode`,
   as Decaid's record has no field for one yet. A code changed on the tablet
   is written over with the Library's.
-- It sets each batch's remaining weight to the weight last entered at its
-  Location, or to the amount a move brought there where it had none. That
-  number does not change on the tablet as Shots are pulled or more is moved:
-  the management interface shows the weight worked out from them.
+- It sets each batch's remaining weight to what is left of it at the
+  tablet's Location, as the management interface shows it there: after each
+  Shot pulled with the batch at that Location, on any of its Machines, and
+  after each move of the batch to or from it. A tablet that was offline is
+  set to the current weight when it reconnects. A batch with no weight
+  entered at the Location is left as the tablet has it, and tablets at other
+  Locations keep their own Location's weight. A weight the plugin sets is
+  not a weight entered: it adds nothing to the batch's history, and a zero
+  set after Shots finishes nothing. Nor is going back to a weight the batch
+  showed earlier, as when DYE2's batch page, opened before a Shot, is saved
+  after it with the weight it opened with: the plugin sets the current
+  weight again. To correct the weight, type the one weighed.
 - It shows each Profile its Location shows.
 - It sets the profile of a Draft its Machine follows as the Workflow's
   profile, where an Admin marked the Machine's Location for trying Drafts
@@ -326,6 +334,8 @@ Profile is that Profile.
 |---|---|
 | Archive a batch | Finishes the batch at that Location |
 | Un-archive a batch | Adds the batch back at that Location |
+| Change a batch's remaining weight | Enters that weight at that Location, which later Shots there count down from |
+| Change a batch's remaining weight to zero | Finishes the batch at that Location |
 | Archive or delete a bean | Finishes the bean's batches at that Location |
 | Archive or delete a grinder | Archives the Grinder, on every tablet at that Location |
 | Hide or delete a profile, or change its steps | Hides the Profile at that Location |

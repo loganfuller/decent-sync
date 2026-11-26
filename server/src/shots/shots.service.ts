@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { type ShotDelivery, type ShotIndex, type SimulationShot, isRecordId, profileOf, shotSamples, simulationShotOf } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
+import { announceWeights, countedShot } from "../library/remaining-weight.js";
 import { viewLocation } from "../locations/locations.service.js";
 import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
@@ -72,6 +73,8 @@ export class ShotsService {
       }
       const stored = found;
       if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
+      /** What it counted as against its batch's weight, which the Location's tablets hold. */
+      const counted = stored ? await countedShot(tx, message.shotId) : null;
 
       // Every delivery carries complete metadata, so the newer one is kept
       // whole. A full record older than an early edit only adds its curves.
@@ -123,6 +126,8 @@ export class ShotsService {
       }
       // Each tablet keeping a copy of it as a Recipe's Reference Shot is sent it as it is now.
       await announceReferenceShots(tx, Prisma.sql`s.id = ${message.shotId}`);
+      // Each tablet at its Location is written the batch's weight there, less this Shot (ADR-0037).
+      await announceWeights(tx, counted, await countedShot(tx, message.shotId));
     });
     return null;
   }

@@ -49,6 +49,7 @@ import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
 import { recordFollowedDraftWritten } from "./draft-following.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
+import { type Count, countKey, movedSince, remainingAfter, usedSince } from "./remaining-weight.js";
 import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 import { recordProfileWritten, takeInProfiles } from "./profiles.js";
@@ -86,6 +87,10 @@ export interface WrittenAnswer {
   contentSeen: Date | null;
   /** Whether the plugin linked a record of the same item rather than creating one (`ItemWritten.linked`). */
   linked: boolean;
+  /** For a batch's write that set its weight, the count the weight was worked out from (`PlannedWrite.weightCount`); undefined for any other, or one no longer awaited. */
+  weightCount?: string | null;
+  /** For such a write, the weight it carried, null for one cleared (`LibraryWrite.fields`); undefined where `weightCount` is. */
+  weightSent?: number | null;
 }
 
 /** What the server says of every kind it writes to tablets. */
@@ -441,19 +446,22 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     holdings: {
       key: "batches",
       // The batches the Location offers, then the others the tablet holds, each with its state there.
-      offered: async (tx, { tabletId }, locationId) =>
-        (
-          await tx.$queryRaw<(Omit<LocationBatch, "remainingWeight" | "contentDecidedAt"> & Edited & { remainingWeight: number | null; entered: boolean })[]>`
+      offered: async (tx, { tabletId }, locationId) => {
+        const rows = (
+          await tx.$queryRaw<BatchRow[]>`
             SELECT batch.id, batch.bean_id AS "beanId", batch.content, batch.field_edits AS "fieldEdits",
               (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived) AS offered,
-              here.remaining_weight AS "remainingWeight", here.remaining_weight_at IS NOT NULL AS entered, here.presence_decided_at AS "decidedAt"
+              here.remaining_weight AS "remainingWeight", here.remaining_weight_at AS "countAt", here.remaining_weight_version_id::text AS "weightCount",
+              here.presence_decided_at AS "decidedAt"
             FROM bean_batches AS batch
             JOIN beans AS bean ON bean.id = batch.bean_id
             LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
             WHERE (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived)
               OR EXISTS (SELECT 1 FROM tablet_bean_batches AS held WHERE held.batch_id = batch.id AND held.tablet_id = ${tabletId}::uuid)
             ORDER BY 5 DESC, batch.created_at, batch.id`
-        ).map(({ entered, remainingWeight, ...batch }) => ({ ...edited(batch), remainingWeight: entered ? remainingWeight : undefined })),
+        );
+        return remainingAt(tx, locationId, rows);
+      },
       held: async (tx, tabletId) =>
         (
           await tx.$queryRaw<HeldRow[]>`
@@ -488,7 +496,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     itemNames: (db, ids) => namesOf(KINDS.beanBatch, db, ids),
     takeIn: (tx, tablet, value, updatedAt) => takeInBatches(tx, tablet, value, updatedAt),
     recordWritten: (prisma, tablet, answer) =>
-      recordBatchWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen),
+      recordBatchWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen, answer.weightCount, answer.weightSent),
   },
   grinder: {
     name: "Grinder",
@@ -895,6 +903,31 @@ interface Edited {
 /** An item read with its fields' latest edits, with when the latest of them was decided instead. */
 function edited<T extends Edited>({ fieldEdits, ...item }: T): Omit<T, "fieldEdits"> & { contentDecidedAt: Date | null } {
   return { ...item, contentDecidedAt: latestDecision(readFieldEdits(fieldEdits)) };
+}
+
+/** A batch's row as `offered` reads it: its state at the Location, with the weight its count there starts from and when it started. */
+type BatchRow = Omit<LocationBatch, "remainingWeight" | "contentDecidedAt" | "weightCount"> & Edited & { remainingWeight: number | null; countAt: Date | null; weightCount: string | null };
+
+/**
+ * Each batch as the Location has it, with its Remaining Weight there worked
+ * out now (ADR-0037), which is what its tablets are written: what its count
+ * started from, less the Shots pulled there since, with what Batch Moves
+ * brought and took, in two queries however many batches there are. Whether
+ * the batch is there or not, so a record archived as all of it was moved
+ * away holds zero, and one finished there what it was left with. Read in the
+ * caller's snapshot, as the batches' rows were.
+ */
+async function remainingAt(tx: Prisma.TransactionClient, locationId: string, rows: readonly BatchRow[]): Promise<LocationBatch[]> {
+  const counts = rows.flatMap((row): Count[] =>
+    row.countAt !== null && row.remainingWeight !== null ? [{ batchId: row.id, locationId, at: row.countAt, versionId: row.weightCount }] : [],
+  );
+  const used = await usedSince(tx, counts);
+  const moved = await movedSince(tx, counts);
+  return rows.map(({ countAt, remainingWeight, weightCount, ...batch }) => {
+    const key = countKey(batch.id, locationId);
+    const weight = countAt === null ? undefined : remainingWeight === null ? null : remainingAfter(remainingWeight, used.get(key)?.weight ?? 0, moved.get(key));
+    return { ...edited(batch), remainingWeight: weight, weightCount };
+  });
 }
 
 /** A record the tablet holds, read with its item's content and its fields' latest edits. */

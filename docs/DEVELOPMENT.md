@@ -357,6 +357,24 @@ Replace `X.Y.Z` with the new version.
 
    An agent may drive the server side; only the owner acts at the tablet.
 
+   For each such Decaid release, also check that Decaid still does not lower
+   a batch's `weightRemaining` itself as a Shot is stored (ADR-0037, What a
+   tablet holds). It holds the code for it, `decrementBatchWeight`, which
+   nothing called as of v0.9.3. In a Decaid checkout with the new tag
+   fetched:
+
+   ```sh
+   git grep -n decrementBatchWeight <tag> -- lib
+   ```
+
+   The only matches should be its definitions, in `bean_dao.dart`,
+   `bean_storage_service.dart` and `drift_bean_storage.dart`. A match
+   anywhere else is a caller: the tablet and the server would then both
+   subtract each Shot, and the tablet's own subtraction would be taken as a
+   weight a barista entered. Do not tag until an issue settles which of the
+   two subtracts, and record the Decaid release checked in the release's
+   pull request. An agent may run this check.
+
 3. Once CI has passed on the resulting commit as a push to `main`, tag it as
    `vX.Y.Z` and push the tag. The latest release is the newest tag on `main`,
    so a tag pushed while that run is under way changes it partway through the

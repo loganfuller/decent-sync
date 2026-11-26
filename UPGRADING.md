@@ -53,10 +53,9 @@ but the batch's page changes:
   the REST API a move is `POST /api/bean-batches/:id/moves`, and
   `PUT /api/bean-batches/:id/locations/:locationId` adds, finishes and enters
   a weight as before.
-- **On tablets, a batch's remaining weight is still the weight its count
-  starts from.** A tablet at a Location a move brought the batch to holds the
-  amount that arrived. It does not rise or fall on the tablet with later
-  moves or Shots yet.
+- **On tablets, a batch's remaining weight follows moves.** After a move, the
+  tablets at the Location it left and at the Location it joined each show
+  their Location's new weight.
 
 While the upgrade runs, a page still open from the previous release shows a
 batch's weight without the moves made since it was entered, and its **Add**
@@ -89,8 +88,12 @@ what you see changes:
   roasted weight and no remaining weight starts at that weight; send
   `remainingWeight: null` to leave it untracked.
 - **A create or an add with a remaining weight of zero is refused.**
-- **On tablets, a batch's remaining weight is still the weight last entered.**
-  It does not fall on the tablet as Shots are pulled yet.
+- **On tablets, a batch's remaining weight now falls too.** Each tablet at a
+  Location is set to the batch's remaining weight there after each Shot, so
+  DYE2 and a Skin show what is left. A weight the server sets is not a weight
+  entered, and adds nothing to the batch's history. While the upgrade runs, a
+  tablet connected to the previous release's server is set to the weight last
+  entered instead, until it reconnects to the new one.
 
 While the upgrade runs, a page still open from the previous release may show
 a batch's weight as entered where a new page shows it worked out, and its

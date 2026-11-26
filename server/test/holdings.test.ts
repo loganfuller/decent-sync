@@ -62,6 +62,9 @@ const DECIDED = new Date("2026-10-08T12:00:00.000Z");
 /** When the latest edit of each item's content was decided, by PostgreSQL's clock: what a write's record then holds of it. */
 const EDITED = new Date("2026-10-08T11:00:00.000Z");
 
+/** The count a batch's weight at the Location was worked out from. */
+const COUNT = "7b2d4f6a-1c3e-4a5b-8d7f-9e0a1b2c3d4e";
+
 /** A batch as the Location has it: offered there with 180.5 g left, unless given otherwise. */
 const batch = (id: string, state: Partial<LocationBatch> = {}): LocationBatch => ({
   id,
@@ -167,19 +170,27 @@ describe("plannedWrites", () => {
     ]);
   });
 
-  it("creates a batch under the tablet's record of its Bean, with the Location's remaining weight, or none if none was entered there", () => {
+  it("creates a batch under the tablet's record of its Bean, with its Remaining Weight at the Location and the count it was worked out from, or none if none was entered there", () => {
     const held = holding([heldBean(BEANS[0])], []);
-    expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), held)).toEqual([
-      { kind: "beanBatch", globalId: BATCHES[0], localId: null, fields: { ...batchContent, beanId: LOCAL_BEAN, weightRemaining: 180.5 }, decidedAt: DECIDED, contentDecidedAt: EDITED },
+    expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { weightCount: COUNT })]), held)).toEqual([
+      {
+        kind: "beanBatch",
+        globalId: BATCHES[0],
+        localId: null,
+        fields: { ...batchContent, beanId: LOCAL_BEAN, weightRemaining: 180.5 },
+        decidedAt: DECIDED,
+        contentDecidedAt: EDITED,
+        weightCount: COUNT,
+      },
     ]);
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { remainingWeight: undefined })]), held)).toEqual([
       { kind: "beanBatch", globalId: BATCHES[0], localId: null, fields: { ...batchContent, beanId: LOCAL_BEAN }, decidedAt: DECIDED, contentDecidedAt: EDITED },
     ]);
   });
 
-  it("un-archives a Bean and a batch the Location offers that the tablet holds archived, and writes the Location's remaining weight", () => {
+  it("un-archives a Bean and a batch the Location offers that the tablet holds archived, and writes its Remaining Weight there, with the count it was worked out from", () => {
     const held = holding([heldBean(BEANS[0], { archived: true })], [heldBatch(BATCHES[0], { archived: true, weightRemaining: 250 })]);
-    expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), held)).toEqual([
+    expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { weightCount: COUNT })]), held)).toEqual([
       { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: false }, expected: { archived: true }, decidedAt: DECIDED, contentDecidedAt: EDITED },
       {
         kind: "beanBatch",
@@ -189,8 +200,12 @@ describe("plannedWrites", () => {
         expected: { archived: true, weightRemaining: 250 },
         decidedAt: DECIDED,
         contentDecidedAt: EDITED,
+        weightCount: COUNT,
       },
     ]);
+    // A write that sets no weight names no count.
+    const same = holding([heldBean(BEANS[0])], [heldBatch(BATCHES[0], { archived: true })]);
+    expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { weightCount: COUNT })]), same)[0]).not.toHaveProperty("weightCount");
   });
 
   it("clears a remaining weight cleared at the Location, and keeps the tablet's own where none was ever entered there", () => {
@@ -203,6 +218,7 @@ describe("plannedWrites", () => {
         expected: { weightRemaining: 180.5 },
         decidedAt: DECIDED,
         contentDecidedAt: EDITED,
+        weightCount: null,
       },
     ]);
     expect(

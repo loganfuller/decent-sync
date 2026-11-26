@@ -1,6 +1,17 @@
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { type MappedBatch, type ReportedBatch, batchContent, batchRecordValues, editsInAnswer, heldBatchCode, planBatchIntake, readReportedBatches } from "../src/library/batch-intake.js";
+import {
+  type MappedBatch,
+  type ReportedBatch,
+  batchContent,
+  batchRecordValues,
+  editsInAnswer,
+  heldBatchCode,
+  planBatchIntake,
+  readReportedBatches,
+  readWrittenWeights,
+  writtenWeightHeld,
+} from "../src/library/batch-intake.js";
 
 // Taking a tablet's report of its bean batches into the Library, through the
 // pure module's interface: which records are new, mapped by the global id
@@ -215,6 +226,65 @@ describe("planBatchIntake", () => {
     ]);
     // A new or reset tablet's map holds nothing: an empty report deletes nothing.
     expect(planBatchIntake([], [], beans, [], new Set())).toEqual([]);
+  });
+});
+
+describe("a weight the server wrote a tablet's record (ADR-0037)", () => {
+  const COUNT = ["7b2d4f6a-1c3e-4a5b-8d7f-9e0a1b2c3d4e", "8c3e5a7b-2d4f-4b6c-9e8a-0f1b2c3d4e5f"] as const;
+  /** Written 232 g and then 214 g, as two Shots were stored, with neither answer recorded. */
+  const written = [
+    { weight: 232, count: COUNT[0] },
+    { weight: 214, count: COUNT[0] },
+  ];
+
+  it("reported back is no weight entered, where its answer was lost, and the record is taken as the one held", () => {
+    const back = reported(LOCAL[0], { weightRemaining: 214 }, LATER);
+    expect(planBatchIntake([back], [mapped(GLOBAL[0], LOCAL[0], { writtenWeights: written })], beans, [])).toEqual([
+      { kind: "update", batchId: GLOBAL[0], batch: back, edits: [], content: {} },
+    ]);
+    // Within the millisecond times are read to, too, so the record known is the one held.
+    const sameTime = reported(LOCAL[0], { weightRemaining: 232 });
+    expect(planBatchIntake([sameTime], [mapped(GLOBAL[0], LOCAL[0], { writtenWeights: written })], beans, [])).toEqual([
+      { kind: "update", batchId: GLOBAL[0], batch: sameTime, edits: [], content: {} },
+    ]);
+  });
+
+  it("is no entry when it is zero, so it finishes nothing, while any other weight on the record is", () => {
+    const zero = reported(LOCAL[0], { weightRemaining: 0 }, LATER);
+    expect(planBatchIntake([zero], [mapped(GLOBAL[0], LOCAL[0], { writtenWeights: [{ weight: 0, count: COUNT[0] }] })], beans, [])[0]).toMatchObject({ edits: [] });
+    // A barista's own zero, where the server wrote another weight.
+    expect(planBatchIntake([zero], [mapped(GLOBAL[0], LOCAL[0], { writtenWeights: written })], beans, [])[0]).toMatchObject({
+      edits: [{ field: "remainingWeight", value: 0, had: 250 }],
+    });
+  });
+
+  it("gives a barista's entry the count the record's weight was written from, which it had seen", () => {
+    const entry = reported(LOCAL[0], { weightRemaining: 190 }, LATER);
+    expect(planBatchIntake([entry], [mapped(GLOBAL[0], LOCAL[0], { weightCount: COUNT[1] })], beans, [])[0]).toMatchObject({
+      edits: [{ field: "remainingWeight", value: 190, had: 250, hadCount: COUNT[1] }],
+    });
+  });
+
+  it("left as it was by a later write that expected the weight before it is no entry in that write's answer", () => {
+    const known = { archived: false, weightRemaining: 250, writtenWeights: written };
+    expect(editsInAnswer(known, record(LOCAL[0], { weightRemaining: 232 }), new Set())).toEqual([]);
+    expect(editsInAnswer(known, record(LOCAL[0], { weightRemaining: 190 }), new Set())).toEqual([{ field: "remainingWeight", value: 190, had: 250 }]);
+  });
+
+  it("is found as the latest weight kept of that weight", () => {
+    const again = [...written, { weight: 232, count: COUNT[1] }, { weight: null, count: null }];
+    expect(writtenWeightHeld(again, 232)).toBe(again[2]);
+    expect(writtenWeightHeld(again, null)).toBe(again[3]);
+    expect(writtenWeightHeld(again, 100)).toBeNull();
+    expect(writtenWeightHeld(undefined, 232)).toBeNull();
+  });
+
+  it("is read from its row leaving out what is not a weight written", () => {
+    expect(readWrittenWeights([{ weight: 232, count: COUNT[0] }, { weight: null }, { weight: "232" }, "x", { count: COUNT[0] }])).toEqual([
+      { weight: 232, count: COUNT[0] },
+      { weight: null, count: null },
+    ]);
+    expect(readWrittenWeights(null)).toEqual([]);
   });
 });
 

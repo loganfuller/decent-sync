@@ -44,8 +44,15 @@ export interface LocationBatch {
   contentDecidedAt: Date | null;
   /** Whether the Location offers it: it is at the Location, and neither it nor its Bean is Archived. */
   offered: boolean;
-  /** The remaining weight entered at the Location last, null if cleared; undefined if none ever was. */
+  /**
+   * Its Remaining Weight at the Location as it was worked out when this was
+   * read (ADR-0037): what its count there started from, less the Shots
+   * pulled there since, with what was moved to it and away. Null if its
+   * weight was cleared; undefined if none was ever entered.
+   */
   remainingWeight: number | null | undefined;
+  /** The count that weight was worked out from (`remaining_weight_version_id`); null or absent where none is known. */
+  weightCount?: string | null;
   /** When the Location last decided whether it is there, by PostgreSQL's clock; null if it never did. */
   decidedAt: Date | null;
 }
@@ -168,6 +175,12 @@ export interface PlannedWrite {
    * writer records it as refused, with this, rather than writing it.
    */
   notWritten?: string;
+  /**
+   * For a batch's write that sets its `weightRemaining`, the count the
+   * weight was worked out from (`LocationBatch.weightCount`), which the
+   * record has seen once written; null where none is known.
+   */
+  weightCount?: string | null;
 }
 
 /**
@@ -237,8 +250,9 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
  * LIBRARY_ITEM_KINDS, as its description plans them (`plan`, in kinds.ts):
  * first each Bean the Location offers that the tablet lacks, holds archived,
  * or holds without its global id; then each batch the tablet lacks, or holds
- * archived, without its global id or with another remaining weight than the
- * Location's; then each batch the tablet holds that the Location does not
+ * archived, without its global id or with another weight than the batch's
+ * Remaining Weight at the Location, as worked out now, so after each Shot
+ * pulled there and each Batch Move (ADR-0037); then each batch the tablet holds that the Location does not
  * offer, archived, and each Bean the same way. Beans so come before their
  * batches, and batches are archived before their Beans. Then each Grinder
  * the Location offers that the tablet lacks, holds archived, or holds
@@ -293,13 +307,16 @@ export function beanWrites(offer: LocationOffer, held: TabletHoldings): PlannedW
         fields: { ...batch.content, beanId: bean.localId, ...(weight === undefined ? {} : { weightRemaining: weight }) },
         decidedAt: batch.decidedAt,
         contentDecidedAt: batch.contentDecidedAt,
+        ...(weight === undefined ? {} : { weightCount: batch.weightCount ?? null }),
       });
       continue;
     }
     const fields: Record<string, unknown> = {};
     if ((record.record.archived === true) === batch.offered) fields.archived = !batch.offered;
     if (weight !== undefined && weightOf(record.record) !== weight) fields.weightRemaining = weight;
+    const before = writes.length;
     pushUpdate(writes, "beanBatch", batch.id, record, fields, batch.decidedAt);
+    if ("weightRemaining" in fields && writes.length > before) (writes[before] as PlannedWrite).weightCount = batch.weightCount ?? null;
   }
   for (const record of held.beans) {
     if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, record.decidedAt ?? null);

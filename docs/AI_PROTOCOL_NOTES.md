@@ -31,6 +31,8 @@ What one release writes outside the wire, the other reads during an upgrade (ADR
 - Read what the latest release writes, and write nothing it misreads, in `NOTIFY` payloads and in rows one release writes for the other to read or relay.
 - The same holds for the plugin's storage on the tablet and the records it writes there, which one release leaves for the other after an update.
 - A Bean Batch's Batch Code (#703, ADR-0036) is a field of a `write`'s opaque `fields`, `batchCode`, which the plugin places in the record's `extras` under `decentSyncBatchCode` (`BATCH_EXTRAS_KEYS`): no wire revision. The latest release's plugin, 1.13.1's, writes it at the record's top, where Decaid drops it, so its tablet holds none until its plugin updates (`LIBRARY.md`, Content).
+- A Bean Batch's weight on a tablet (#705, ADR-0037) is the `weightRemaining` of a `write`'s opaque `fields`, as it was, now the Remaining Weight worked out as the write is planned: no wire revision, and the latest release's plugin carries it out unchanged. The latest release's server writes the weight the count starts from, so a tablet may hold either while both serve.
+- `library_changes` is also sent as a Shot is stored that changes what counts against a tracked batch's weight at its Location, with that Location's id, and with a Machine's id as its Shots are credited to other Locations. Every instance of either release only looks again on it, whatever its payload.
 - Keep the REST API serving the latest release's pages: add routes and fields, and change or remove one only in a later release, unless it was added since the latest release.
 
 ## Live frames
