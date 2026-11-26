@@ -25,7 +25,7 @@ docker compose up -d
 
 The management interface is then at `PUBLIC_URL`. Open it yourself before
 you share the address, and create the first Admin account (see
-[Accounts](../../get-started/invite-people/)). Use `PUBLIC_URL`, the server's IP address or
+[Invite people](../../get-started/invite-people/)). Use `PUBLIC_URL`, the server's IP address or
 `localhost`: to guard against cross-site attacks, the server refuses sign-in
 and every other change from a page loaded under any other name.
 

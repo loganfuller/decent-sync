@@ -32,7 +32,9 @@ release in turn. See [If you skipped a release](#if-you-skipped-a-release).
 ## Keep the server within one release of the plugin
 
 Decaid checks for plugin releases every 12 hours while it runs, and updates
-each tablet's plugin whatever release its server runs. A plugin and server one
+each tablet's plugin whatever release its server runs, unless its automatic
+update checks are turned off or the plugin is Pinned
+([Updates](../../reference/tablet-plugin/#updates)). A plugin and server one
 release apart work together, whichever is upgraded first. Two releases apart,
 they may not. So upgrade the server to each release soon after it is
 published.

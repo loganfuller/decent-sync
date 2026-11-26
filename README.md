@@ -79,8 +79,8 @@ Each server has one owner: a household, or a business with all of its sites.
   either tablet appears on both, and every shot from both machines is in one
   history.
 - **A cafe.** Several DE1s work like the groups of one commercial machine: the
-  same Recipes on the same buttons, and a dial-in change on one reaching the
-  rest.
+  same Recipes on the same buttons, and a dial-in change on one reaching every
+  one with that Recipe loaded.
 - **A roastery with cafes.** Develop Profiles and Recipes in the lab, roll
   them out to each cafe, and trace every shot back to its roast batch. Each
   person gets the access they need: Admin, Staff or Viewer.
@@ -127,8 +127,8 @@ address on your network, and Decaid v0.9.3 or newer on each tablet.
    URL and token it shows. The token is shown only once.
 5. On each tablet, in Decaid's **Settings**, then **Plugins**,
    [install](https://loganfuller.github.io/decent-sync/get-started/install-the-plugin/)
-   `loganfuller/decent-sync` from a GitHub release, and enter the server URL
-   and token.
+   `loganfuller/decent-sync` from a GitHub release, enter the server URL and
+   token in its settings, and load it.
 
 Over plain `http://`, traffic is unencrypted, each Machine's token included.
 Use it only on a network you trust. The
@@ -148,7 +148,7 @@ covers running on the internet, fly.io and every setting.
 | [Get started](https://loganfuller.github.io/decent-sync/get-started/what-decent-sync-is/) | Your first Location, Machine and plugin, and inviting people |
 | [Guide](https://loganfuller.github.io/decent-sync/guide/library-and-recipes/) | The Library and Recipes, Profiles and Drafts, Shots, Machines, assistants, accounts |
 | [Self-hosting](https://loganfuller.github.io/decent-sync/self-hosting/docker-compose/) | Configuration, local networks and the internet, fly.io, upgrading |
-| [The tablet plugin](https://loganfuller.github.io/decent-sync/reference/tablet-plugin/) | Installing, updating and what it does on the tablet |
+| [The tablet plugin](https://loganfuller.github.io/decent-sync/reference/tablet-plugin/) | Updating it, and what it does on the tablet |
 | [Upgrade notes](https://loganfuller.github.io/decent-sync/reference/upgrade-notes/) | What each release needs beyond its new image |
 | [Glossary](https://loganfuller.github.io/decent-sync/reference/glossary/) | What each term means |
 

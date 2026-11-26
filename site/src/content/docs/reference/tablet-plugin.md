@@ -186,7 +186,8 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
   plugin is installed disabled;
 - enable or disable a plugin;
 - change a plugin's settings, from a form built from what its manifest
-  declares, secrets included; saving has Decaid load that plugin again;
+  declares, secrets included; saving has Decaid load that plugin again, where
+  it is loaded;
 - check the plugins for updates, with a result for each, and approve an
   update that waits on new permissions;
 - remove a plugin with its settings;
@@ -195,10 +196,12 @@ through Decaid's own plugin and Skin routes with `manage.extensions`:
   or to a commit, or for a Skin to a URL. Decaid records where an item came
   from only as it installs it, so the plugin installs it again from the
   source chosen, which may bring another version: a plugin keeps its
-  settings and whether it is enabled, and a Skin stays the default. Nothing
-  is changed where that source holds another plugin or Skin, which the
-  plugin removes again, or a plugin build older than the one installed,
-  which Decaid refuses. A Skin that comes with Decaid is not changed, as
+  settings and whether it is enabled, and a Skin stays the default. The
+  item chosen is not changed where that source holds another plugin or
+  Skin, or a plugin build older than the one installed, which Decaid
+  refuses. The plugin removes the other item again, unless it was on the
+  tablet already: that one stays, installed from the source. The result
+  says which, and says so where a new one could not be removed. A Skin that comes with Decaid is not changed, as
   Decaid restores it from its own repository each time it starts
   ([ADR-0035](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0035-how-an-installed-plugin-or-skin-updates-is-changed-by-installing-it-again.md));
 - install a Skin from a GitHub repository's latest release, a branch, or a
@@ -301,8 +304,11 @@ full detail.
   tablet afterwards stays loaded: the plugin sets the Draft again only once
   someone has the Machine follow it again.
 
-What the Location no longer offers, such as a batch finished there or a
-Profile hidden there, is archived or hidden on the tablet, never deleted.
+What the Location no longer offers of these, such as a batch finished there
+or a Profile hidden there, is archived or hidden on the tablet, never deleted.
+Recipes, Baskets and Tools differ: one Archived is removed from DYE2's lists,
+and stays in the Library
+([Library and Recipes](../../guide/library-and-recipes/#what-is-shared-with-which-machines)).
 
 A bean entered on a tablet may turn out to be a Bean already in the Library,
 with the same roaster and name. A profile with the same steps as a Library
@@ -322,8 +328,10 @@ Profile is that Profile.
 
 A Machine takes on its Location's Library when it is adopted at the Location,
 moved there, or has its sharing turned back on by an Admin. What its tablet
-held of its own stays out of the Library, archived or hidden on the tablet,
-unless the Location had none of that kind yet.
+held of its own stays out of the Library, unless the Location had none of that
+kind yet. Its own Beans, Bean Batches and Grinders are archived on the tablet
+and its own Profiles hidden. Its own Recipes, Baskets and Tools are removed
+from DYE2's lists, and not kept.
 
 ### Capture-only Machines
 
@@ -362,8 +370,6 @@ Decaid's Shots.
   `bounded_request_body.dart`, read at v0.9.1 and v0.9.2), and Decaid holds a
   plugin's whole storage in memory. Such a Shot is read from the server each
   time, and can't be read while the server can't be reached.
-- **Older releases.** A server of 1.9.0 sends no copies, and a 1.9.0 plugin
-  is sent none.
 
 ### A Shot's rating and note
 
@@ -403,8 +409,6 @@ write the same two fields of the tablet's own Shot
   Shot made since, and when the tablet next connects.
 - **Capture-only Machines** are written their Shots' edits too: a Shot's
   rating is no part of the Library.
-- **Older releases.** A 1.9.0 plugin is sent no edit: one waits until the
-  tablet's plugin is updated. A server of 1.9.0 sends none.
 
 ### Refused writes
 

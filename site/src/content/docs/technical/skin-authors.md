@@ -29,6 +29,8 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
 
 - **Every answer is JSON.** A served request answers 200. A refusal answers
   another status, with a `code` and a `message` (see [Refusals](#refusals)).
+  The one exception is [`page`](#reporting-the-page-and-reloading), which
+  answers 204 with nothing in it.
 - **Answers come quickly or not at all.** Decaid gives a plugin 30 seconds to
   answer. The plugin gives the server 10: a request still unanswered then is
   refused as `unreachable`. While the plugin isn't connected it refuses at
@@ -86,8 +88,8 @@ its sharing on, connected as itself. Served, it answers 200:
 {
   "connected": true,
   "served": true,
-  "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Belmont Left" },
-  "location": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a71", "name": "Belmont" }
+  "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Bar Left" },
+  "location": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a71", "name": "Downtown" }
 }
 ```
 
@@ -99,7 +101,7 @@ moment: that HTTP status, with the same fields and the refusal's `code` and
 {
   "connected": true,
   "served": false,
-  "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Belmont Left" },
+  "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Bar Left" },
   "location": null,
   "code": "captureOnly",
   "message": "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library."
@@ -134,10 +136,10 @@ were pulled, a page at a time, with no filters.
     {
       "id": "0f6c1c5e-0f0a-4d6e-9d0b-6f1b1a2c3d4e",
       "pulledAt": "2026-11-14T15:02:11.482Z",
-      "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a72", "name": "Belmont Right" },
+      "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a72", "name": "Bar Right" },
       "onThisTablet": false,
       "recipe": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a80", "name": "House espresso", "recordId": "05fd1e80-61e3-46ef-b202-2cbad5eb7983" },
-      "bean": { "roaster": "Roux Bakehouse", "name": "Ethiopia Guji" },
+      "bean": { "roaster": "Lantern Coffee Roasters", "name": "Ethiopia Guji" },
       "dose": 18.2,
       "targetDose": 18,
       "yield": 36.4,
@@ -382,8 +384,9 @@ only blanks, as [a Reference Shot's](#a-recipes-reference-shot) are.
   edit as failed.
 - **The later edit of a field wins.** Where the rating or the note was
   changed on the tablet that holds the Shot later than this edit, without
-  seeing it, that tablet's stands, and nothing is kept of the other. An
-  edit of the rating never undoes a note, or the reverse.
+  seeing it, that tablet's stands, and the Shot's page in the management
+  interface lists the other as dropped. An edit of the rating never undoes a
+  note, or the reverse.
 - **The Machine is named, and no person.** The Shot's page in the management
   interface lists an edit made through the server with the Machine it was
   made on, and no account. Anyone at the tablet may edit.
@@ -428,13 +431,15 @@ whatever it asked for, but for an edit of the tablet's own Shot, which the
 server is never asked.
 
 A request with a method an endpoint doesn't take answers 405, with an `error`
-in place of a `code`. Every endpoint takes GET, and `reference` and `shot`
-take PUT too.
+in place of a `code`. `status`, `shots`, `shot` and `reference` take
+GET, `shot` and `reference` take PUT too, and `page` takes PUT alone.
 
 ## Changes
 
 A Skin listens on the WebSocket endpoint `changes` rather than polling. Each
-push is a JSON object whose `what` names what changed. So far there are two.
+push is a JSON object whose `what` names what changed. So far there are
+three: the two here, and `reload`, under
+[Reporting the page, and reloading](#reporting-the-page-and-reloading).
 
 ```json
 { "what": "connection", "connected": true }
@@ -481,7 +486,7 @@ its Skin id, its version and when the page loaded to the HTTP endpoint
 
 ```js
 const PLUGIN = `http://${location.hostname}:8080/api/v1/plugins/decent-sync.reaplugin`;
-const page = { skinId: "streamline-cafe.js", version: "0.2.31-cafe.1", loadedAt: new Date(performance.timeOrigin).toISOString() };
+const page = { skinId: "my-skin.js", version: "1.2.0", loadedAt: new Date(performance.timeOrigin).toISOString() };
 const report = () => fetch(`${PLUGIN}/page`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(page) }).catch(() => {});
 report();
 // ...and on each `open` of the WebSocket on `changes`:

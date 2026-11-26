@@ -104,7 +104,7 @@ Whatever your role, no assistant can:
 
 - Grant access: it can't invite anyone, change a role, reset a password, or issue a Machine's Token.
 - Delete anything for good. It Archives a Library item, which can be restored. Discarding a Draft is the one exception, as a Draft is unpublished work.
-- Install, update, remove, approve or configure a plugin or a Skin on a Tablet, start Decaid's update, or change how any of them updates. An Admin does that on the Machine's **Software** tab, as it can put code on the Tablet. An assistant reads a Machine's Tablet Software and its Software Actions, and makes only one: reloading the Skin.
+- Install, update, remove, approve or configure a plugin or a Skin on a Tablet, start Decaid's update, change how any of them updates, or turn the Tablet's automatic update checks on or off. An Admin does that on the Machine's **Software** tab, as it can put code on the Tablet. An assistant reads a Machine's Tablet Software and its Software Actions, and makes only one: reloading the Skin.
 
 ## See what an assistant changed
 

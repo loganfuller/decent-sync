@@ -93,7 +93,7 @@ It keeps no session between calls, so any server instance answers any call.
 The server is its own OAuth authorization server: a person signs in and
 approves an app, to read only or to read and change, which makes it a
 Connected App. The app then acts as that person's account, with its role, and
-each change it makes is recorded as made through it.
+a change that records who made it records the app too.
 
 A change that adds something for people to read or do in the management
 interface adds it to the MCP endpoint too. What grants access or destroys
@@ -145,7 +145,7 @@ The messages and their runtime validators are defined once, in the
    asks the server over the same connection.
    [For a Skin's author](../../technical/skin-authors/) has what it answers.
 
-Two rules keep an upgrade from taking anything offline:
+Two rules let a server of two or more instances upgrade without going offline:
 
 - **Each release runs beside the previous one.** A plugin and a server one
   release apart work together, and so do two server releases on one
@@ -194,11 +194,11 @@ with why it was made and what it rules out. In one line each:
 
 ### Connections and running it
 
-- [ADR-0009](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0009-websocket-for-plugin-rest-for-everything-else.md): one WebSocket for the plugin, and the REST API for everything else.
+- [ADR-0009](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0009-websocket-for-plugin-rest-for-everything-else.md): one WebSocket for the plugin, and the REST API for everything else. Amended: the Live View streams over Server-Sent Events (ADR-0024), the MCP endpoint is a second public interface (ADR-0026), and a Skin reads through the plugin (ADR-0030).
 - [ADR-0016](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0016-instances-share-only-postgresql.md): server instances share state only through PostgreSQL.
 - [ADR-0017](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md): only the newest versions of Decaid, DYE2 and Streamline are supported, with Decent Sync's current and previous release. The Decaid minimum and the plugin's protocol are enforced at `hello`.
 - [ADR-0024](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0024-live-view-streams-over-sse-relayed-through-postgresql.md): the Live View streams over Server-Sent Events, relayed between instances through PostgreSQL.
-- [ADR-0025](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md): each release runs beside the previous one, so an upgrade takes nothing offline.
+- [ADR-0025](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md): each release runs beside the previous one, so a server of two or more instances upgrades without going offline.
 
 ### Machines and what they record
 
@@ -221,7 +221,7 @@ with why it was made and what it rules out. In one line each:
 - [ADR-0018](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0018-new-tablet-items-join-the-library.md): a new item from a tablet joins the Library, and a Bean is matched by its roaster and name.
 - [ADR-0019](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0019-tablet-deletes-act-at-its-location.md): a delete on a tablet acts only at that tablet's Location.
 - [ADR-0020](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0020-latest-edit-wins-per-field.md): the latest edit wins field by field, not record by record.
-- [ADR-0029](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0029-a-recipes-reference-shot-is-chosen-and-held-by-the-server.md): a Recipe's Reference Shot is chosen by a person and held by the server alone.
+- [ADR-0029](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0029-a-recipes-reference-shot-is-chosen-and-held-by-the-server.md): a Recipe's Reference Shot is chosen by a person and held by the server, outside DYE2's recipes. Amended: each tablet keeps a copy and may choose one (ADR-0030).
 - [ADR-0030](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0030-the-plugin-serves-a-skin-what-the-server-holds.md): the plugin serves a Skin what the server holds, and a tablet may choose a Reference Shot.
 - [ADR-0032](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0032-the-server-authors-profiles-as-drafts-published-under-decaids-id.md): the server authors Profiles, as Drafts published under the id Decaid would give them.
 - [ADR-0033](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0033-an-edit-that-loses-is-kept-in-the-items-history.md): an edit that loses is kept in the item's history as a Lost Edit, with nothing to settle.
