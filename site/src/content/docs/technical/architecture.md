@@ -64,8 +64,9 @@ travels on it.
 
 Everything else uses the REST API, under `/api`. The management interface is
 its main caller: a single-page app the server serves, which signs a person in
-with a session cookie. Each route is for Admins alone unless it is marked as
-open to Staff or to Viewers, and Staff change only what is at the Locations
+with a session cookie. Apart from a few open ones, such as signing in and
+first-run setup, each route is for Admins alone unless it is marked as open
+to Staff or to Viewers, and Staff change only what is at the Locations
 they work at ([Accounts and roles](../../guide/accounts-and-roles/)).
 
 One route streams. A Machine's Live View is a Server-Sent Events stream
@@ -125,10 +126,11 @@ The messages and their runtime validators are defined once, in the
    carries it out through Decaid's API, or DYE2's storage for Recipes,
    Baskets and Tools, and answers whether it was written. Each shared item
    carries its global id on the tablet's own record.
-6. **Requests made once.** A Settings Edit, a Software Action and an edit of
-   a Shot's rating or note go to a connected tablet and are answered with
-   what came of them. A Settings Edit and a Software Action are never kept
-   for a tablet that is not connected.
+6. **Requests made once.** A Settings Edit and a Software Action go to a
+   connected tablet and are answered with what came of them. Neither is kept
+   for a tablet that is not connected. An edit of a Shot's rating or note is
+   written to the tablet that holds the Shot at once, or when that tablet
+   next connects.
 7. **For a Skin.** A Skin asks the plugin on its own tablet, and the plugin
    asks the server over the same connection.
    [For a Skin's author](../../technical/skin-authors/) has what it answers.
@@ -181,7 +183,7 @@ with why it was made and what it rules out. In one line each:
 
 - [ADR-0009](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0009-websocket-for-plugin-rest-for-everything-else.md): one WebSocket for the plugin, and the REST API for everything else.
 - [ADR-0016](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0016-instances-share-only-postgresql.md): server instances share state only through PostgreSQL.
-- [ADR-0017](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md): only the newest versions of Decaid, DYE2 and Streamline are supported, with Decent Sync's current and previous release, enforced at `hello`.
+- [ADR-0017](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0017-supported-versions.md): only the newest versions of Decaid, DYE2 and Streamline are supported, with Decent Sync's current and previous release. The Decaid minimum and the plugin's protocol are enforced at `hello`.
 - [ADR-0024](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0024-live-view-streams-over-sse-relayed-through-postgresql.md): the Live View streams over Server-Sent Events, relayed between instances through PostgreSQL.
 - [ADR-0025](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md): each release runs beside the previous one, so an upgrade takes nothing offline.
 
