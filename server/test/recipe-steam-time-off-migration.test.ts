@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
+import { dropConflictState, restoreConflictState } from "./support/conflict-state.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { dye2List, dye2NeverUsed } from "./support/simulated-dye2.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -75,6 +76,8 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
       (await database.query<{ edit: Record_ | null }>(`SELECT field_edits -> 'steamDuration' AS edit FROM recipes WHERE id = $1`, [id])).rows[0]!.edit;
     const lostEdits = async (id: string) => (await api.get<{ lostEdits: { id: string }[] }>(`/recipes/${id}/history`)).lostEdits.map((lost) => lost.id).sort();
     try {
+      // The Conflicts' `state`, which this migration's SQL dismisses them in, as its release had it, dropped again below (#653).
+      await restoreConflictState(database);
       await database.query(`UPDATE recipes SET content = content || '{"steamDuration": 0}'::jsonb WHERE id = $1`, [zero.id]);
       const conflict = (value: number, state: string) =>
         database
@@ -112,6 +115,7 @@ describe("A Recipe's steam time of 0, from 1.6.2's data", { timeout: 90_000 }, (
       // the others are.
       await database.query(fs.readFileSync(DISMISSED_DELETED, "utf8"));
       expect(await lostEdits(zero.id)).toEqual([conflicts.twenty, conflicts.used].sort());
+      await dropConflictState(database);
     } finally {
       await database.end();
     }

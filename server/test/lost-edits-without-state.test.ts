@@ -6,16 +6,16 @@ import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for ticket #642: the release after this one drops the `state` of
-// the table Lost Edits are kept in (#653), while this one may still serve
-// beside it (ADR-0025). So this one names `state` in no query: an edit that
-// loses is still kept, and an item's history still read, on a database
-// without the column. Made through the built plugin in simulated tablets.
-// Serials are made up, from 20201.
+// Seam 1 for ticket #653: the migration `20261126000000_lost_edits_without_state`
+// drops the `state` of the table Lost Edits are kept in, with its enum and
+// its index, which no release since 1.13.0 names in a query (#642). Once
+// migrated, none of them is left, and an edit that loses is still kept and
+// read in its item's history. Made through the built plugin in simulated
+// tablets. Serials are made up, from 20201.
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-describe("Lost Edits on a database without their `state`", { timeout: 90_000 }, () => {
+describe("Lost Edits without their `state`", { timeout: 90_000 }, () => {
   let server: TestServer;
   let api: AdminApi;
 
@@ -25,6 +25,23 @@ describe("Lost Edits on a database without their `state`", { timeout: 90_000 }, 
   });
   afterAll(async () => {
     await server?.stop();
+  });
+
+  it("has no `state` column, `conflict_state` type or index on `state` once migrated", async () => {
+    const database = await server.connectDatabase();
+    try {
+      const column = await database.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'conflicts' AND column_name = 'state'`);
+      expect(column.rowCount).toBe(0);
+      expect((await database.query(`SELECT 1 FROM pg_type WHERE typname = 'conflict_state'`)).rowCount).toBe(0);
+      const indexes = await database.query<{ name: string; definition: string }>(
+        `SELECT indexname AS name, indexdef AS definition FROM pg_indexes WHERE tablename = 'conflicts'`,
+      );
+      expect(indexes.rows.map((index) => index.name)).not.toContain("conflicts_state_created_at_idx");
+      for (const index of indexes.rows) expect(index.definition, index.name).not.toMatch(/\bstate\b/);
+      expect(indexes.rows.length).toBeGreaterThan(0);
+    } finally {
+      await database.end();
+    }
   });
 
   it("keeps an edit that loses, and reads it in the item's history", async () => {
@@ -39,14 +56,6 @@ describe("Lost Edits on a database without their `state`", { timeout: 90_000 }, 
     await expect.poll(() => globalIdOf(heldGrinder(two) ?? {})).toBeTruthy();
     await expect.poll(() => globalIdOf(heldGrinder(one) ?? {})).toBeTruthy();
     const grinderId = globalIdOf(heldGrinder(one)!)!;
-
-    const database = await server.connectDatabase();
-    try {
-      // If it exists: on the next release's schema, where its CI runs this suite, it is gone already.
-      await database.query("ALTER TABLE conflicts DROP COLUMN IF EXISTS state");
-    } finally {
-      await database.end();
-    }
 
     // Both edit it offline; the earlier comes back first, and loses to the later, which it had not seen.
     one.loseNetwork();

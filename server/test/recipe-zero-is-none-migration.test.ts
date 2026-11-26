@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
+import { dropConflictState, restoreConflictState } from "./support/conflict-state.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { dye2List, dye2NeverUsed } from "./support/simulated-dye2.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -86,6 +87,8 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
       (await database.query<{ edits: Record<string, Record_ | undefined> }>(`SELECT field_edits AS edits FROM recipes WHERE id = $1`, [id])).rows[0]!.edits;
     const lostEdits = async (id: string) => (await api.get<{ lostEdits: { id: string }[] }>(`/recipes/${id}/history`)).lostEdits.map((lost) => lost.id).sort();
     try {
+      // The Conflicts' `state`, which this migration's SQL dismisses them in, as its release had it, dropped again below (#653).
+      await restoreConflictState(database);
       await database.query(`UPDATE recipes SET content = content || '{"dose": 0, "grindSetting": 0, "rpm": 0}'::jsonb WHERE id = $1`, [zero.id]);
       const conflict = (value: number, state: string) =>
         database
@@ -137,6 +140,7 @@ describe("A Recipe's dose, grind setting or RPM of 0, from 1.10.0's data", { tim
       // Run again, it changes nothing.
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
       expect(await fieldEdits(zero.id)).toEqual(after);
+      await dropConflictState(database);
     } finally {
       await database.end();
     }

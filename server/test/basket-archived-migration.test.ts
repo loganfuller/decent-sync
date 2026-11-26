@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type LocationView } from "./support/admin-api.js";
+import { dropConflictState, restoreConflictState } from "./support/conflict-state.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { quiesced } from "./support/quiet.js";
 import { DYE2_NAMESPACE, dye2List, dye2NeverUsed } from "./support/simulated-dye2.js";
@@ -83,6 +84,8 @@ describe("A Basket's `archived` in its content, from 1.12.1's data", { timeout: 
       (await database.query<{ content: Record_; edits: Record_ }>(`SELECT content, field_edits AS edits FROM baskets WHERE id = $1`, [id])).rows[0]!;
     const decided = async () => (await basket(spread.id)).locations.map(({ location, shown }) => [location.name, shown]);
     try {
+      // The Conflicts' `state`, which this migration's SQL dismisses them in, as its release had it, dropped again below (#653).
+      await restoreConflictState(database);
       for (const tablet of tablets) tablet.loseNetwork();
       const edit = JSON.stringify({ archived: { at: new Date().toISOString(), decidedAt: new Date().toISOString(), tabletId: null, versionId: null } });
       await database.query(`UPDATE baskets SET content = content || '{"archived": true}'::jsonb, field_edits = field_edits || $2::jsonb WHERE id = $1`, [spread.id, edit]);
@@ -121,6 +124,7 @@ describe("A Basket's `archived` in its content, from 1.12.1's data", { timeout: 
       // Run again, it changes nothing.
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
       expect(await stored(spread.id)).toEqual(after);
+      await dropConflictState(database);
     } finally {
       await database.end();
     }
