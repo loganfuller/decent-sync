@@ -4,7 +4,6 @@ import type { Scope } from "../accounts/scope.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { GitHub, GitHubUnavailable, bareEtag } from "./github.js";
-import { takesSourceChanges } from "./software-actions.service.js";
 import { type PinnedSourceView, type PluginSourceView, type SkinSourceView, type TabletSoftwareView, pluginSources, pluginUpdates, skinSources, skinUpdates, tabletSoftwareView } from "./tablet-software.js";
 
 const REPORTS = ["plugins", "pluginSettings", "skins", "skinPage", "decaidUpdate", "appSettings"] as const satisfies readonly CollectionName[];
@@ -24,7 +23,7 @@ export class TabletSoftwareService {
    * another service.
    */
   async get(machineId: string, scope: Scope): Promise<TabletSoftwareView> {
-    const machine = await this.prisma.machine.findUnique({ where: { id: machineId }, select: { decaidVersion: true, wireRevision: true } });
+    const machine = await this.prisma.machine.findUnique({ where: { id: machineId }, select: { decaidVersion: true } });
     if (!machine) throw machineNotFound();
     const rows = await this.prisma.reportedCollection.findMany({
       where: { machineId, name: { in: [...REPORTS] } },
@@ -33,7 +32,7 @@ export class TabletSoftwareService {
     const report = (name: (typeof REPORTS)[number]) => rows.find((row) => row.name === name) ?? null;
     return tabletSoftwareView(
       { plugins: report("plugins"), pluginSettings: report("pluginSettings"), skins: report("skins"), skinPage: report("skinPage"), decaidUpdate: report("decaidUpdate"), appSettings: report("appSettings") },
-      { decaidVersion: machine.decaidVersion, takesSourceChanges: takesSourceChanges(machine.wireRevision) },
+      { decaidVersion: machine.decaidVersion },
       scope.kind === "everything",
     );
   }

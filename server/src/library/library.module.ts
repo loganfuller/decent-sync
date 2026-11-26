@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ShotsModule } from "../shots/shots.module.js";
+import { BatchScansService } from "./batch-scans.service.js";
 import { BeanBatchesController, LocationBatchesController } from "./bean-batches.controller.js";
 import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
@@ -55,6 +56,7 @@ import { SharingService } from "./sharing.service.js";
     HistoryService,
     LibraryEditsService,
     RecipeEditsService,
+    BatchScansService,
     SharingService,
     ProfileSimulationService,
     DraftsService,
@@ -75,6 +77,7 @@ import { SharingService } from "./sharing.service.js";
     HistoryService,
     LibraryEditsService,
     RecipeEditsService,
+    BatchScansService,
     SharingService,
   ],
 })

@@ -380,7 +380,7 @@ function summary(row: DraftRow, started: Map<string, { title: string | null; bun
 
 /** Who saved the Draft last, as a Library item's history names who made an edit. */
 function source(row: DraftRow, scope: Scope): SourceView {
-  return viewSource({ machine: null, tabletId: null, accountId: row.savedByAccountId, account: row.savedByAccount, connectedApp: row.savedByConnectedApp }, scope);
+  return viewSource({ machine: null, tabletId: null, barista: null, accountId: row.savedByAccountId, account: row.savedByAccount, connectedApp: row.savedByConnectedApp }, scope);
 }
 
 function refuseViewer(scope: Scope): void {

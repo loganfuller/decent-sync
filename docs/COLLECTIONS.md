@@ -810,11 +810,10 @@ in `server/test/tablet-software.test.ts` on the recorded lists):
   one showing (`newerInstalled`: both versions known and different); and
   the default Skin where it is not the one served (`nextDefault`), which
   shows once the Skin view restarts.
-- **Whether its plugin takes a change of how an item updates**
-  (`takesSourceChanges`): its plugin's wire revision, as its latest `hello`
-  gave it, is at `SOURCE_CHANGES_WIRE_REVISION`. `pluginMustUpdate` stays,
-  always false, for the previous release's pages (ADR-0025): every plugin the
-  server accepts takes the other Software Actions.
+- **Whether its plugin takes a Software Action** (`pluginMustUpdate`) **or a
+  change of how an item updates** (`takesSourceChanges`): each stays for the
+  previous release's pages (ADR-0025), the first always false and the second
+  always true, as every plugin the server accepts takes both.
 
 How a plugin or Skin updates is worked out from where Decaid says it was
 installed from, with no list of Decaid's ids. Decaid has one setting for
@@ -950,10 +949,7 @@ How each is made, carried out and answered:
   of the setting's type, or disabling, removing or changing any but the poll
   interval of Decent Sync's own plugin, which the plugin refuses too; 409
   while the Machine is offline, as its status judges it, while its
-  connection's Tablet reports another machine's hardware, for a change of
-  how an item updates while its plugin is from before
-  `SOURCE_CHANGES_WIRE_REVISION` ("The Tablet's plugin must update before it
-  can change how a plugin or Skin updates", ADR-0025), for a plugin the
+  connection's Tablet reports another machine's hardware, for a plugin the
   Tablet's latest list does not hold, or for an approval of an update other
   than the one that waits now; 400 for removing the default Skin, the one
   served, or one Decaid comes with; 409 for a Skin the Tablet's latest list does not hold,
@@ -1116,10 +1112,7 @@ How each is made, carried out and answered:
   was sent on or a later one, records it for that Machine's action still
   unanswered and acknowledges it. An answer arriving once the action was not
   confirmed replaces the mark, marked `late`, but for an `expired` refusal,
-  which leaves it not confirmed. A `differentItem` refusal that would go to
-  a server from before `SOURCE_CHANGES_WIRE_REVISION`, which closes the
-  connection on a reason it does not know, goes as `decaid` with no status
-  and the same words.
+  which leaves it not confirmed.
 - **Changing how an item updates** (ADR-0035, #678).
   - **Made.** `POST /api/machines/:id/software-actions` takes, for
     `changePluginSource`, the `pluginId`, `repo` and `branch`, null or
@@ -1226,8 +1219,9 @@ How each is made, carried out and answered:
   what the chosen source serves now, which may be another version, and what
   stays. The outcome gives the version before and after ("0.2.31-cafe.2 →
   0.2.32-cafe.1") and any permissions a plugin's new build adds, and words
-  each refusal for the Admin. Where the Tablet's plugin is of the previous
-  release, the dialog says it must update first.
+  each refusal for the Admin. Where the previous release's server answers,
+  during a deploy, that the Tablet's plugin does not take a change, the
+  dialog says it must update first.
 
 `server/test/software-actions.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL and a simulated Decaid

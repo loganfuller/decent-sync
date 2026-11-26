@@ -140,16 +140,20 @@ export function attributePairs(value: unknown): { key: string; value: string }[]
   return pairs.every((pair) => pair !== undefined) ? pairs : undefined;
 }
 
-/** Where an edit came from: a Machine's tablet, or an account, here or through a Connected App, such as an assistant. */
+/**
+ * Where an edit came from: a Machine's tablet, with the barista its Workflow named where the edit carries one, as a
+ * Bean Batch a scan brought does, or an account, here or through a Connected App, such as an assistant.
+ */
 export function SourceText({ source }: { source: EditSource | null }) {
   const { state } = useAuth();
   if (source === null) return <span className="text-muted-foreground">Not known</span>;
   if (source.machine) {
-    return (
+    const machine = (
       <Link to={`/machines/${source.machine.id}`} className="underline-offset-4 hover:underline">
         {source.machine.name}
       </Link>
     );
+    return source.barista ? <>{machine}, by {source.barista}</> : machine;
   }
   if (source.account) {
     const who = state.status === "signed-in" && state.account.id === source.account.id ? "You" : (source.account.name ?? "An account");

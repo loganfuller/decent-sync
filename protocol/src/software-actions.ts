@@ -6,16 +6,6 @@
 // messages, shared by the plugin, which carries each out through Decaid's
 // own routes, and the server, which makes, sends and records them.
 
-/**
- * The wire revision a change of how a plugin or Skin updates arrived in
- * (ADR-0035, #678): the server sends a `changePluginSource` or a
- * `changeSkinSource` only to a plugin at it, as the previous release's
- * plugin refuses a kind it does not know as a protocol error, and a plugin
- * names the `differentItem` refusal only to a server at it, as the previous
- * release's server closes the connection on a reason it does not know.
- */
-export const SOURCE_CHANGES_WIRE_REVISION = 6;
-
 /** The plugin's own id in Decaid's plugin list, as its manifest declares it. */
 export const DECENT_SYNC_PLUGIN_ID = "decent-sync.reaplugin";
 
@@ -115,7 +105,7 @@ const DOWNLOADING_KINDS: readonly string[] = [
   "startDecaidUpdate",
 ];
 
-/** The kinds that change how an installed plugin or Skin updates (ADR-0035), which only a plugin at SOURCE_CHANGES_WIRE_REVISION carries out. */
+/** The kinds that change how an installed plugin or Skin updates (ADR-0035). */
 export const SOURCE_CHANGE_KINDS = ["changePluginSource", "changeSkinSource"] as const satisfies readonly SoftwareActionKind[];
 
 export function isSourceChangeKind(kind: unknown): kind is (typeof SOURCE_CHANGE_KINDS)[number] {
@@ -287,9 +277,8 @@ export function isSecretState(value: unknown): value is SecretState {
 
 /**
  * Asks the plugin to carry out a Software Action (ADR-0034), sent only on
- * the connection that held the Machine as it was made, and a change of how
- * an item updates only to a plugin at SOURCE_CHANGES_WIRE_REVISION. The
- * plugin carries them out one at a
+ * the connection that held the Machine as it was made. The plugin carries
+ * them out one at a
  * time, in the order they arrive, in the queue its Settings Edits share.
  * For each, it refuses it as `expired` once the connection that sent it has
  * closed, or with less than SOFTWARE_ACTION_START_MARGIN_MS of `timeLeftMs`
@@ -400,9 +389,7 @@ export type SoftwareAction = {
  * - `differentItem`: the source a change of how an item updates named held
  *   another plugin or Skin than the one it was to change, by its id, which
  *   Decaid installed beside it. The plugin removed that one again, unless
- *   the Tablet held it before, and the item it was to change is as it was.
- *   Sent to a server before SOURCE_CHANGES_WIRE_REVISION as `decaid` with
- *   no status, which reads the same there;
+ *   the Tablet held it before, and the item it was to change is as it was;
  * - `installNotPermitted`: Decaid may not install its own update, as
  *   Android's permission for it to install apps has not been granted at the
  *   Tablet;

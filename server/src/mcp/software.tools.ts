@@ -112,7 +112,7 @@ const softwareOutput = z.object({
     .nullable()
     .describe("What the tablet shows; null until its tablet reports its Skins."),
   pluginMustUpdate: z.boolean().describe("Always false: every plugin the server accepts takes Software Actions."),
-  takesSourceChanges: z.boolean().describe("Whether the tablet's plugin can change how a plugin or Skin updates: false for one of the release before that came, until it updates."),
+  takesSourceChanges: z.boolean().describe("Always true: every plugin the server accepts can change how a plugin or Skin updates."),
 });
 
 const actionsInput = z.object({ machineId, ...page });

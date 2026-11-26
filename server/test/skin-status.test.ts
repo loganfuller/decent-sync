@@ -81,7 +81,7 @@ describe("The plugin's status endpoint, against a server", () => {
 
     expect(await status(tablet)).toEqual({
       status: 200,
-      body: { connected: true, served: true, machine: { id: machine.machine.id, name: "Skin status, served" }, location: { id: location.id, name: "Skin status" } },
+      body: { connected: true, served: true, machine: { id: machine.machine.id, name: "Skin status, served" }, location: { id: location.id, name: "Skin status" }, scan: true },
     });
     // One request for each call, which the server answered and never acknowledged.
     const [request] = requestsSent(tablet);
@@ -105,6 +105,7 @@ describe("The plugin's status endpoint, against a server", () => {
         served: false,
         machine: { id: nowhere.machine.id, name: "Skin status, at no Location" },
         location: null,
+        scan: true,
         code: "captureOnly",
         message: expect.stringContaining("Capture-only Machine"),
       },
@@ -137,7 +138,7 @@ describe("The plugin's status endpoint, against a server", () => {
     await expect.poll(async () => (await api.pendingMachines()).map((pending) => pending.serial)).toContain(String(other));
     expect(await status(tablet)).toEqual({
       status: 409,
-      body: { connected: true, served: false, machine: null, location: null, code: "hardwareMismatch", message: expect.stringContaining("token") },
+      body: { connected: true, served: false, machine: null, location: null, scan: true, code: "hardwareMismatch", message: expect.stringContaining("token") },
     });
   });
 
@@ -158,7 +159,7 @@ describe("The plugin's status endpoint, against a server", () => {
     expect(first).toMatchObject({ status: 503 });
     expect(await status(tablet)).toEqual({
       status: 503,
-      body: { connected: false, served: false, machine: null, location: null, code: "unreachable", message: expect.stringContaining("can't be reached") },
+      body: { connected: false, served: false, machine: null, location: null, scan: false, code: "unreachable", message: expect.stringContaining("can't be reached") },
     });
     expect(requestsSent(tablet)).toHaveLength(asked);
 
@@ -317,7 +318,7 @@ describe("A request the server does not answer", () => {
       const unanswered = await status(tablet, { atTabletPace: true });
       expect(unanswered).toEqual({
         status: 503,
-        body: { connected: true, served: false, machine: null, location: null, code: "unreachable", message: expect.any(String) },
+        body: { connected: true, served: false, machine: null, location: null, scan: true, code: "unreachable", message: expect.any(String) },
       });
       // It waited out its own time: Decaid would have answered 500 after 30 s of the tablet's.
       expect(tablet.readClock() - before).toBeGreaterThanOrEqual(REQUEST_MS);
@@ -346,7 +347,7 @@ describe("A request the server does not answer", () => {
       server.drop();
       expect(await asked).toEqual({
         status: 503,
-        body: { connected: false, served: false, machine: null, location: null, code: "unreachable", message: expect.any(String) },
+        body: { connected: false, served: false, machine: null, location: null, scan: false, code: "unreachable", message: expect.any(String) },
       });
 
       // The plugin reconnects, and sends what its outbox holds, but no request.

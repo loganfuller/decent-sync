@@ -7,14 +7,12 @@ import {
   PROTOCOL_VERSION,
   type PluginMessage,
   Reassembly,
-  SOURCE_CHANGES_WIRE_REVISION,
   type ServerMessage,
   WIRE_REVISION,
   acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
   sameHardware,
-  peerHasWireRevision,
   wireRevisionOf,
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
@@ -542,16 +540,8 @@ export class SyncConnection {
         // the Shot and Steam Record indices, which later welcomes resume
         // rather than send again. Steam Records are polled at once.
         this.machineEvents.welcome();
-        const serverRevision = wireRevisionOf(message);
         this.outbox.welcome(async (delivery) => {
-          // The previous release's server closes the connection on a refusal it does not know: an answer that a
-          // source held another item, reaching one, as where the connection that sent the action dropped and the
-          // next is to such an instance, goes as a refusal of Decaid's with no status, which reads the same there.
-          const sent =
-            delivery.type === "softwareActed" && delivery.reason === "differentItem" && !peerHasWireRevision(serverRevision, SOURCE_CHANGES_WIRE_REVISION)
-              ? { ...delivery, reason: "decaid" as const, status: null, message: delivery.message ?? "Its source held another plugin or Skin" }
-              : delivery;
-          try { await this.send(handle, sent); }
+          try { await this.send(handle, delivery); }
           catch (error) {
             this.sendFailed(handle, "could not send a delivery");
             throw error;
@@ -567,7 +557,7 @@ export class SyncConnection {
             this.sendFailed(handle, "could not send a request");
             throw error;
           }
-        });
+        }, wireRevisionOf(message));
         tellConnection(this.host, this.log, true);
         // The server sends the Reference Shot copies the tablet is due once told which it holds.
         void this.references.welcomed(

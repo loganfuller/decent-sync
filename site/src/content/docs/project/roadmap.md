@@ -16,8 +16,10 @@ In no fixed order, and with no dates:
 - **Calibration**: checks of stop-at-weight, flow and temperature.
 - **Bean Batches by Location**: scanning a batch's QR code in the cafe Skin.
   A batch's remaining weight at a Location already falls with each Shot
-  pulled there, on its tablets too, and all or part of a batch is already
-  moved between Locations.
+  pulled there, on its tablets too, all or part of a batch is already
+  moved between Locations, and the plugin already matches the text of a
+  scanned code to a batch and brings it to the Machine's Location for a
+  Skin that asks.
 
 ## Following the work
 

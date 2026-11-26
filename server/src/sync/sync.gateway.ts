@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 import {
+  BATCH_SCANS_WIRE_REVISION,
   ANOTHER_ITEMS_RECORD,
   LIBRARY_ITEM_KINDS,
   RECORD_CHANGED,
@@ -57,6 +58,7 @@ import {
   isLibraryList,
   isWrittenKind,
   utf8Length,
+  peerHasWireRevision,
   wireRevisionOf,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
@@ -632,10 +634,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Answers a request the plugin makes for a Skin (ADR-0030), once. Requests
-   * came with a wire revision, so one from a plugin behind it, which no
-   * plugin sends, is a protocol error, and no answer goes to a plugin that
-   * could not read it. One from a connection that no longer holds its
+   * Answers a request the plugin makes for a Skin (ADR-0030), once. The ask
+   * that brings a scanned Bean Batch came with a wire revision
+   * (BATCH_SCANS_WIRE_REVISION, ticket #708), so one from a plugin behind
+   * it, which no plugin sends, is a protocol error. One from a connection that no longer holds its
    * Machine, as once another hello took it and before this instance was
    * told, has no answer: the connection is ended as that notification ends
    * it, and its plugin answers the Skin as unreachable. Nor has one that
@@ -648,6 +650,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * enormous, which would have its plugin drop the connection each time.
    */
   private async request(session: Session, request: SkinRequest): Promise<void> {
+    if (request.ask === "bringBatch" && !peerHasWireRevision(session.wireRevision!, BATCH_SCANS_WIRE_REVISION)) {
+      return this.refuse(session, "protocol_error", "A plugin at this wire revision asks for no Bean Batch to be brought");
+    }
     const waiting = session.sender?.waitingBytes ?? 0;
     if (waiting > MAX_WAITING_BYTES) {
       if (!session.unanswering) this.logger.warn(`Leaving the requests of ${this.describe(session)} unanswered while ${waiting} bytes wait to be sent to its tablet`);
@@ -1027,7 +1032,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       session.softwareActions.then(async () => {
         if (session.closing) return;
         try {
-          for (const action of await this.softwareActions.claim({ sessionId: live.sessionId, machineId: live.machineId, wireRevision: session.wireRevision! })) this.sendCounted(session, action);
+          for (const action of await this.softwareActions.claim(live)) this.sendCounted(session, action);
         } catch (error) {
           this.logger.error(`Could not send the Software Actions of ${this.describe(session)}: ${String(error)}`);
         }

@@ -1,4 +1,4 @@
-import { type SkinAnswer, type SkinAsk, type SkinQuestion, type SkinRequest } from "@decent-sync/protocol";
+import { BATCH_SCANS_WIRE_REVISION, type SkinAnswer, type SkinAsk, type SkinQuestion, type SkinRequest, peerHasWireRevision } from "@decent-sync/protocol";
 import type { Outbox } from "./outbox.js";
 
 /**
@@ -15,9 +15,11 @@ import type { Outbox } from "./outbox.js";
  * server has yet to store, is chosen once it has. An edit of a Shot (#515)
  * is of one this tablet doesn't hold, so nothing it has still to report is
  * of that Shot, and it goes at once, as a rating given while the tablet
- * catches up after an outage should.
+ * catches up after an outage should. So does the bringing of a Bean Batch
+ * a scan matched (#708): where a batch is, is the server's to say, and a
+ * bucket that has just arrived is scanned while a tablet catches up too.
  */
-export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true, reference: true, chooseReference: true, editShot: false };
+export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true, reference: true, chooseReference: true, editShot: false, bringBatch: false };
 
 /**
  * How long a request has to be answered, from when the Skin asked: its wait
@@ -31,9 +33,10 @@ export const SKIN_REQUEST_MS = 10_000;
 /**
  * Why a request has no answer: the server can't be reached (the plugin is
  * not connected, the connection closed before the answer came, or the answer
- * did not come in time).
+ * did not come in time), or the server the plugin is connected to is of the
+ * release before what was asked, as during an upgrade (ADR-0025).
  */
-export type Unanswered = "unreachable";
+export type Unanswered = "unreachable" | "serverTooOld";
 
 /** What became of a request: the server's answer, or why there is none. */
 export type Asked = { answer: SkinAnswer } | { unanswered: Unanswered };
@@ -45,13 +48,15 @@ export type Asked = { answer: SkinAnswer } | { unanswered: Unanswered };
  * server has acknowledged what the outbox held then (`Outbox.whenDelivered`),
  * and is matched to its answer by its id. A request is never kept, and never
  * sent again: it is answered as unreachable at once while the plugin is not
- * connected, when its connection closes, and once SKIN_REQUEST_MS have
- * passed, an answer arriving after that being dropped; and as too old to ask
- * while the server is not at the wire revision requests came in.
+ * connected, when its connection closes, and once its time has passed
+ * (SKIN_REQUEST_MS, or less where the asker has spent some of it already),
+ * an answer arriving after that being dropped; and as too old to ask
+ * while the server is not at the wire revision what is asked came in
+ * (`takes`).
  */
 export class SkinRequests {
   /** The welcomed connection, with the wire revision its server's welcome gave. */
-  private connection?: { send(request: SkinRequest): Promise<void> };
+  private connection?: { send(request: SkinRequest): Promise<void>; serverRevision: number };
   /** The requests awaiting an answer, by id, each with what settles it. */
   private readonly pending = new Map<string, (asked: Asked) => void>();
 
@@ -62,9 +67,20 @@ export class SkinRequests {
     return this.connection !== undefined;
   }
 
-  /** The server welcomed a connection, whose `send` sends a request on it. */
-  welcomed(send: (request: SkinRequest) => Promise<void>): void {
-    this.connection = { send };
+  /** The server welcomed a connection, whose `send` sends a request on it, at the wire revision its welcome gave. */
+  welcomed(send: (request: SkinRequest) => Promise<void>, serverRevision: number): void {
+    this.connection = { send, serverRevision };
+  }
+
+  /**
+   * Whether the server the plugin is connected to can be asked to bring a
+   * Bean Batch a scan matched (#708): it is at the wire revision that ask
+   * came in. The previous release's server closes the connection on an ask
+   * it does not know, so it is never sent one. False while the plugin is
+   * not connected.
+   */
+  get bringsBatches(): boolean {
+    return this.connection !== undefined && peerHasWireRevision(this.connection.serverRevision, BATCH_SCANS_WIRE_REVISION);
   }
 
   /** The connection closed: its requests have no answer to come. */
@@ -78,10 +94,11 @@ export class SkinRequests {
     this.pending.get(answer.id)?.({ answer });
   }
 
-  /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
-  ask(question: SkinQuestion): Promise<Asked> {
+  /** Asks the server `question`, and resolves with its answer or why there is none, within `ms`. It never rejects. */
+  ask(question: SkinQuestion, ms = SKIN_REQUEST_MS): Promise<Asked> {
     const connection = this.connection;
     if (!connection) return Promise.resolve({ unanswered: "unreachable" });
+    if (question.ask === "bringBatch" && !this.bringsBatches) return Promise.resolve({ unanswered: "serverTooOld" });
     const id = this.outbox.nextId();
     return new Promise((resolve) => {
       let giveUp = () => {};
@@ -91,7 +108,7 @@ export class SkinRequests {
         giveUp();
         resolve(asked);
       };
-      const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
+      const timer = setTimeout(() => settle({ unanswered: "unreachable" }), ms);
       this.pending.set(id, settle);
       const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
       if (!FOLLOWS_REPORTS[question.ask]) return send();

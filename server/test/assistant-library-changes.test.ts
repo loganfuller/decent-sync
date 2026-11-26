@@ -195,6 +195,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(throughApp).toEqual({
       machine: null,
       tabletId: null,
+      barista: null,
       account: { id: adminId, name: "Ada Admin" },
       connectedApp: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Test Assistant", host: new URL(app.clientId).host },
     });
@@ -449,7 +450,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(theirApp.id).not.toBe(throughApp.connectedApp!.id);
     expect(producer!.source.account).toEqual({ id: sam.id, name: "sam-411@example.com" });
     const asStaff = await versions("bean", made.bean, sam.api);
-    expect(asStaff[2]!.source).toEqual({ machine: null, tabletId: null, account: { id: sam.id, name: null }, connectedApp: theirApp });
+    expect(asStaff[2]!.source).toEqual({ machine: null, tabletId: null, barista: null, account: { id: sam.id, name: null }, connectedApp: theirApp });
     expect(asStaff.at(-1)!.source).toEqual({ ...throughApp, account: { id: throughApp.account!.id, name: null } });
   });
 

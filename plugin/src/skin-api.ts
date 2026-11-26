@@ -1,5 +1,7 @@
 import {
   DYE2_NAMESPACE,
+  MAX_BARISTA_LENGTH,
+  MAX_SCANNED_TEXT_LENGTH,
   MAX_SHOTS_PAGE,
   MAX_SHOT_RATING,
   MAX_SKIN_NOTE_LENGTH,
@@ -9,6 +11,8 @@ import {
   type SkinRefusal,
   dye2GlobalIdOf,
   dye2Records,
+  globalIdOf,
+  isGlobalId,
   isShotNote,
   isShotRating,
   shotRatingAndNote,
@@ -16,7 +20,7 @@ import {
 import { readCollection, request as askDecaid } from "./decaid.js";
 import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
 import type { ReferenceCopies } from "./reference-copies.js";
-import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
+import { type Asked, SKIN_REQUEST_MS, type SkinRequests, type Unanswered } from "./skin-requests.js";
 
 // What the plugin serves a Skin of what the server holds (ADR-0030,
 // milestone 8): HTTP endpoints of its own on the tablet, each declared in
@@ -27,11 +31,14 @@ import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
 // in decaid:lib/src/plugins/plugin_manager.dart, the same at v0.9.1 and
 // v0.9.2). Decaid checks no caller, so anything on the tablet's network can
 // call these, as it can Decaid's own API. site/src/content/docs/technical/skin-authors.md describes them for
-// a Skin's author. All read but two. A PUT to `reference` chooses a Recipe's
+// a Skin's author. All read but three. A PUT to `reference` chooses a Recipe's
 // Reference Shot (ticket #511), which the server does or refuses, never the
 // plugin later. A PUT to `shot` edits a Shot's rating and note (ticket #515,
 // ADR-0031): the tablet's own Shot through Decaid, with or without the
-// server, and any other through the server, now or not at all.
+// server, and any other through the server, now or not at all. A PUT to
+// `scan` has the server match the text of a scanned QR code to a Bean Batch
+// and bring that batch to the Machine's Location (ticket #708), now or not at
+// all.
 //
 // They are apart from the `skin` endpoint and the `changed` push Streamline
 // reads (skins.ts), which stay as they were: Streamline reads any push on
@@ -50,6 +57,9 @@ const SHOT_ENDPOINT = "shot";
 /** The plugin's HTTP endpoint a Skin reads a Recipe's Reference Shot from, and chooses it through (manifest.json). */
 const REFERENCE_ENDPOINT = "reference";
 
+/** The plugin's HTTP endpoint a Skin sends the text of a scanned QR code to, to have its Bean Batch brought to the Machine's Location (manifest.json). */
+const SCAN_ENDPOINT = "scan";
+
 /** The plugin's WebSocket endpoint a Skin listens on for what changed (manifest.json). */
 const CHANGES_ENDPOINT = "changes";
 
@@ -65,6 +75,10 @@ export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe"
 
 const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }>> = {
   unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
+  serverTooOld: {
+    status: 503,
+    message: "The Decent Sync server this tablet is connected to is a release too old to ask this. It can be asked once it is upgraded.",
+  },
   captureOnly: {
     status: 409,
     message: "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library.",
@@ -86,9 +100,9 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
 
 /**
  * Answers a request to one of the endpoints a Skin reads what the server
- * holds from, and chooses a Recipe's Reference Shot and edits a Shot's
- * rating and note through, or undefined for any other endpoint, as those
- * Streamline reads (skins.ts). Each is answered whether or not the plugin
+ * holds from, and chooses a Recipe's Reference Shot, edits a Shot's rating
+ * and note and has a scanned Bean Batch brought through, or undefined for
+ * any other endpoint, as those Streamline reads (skins.ts). Each is answered whether or not the plugin
  * connects: a Skin is then told the server can't be reached, or, reading a
  * Recipe's Reference Shot, answered from the tablet's copy (`references`)
  * where it holds one, or, editing its tablet's own Shot, answered by
@@ -104,6 +118,8 @@ export function answerSkin(request: HttpRequest, requests: SkinRequests | undefi
       return answerShot(request, requests);
     case REFERENCE_ENDPOINT:
       return answerReference(request, requests, references);
+    case SCAN_ENDPOINT:
+      return answerScan(request, requests);
     default:
       return undefined;
   }
@@ -111,8 +127,10 @@ export function answerSkin(request: HttpRequest, requests: SkinRequests | undefi
 
 /**
  * Answers a request to `status`: whether the plugin is connected to the
- * server, whether its Machine is served, and its Machine and Location by id
- * and name. A served Machine answers 200. Any other answers its refusal, the
+ * server, whether its Machine is served, its Machine and Location by id
+ * and name, and whether it can match scanned text now (`scan`, ticket
+ * #708): it is connected to a server that can be asked to, which the
+ * previous release's can't. A served Machine answers 200. Any other answers its refusal, the
  * one every other endpoint would give then: that HTTP status, with the
  * refusal's `code` and `message` beside the same fields. While the plugin is
  * not connected it answers at once, asking nothing.
@@ -120,13 +138,14 @@ export function answerSkin(request: HttpRequest, requests: SkinRequests | undefi
 async function answerStatus(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
   if (request.method !== "GET") return methodNotAllowed("GET");
   const asked = await ask(requests, { ask: "status" });
-  // Still connected where the server is too old to ask, or did not answer in time.
-  const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
+  const scan = requests?.bringsBatches ?? false;
+  // Still connected where the server did not answer in time.
+  const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null, scan };
   if ("unanswered" in asked) return refusal(asked.unanswered, unanswered);
   // An answer to another ask, which the server never gives a request for the status.
   if (asked.answer.ask !== "status") return refusal("unreachable", unanswered);
   const { served, notServed, machine, location } = asked.answer.result;
-  const status = { connected: true, served, machine, location };
+  const status = { connected: true, served, machine, location, scan };
   return notServed === undefined ? json(200, status) : refusal(notServed, status);
 }
 
@@ -318,6 +337,130 @@ async function recipeIdOf(recordId: string): Promise<string | null | undefined> 
   // A list in a shape that is not recognised is never read as DYE2's recipes (ADR-0005).
   const records = reading.kind === "value" ? dye2Records(reading.value) : null;
   return records === null ? undefined : dye2GlobalIdOf(records.find((record) => record.id === recordId));
+}
+
+/**
+ * Answers a PUT to `scan` (ticket #708, ADR-0030): has the server match the
+ * text a scanned QR code held, the body's `text`, to a Bean Batch, and bring
+ * that batch to the Machine's Location; or bring the one batch the body's
+ * `match` names, by the id an earlier answer listed it with. The Skin read
+ * the code: the plugin and the server decode nothing. A request takes no
+ * weight.
+ *
+ * The answer's `outcome` says what came of it. `moved`, `added` and
+ * `alreadyThere` are of one batch, which is at the Machine's Location now:
+ * moved there, all of it, from the one other Location it was at, added there
+ * with no weight moved, or there already. The plugin answers those only once
+ * this tablet's Decaid lists the batch, not archived, under a bean that is
+ * not, with the tablet's own ids for the batch and its bean (`batchId`,
+ * `beanId`), so a Skin can select it: the server writes the tablet's
+ * records as it brings the batch, and the plugin reads Decaid's list until
+ * it holds it, or the request's time is up. `several` lists the batches the
+ * text matched, and `noMatch` says it matched none: nothing changed, and the
+ * server's answer is passed on as it is.
+ *
+ * It is made as the server is asked or not at all: while the server can't
+ * be asked it is refused at once, as unreachable or too old to ask, before
+ * Decaid is asked anything, and nothing is kept to send later. It goes at
+ * once, behind nothing the tablet has still to report (FOLLOWS_REPORTS in
+ * skin-requests.ts). One refused as unreachable after it was sent, as when
+ * the server's answer or the tablet's record did not come in time, may
+ * still have brought the batch.
+ *
+ * The batch's history credits the barista the tablet's Workflow names as
+ * the Skin asks, beside the Machine and tablet, which the plugin reads from
+ * Decaid (`workflowBarista`).
+ */
+async function answerScan(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
+  if (request.method !== "PUT") return methodNotAllowed("PUT");
+  const asking = readScan(request.body);
+  if (typeof asking === "string") return invalid(asking);
+  if (!requests?.connected) return refusal("unreachable");
+  if (!requests.bringsBatches) return refusal("serverTooOld");
+  // The request's time, from when the Skin asked: the Workflow's read, the server's answer and the tablet's record all come within it.
+  const deadline = Date.now() + SKIN_REQUEST_MS;
+  const barista = await workflowBarista();
+  const left = deadline - Date.now();
+  // Not sent once its time is up, so the server brings nothing for a request already refused.
+  if (left <= 0) return refusal("unreachable");
+  const asked = await requests.ask({ ask: "bringBatch", ...asking, ...(barista !== null && { barista }) }, left);
+  if ("unanswered" in asked) return refusal(asked.unanswered);
+  if ("refused" in asked.answer) return refused(asked.answer.refused);
+  // An answer to another ask, which the server never gives this request.
+  if (asked.answer.ask !== "bringBatch") return refusal("unreachable");
+  const brought = asked.answer.result;
+  if (brought.outcome === "several" || brought.outcome === "noMatch") return json(200, brought);
+  const held = await heldOnTablet(brought.batchId, () => Date.now() >= deadline);
+  if (held) return json(200, { outcome: brought.outcome, ...held });
+  return refusal("unreachable", {}, "The server found the Bean Batch, but this tablet did not hold it in time. It may still arrive: ask again.");
+}
+
+/**
+ * What a request to `scan` asks the server, from its body: the `text` a
+ * scanned code held, or the `match` a barista chose, the id an earlier
+ * answer listed a batch with; or, as text, what is wrong with it. The text
+ * is whatever a code held, trimmed by the server, of at most
+ * MAX_SCANNED_TEXT_LENGTH and such that PostgreSQL stores it, so a request
+ * never passes a frame and the server can compare it with what it holds.
+ */
+function readScan(body: unknown): { text: string } | { batchId: string } | string {
+  const NOTHING_TO_MATCH = "Give the text the scanned code held as text, or the id of a batch from an earlier answer's matches as match, in a JSON body.";
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return NOTHING_TO_MATCH;
+  const { text, match } = body as { text?: unknown; match?: unknown };
+  if (text !== undefined && match !== undefined) return "Give text or match, not both.";
+  if (match !== undefined) return isGlobalId(match) ? { batchId: match.toLowerCase() } : "Give match as the id of a batch from an earlier answer's matches.";
+  if (text === undefined) return NOTHING_TO_MATCH;
+  if (!(isShotNote(text) && text.length <= MAX_SCANNED_TEXT_LENGTH)) {
+    return `Give text as the text the scanned code held, of at most ${MAX_SCANNED_TEXT_LENGTH} characters, without a NUL or an unpaired surrogate.`;
+  }
+  return { text };
+}
+
+/**
+ * The barista the tablet's Workflow names now (`context.baristaName`), as
+ * each Shot records one, trimmed; or null where it names none, where Decaid
+ * doesn't give the Workflow, and for a name the server would not take:
+ * longer than MAX_BARISTA_LENGTH, or one PostgreSQL would not store. A scan
+ * is then credited to the Machine and tablet alone, rather than refused.
+ */
+async function workflowBarista(): Promise<string | null> {
+  try {
+    const answer = await askDecaid("GET", "/workflow");
+    if (!answer.ok) return null;
+    const workflow = JSON.parse(answer.text) as { context?: { baristaName?: unknown } | null } | null;
+    const name = workflow?.context?.baristaName;
+    const barista = typeof name === "string" ? name.trim() : "";
+    return barista !== "" && barista.length <= MAX_BARISTA_LENGTH && isShotNote(barista) ? barista : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How long the plugin waits before it reads Decaid's batches again, while one the server brought is still to reach the tablet. */
+const HELD_POLL_MS = 250;
+
+/**
+ * The tablet's own ids for the Bean Batch with that id of its own and for
+ * its bean, once Decaid lists the batch as one to offer: not archived, of a
+ * bean it holds that is not archived, which is what its list without
+ * archived ones holds (`GET /bean-batches`). Read again every HELD_POLL_MS
+ * until it does, as the server's writes of the bean and the batch arrive
+ * and are carried out (`LibraryWrites`), which they are not while the
+ * Machine pulls a Shot; null where it still doesn't once `timeUp` says the
+ * request's time is.
+ */
+async function heldOnTablet(batchId: string, timeUp: () => boolean): Promise<{ batchId: string; beanId: string } | null> {
+  for (;;) {
+    const reading = await readCollection("/bean-batches", null);
+    const records: unknown[] = reading.kind === "value" && Array.isArray(reading.value) ? reading.value : [];
+    for (const record of records) {
+      if (typeof record !== "object" || record === null) continue;
+      const { id, beanId, archived } = record as { id?: unknown; beanId?: unknown; archived?: unknown };
+      if (globalIdOf(record) === batchId && archived !== true && typeof id === "string" && typeof beanId === "string") return { batchId: id, beanId };
+    }
+    if (timeUp()) return null;
+    await new Promise<void>((resolve) => setTimeout(() => resolve(), HELD_POLL_MS));
+  }
 }
 
 /** Whether a value of the query is text the server may be asked with. */

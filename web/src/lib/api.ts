@@ -549,8 +549,9 @@ export interface TabletSoftware {
   pluginMustUpdate: boolean;
   /**
    * Whether the Tablet's plugin carries out a change of how a plugin or Skin
-   * updates: false for one of the previous release, which must update first.
-   * Absent from the previous release's answer during a deploy (ADR-0025).
+   * updates. Always true from this release's server; false from the previous
+   * release's for a plugin from before these changes, which must update
+   * first, during a deploy (ADR-0025).
    */
   takesSourceChanges?: boolean;
 }
@@ -1728,6 +1729,12 @@ export interface EditSource {
   /** The Machine whose tablet made it, if one did and it still exists. */
   machine: { id: string; name: string } | null;
   tabletId: string | null;
+  /**
+   * The barista that tablet's Workflow named as it was made, for a Bean Batch brought to the Machine's Location by a
+   * scan on the tablet; null for every other edit. The previous release answers without it, as it may during a deploy
+   * (ADR-0025).
+   */
+  barista?: string | null;
   /** The account that made it here, named only to Admins: other accounts' names are personal information Staff do not see. */
   account: { id: string; name: string | null } | null;
   /** The Connected App, such as an assistant, the account made it through: its name and its client id's host. Null for the management interface. */

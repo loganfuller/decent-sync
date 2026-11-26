@@ -183,6 +183,7 @@
   "server/test/simulated-workflow-writes.test.ts": 0,
   "server/test/simulation-scorecard-scripts.test.ts": 10,
   "server/test/skin-actions.test.ts": 33,
+  "server/test/skin-batch-scans.test.ts": 25,
   "server/test/skin-notices.test.ts": 10,
   "server/test/skin-reference-choices.test.ts": 15,
   "server/test/skin-references.test.ts": 17,

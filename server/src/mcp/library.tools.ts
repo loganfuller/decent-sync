@@ -92,6 +92,10 @@ export const source = z
   .object({
     machine: z.object({ id, name: z.string() }).nullable().describe("The Machine whose tablet made it, if one did and it still exists."),
     tabletId: z.string().nullable().describe("The id of the tablet that made it, if one did; with no Machine, a tablet whose Machine has since been removed."),
+    barista: z
+      .string()
+      .nullable()
+      .describe("The barista the tablet's Workflow named as it was made, for a Bean Batch brought to the Machine's Location by a scan of its QR code on the tablet; null for every other edit, and where the Workflow named none."),
     account: z
       .object({ id, name: z.string().nullable().describe("Shown to Admins only.") })
       .nullable()
@@ -896,10 +900,11 @@ function recipeOnProfileOf({ recipe, loadedOn }: RecipeOnProfileView): z.infer<t
   return { recipe: { id: recipe.id, name: recipe.name, location: maybeLocation(recipe.location), slot: recipe.slot }, loadedOn };
 }
 
-function sourceOf({ machine, tabletId, account, connectedApp }: SourceView): z.infer<typeof source> {
+function sourceOf({ machine, tabletId, barista, account, connectedApp }: SourceView): z.infer<typeof source> {
   return {
     machine: machine && { id: machine.id, name: machine.name },
     tabletId,
+    barista,
     account: account && { id: account.id, name: account.name },
     connectedApp: connectedApp && { id: connectedApp.id, name: connectedApp.name, host: connectedApp.host },
   };

@@ -25,7 +25,7 @@ describe("the built plugin", () => {
     expect(manifest.description).toContain("Requires Decaid v0.9.3 or newer");
   });
 
-  it("declares the endpoints a skin uses, each as Decaid reads one: Streamline's HTTP skin and WebSocket changed, and a Skin's HTTP status, shots, shot, reference and page and WebSocket changes", () => {
+  it("declares the endpoints a skin uses, each as Decaid reads one: Streamline's HTTP skin and WebSocket changed, and a Skin's HTTP status, shots, shot, reference, scan and page and WebSocket changes", () => {
     expect(declaredEndpoints(manifest)).toEqual([
       { id: "skin", type: "http" },
       { id: "changed", type: "websocket" },
@@ -34,6 +34,7 @@ describe("the built plugin", () => {
       { id: "shots", type: "http" },
       { id: "shot", type: "http" },
       { id: "reference", type: "http" },
+      { id: "scan", type: "http" },
       { id: "page", type: "http" },
     ]);
   });

@@ -18,6 +18,12 @@ export interface SourceView {
   machine: { id: string; name: string } | null;
   /** That tablet's id. */
   tabletId: string | null;
+  /**
+   * The barista that tablet's Workflow named as it was made, for a Bean
+   * Batch brought to the Machine's Location by a scan (ADR-0030); null for
+   * every other edit, and where the Workflow named none.
+   */
+  barista: string | null;
   /** The account that made it here; its name null but to Admins. */
   account: { id: string; name: string | null } | null;
   /**
@@ -198,7 +204,7 @@ export class HistoryService {
         : await this.prisma.itemVersion.findMany({
             // Only the item's own: a version of another item is not what an edit of this one lost to.
             where: { id: { in: versionIds }, ...itemKey(item) },
-            select: { id: true, seq: true, locationId: true, fields: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
+            select: { id: true, seq: true, locationId: true, fields: true, editedAt: true, tabletId: true, barista: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
           })
       ).map((version) => [version.id, version]),
     );
@@ -278,6 +284,7 @@ export function viewSource(
   row: {
     machine: { id: string; name: string } | null;
     tabletId: string | null;
+    barista: string | null;
     accountId: string | null;
     account: { name: string } | null;
     connectedApp: { id: string; name: string; clientHost: string } | null;
@@ -285,8 +292,9 @@ export function viewSource(
   scope: Scope,
 ): SourceView {
   const connectedApp = row.connectedApp && { id: row.connectedApp.id, name: row.connectedApp.name, host: row.connectedApp.clientHost };
-  if (row.accountId === null) return { machine: row.machine, tabletId: row.tabletId, account: null, connectedApp };
+  const made = { machine: row.machine, tabletId: row.tabletId, barista: row.barista };
+  if (row.accountId === null) return { ...made, account: null, connectedApp };
   // Other accounts' names are personal information that Staff do not see.
   const name = scope.kind === "everything" ? (row.account?.name ?? null) : null;
-  return { machine: row.machine, tabletId: row.tabletId, account: { id: row.accountId, name }, connectedApp };
+  return { ...made, account: { id: row.accountId, name }, connectedApp };
 }

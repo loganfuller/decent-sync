@@ -5,7 +5,6 @@ import {
   MAX_SOFTWARE_ACTION_MS,
   MISSED_HEARTBEATS,
   OWN_CHANGEABLE_SETTING,
-  SOURCE_CHANGES_WIRE_REVISION,
   type SoftwareActed,
   type SoftwareActedRefusal,
   type SoftwareAction,
@@ -14,9 +13,7 @@ import {
   type SourceSeen,
   isSkinViewKind,
   isSoftwareActionKind,
-  isSourceChangeKind,
   namesCommit,
-  peerHasWireRevision,
   pluginSourceSeen,
   sameSourceSeen,
   sameValue,
@@ -205,18 +202,15 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         }
       }
       // Online as the Machine's status judges it, by PostgreSQL's clock: held by a connection heard from recently.
-      const [holder] = await tx.$queryRaw<[{ sessionId: string | null; tabletId: string | null; online: boolean; mismatched: boolean; wireRevision: number | null }]>`
+      const [holder] = await tx.$queryRaw<[{ sessionId: string | null; tabletId: string | null; online: boolean; mismatched: boolean }]>`
         SELECT connected_session_id AS "sessionId", connected_tablet_id AS "tabletId",
           connected_session_id IS NOT NULL AND last_seen_at >= now() - ${onlineSinceMs}::integer * interval '1 millisecond' AS online,
-          identification = 'MISMATCH' AS mismatched, wire_revision AS "wireRevision"
+          identification = 'MISMATCH' AS mismatched
         FROM machines WHERE id = ${machineId}::uuid`;
       if (!holder.online || holder.sessionId === null || holder.tabletId === null) {
         throw new ConflictException("The Machine is offline: a Software Action is made only while its Tablet is connected, and is never kept for later");
       }
       if (holder.mismatched) throw new ConflictException("Its Tablet reports another machine's hardware than this Machine's, so nothing is asked of it");
-      if (isSourceChangeKind(action.kind) && !takesSourceChanges(holder.wireRevision)) {
-        throw new ConflictException("The Tablet's plugin must update before it can change how a plugin or Skin updates: check its plugins for updates first");
-      }
       const { params, held } = await this.checked(tx, machineId, action);
       const row = await tx.softwareAction.create({
         data: {
@@ -464,11 +458,10 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
    * first, claimed by setting when they were sent, while the connection
    * still holds its Machine, judged under the Machine's row lock; none once
    * it does not. Each carries the time it has left, by PostgreSQL's clock;
-   * one with none left is not sent, nor is a change of how an item updates
-   * to a plugin from before it, which `make` refuses first. The statement that claims an action takes the values held
-   * for the plugin out of its row.
+   * one with none left is not sent. The statement that claims an action
+   * takes the values held for the plugin out of its row.
    */
-  async claim(connection: { sessionId: string; machineId: string; wireRevision: number }): Promise<SoftwareAction[]> {
+  async claim(connection: { sessionId: string; machineId: string }): Promise<SoftwareAction[]> {
     return this.prisma.$transaction(async (tx) => {
       const holds = await tx.$queryRaw<unknown[]>`
         SELECT 1 FROM machines WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid FOR NO KEY UPDATE`;
@@ -487,7 +480,7 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
         SELECT claimed.id, claimed.kind, claimed.params, due.held,
           GREATEST(0, claimed.time_ms - FLOOR(EXTRACT(EPOCH FROM claimed.sent_at - claimed.made_at) * 1000))::integer AS "timeLeftMs"
         FROM claimed JOIN due ON due.id = claimed.id ORDER BY claimed.made_at, claimed.id`;
-      return claimed.flatMap((row) => (isSourceChangeKind(row.kind) && !takesSourceChanges(connection.wireRevision) ? [] : (messageOf(row) ?? [])));
+      return claimed.flatMap((row) => messageOf(row) ?? []);
     });
   }
 
@@ -518,11 +511,6 @@ export class SoftwareActionsService implements OnModuleInit, OnModuleDestroy {
     });
     return updated ? { outcome: answer.outcome, late: updated.late } : null;
   }
-}
-
-/** Whether a plugin at the wire revision carries out a change of how a plugin or Skin updates (ADR-0035); one whose revision is not known does not yet. */
-export function takesSourceChanges(wireRevision: number | null): boolean {
-  return wireRevision !== null && peerHasWireRevision(wireRevision, SOURCE_CHANGES_WIRE_REVISION);
 }
 
 /** What is wrong with a value for a setting, by what its manifest declares, or null: never the value itself. */

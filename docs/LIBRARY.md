@@ -400,7 +400,9 @@ of 1e-9 at a range's end aside, `RANGE_SLACK`).
   history entry.
 - `item_versions`: each accepted edit of an item (ADR-0020), with the fields
   it set and their values, the Machine and tablet or the account it came
-  from, when it was made (`edited_at`, timed as the edit was) and when the
+  from, the barista the tablet's Workflow named where the edit is a Bean
+  Batch a scan brought (`barista`, #708; null for every other edit, and kept
+  on a Lost Edit as its version held it), when it was made (`edited_at`, timed as the edit was) and when the
   server took it in (`received_at`, by PostgreSQL's clock). An edit of the
   item's content has no Location; one of a Location's state of it names that
   Location, and only those fields: `atLocation` and `remainingWeight` for a
@@ -811,6 +813,73 @@ Lost Edit names is kept, still refused, so history goes on naming it
   move is one version of the batch (History, above). Adding a batch at a
   Location without moving it, as the placement route, a tablet's un-archive
   and a Recipe taking a batch from another Location do, moves no weight.
+
+  **A batch brought by a scan** (#708, ADR-0030 and ADR-0008, amended). A
+  Skin on a tablet reads the QR code on a bucket's label and sends the
+  plugin's `scan` endpoint the text it held
+  (`site/src/content/docs/technical/skin-authors.md`, Scanning a Bean
+  Batch's QR code), which the plugin asks the server about as a request
+  (`bringBatch`, `AI_PROTOCOL_NOTES.md`, Requests for a Skin). The server
+  decodes nothing.
+  - **Matching** (`matching` in `batch-scans.service.ts`, with the reading of
+    the text in `scanned-text.ts`). Among the batches that are not Archived,
+    of Beans that are not, it stops at the first step that finds any. First,
+    the whole text, trimmed, is a Batch Code, compared as the index that
+    keeps one to a batch compares it (`lower(btrim(...))`). Second, the text
+    is a URL, with a scheme and `//`, or JSON, and its last path segment,
+    one of its query values, its fragment, or one of its string values at
+    any depth is one (`codeCandidates`: all of them, the text's length
+    bounding how many, each no longer than a Batch Code and one PostgreSQL
+    stores). Where a code those two read, or a part of plain text set off
+    by white space (`plainParts`), is an Archived batch's, or a batch's of
+    an Archived Bean, the text matches none, and the third is not tried
+    (`retired`): any value of a URL or JSON counts, so a label holding a
+    retired lot number among its values names no batch by its Bean until
+    the new batch is given its code. Third, the text names a Bean
+    (`namesBean`): every word of the text is a word of the Bean's roaster
+    and name, or every word of the Bean's name is a word of the text, a
+    word being a run of letters and digits, in lower case. That matches the Bean's batches, or, where
+    the text holds a date read without guessing (`datesIn`: year first, or
+    with its month by name), those roasted on one of those days; a day none
+    was roasted on leaves none. Matches are listed newest roast first, at
+    most `MAX_BATCH_MATCHES`, saying when more matched. Several matches and
+    none change nothing. A batch named by id, as a barista chose it from
+    such a list, is that batch, or none where it is Archived, its Bean is,
+    or the Library holds no such batch.
+  - **Bringing** (`bringTo`). One batch is brought to the Location the asking
+    Machine is served at by where it is. There already: nothing changes. At
+    exactly one other Location: all of it is moved from there
+    (`moveBatchBetween` with `"all"`), so the Location left is finished and
+    its weight arrives. At several other Locations, or at none: it is added
+    (`addBatchAt`) and no weight moves, since nothing says which Location's
+    coffee arrived. It is untracked there: where it was finished there
+    before with a weight, that weight is cleared in the same version
+    (`{ atLocation: true, remainingWeight: null }`), not taken up again, as
+    a Batch Move of no weight clears it. A scan takes no weight, creates
+    nothing and un-archives nothing.
+  - **One transaction, the same locks.** `SkinRequestsService.bringBatch`
+    holds the Machine's row first, as a choice of a Reference Shot does, so
+    a batch is brought only by the connection holding a Machine served at
+    that Location as it commits. Then the Locations' locks, the Machine's
+    and the one the batch leaves, in id order, as `moveBatch` takes them,
+    and the batch's key lock. Where the batch is, is read before the locks,
+    to know which to take, and again under them: a batch that came to be at
+    another single Location meanwhile needs a lock not held, so the request
+    is made again in a transaction of its own (`TRY_AGAIN`, five times at
+    most). The change is announced on `library_changes` as an account's is.
+  - **Credit.** The version names the Machine, the tablet and no account
+    (`tabletSource`), with the barista the tablet's Workflow named as the
+    Skin asked (`item_versions.barista`), which the plugin read from Decaid
+    and sent with the request; none where the Workflow named none. Reads
+    give it in an entry's `source` (`barista`), over REST and through
+    `get_library_item`, and the management interface writes it after the
+    Machine ("Bar Left, by Sam").
+  - **The answer waits for the tablet.** The server answers with the batch's
+    own id at once. The plugin answers its Skin once Decaid lists the batch
+    as one to offer, with the tablet's own ids, which the tablet writer's
+    writes of the Bean and the batch bring (Writing to tablets, below), or
+    as unreachable once the request's 10 s are up, though the batch was
+    brought.
 
   **Remaining Weight** (ADR-0037). A batch's Remaining Weight at a Location
   is the weight its count there starts from less the dose of each Shot

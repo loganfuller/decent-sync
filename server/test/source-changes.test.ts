@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DECENT_SYNC_PLUGIN_ID, DECENT_SYNC_REPO, pluginSourceSeen, skinSourceSeen } from "@decent-sync/protocol";
+import { DECENT_SYNC_PLUGIN_ID, DECENT_SYNC_REPO, WIRE_REVISION, pluginSourceSeen, skinSourceSeen } from "@decent-sync/protocol";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { type ListedPlugin, SimulatedPlugins, bundledPlugins, comparePluginVersions, recordedPlugin } from "./support/decaid-plugins.js";
 import { SimulatedSkins, recordedSkin } from "./support/decaid-skins.js";
@@ -357,7 +357,7 @@ describe("Changing how an installed plugin or Skin updates", () => {
     expect(plugins.managed).toEqual([]);
   });
 
-  it("is an Admin's alone, and a plugin of the previous release is told to update before it is sent one", async () => {
+  it("is an Admin's alone, and a plugin of the previous release is sent one as this release's is", async () => {
     const skins = new SimulatedSkins();
     skins.install(flightPinned());
     const { machine } = await connected("Sources access", { skins });
@@ -368,19 +368,13 @@ describe("Changing how an installed plugin or Skin updates", () => {
     expect((await staff.call("GET", `/machines/${machine.machine.id}/pinned-source?skinId=${FLIGHT}`)).status).toBe(403);
     expect((await software(machine, staff)).takesSourceChanges).toBe(true);
 
-    // The release before this change spoke wire revision 5: its plugin takes every other Software Action, and none of this kind.
+    // The previous release's plugin, at the wire revision before this one, carries out a change as this release's does: it is sent one.
     const old = await api.createMachine("Sources old plugin", cafe.id);
-    const raw = await RawConnection.welcomed(server.url, helloWith(old.token, { machine: { model: "DE1Pro", serial: String(serial++) }, wireRevision: 5 }));
+    const raw = await RawConnection.welcomed(server.url, helloWith(old.token, { machine: { model: "DE1Pro", serial: String(serial++) }, wireRevision: WIRE_REVISION - 1 }));
     await api.waitForOnline(old);
-    expect(await software(old)).toMatchObject({ pluginMustUpdate: false, takesSourceChanges: false });
-    expect(await refused(old, { kind: "changeSkinSource", skinId: FLIGHT, seen: seen(flight), repo: FLIGHT_REPO }, 409)).toMatch(/The Tablet's plugin must update before it can change how a plugin or Skin updates/);
-    expect((await api.get<{ total: number }>(path(old))).total).toBe(0);
-    const check = await make(old, { kind: "checkPluginUpdates" });
-    await expect.poll(() => (raw.messages as { type: string; kind?: string; id?: string }[]).filter((message) => message.type === "softwareAction").map((message) => [message.kind, message.id])).toEqual([["checkPluginUpdates", check.id]]);
-    // One put in the database past that check is never sent to it.
-    await stored(old, "changeSkinSource", { skin: { id: FLIGHT, name: "Tasting Flight" }, repo: FLIGHT_REPO, expected: {} });
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect((raw.messages as { type: string; kind?: string }[]).filter((message) => message.type === "softwareAction").map((message) => message.kind)).toEqual(["checkPluginUpdates"]);
+    expect(await software(old)).toMatchObject({ pluginMustUpdate: false, takesSourceChanges: true });
+    const change = await stored(old, "changeSkinSource", { skin: { id: FLIGHT, name: "Tasting Flight" }, repo: FLIGHT_REPO, expected: {} });
+    await expect.poll(() => (raw.messages as { type: string; kind?: string; id?: string }[]).filter((message) => message.type === "softwareAction").map((message) => [message.kind, message.id])).toEqual([["changeSkinSource", change]]);
     await raw.close();
   });
 

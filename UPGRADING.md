@@ -27,6 +27,48 @@ Releasing).
 
 ## Unreleased
 
+### Check every tablet runs the 1.13.1 plugin or later before deploying
+
+This release raises the wire revision, for a Skin's scan of a Bean Batch's QR
+code
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
+Deploying). Before deploying, check on each Machine's page that it runs the
+plugin of 1.13.1 or 1.14.0. A tablet still on the 1.13.0 plugin or earlier is
+refused as too old until its plugin is updated, at the tablet or through
+Decaid's API from its network with `POST /api/v1/plugins/update`. This
+release's plugin adds no permission, so Decaid installs its update without
+approval.
+
+### A Skin can have a scanned Bean Batch brought to its Machine's Location
+
+The plugin has a new request for a Skin, `scan`
+([For a Skin's author](site/src/content/docs/technical/skin-authors.md#scanning-a-bean-batchs-qr-code)):
+the Skin reads the QR code on a bucket's label and sends the text it held, and
+the server finds the Bean Batch by it and brings the batch to the Machine's
+Location. A batch at one other Location is moved from there, all of it, with
+its remaining weight. One at several other Locations, or at none, is added
+with no weight moved. Nothing is created or brought back from the archive.
+There is nothing to do before or after deploying, and nothing changes until a
+tablet runs a Skin that scans:
+
+- **A scan needs no account.** Anything on a tablet's network can ask its
+  plugin, as it can change the tablet's Workflow through Decaid, and a batch
+  is only ever brought to that tablet's own Location. A Capture-only Machine
+  is refused.
+- **The batch's history says who received it.** The entry names the Machine
+  the scan was made on and the barista named on that Machine then, such as
+  "Bar Left, by Sam", and no account. A wrong move is corrected by moving
+  back.
+- **The text need not be a Batch Code.** A URL or JSON that holds one matches
+  too, and so does a Bean's roaster and name, with a roast date to pick among
+  its batches. A label that matches several batches moves nothing until the
+  barista chooses one.
+
+While the upgrade runs, a tablet whose plugin has updated but which is still
+connected to the previous release's server refuses a scan, and its status
+tells the Skin so, until it reconnects to the new one. A tablet still on the
+previous release's plugin has no such request until its plugin updates.
+
 ### A Bean Batch is now moved between Locations
 
 A batch is taken from one Location to another by a Batch Move, all of it or

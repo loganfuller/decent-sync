@@ -103,7 +103,7 @@ interface Acting {
   offered: boolean;
   /** Whether Reload and the restart of the Skin view are offered: to an Admin, and to Staff at the Machine's Location, while the Tablet's plugin takes them. */
   skinViewOffered: boolean;
-  /** Whether the Tablet's plugin carries out a change of how a plugin or Skin updates: not one of the previous release, which must update first. */
+  /** Whether the Tablet's plugin carries out a change of how a plugin or Skin updates: every one this release's server accepts, and not one the previous release's server says must update first. */
   takesSourceChanges: boolean;
   /** Why they can't be made now, or null. */
   blocked: string | null;

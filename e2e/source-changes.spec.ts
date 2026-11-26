@@ -282,30 +282,21 @@ test("a change to a source that holds another Skin is refused, the Skin Decaid i
   await expect(entries.nth(5).getByRole("cell").nth(3)).toHaveText("Done · 0.2.31-flight.2 → 0.2.32-flight.1");
 });
 
-test("a Tablet whose plugin is of the previous release is told to update before it is sent a change, in the dialog and by the server", async ({ page }) => {
-  // The release before this spoke wire revision 5, which the server keeps from each plugin's hello.
-  const db = await server.connectDatabase();
-  try {
-    await db.query("UPDATE machines SET wire_revision = 5 WHERE id = $1", [frontId]);
-    await page.goto(`/machines/${frontId}?tab=software`);
-    const dialog = await openChange(page, skinRow(page, "Night Shift"), "Night Shift");
-    await expect(dialog.getByRole("alert")).toHaveText(
-      /^The Tablet's plugin must update first\s*Its Decent Sync plugin is from a release before this could be changed from here\. Check the plugins for updates, then try again\.$/,
-    );
-    await expect(dialog.getByRole("button", { name: "Change" })).toBeDisabled();
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-    // The server refuses one all the same, at once, with nothing kept.
-    const listed = (await (await page.request.get(`/api/machines/${frontId}/tablet-software`)).json()) as { tabletSoftware: { skins: { id: string; build: Record<string, string | null> }[] } };
-    const shown = listed.tabletSoftware.skins.find((skin) => skin.id === "night-shift.js")!;
-    const made = await page.request.post(`/api/machines/${frontId}/software-actions`, {
-      data: { kind: "changeSkinSource", skinId: shown.id, seen: shown.build, repo: "example/night-shift" },
-    });
-    expect(made.status()).toBe(409);
-    expect(await made.text()).toContain("The Tablet's plugin must update before it can change how a plugin or Skin updates");
-    // Every other action is offered as before.
-    await expect(region(page, "Skins").getByRole("button", { name: "Check Skins for updates" })).toBeEnabled();
-  } finally {
-    await db.query("UPDATE machines SET wire_revision = 6 WHERE id = $1", [frontId]);
-    await db.end();
-  }
+test("a Tablet the previous release's server says must update its plugin first is told so in the dialog, during a deploy", async ({ page }) => {
+  // This release's server sends a change to every plugin it accepts (ADR-0025): only the previous release's, which this
+  // page may be read from while a deploy is under way, answers that a Tablet's plugin does not take one.
+  await page.route(`**/api/machines/${frontId}/tablet-software`, async (route) => {
+    const answer = await route.fetch();
+    const body = (await answer.json()) as { tabletSoftware: Record<string, unknown> | null };
+    await route.fulfill({ response: answer, json: { ...body, tabletSoftware: body.tabletSoftware && { ...body.tabletSoftware, takesSourceChanges: false } } });
+  });
+  await page.goto(`/machines/${frontId}?tab=software`);
+  const dialog = await openChange(page, skinRow(page, "Night Shift"), "Night Shift");
+  await expect(dialog.getByRole("alert")).toHaveText(
+    /^The Tablet's plugin must update first\s*Its Decent Sync plugin is from a release before this could be changed from here\. Check the plugins for updates, then try again\.$/,
+  );
+  await expect(dialog.getByRole("button", { name: "Change" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  // Every other action is offered as before.
+  await expect(region(page, "Skins").getByRole("button", { name: "Check Skins for updates" })).toBeEnabled();
 });
