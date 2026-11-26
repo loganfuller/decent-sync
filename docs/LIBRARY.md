@@ -845,9 +845,12 @@ Lost Edit names is kept, still refused, so history goes on naming it
     exactly one other Location: all of it is moved from there
     (`moveBatchBetween` with `"all"`), so the Location left is finished and
     its weight arrives. At several other Locations, or at none: it is added
-    (`addBatchAt`) and no weight moves, as the placement route adds one,
-    since nothing says which Location's coffee arrived. A scan takes no
-    weight, creates nothing and un-archives nothing.
+    (`addBatchAt`) and no weight moves, since nothing says which Location's
+    coffee arrived. It is untracked there: where it was finished there
+    before with a weight, that weight is cleared in the same version
+    (`{ atLocation: true, remainingWeight: null }`), not taken up again, as
+    a Batch Move of no weight clears it. A scan takes no weight, creates
+    nothing and un-archives nothing.
   - **One transaction, the same locks.** `SkinRequestsService.bringBatch`
     holds the Machine's row first, as a choice of a Reference Shot does, so
     a batch is brought only by the connection holding a Machine served at

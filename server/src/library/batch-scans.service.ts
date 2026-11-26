@@ -2,11 +2,11 @@ import { Injectable } from "@nestjs/common";
 import { MAX_BATCH_MATCHES, type SkinBatchBrought, type SkinBatchMatch } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
-import { type EditSource, tabletSource } from "./history.js";
+import { type EditSource, recordVersion, tabletSource } from "./history.js";
 import type { ReportingTablet } from "./intake.js";
 import { editTime } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
-import { addBatchAt, lockLocation, moveBatchBetween } from "./location-state.js";
+import { addBatchAt, lockLocation, moveBatchBetween, startCount } from "./location-state.js";
 import { codeCandidates, namesBean, scannedWords } from "./scanned-text.js";
 
 // A Bean Batch brought to a Machine's Location by a scan (ticket #708,
@@ -63,7 +63,9 @@ export class BatchScansService {
  *   Location had of it, and it is finished there;
  * - at several other Locations, or at none: it is added at the tablet's
  *   Location and no weight moves, since nothing says which Location's
- *   coffee arrived, as the placement route adds one (`addBatchAt`).
+ *   coffee arrived. It is untracked there: where it was finished there
+ *   before with a weight, the weight that count was left with is cleared,
+ *   not taken up again, as a Batch Move of no weight clears it.
  *
  * The move or the add is one version of the batch, made as the Machine and
  * tablet with the barista its Workflow named and no account, and announced
@@ -102,7 +104,15 @@ async function bringTo(tx: Prisma.TransactionClient, batchId: string, tablet: Sc
   if (leaving === null) {
     // Having seen every decision made here before it, as an account's add has.
     const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
-    await addBatchAt(tx, batchId, here, at, seenAt, source);
+    const [was] = await tx.$queryRaw<{ weight: number | null }[]>`
+      SELECT remaining_weight AS weight FROM batch_locations WHERE batch_id = ${batchId}::uuid AND location_id = ${here}::uuid`;
+    if (was?.weight == null) await addBatchAt(tx, batchId, here, at, seenAt, source);
+    else {
+      // One version, the add with the weight it clears, as a Batch Move's is one with what it set where it joined.
+      const versionId = await recordVersion(tx, { kind: "beanBatch", id: batchId }, here, { atLocation: true, remainingWeight: null }, source, at);
+      await addBatchAt(tx, batchId, here, at, seenAt, source, undefined, versionId);
+      await startCount(tx, batchId, here, null, at, versionId);
+    }
     await notify(tx, "library_changes", here);
     return "added";
   }

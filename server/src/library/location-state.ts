@@ -428,7 +428,7 @@ export async function moveBatchBetween(
 }
 
 /** Starts the Location's count of the batch at the weight, as a Batch Move does, by its version, or, given null, leaves it untracked there. Its time is never earlier than the one known, as a weight entered's is not. */
-async function startCount(tx: Prisma.TransactionClient, batchId: string, locationId: string, weight: number | null, at: Date, versionId: string): Promise<void> {
+export async function startCount(tx: Prisma.TransactionClient, batchId: string, locationId: string, weight: number | null, at: Date, versionId: string): Promise<void> {
   await tx.$executeRaw`
     UPDATE batch_locations
     SET remaining_weight = ${weight}::double precision, remaining_weight_at = GREATEST(${at}::timestamptz, remaining_weight_at),

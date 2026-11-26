@@ -233,6 +233,24 @@ describe("A Bean Batch brought to the Machine's Location by a scan", { timeout: 
     expect((await versions(id))[0]).toMatchObject({ fields: { atLocation: true }, move: null, source: madeOn(cafe, "Alex") });
   });
 
+  it("adds a batch that was finished at the Machine's Location with a weight back there untracked, as nothing says what arrived", async () => {
+    const code = nextCode();
+    const id = await batchAt(cafe, guji, { batchCode: code }, 300);
+    await expect.poll(() => held(cafe.tablet, id)?.archived, WAIT).toBe(false);
+    await place(id, cafe, { atLocation: false });
+    await expect.poll(() => held(cafe.tablet, id)?.archived, WAIT).toBe(true);
+    expect(await where(id)).toEqual({});
+
+    expect(await scan(cafe.tablet, { text: code })).toEqual(brought("added", id));
+    expect(held(cafe.tablet, id)).toMatchObject({ archived: false });
+    // The weight its count there was left with is not taken up again.
+    expect(await where(id)).toEqual({ "Scan cafe": null });
+    const [add, ...earlier] = await versions(id);
+    expect(add).toMatchObject({ fields: { atLocation: true, remainingWeight: null }, location: { name: "Scan cafe" }, move: null, source: { machine: { name: "Scan cafe bar" }, account: null } });
+    // One entry for the scan.
+    expect(earlier.every((version) => version.source.account !== null)).toBe(true);
+  });
+
   it("changes nothing for a batch already at the Machine's Location, and answers the same way, saying it was already there", async () => {
     const code = nextCode();
     const id = await batchAt(cafe, kenya, { batchCode: code, roastDate: "2026-11-18" }, 1000);
