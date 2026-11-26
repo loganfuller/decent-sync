@@ -17,7 +17,7 @@ Admin, Staff, Viewer and Barista are defined in the [Glossary](../../reference/g
 |---|---|---|---|
 | See the Overview, Shots, Steam Records, the Library, Machines and Locations | Yes | Yes | Yes |
 | See and work on Drafts | Yes | Yes, publishing only to their Locations | No |
-| Edit Beans, Bean Batches, Profiles, Baskets and Tools | Yes | Yes | No |
+| Edit Beans, Bean Batches, Profiles, Baskets and Tools, and Archive or restore a Grinder | Yes | Yes | No |
 | Manage Recipes and Grinders, add Bean Batches, Baskets and Tools, return a Profile to an earlier version, and change what a Location offers | Yes | At their Locations | No |
 | Rate a Shot or edit its note | Yes | Shots at their Locations | No |
 | Move a Machine to another Location | Yes | Between their Locations | No |
