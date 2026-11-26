@@ -76,5 +76,9 @@ A few rules shape the rest:
 - **The server is the source of truth, but tablets can still edit.** A tablet
   holds only what its Location offers. What a tablet creates starts at its
   Location only.
+- **Machines don't depend on the server.** If the network or the server goes
+  down, the machines keep working on their own, and the plugin catches up
+  when the server is back.
 
-The [Glossary](../../reference/glossary/) defines the terms these pages use.
+The [Glossary](../../reference/glossary/) defines the terms these pages use,
+and [Architecture](../../technical/architecture/) says how the parts talk.

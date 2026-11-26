@@ -6,7 +6,7 @@
 //   npm test -w site
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -38,8 +38,11 @@ const SECTIONS = [
 const PAGES = SECTIONS.flatMap(([, pages]) => pages);
 
 // The pages #683 wrote from the README, the self-hosting document and the
-// plugin document, and the two rendered from a file at the repository's root.
-const WRITTEN = [...SECTIONS[0][1], ...SECTIONS[2][1], "reference/glossary", "reference/tablet-plugin", "reference/upgrade-notes", "technical/skin-authors"];
+// plugin document, the two rendered from a file at the repository's root, and
+// the Technical and Project pages #687 wrote as the README was cut to a pitch.
+const WRITTEN = [...SECTIONS[0][1], ...SECTIONS[2][1], "reference/glossary", "reference/tablet-plugin", "reference/upgrade-notes", ...SECTIONS[4][1], ...SECTIONS[5][1]];
+
+const GITHUB = "https://github.com/loganfuller/decent-sync";
 
 const repository = join(root, "..");
 const repositoryFile = (path) => readFileSync(join(repository, path), "utf8");
@@ -164,12 +167,60 @@ describe("the built site", () => {
         assert.deepEqual(brokenLinks(dist, base), []);
     });
 
-    test("has each Get started, Self-hosting and plugin page written", () => {
-        for (const page of WRITTEN) {
-            const html = read(page);
-            assert.ok(!html.includes("This page is not written yet"), `${page} is not written`);
-            assert.match(html, /<h2 /, `${page} has no section`);
+    test("has each Get started, Self-hosting, plugin, Technical and Project page written, and no page left saying what it will hold", () => {
+        for (const page of PAGES) assert.ok(!read(page).includes("This page is not written yet"), `${page} is not written`);
+        for (const page of WRITTEN) assert.match(read(page), /<h2 /, `${page} has no section`);
+    });
+
+    // The Technical and Project pages (#687), by what a developer would miss: a decision record or a document with no
+    // way to it from the site. Each list is read from the repository, so adding a record or a document fails here
+    // until its page links it.
+    test("gives every architecture decision record a line on the Architecture page, with what is shared, the connections and the protocol", () => {
+        const main = content("technical/architecture");
+        for (const section of ["what-is-shared-with-which-machines", "the-three-connections", "the-protocol-in-outline", "the-design-decisions"]) {
+            assert.ok(main.includes(`id="${section}"`), `technical/architecture lacks its section ${section}`);
         }
+        for (const connection of ["the-plugins-websocket", "the-rest-api", "the-mcp-endpoint"]) assert.ok(main.includes(`id="${connection}"`), `technical/architecture lacks ${connection}`);
+        const records = readdirSync(join(repository, "docs/adr")).filter((file) => /^\d{4}-.+\.md$/.test(file));
+        assert.ok(records.length >= 35, "the decision records were not read from docs/adr/");
+        for (const record of records) {
+            const line = main.match(new RegExp(`<li>\\s*<a href="${GITHUB}/blob/main/docs/adr/${record}"[^>]*>ADR-${record.slice(0, 4)}</a>([\\s\\S]*?)</li>`));
+            assert.ok(line, `technical/architecture has no line for docs/adr/${record}`);
+            assert.ok(text(line[1]).trim().length > 20, `technical/architecture says nothing of docs/adr/${record}`);
+        }
+    });
+
+    test("links every implementer spec, note and agent convention from the Internals page, each with what it covers, and the decision records", () => {
+        const main = content("technical/internals");
+        // The two stubs left where a document moved to the site are no documents of their own.
+        const stubs = ["PLUGIN.md", "SELF-HOSTING.md"];
+        const documents = [
+            ...readdirSync(join(repository, "docs")).filter((file) => file.endsWith(".md") && !stubs.includes(file)).map((file) => `docs/${file}`),
+            ...readdirSync(join(repository, "docs/agents")).filter((file) => file.endsWith(".md")).map((file) => `docs/agents/${file}`),
+            "AGENTS.md",
+            "GLOSSARY.md",
+            "UPGRADING.md",
+        ];
+        for (const spec of ["docs/SHOTS.md", "docs/STEAM_RECORDS.md", "docs/WORKFLOW-AND-STATE.md", "docs/COLLECTIONS.md", "docs/LIBRARY.md"]) assert.ok(documents.includes(spec), `${spec} was not read from docs/`);
+        for (const document of documents) assert.ok(main.includes(`href="${GITHUB}/blob/main/${document}"`), `technical/internals does not link ${document}`);
+        // A document in a table has a line on what it covers beside its link.
+        for (const [, row] of main.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
+            const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(([, cell]) => text(cell).trim());
+            if (cells.length > 0) assert.ok(cells.length === 2 && cells[1].length > 20, `technical/internals says nothing of ${cells[0]}`);
+        }
+        assert.ok(main.includes(`href="${GITHUB}/tree/main/docs/adr"`), "technical/internals does not link the decision records");
+        assert.ok(main.includes('href="../../technical/architecture/#the-design-decisions"'), "technical/internals does not lead to each decision's line");
+        assert.ok(main.includes('href="../../technical/development/"'), "technical/internals does not link the Development page");
+    });
+
+    test("leads from the Development page to the development guide, and from the Roadmap to the releases", () => {
+        assert.ok(content("technical/development").includes(`href="${GITHUB}/blob/main/docs/DEVELOPMENT.md"`), "technical/development does not link the development guide");
+        const roadmap = content("project/roadmap");
+        assert.ok(roadmap.includes('id="planned-next"'), "project/roadmap does not say what is planned next");
+        assert.ok(roadmap.includes('href="../../project/releases/"'), "project/roadmap does not link the Releases page");
+        const releases = content("project/releases");
+        assert.ok(releases.includes(`href="${GITHUB}/releases"`), "project/releases does not link the releases on GitHub");
+        assert.ok(releases.includes(`href="${GITHUB}/releases/tag/v1.0.0"`), "project/releases does not say what each release added");
     });
 
     test("has every setting the server and the Compose file read on the Configuration page", () => {
@@ -201,6 +252,65 @@ describe("the built site", () => {
         const notes = read("reference/upgrade-notes");
         assert.ok(notes.includes('href="https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0025-each-release-runs-beside-the-previous-one.md"'));
         assert.ok(notes.includes('href="../../self-hosting/upgrading/#if-you-skipped-a-release"'));
+    });
+});
+
+// README.md is the pitch (#687): it links to the site for everything else, so each of its links must lead to a page
+// this build has, and it must stay the pitch.
+describe("the README", () => {
+    const readme = repositoryFile("README.md");
+    const address = `${SITE}${ROOT_BASE}/`;
+    const links = [...readme.matchAll(new RegExp(`${address.replaceAll(".", "\\.")}([^\\s)"#]*)(?:#([^\\s)"]+))?`, "g"))].map(([, path, heading]) => ({ path, heading }));
+    const sections = [...readme.matchAll(/^## (.+)$/gm)].map(([, heading]) => heading);
+    /** A section's text, from its heading to the next. */
+    const section = (heading) => {
+        const from = readme.indexOf(`## ${heading}\n`);
+        const to = readme.indexOf("\n## ", from + 1);
+        return readme.slice(from, to === -1 ? undefined : to);
+    };
+
+    test("links only to pages and headings the site has", () => {
+        assert.ok(links.length >= 20, "the README's links to the site were not read");
+        for (const { path, heading } of links) {
+            const link = `${address}${path}${heading ? `#${heading}` : ""}`;
+            assert.ok(path === "" || path.endsWith("/"), `${link} lacks its trailing slash`);
+            assert.ok(existsSync(join(dist, path, "index.html")), `${link} names no page of the site`);
+            if (heading) assert.ok(read(path).includes(`id="${heading}"`), `${link} names no heading of that page`);
+        }
+    });
+
+    test("links to the site before its first section", () => {
+        assert.ok(readme.slice(0, readme.indexOf("\n## ")).includes(`](${address})`), "the README's top has no link to the site");
+    });
+
+    // Changing the pitch's sections is changing this list: the sections that went (its features, its per-release
+    // table, connecting an assistant and installing the plugin) are pages of the site now.
+    test("keeps to the pitch's sections, in order", () => {
+        assert.deepEqual(sections, ["What you get", "Who it's for", "How it works", "Quick start", "Documentation", "For developers", "Status", "License"]);
+    });
+
+    test("links each line of what you get to its page of the site, and each section of the site from its table", () => {
+        const benefits = section("What you get").split(/\n(?=- )/).slice(1);
+        assert.equal(benefits.length, 8);
+        for (const benefit of benefits) assert.ok(benefit.includes(`](${address}`), `no page is linked from: ${benefit.split("\n")[0]}`);
+        const documentation = section("Documentation");
+        for (const page of ["get-started/", "guide/", "self-hosting/", "reference/"]) assert.ok(documentation.includes(`](${address}${page}`), `the Documentation table links nothing under ${page}`);
+        const developers = section("For developers");
+        for (const page of [...SECTIONS[4][1], "reference/assistant-tools"]) assert.ok(developers.includes(`](${address}${page}/)`), `For developers does not link ${page}`);
+        const status = section("Status");
+        for (const page of SECTIONS[5][1]) assert.ok(status.includes(`](${address}${page}/)`), `Status does not link ${page}`);
+    });
+
+    // The Live View GIF and at most three stills, each in light and dark, committed in docs/images/, which holds no
+    // image the README does not show.
+    test("shows the Live View and at most three stills, which are the images committed", () => {
+        const marked = [...repositoryFile("scripts/images/stills.ts").matchAll(/^  "?([a-z-]+)"?: \{ readme: true, file: "(gif|png)"/gm)].map(([, name, file]) => ({ name, file }));
+        assert.ok(marked.some(({ name, file }) => name === "live-view" && file === "gif"), "the README's images were not read from scripts/images/stills.ts");
+        assert.ok(marked.filter(({ file }) => file === "png").length <= 3, "the README shows more than three stills");
+        const committed = marked.flatMap(({ name, file }) => [`${name}-dark.${file}`, `${name}-light.${file}`]).sort();
+        const shown = [...readme.matchAll(/(?:src|srcset)="docs\/images\/([^"]+)"/g)].map(([, file]) => file).sort();
+        assert.deepEqual(shown, committed, "the README does not show each image scripts/images/stills.ts marks for it, in light and dark");
+        assert.deepEqual(readdirSync(join(repository, "docs/images")).sort(), committed, "docs/images/ holds an image the README does not show, or lacks one it does");
     });
 });
 

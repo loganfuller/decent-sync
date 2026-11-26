@@ -706,7 +706,7 @@ say unknown.
 
 People can now connect AI assistants, such as Claude and ChatGPT, to the
 server by adding its public URL followed by `/api/mcp`, and signing in to
-approve them (the README's Connecting an assistant). Nothing is needed to
+approve them ([Assistants](site/src/content/docs/guide/assistants.md#connect-an-assistant)). Nothing is needed to
 offer it. To leave it off, set `MCP_ENABLED=false`. A reverse proxy that passes
 only some paths to the server passes `/.well-known/oauth-authorization-server`
 and `/.well-known/oauth-protected-resource/api/mcp` too. While a deploy moves
@@ -1039,7 +1039,7 @@ they are.
 
 Remove the plugin on each tablet (`DELETE /api/v1/plugins/decent-sync.reaplugin`
 on the tablet's API, or under Decaid's Settings, Plugins), then install it
-from this release as the README's Installing the plugin says, and give it
+from this release as [Install the plugin](site/src/content/docs/get-started/install-the-plugin.md) says, and give it
 its Machine's new token. A fresh install takes its permissions, `emit`
 among them, without the approval an update from 0.3.0 would wait on.
 The plugin needs Decaid v0.9.0 or newer, and a Machine that follows Recipes

@@ -64,7 +64,7 @@ variable, and the paths the server serves.
 | `npm run test:latest-release-suite` | Run the latest release's Vitest suite on this checkout's schema, on a throwaway PostgreSQL in Docker. Run `npm run build:latest-release` first. |
 | `npm run check:plugin-build` | Fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | Write the release ZIP of the committed plugin to `dist/` |
-| `npm run check:docs` | Fail if a relative link in the repository's Markdown does not resolve ([The documentation site](#the-documentation-site)) |
+| `npm run check:docs` | Fail if a relative link in the repository's Markdown does not resolve, or the README is over its word budget ([The documentation site](#the-documentation-site)) |
 | `npm run build:site` | Build the documentation site into `site/dist` and check its links ([The documentation site](#the-documentation-site)) |
 | `npm test -w site` | Build the documentation site and test it in a browser |
 | `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([Images of the management interface](#images-of-the-management-interface)) |
@@ -100,9 +100,10 @@ interface that `README.md` and the documentation site show, from made-up data
 and real recorded curves. It needs the test PostgreSQL (`TEST_DATABASE_URL`), a
 current build and ffmpeg, takes about 4 minutes, and runs at any hour.
 
-- The README's images are committed, in `docs/images/`. `npm run readme-images`
-  writes them to `dist/readme-images`, for you to look at and copy over those a
-  change redraws.
+- The README's images are committed, in `docs/images/`: the Live View GIF
+  and stills of the Overview, a Shot's page and a Profile's page.
+  `npm run readme-images` writes them to `dist/readme-images`, for you to look
+  at and copy over those a change redraws.
 - The site's images are built when it is deployed, by `npm run site-images`
   into `site/generated/`, and never committed.
 - A pull request that changes `web/` or the generator captures its page stills
@@ -134,8 +135,17 @@ A page's address is its path under `site/src/content/docs/`, and
 `site/astro.config.mjs` lists each in the sidebar. The addresses are meant to
 stay, so rename a page's title freely and its file never. A page links to
 another page of the site with a relative path ending in a slash, such as
-`../../guide/shots/`, because the site is served at more than one path. A page
-not yet written is a short page saying what it will hold.
+`../../guide/shots/`, because the site is served at more than one path. Every
+page is written: a new page goes in with its content, never as a note of what
+it will hold.
+
+The site is for the people who run and use Decent Sync, and a change that
+alters what they read or do updates its page in the same change
+(`AGENTS.md`, Documentation). `README.md` is the pitch, for someone deciding
+whether to try Decent Sync: it links to the site's pages and describes no
+feature in detail. The Technical section's Architecture page gives each ADR
+in a line, and its Internals page links to every topic doc and note, so a new
+ADR, topic doc or note is added there too. The site's tests fail until it is.
 
 The Glossary and the Upgrade notes are the two pages with no file there. Each
 is rendered from its file at the repository's root, `GLOSSARY.md` and
@@ -170,14 +180,18 @@ published release notes link to those paths.
 `npm run check:docs` (`scripts/check-docs.mjs`) fails on a relative link in
 the repository's Markdown that names no file or folder, or a heading its file
 doesn't have. It reads every Markdown file but the site's own pages, whose
-links the site's build checks.
+links the site's build checks. It also fails a `README.md` of more than 1,500
+words, counted as `wc -w` counts them, markup and alt text included, so the
+README stays a pitch: detail goes on the site's page for its area, which the
+README links to.
 
 The home page is `site/src/content/docs/index.mdx`, drawn by
 `site/src/components/HomeHero.astro` and `Home.astro`. A page shows an image of
 the management interface by its name with `site/src/components/Still.astro`,
 in the site's theme, light or dark. The deploy builds the site with the images
-it generates; any other build shows the README's copy in `docs/images/` in
-their place ([Images of the management interface](#images-of-the-management-interface)).
+it generates; any other build shows the README's copy in `docs/images/` of
+the four it commits, and a line in place of each of the rest
+([Images of the management interface](#images-of-the-management-interface)).
 
 CI runs the docs check, and builds and tests the site, on every pull request,
 docs-only ones included, and deploys nothing. The release workflow deploys it
@@ -290,7 +304,10 @@ and the plugin build copies it into `decent-sync.reaplugin/manifest.json`.
 Replace `X.Y.Z` with the new version.
 
 1. Set the version, rebuild the plugin, and retitle the Unreleased notes in
-   `UPGRADING.md`, if there are any, with the version. Rebuild the test
+   `UPGRADING.md`, if there are any, with the version. Where the release
+   finishes a milestone, add its row to the site's Releases page
+   (`site/src/content/docs/project/releases.md`), and take what it built out
+   of the Roadmap page beside it. Rebuild the test
    durations manifest too, once CI has passed on `main` for the last change
    the release holds. Commit the changes and merge them to `main`:
 

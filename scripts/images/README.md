@@ -4,7 +4,7 @@ One generator makes the images of the management interface that `README.md` and 
 
 ## Committed and built
 
-- The README's images are committed, in `docs/images/`: those `stills.ts` marks `readme`. A change that redraws one of their pages regenerates it in the same change, with `npm run readme-images`.
+- The README's images are committed, in `docs/images/`: those `stills.ts` marks `readme`, which are the Live View GIF and stills of the Overview, a Shot's page and a Profile's page. `docs/images/` holds nothing else. A change that redraws one of their pages regenerates it in the same change, with `npm run readme-images`.
 - The site's images are built: the site's deploy (`.github/workflows/release.yml`) generates every image into `site/generated/` with `npm run site-images` and builds the site with them. None is committed, and `site/generated/` is ignored by git.
 - A build of the site without them, such as a pull request's or `npm run dev -w site`, shows the README's committed copy in their place, and an image the README does not commit as a line saying it is built at deploy (`site/src/pick-still.mjs`).
 - A failed capture fails the site's deploy, and the release it follows stays published.
