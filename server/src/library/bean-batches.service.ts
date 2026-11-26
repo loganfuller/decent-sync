@@ -129,7 +129,7 @@ function tracked(here: ListedBatch["locations"][number]): here is ListedBatch["l
   return here.addedAt !== null && here.finishedAt === null && here.remainingWeight !== null && here.remainingWeightAt !== null;
 }
 
-/** The Shots that count against a weight entered, and the coffee they used. */
+/** The Shots that count against a weight entered, and the coffee they used, unrounded, so that only what is shown is rounded. */
 interface Used {
   shots: number;
   weight: number;
@@ -160,7 +160,7 @@ export async function usedSince(
       AS here(batch_id, location_id, entered_at)
     JOIN shots AS shot ON shot.library_batch_id = here.batch_id AND shot.location_id = here.location_id AND shot.pulled_at > here.entered_at
     GROUP BY here.batch_id, here.location_id`;
-  return new Map(rows.map((row) => [usedKey(row.batchId, row.locationId), { shots: row.shots, weight: grams(row.weight) }]));
+  return new Map(rows.map((row) => [usedKey(row.batchId, row.locationId), { shots: row.shots, weight: row.weight }]));
 }
 
 export function usedKey(batchId: string, locationId: string): string {
@@ -206,7 +206,7 @@ function summary(batch: ListedBatch, used: ReadonlyMap<string, Used>, enteredBy:
           ...place,
           remainingWeight: remainingAfter(here.remainingWeight, since.weight),
           entered: { weight: here.remainingWeight, at: here.remainingWeightAt.toISOString(), by },
-          used: since,
+          used: { shots: since.shots, weight: grams(since.weight) },
         },
       ];
     })

@@ -3442,10 +3442,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
   not Decaid's or a value Decaid would refuse.
 - `POST /api/bean-batches`, with `{ beanId, content, locations }`, the one
   Location it is created at as `[{ locationId, remainingWeight }]`, creates a
-  batch there, and returns `{ batch }` with 201; 400 for no Location, for
-  more than one, and for a remaining weight of zero, and 409 if its Bean is
-  Archived. With no `remainingWeight` its count starts at its roasted
-  `weight`, if it has one, and null leaves it untracked. `PATCH /api/bean-batches/:id` and `PUT
+  batch there, and returns `{ batch }` with 201; 400 for a remaining weight
+  of zero, and 409 if its Bean is Archived. With no `remainingWeight` its
+  count starts at its roasted `weight`, if it has one, and null leaves it
+  untracked. For this release it still takes no Location or several, as the
+  previous release's page sends them, each starting at the weight given for
+  it or untracked, never at the roasted weight; the next release refuses
+  them with 400 (#716). `PATCH /api/bean-batches/:id` and `PUT
   /api/bean-batches/:id/archived` edit its details and Archive or restore it.
   `PUT /api/bean-batches/:id/locations/:locationId`, with `{ atLocation,
   remainingWeight }`, either or both, adds it at the Location (true) or
