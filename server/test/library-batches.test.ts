@@ -224,7 +224,7 @@ describe("Bean Batches at Locations", () => {
   });
 
   it("tells a Skin on a lab tablet when the server archives a batch there and when it brings it back, and of no write leaving it archived as it was", async () => {
-    const { one, two, cafe } = await lab("Told", 16221);
+    const { one, two, cafe } = await lab("Told", 16321);
     const { record, batch } = await enterBatch(one, "Told Natural");
     const held = await holds(() => heldBatch(two, batch.id), { archived: false });
 
