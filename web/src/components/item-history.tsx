@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type EditSource, type ItemHistory as History, type ItemKind, type ItemVersion, type Location, type LostEdit } from "@/lib/api";
+import { moveText } from "@/lib/batch-moves";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
@@ -218,7 +219,12 @@ function HistoryValue({ field, value, names }: { field: string; value: unknown; 
   return <>{valueText(field, value, names)}</>;
 }
 
-/** Whether an edit is a batch finished at a Location by a weight of zero entered there, which is one change (ADR-0037). */
+/**
+ * Whether an edit is a batch finished at a Location by a weight of zero
+ * entered there, which is one change (ADR-0037). A Batch Move is one change
+ * too, written as one line naming both Locations and the amount (`moveText`)
+ * in place of the fields it set.
+ */
 function finishedByZero(version: ItemVersion): boolean {
   return version.location !== null && version.fields.atLocation === false && version.fields.remainingWeight === 0;
 }
@@ -292,7 +298,13 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                             <dd className="min-w-0 wrap-anywhere">Finished, by a weight of 0 g</dd>
                           </div>
                         )}
-                        {(finishedByZero(version) ? [] : Object.entries(version.fields)).map(([field, value]) => (
+                        {version.move && (
+                          <div className="contents">
+                            <dt className="text-muted-foreground">Batch Move</dt>
+                            <dd className="min-w-0 wrap-anywhere">{moveText(version.move)}</dd>
+                          </div>
+                        )}
+                        {(finishedByZero(version) || version.move ? [] : Object.entries(version.fields)).map(([field, value]) => (
                           <div key={field} className="contents">
                             <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
                             <dd className="min-w-0 wrap-anywhere">

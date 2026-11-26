@@ -297,8 +297,9 @@ full detail.
   as Decaid's record has no field for one yet. A code changed on the tablet
   is written over with the Library's.
 - It sets each batch's remaining weight to the weight last entered at its
-  Location. That number does not fall on the tablet as Shots are pulled: the
-  management interface shows the weight worked out from them.
+  Location, or to the amount a move brought there where it had none. That
+  number does not change on the tablet as Shots are pulled or more is moved:
+  the management interface shows the weight worked out from them.
 - It shows each Profile its Location shows.
 - It sets the profile of a Draft its Machine follows as the Workflow's
   profile, where an Admin marked the Machine's Location for trying Drafts

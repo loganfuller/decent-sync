@@ -298,7 +298,7 @@ export function readNewBatch(
   const listed = fields.locations ?? [];
   const one = Array.isArray(listed) && listed.length === 1;
   if (!Array.isArray(listed) || (!one && !previousRelease)) {
-    throw new BadRequestException("Send the one Location the batch is created at as locations: [{ locationId, remainingWeight }]. It reaches another Location by being added there");
+    throw new BadRequestException("Send the one Location the batch is created at as locations: [{ locationId, remainingWeight }]. It reaches another Location by being moved there");
   }
   const content = readNewContent("beanBatch", { content: fields.content ?? {} });
   const locations = listed.map((here: unknown) => {
@@ -329,6 +329,35 @@ export function readPlacement(body: unknown): { atLocation?: boolean; remainingW
     ...(fields.atLocation === undefined ? {} : { atLocation: fields.atLocation as boolean }),
     ...(remainingWeight === undefined ? {} : { remainingWeight }),
   };
+}
+
+/** A Batch Move as a request asks for it: the Location left, the Location joined, and how much. */
+export interface BatchMoveRequest {
+  fromLocationId: string;
+  toLocationId: string;
+  /** An amount in grams, to the tenth of a gram, all of it, or, of a batch with no weight at the Location left, some of it. */
+  amount: number | "all" | "some";
+}
+
+/**
+ * A Batch Move, from a request: `{ fromLocationId, toLocationId, amount }`,
+ * its ids in lower case. `amount` is a number of grams above zero, taken to
+ * the tenth of a gram, or `"all"`, or, for a batch with no weight at the
+ * Location left, `"some"`. No other weight is given with a move. Zero, a
+ * negative amount and a move from a Location to itself are refused here;
+ * what the batch's state refuses is refused as the move is made.
+ */
+export function readBatchMove(body: unknown): BatchMoveRequest {
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const { fromLocationId, toLocationId, amount } = fields;
+  if (typeof fromLocationId !== "string" || !UUID.test(fromLocationId)) throw new BadRequestException("Name the Location the batch leaves as fromLocationId");
+  if (typeof toLocationId !== "string" || !UUID.test(toLocationId)) throw new BadRequestException("Name the Location the batch joins as toLocationId");
+  if (fromLocationId.toLowerCase() === toLocationId.toLowerCase()) throw new BadRequestException("A batch is moved from one Location to another: fromLocationId and toLocationId name the same one");
+  const how = "amount must be a number of grams above 0, or \"all\", or \"some\" for a batch with no weight at the Location it leaves";
+  if (amount !== "all" && amount !== "some" && !(typeof amount === "number" && Number.isFinite(amount))) throw new BadRequestException(how);
+  const moving = typeof amount === "number" ? Math.round(amount * 10) / 10 : amount;
+  if (typeof moving === "number" && moving <= 0) throw new BadRequestException(how);
+  return { fromLocationId: fromLocationId.toLowerCase(), toLocationId: toLocationId.toLowerCase(), amount: moving };
 }
 
 /** A new Grinder's Location, from a request's `locationId`, in lower case. */

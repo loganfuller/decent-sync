@@ -14,6 +14,7 @@ import {
   BASKET_SIZES,
   MAX_BATCH_CODE_LENGTH,
   rangeText,
+  readBatchMove,
   readContentEdit,
   readGrinderLocation,
   readNewBatch,
@@ -243,10 +244,21 @@ const newBatchInput = z.strictObject({
     .array(placeAt)
     .max(100)
     .default([])
-    .describe("The one Location it is created at, so its roasted weight is counted once: none, or more than one, is refused. It reaches another Location by being added there (set_location_offering). Staff create it only at a Location they work at."),
+    .describe("The one Location it is created at, so its roasted weight is counted once: none, or more than one, is refused. It reaches another Location by being moved there (move_bean_batch). Staff create it only at a Location they work at."),
   ...contentFields("beanBatch", false),
 });
 const batchEditInput = z.strictObject({ id: id.describe("The Bean Batch's id, as find_library_items gives it."), ...contentFields("beanBatch", true) });
+
+const batchMoveInput = z.strictObject({
+  id: id.describe("The Bean Batch's id, as find_library_items gives it."),
+  fromLocationId: id.describe("The id of the Location it leaves, which it must be at, as list_locations gives it."),
+  toLocationId: id.describe("The id of the Location it joins, another one, as list_locations gives it."),
+  amount: z
+    .union([z.number(), z.literal("all"), z.literal("some")])
+    .describe(
+      'How much to move: a number of grams, above 0 and below its Remaining Weight at the Location it leaves; or "all", everything left there, which finishes it there; or, only for a batch with no weight at the Location it leaves, "some", which adds it at the Location it joins and leaves it where it was.',
+    ),
+});
 
 const newGrinderInput = z.strictObject({
   locationId: id.describe("The id of the Location it belongs to, which never changes, as list_locations gives it."),
@@ -288,7 +300,7 @@ const offeringInput = z.strictObject({
     .nullable()
     .optional()
     .describe(
-      "A weight entered for a Bean Batch at the Location, in grams, as weighed: its Remaining Weight there starts from it again, and falls with each Shot pulled there after. 0 finishes the batch there, as offered: false does, and is refused with offered: true. null clears it, leaving the batch untracked there. Only where the batch is, or is being added.",
+      "A weight entered for a Bean Batch at the Location, in grams, as weighed: its Remaining Weight there starts from it again, and falls with each Shot pulled there after. It is taken from no other Location: move_bean_batch moves weight. 0 finishes the batch there, as offered: false does, and is refused with offered: true. null clears it, leaving the batch untracked there. Only where the batch is, or is being added.",
     ),
 });
 
@@ -356,7 +368,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "edit_bean_batch",
     title: "Edit a Bean Batch",
-    description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or the weight entered for it at a Location, which set_location_offering changes. A field given null is cleared, but frozen, which can't be. ${STAFF_SHARED} ${TIMES}`,
+    description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or the weight entered for it at a Location, which move_bean_batch and set_location_offering change. A field given null is cleared, but frozen, which can't be. ${STAFF_SHARED} ${TIMES}`,
     inputSchema: batchEditInput,
     outputSchema: z.object({ beanBatch: beanBatchItem }),
     annotations: { ...CHANGES, idempotentHint: true },
@@ -365,6 +377,20 @@ export class LibraryChangesTools {
   async editBeanBatch({ id: batchId, ...fields }: z.infer<typeof batchEditInput>, context: McpContext): Promise<ItemOutput> {
     const values = readContentEdit("beanBatch", { content: changed(fields) });
     await this.edits.editBatch(readBeanBatchId(batchId), values, editorOf(context));
+    return this.library.read("beanBatch", batchId, callerOf(context).scope);
+  }
+
+  @BudgetedTool({
+    name: "move_bean_batch",
+    title: "Move a Bean Batch between Locations",
+    description: `Moves a Bean Batch from one Location it is at to another, a Batch Move: all of it, or part of its weight. Use it whenever weight travels between Locations, as when a roast is sent from a roastery to a cafe. An amount in grams lowers its Remaining Weight at the Location it leaves by that amount and raises it at the Location it joins by the same, so the batch's total never changes; neither Location's count starts again. "all" takes everything left to the Location it joins and finishes the batch at the one it leaves, as finishing it there does: its tablets archive it, and Recipes there go on naming it. At the Location it joins, a batch not there is added, and where it had no weight the amount arriving is where its count starts. An amount equal to or above what the Location it leaves has is refused: move "all", or enter a corrected weight there first (set_location_offering). A batch with no weight at the Location it leaves moves no weight: "all" finishes it there and adds it at the other, and "some" adds it at the other and leaves it, refused where it is there already. No other weight is given with a move. It is one entry of the batch's history, naming both Locations and the amount (move). There is no undo: a wrong move is moved back. Staff move a batch when the Location it leaves or the one it joins is one they work at. ${TIMES}`,
+    inputSchema: batchMoveInput,
+    outputSchema: z.object({ beanBatch: beanBatchItem }),
+    annotations: CHANGES,
+    scopes: [READ, CHANGE],
+  })
+  async moveBeanBatch({ id: batchId, ...move }: z.infer<typeof batchMoveInput>, context: McpContext): Promise<ItemOutput> {
+    await this.edits.moveBatch(readBeanBatchId(batchId), readBatchMove(move), editorOf(context), callerOf(context).scope);
     return this.library.read("beanBatch", batchId, callerOf(context).scope);
   }
 
@@ -506,7 +532,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "set_location_offering",
     title: "Change what a Location offers",
-    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and enters a batch's weight there, which its Remaining Weight there is then worked out from: the weight entered less the dose of each Shot pulled there since. A weight of 0 finishes the batch there, kept in its history as a finish made by a weight of zero, and null leaves it untracked there. The Location's tablets are written the change. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
+    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and enters a batch's weight there, which its Remaining Weight there is then worked out from: the weight entered less the dose of each Shot pulled there since, with what Batch Moves bring and take since. Adding a batch at a Location moves no weight from any other: use move_bean_batch whenever weight should travel, and this only to add a batch where nothing says how much arrived. A weight entered starts that Location's count again, so no move made before it bears on it. A weight of 0 finishes the batch there, kept in its history as a finish made by a weight of zero, and null leaves it untracked there. The Location's tablets are written the change. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
     inputSchema: offeringInput,
     outputSchema: itemOutput,
     annotations: { ...CHANGES, idempotentHint: true },

@@ -184,6 +184,7 @@ describe("connecting an assistant", () => {
         "edit_shot",
         "edit_tool",
         "follow_draft",
+        "move_bean_batch",
         "move_machine",
         "publish_draft",
         "reload_skin",

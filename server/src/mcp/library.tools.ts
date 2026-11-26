@@ -61,7 +61,7 @@ export const TIMES =
 
 /** What the Library's items hold, for the descriptions of the tools that read or change them. */
 export const ITEMS =
-  "An item's content is its record's fields, as the tablet that created it sent them and as edited since, Decaid's names for a Bean's, Bean Batch's, Grinder's and Profile's, and DYE2's for a Basket's and Tool's. A Grinder's also holds, under DYE2's names, its feedRate note and the range and default of its setting and of its RPM (settingMin, settingMax, settingDefault, rpmMin, rpmMax, rpmDefault), where 0 is a value: a tablet's steppers stop at the range, and a Machine takes the default, or the middle of the range, as a barista picks the Grinder on it. A Recipe's content is in the Library's terms: dose and yield in grams, brewTemperature in °C, grindSetting as typed, and any steam, hot water and flush settings in °C, seconds, ml/s and ml. A Bean Batch's remainingWeight at a Location is its Remaining Weight there, in grams, worked out as it is read: the weight last entered there (entered), less the dose of each Shot linked to the batch that was pulled there since (used), never below 0. One with no weight entered at a Location is untracked there: its remainingWeight there is null, not 0, and Shots take nothing from it. A Profile marked bundled is one of Decaid's own, which every tablet has. A Bean's likelyDuplicates are other Beans with the same roaster and name, ignoring case, never merged.";
+  "An item's content is its record's fields, as the tablet that created it sent them and as edited since, Decaid's names for a Bean's, Bean Batch's, Grinder's and Profile's, and DYE2's for a Basket's and Tool's. A Grinder's also holds, under DYE2's names, its feedRate note and the range and default of its setting and of its RPM (settingMin, settingMax, settingDefault, rpmMin, rpmMax, rpmDefault), where 0 is a value: a tablet's steppers stop at the range, and a Machine takes the default, or the middle of the range, as a barista picks the Grinder on it. A Recipe's content is in the Library's terms: dose and yield in grams, brewTemperature in °C, grindSetting as typed, and any steam, hot water and flush settings in °C, seconds, ml/s and ml. A Bean Batch's remainingWeight at a Location is its Remaining Weight there, in grams, worked out as it is read: the weight its count there starts from (entered), which is the weight last entered there or the amount a Batch Move brought where it had none, less the dose of each Shot linked to the batch that was pulled there since (used), plus what Batch Moves have brought there since and less what they have taken away (moved), never below 0. One with no weight at a Location is untracked there: its remainingWeight there is null, not 0, and Shots take nothing from it. A Batch Move takes a batch from one Location it is at to another, all of it or part of its weight, and never changes the batch's total. A Profile marked bundled is one of Decaid's own, which every tablet has. A Bean's likelyDuplicates are other Beans with the same roaster and name, ignoring case, never merged.";
 
 const time = (what: string) => z.string().describe(what);
 const joinedAt = time("When it joined the Library.");
@@ -113,19 +113,32 @@ const batchSummary = z.object({
     .array(
       z.object({
         location,
-        remainingWeight: z.number().nullable().describe("Its Remaining Weight there, in grams: the weight last entered there less what the Shots pulled there since have used, never below 0; null where it is untracked there."),
+        remainingWeight: z
+          .number()
+          .nullable()
+          .describe("Its Remaining Weight there, in grams: the weight its count there starts from, less what the Shots pulled there since have used, plus what Batch Moves have brought there since, less what they have taken away, never below 0; null where it is untracked there."),
         entered: z
           .object({
             weight: z.number().describe("In grams."),
-            at: time("When it was entered."),
-            by: source.nullable().describe("Who entered it: the Machine whose tablet it was entered on, or the account; null where unknown."),
+            at: time("When it was entered, or arrived."),
+            by: source.nullable().describe("Who entered it, or moved it there: the Machine whose tablet it was entered on, or the account; null where unknown."),
+            arrivedFrom: location.nullable().describe("For a count that started with a Batch Move, the Location the weight arrived from; null for a weight entered, and where that Location has been deleted since."),
           })
           .nullable()
-          .describe("The weight last entered there, which the count starts from; null where it is untracked there."),
+          .describe("The weight its count there starts from: the weight last entered there, or, where the batch had none there when a Batch Move brought some, the amount that arrived; null where it is untracked there."),
         used: z
-          .object({ shots: z.number().describe("How many Shots linked to it were pulled there since the weight was entered."), weight: z.number().describe("The coffee they used, in grams: each Shot's measured dose, else the dose its Workflow was set to.") })
+          .object({ shots: z.number().describe("How many Shots linked to it were pulled there since its count started."), weight: z.number().describe("The coffee they used, in grams: each Shot's measured dose, else the dose its Workflow was set to.") })
           .nullable()
-          .describe("What the Shots pulled there since the weight was entered have used; null where it is untracked there."),
+          .describe("What the Shots pulled there since its count started have used; null where it is untracked there."),
+        moved: z
+          .object({
+            in: z.number().describe("The weight moved there since its count started, in grams."),
+            from: z.array(z.object({ location, weight: z.number().describe("In grams.") })).describe("That weight by the Location it came from."),
+            away: z.number().describe("The weight moved away from there since its count started, in grams."),
+            to: z.array(z.object({ location, weight: z.number().describe("In grams.") })).describe("That weight by the Location it went to."),
+          })
+          .nullable()
+          .describe("What Batch Moves have brought there and taken from there since its count started; null where it is untracked there."),
         since: time("When it was last added there."),
       }),
     )
@@ -258,7 +271,7 @@ const recipe = z.object({
 const version = z.object({
   id,
   fields: content(
-    "The fields it set, each with its value: of the item's content, by Decaid's names, or of its state at its Location (atLocation, remainingWeight, shown), or a Recipe's referenceShotId, its Reference Shot's id, null when cleared. The first version is the item joining the Library.",
+    "The fields it set, each with its value: of the item's content, by Decaid's names, or of its state at its Location (atLocation, remainingWeight, shown), or a Recipe's referenceShotId, its Reference Shot's id, null when cleared. The first version is the item joining the Library. A Batch Move's are what it set at the Location joined, with movedFrom, the id of the Location left, movedAmount and movedAll, which move reads out.",
   ),
   location: location.nullable().describe("The Location whose state of the item it changed; null for its content."),
   source,
@@ -268,6 +281,15 @@ const version = z.object({
     .object({ id, name: z.string().nullable(), location: location.nullable() })
     .nullable()
     .describe("For a copy, as a Recipe copied to a Location, its first version names the item it was copied from, and that item's Location then."),
+  move: z
+    .object({
+      from: location.nullable().describe("The Location it left; null if deleted since."),
+      to: location.nullable().describe("The Location it joined; null if deleted since."),
+      amount: z.number().nullable().describe("The weight moved, in grams; null for a batch with no weight where it was, which moved none."),
+      all: z.boolean().describe("Whether all of it was moved, which finished it at the Location left."),
+    })
+    .nullable()
+    .describe("For a Batch Move, one entry of a Bean Batch's history: where it was moved from and to, and how much; null for every other entry."),
 });
 
 /** An entry of an item's history as get_library_item reads it: a version, or a Lost Edit. */
@@ -347,7 +369,7 @@ export const beanItem = beanSummary.extend({ content: content(RECORD_FIELDS), ba
 export const beanBatchItem = batchSummary.extend({
   content: content(`${RECORD_FIELDS} Its remaining weight and whether it is Archived are each Location's, so left out.`),
   finished: z
-    .array(z.object({ location, remainingWeight: z.number().nullable().describe("The weight last entered there, in grams, which went with it."), finishedAt: time("When it was finished there.") }))
+    .array(z.object({ location, remainingWeight: z.number().nullable().describe("The weight its count there last started from, in grams, which went with it: 0 where a Batch Move took all of it."), finishedAt: time("When it was finished there.") }))
     .describe("The Locations it was at and has been finished at since, by name."),
 });
 
@@ -660,8 +682,19 @@ function batchOf(batch: BeanBatchSummary | BeanBatchView): z.infer<typeof batchS
     locations: batch.locations.map((here) => ({
       location: locationOf(here.location),
       remainingWeight: here.remainingWeight,
-      entered: here.entered && { weight: here.entered.weight, at: timeAt(here.entered.at, here.location), by: here.entered.by && sourceOf(here.entered.by) },
+      entered: here.entered && {
+        weight: here.entered.weight,
+        at: timeAt(here.entered.at, here.location),
+        by: here.entered.by && sourceOf(here.entered.by),
+        arrivedFrom: maybeLocation(here.entered.arrivedFrom),
+      },
       used: here.used,
+      moved: here.moved && {
+        in: here.moved.in,
+        from: here.moved.from.map((other) => ({ location: locationOf(other.location), weight: other.weight })),
+        away: here.moved.away,
+        to: here.moved.to.map((other) => ({ location: locationOf(other.location), weight: other.weight })),
+      },
       since: timeAt(here.since, here.location),
     })),
     totalRemainingWeight: batch.totalRemainingWeight,
@@ -818,6 +851,7 @@ function versionOf(entry: VersionView, itemLocation: LocationView | null): z.inf
     editedAt: timeAt(entry.editedAt, where),
     receivedAt: timeAt(entry.receivedAt, where),
     copiedFrom: entry.copiedFrom && { id: entry.copiedFrom.id, name: entry.copiedFrom.name, location: maybeLocation(entry.copiedFrom.location) },
+    move: entry.move && { from: maybeLocation(entry.move.from), to: maybeLocation(entry.move.to), amount: entry.move.amount, all: entry.move.all },
     lost: false,
     lostTo: null,
   };
@@ -834,6 +868,7 @@ function lostEditOf(entry: LostEditView, itemLocation: LocationView | null): z.i
     editedAt: timeAt(entry.editedAt, where),
     receivedAt: timeAt(entry.lostAt, where),
     copiedFrom: null,
+    move: null,
     lost: true,
     lostTo: entry.lostTo && {
       versionId: entry.lostTo.versionId,

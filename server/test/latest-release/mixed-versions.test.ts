@@ -943,6 +943,75 @@ describe("the latest release beside the change", () => {
       expect(history.versions[0]!.fields).toEqual({ remainingWeight: 0, atLocation: false });
     });
 
+    // A Batch Move (#704, ADR-0037): a new route and a new table, which the latest release neither calls nor reads. It
+    // goes on adding and finishing batches at Locations and entering weights, each stored as it always was: a weight
+    // it enters is a new version, and so a new count, which no move made before it bears on.
+    it("moves a batch through the change beside the latest release, whose pages go on reading it, adding and finishing it and entering weights, each weight it enters starting that Location's count again", async () => {
+      const old = apis["latest release"];
+      const lab = await apis.change.createLocation("Moves, the lab", "America/Chicago");
+      const cafe = await apis.change.createLocation("Moves, the cafe", "America/Chicago");
+      const kiosk = await apis.change.createLocation("Moves, the kiosk", "America/Chicago");
+      const { tablet } = await connected("Moves, on the latest release", "latest release", "latest release", { location: lab });
+      type Batch = {
+        id: string;
+        totalRemainingWeight?: number | null;
+        locations: { location: { id: string }; remainingWeight: number | null; entered?: { weight: number; arrivedFrom?: unknown } | null; moved?: { in: number; away: number } | null }[];
+        finished: { location: { id: string } }[];
+      };
+      const read = async (through: Release, id: string) => (await apis[through].get<{ batch: Batch }>(`/bean-batches/${id}`)).batch;
+      const weights = async (through: Release, id: string) => Object.fromEntries((await read(through, id)).locations.map((here) => [here.location.id, here.remainingWeight]));
+      const at = async (id: string, location: LocationView) => (await read("change", id)).locations.find((here) => here.location.id === location.id);
+      const move = (id: string, from: LocationView, to: LocationView, amount: number | "all") =>
+        apis.change.send<{ batch: Batch }>("POST", `/bean-batches/${id}/moves`, { fromLocationId: from.id, toLocationId: to.id, amount });
+
+      // Created through the latest release, at the lab, and part of it moved to the cafe through the change.
+      const { bean } = await old.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Moves" } }, 201);
+      const id = (await old.send<{ batch: Batch }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-11-21" }, locations: [{ locationId: lab.id, remainingWeight: 1000 }] }, 201)).batch.id;
+      const held = () => tablet.batches().find((record) => globalIdOf(record) === id);
+      await expect.poll(() => held()?.archived).toBe(false);
+      await move(id, lab, cafe, 400);
+      expect(await weights("change", id)).toEqual({ [lab.id]: 600, [cafe.id]: 400 });
+      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 1000 });
+      // The latest release's page reads the same route: the batch at both, each with the weight its count starts from, as it knows nothing of moves.
+      expect(await weights("latest release", id)).toEqual({ [lab.id]: 1000, [cafe.id]: 400 });
+      // And its history, the move among it, as fields of a version at the Location joined.
+      const history = await old.get<{ versions: { fields: Record<string, unknown>; location: { id: string } | null }[] }>(`/bean-batches/${id}/history`);
+      expect(history.versions[0]).toMatchObject({ location: { id: cafe.id }, fields: { movedFrom: lab.id, movedAmount: 400, movedAll: false, atLocation: true, remainingWeight: 400 } });
+
+      // A weight the latest release enters at the Location left starts its count again: the move is no longer since.
+      await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 550 });
+      expect(await at(id, lab)).toMatchObject({ remainingWeight: 550, entered: { weight: 550, arrivedFrom: null }, moved: { in: 0, away: 0 } });
+      expect(await at(id, cafe)).toMatchObject({ remainingWeight: 400, entered: { weight: 400, arrivedFrom: { id: lab.id } } });
+      // And one it enters at the Location joined is a weight entered, no longer one that arrived.
+      await old.send("PUT", `/bean-batches/${id}/locations/${cafe.id}`, { remainingWeight: 380 });
+      expect(await at(id, cafe)).toMatchObject({ remainingWeight: 380, entered: { weight: 380, arrivedFrom: null }, moved: { in: 0, away: 0 } });
+      // A move made after its entries counts since them, and the two releases read the same weight until it does.
+      expect(await weights("latest release", id)).toEqual(await weights("change", id));
+      await move(id, cafe, lab, 50);
+      expect(await weights("change", id)).toEqual({ [lab.id]: 600, [cafe.id]: 330 });
+
+      // The latest release's page adds the batch at a third Location, moving no weight, and finishes it at the cafe.
+      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { atLocation: true });
+      expect(await weights("change", id)).toEqual({ [lab.id]: 600, [cafe.id]: 330, [kiosk.id]: null });
+      await old.send("PUT", `/bean-batches/${id}/locations/${cafe.id}`, { atLocation: false });
+      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 600, finished: [{ location: { id: cafe.id } }] });
+
+      // All of it moved through the change: finished at the lab for both releases, whose tablet, on the latest release's server and plugin, archives it.
+      await move(id, lab, kiosk, "all");
+      for (const through of ["change", "latest release"] as const) {
+        const batch = await read(through, id);
+        expect(batch.locations.map((here) => here.location.id), through).toEqual([kiosk.id]);
+        expect(batch.locations[0]!.remainingWeight, through).toBe(600);
+        expect(batch.finished.map((here) => here.location.id).sort(), through).toEqual([cafe.id, lab.id].sort());
+      }
+      await expect.poll(() => held()?.archived, { timeout: 15_000 }).toBe(true);
+      // The latest release's page finishes it there, and adds it back at the lab, as it always could.
+      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { remainingWeight: 0 });
+      await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { atLocation: true, remainingWeight: 120 });
+      expect(await at(id, lab)).toMatchObject({ remainingWeight: 120, entered: { weight: 120, arrivedFrom: null }, moved: { in: 0, away: 0 } });
+      await expect.poll(() => held()?.archived, { timeout: 15_000 }).toBe(false);
+    });
+
     it("writes a Library edit made through one instance to the tablet the other holds", async () => {
       const location = await apis.change.createLocation("Library, on both", "America/Chicago");
       const onRelease = await connected("Library, on the latest release", "latest release", "latest release", { location });

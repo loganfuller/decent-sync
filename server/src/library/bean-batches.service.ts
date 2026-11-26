@@ -4,24 +4,44 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type SourceView, viewSource, withSource } from "./history.service.js";
+import { type Count, type Moved, NOT_MOVED, type Used, countKey, grams, movedSince, remainingAfter, usedSince } from "./remaining-weight.js";
 
 /** A Bean Batch at a Location, as the REST API lists it. */
 export interface BatchAtLocation {
   location: LocationView;
   /**
    * Its Remaining Weight there, in grams, worked out as it is read
-   * (ADR-0037): the weight last entered there, less the dose of each Shot
-   * linked to the batch that was pulled there since, and never below zero.
-   * Null where it is untracked: no weight was entered there, or it was
-   * cleared.
+   * (ADR-0037): the weight its count there starts from, less the dose of
+   * each Shot linked to the batch that was pulled there since, plus what
+   * Batch Moves have brought there since, less what they have taken away,
+   * and never below zero. Null where it is untracked: no weight was entered
+   * there and none arrived by a move, or it was cleared.
    */
   remainingWeight: number | null;
-  /** The weight last entered there, which the count starts from, with when and who entered it, where that is known; null where it is untracked. */
-  entered: { weight: number; at: string; by: SourceView | null } | null;
-  /** The Shots linked to the batch pulled there since that weight was entered, and the coffee they used, in grams; null where it is untracked. */
+  /**
+   * The weight its count there starts from, with when: the weight last
+   * entered there, and who entered it, where that is known, or, for a count
+   * that started with a Batch Move, the amount that arrived, who moved it,
+   * and the Location it arrived from (`arrivedFrom`, null for a weight
+   * entered). Null where it is untracked.
+   */
+  entered: { weight: number; at: string; by: SourceView | null; arrivedFrom: LocationView | null } | null;
+  /** The Shots linked to the batch pulled there since its count started, and the coffee they used, in grams; null where it is untracked. */
   used: { shots: number; weight: number } | null;
+  /**
+   * What Batch Moves have brought there (`in`) and taken from there (`away`)
+   * since its count started, in grams, each with the amounts by the other
+   * Location (`from`, `to`); null where it is untracked.
+   */
+  moved: { in: number; from: MovedWith[]; away: number; to: MovedWith[] } | null;
   /** When it was last added there, by the edit's time: a tablet's edit by its clock. A tablet adding it again while it is there moves it. */
   since: string;
+}
+
+/** An amount moved between a Location and another since its count started, in grams, by that other Location. */
+export interface MovedWith {
+  location: LocationView;
+  weight: number;
 }
 
 /** A Bean Batch as the REST API lists it. */
@@ -53,7 +73,7 @@ export interface BeanBatchView extends BeanBatchSummary {
    * `weightRemaining`, which are each Location's.
    */
   content: Record<string, unknown>;
-  /** The Locations it was at and has been finished at since, by name, with when and the weight last entered there, which went with it. */
+  /** The Locations it was at and has been finished at since, by name, with when and the weight its count there last started from, which went with it: zero where a Batch Move took all of it. */
   finished: { location: LocationView; remainingWeight: number | null; finishedAt: string }[];
 }
 
@@ -108,73 +128,29 @@ export class BeanBatchesService {
 
   /**
    * The batches as lists show them, each Location's Remaining Weight worked
-   * out from the Shots pulled there since its weight was entered: read for
-   * all of them at once, in one query for the Shots and one for who entered
-   * the weights, however many batches there are.
+   * out from the Shots pulled there and the Batch Moves made since its count
+   * started: read for all of them at once, in one query for the Shots, one
+   * for the moves and one for who started the counts, however many batches
+   * there are.
    */
   private async summaries(batches: ListedBatch[], scope: Scope): Promise<BeanBatchSummary[]> {
-    const entries = batches.flatMap((batch) => batch.locations.flatMap((here) => (tracked(here) ? [{ batchId: batch.id, locationId: here.locationId, at: here.remainingWeightAt }] : [])));
-    const versionIds = batches.flatMap((batch) => batch.locations.flatMap((here) => (tracked(here) && here.remainingWeightVersionId !== null ? [here.remainingWeightVersionId] : [])));
-    const [used, versions] = await Promise.all([
-      usedSince(this.prisma, entries),
+    const counts = batches.flatMap((batch) =>
+      batch.locations.flatMap((here): Count[] => (tracked(here) ? [{ batchId: batch.id, locationId: here.locationId, at: here.remainingWeightAt, versionId: here.remainingWeightVersionId }] : [])),
+    );
+    const versionIds = counts.flatMap((count) => (count.versionId === null ? [] : [count.versionId]));
+    const [used, moved, versions] = await Promise.all([
+      usedSince(this.prisma, counts),
+      movedSince(this.prisma, counts),
       versionIds.length === 0 ? [] : this.prisma.itemVersion.findMany({ where: { id: { in: versionIds } }, include: withSource }),
     ]);
-    const enteredBy = new Map(versions.map((version) => [version.id, viewSource(version, scope)]));
-    return batches.map((batch) => summary(batch, used, enteredBy));
+    const startedBy = new Map(versions.map((version) => [version.id, viewSource(version, scope)]));
+    return batches.map((batch) => summary(batch, used, moved, startedBy));
   }
 }
 
-/** A Location's state of a batch that has it there with a weight entered: tracked there. */
+/** A Location's state of a batch that has it there with a weight its count starts from: tracked there. */
 function tracked(here: ListedBatch["locations"][number]): here is ListedBatch["locations"][number] & { addedAt: Date; remainingWeight: number; remainingWeightAt: Date } {
   return here.addedAt !== null && here.finishedAt === null && here.remainingWeight !== null && here.remainingWeightAt !== null;
-}
-
-/** The Shots that count against a weight entered, and the coffee they used, unrounded, so that only what is shown is rounded. */
-interface Used {
-  shots: number;
-  weight: number;
-}
-
-/**
- * What the Shots pulled at each Location since the batch's weight was
- * entered there used, by `usedKey`, for the weights entered given, each
- * with the time it was entered as the batch's row was read (ADR-0037).
- * The time is taken from that read, not looked up again, so a weight
- * entered in between is never paired with the Shots of another. Every
- * Shot linked to the batch whose Location is that one and that was pulled
- * after the entry, Unfinished Shots and Trial Shots among them, each by its
- * measured dose, else the dose its Workflow was set to, else nothing. A Shot
- * with no Location, or pulled where the batch has no weight, is in none.
- * Nothing is kept: a Shot edited, linked to another batch, deleted or
- * arriving late changes the answer the next time it is read.
- */
-export async function usedSince(
-  db: Pick<Prisma.TransactionClient, "$queryRaw">,
-  entries: readonly { batchId: string; locationId: string; at: Date }[],
-): Promise<Map<string, Used>> {
-  if (entries.length === 0) return new Map();
-  const rows = await db.$queryRaw<{ batchId: string; locationId: string; shots: number; weight: number }[]>`
-    SELECT here.batch_id::text AS "batchId", here.location_id::text AS "locationId", count(*)::integer AS shots,
-      COALESCE(sum(COALESCE(shot.actual_dose, shot.target_dose, 0)), 0)::double precision AS weight
-    FROM unnest(${entries.map((entry) => entry.batchId)}::uuid[], ${entries.map((entry) => entry.locationId)}::uuid[], ${entries.map((entry) => entry.at)}::timestamptz[])
-      AS here(batch_id, location_id, entered_at)
-    JOIN shots AS shot ON shot.library_batch_id = here.batch_id AND shot.location_id = here.location_id AND shot.pulled_at > here.entered_at
-    GROUP BY here.batch_id, here.location_id`;
-  return new Map(rows.map((row) => [usedKey(row.batchId, row.locationId), { shots: row.shots, weight: row.weight }]));
-}
-
-export function usedKey(batchId: string, locationId: string): string {
-  return `${batchId} ${locationId}`;
-}
-
-/** A weight entered less what Shots have used since, never below zero: a weight entered too low reads zero, and finishes nothing. */
-export function remainingAfter(entered: number, used: number): number {
-  return Math.max(0, grams(entered - used));
-}
-
-/** A weight to the tenth of a gram, as doses are measured, so a sum of them shows no floating-point remainder. */
-function grams(weight: number): number {
-  return Math.round(weight * 10) / 10;
 }
 
 /** The Batch Code a list is asked for by, from a request's query: `batchCode`, or undefined where it gives none. 400 for one given more than once. */
@@ -191,22 +167,33 @@ export function readBeanBatchId(id: string): string {
   return id;
 }
 
-function summary(batch: ListedBatch, used: ReadonlyMap<string, Used>, enteredBy: ReadonlyMap<string, SourceView>): BeanBatchSummary {
+function summary(batch: ListedBatch, used: ReadonlyMap<string, Used>, moved: ReadonlyMap<string, Moved>, startedBy: ReadonlyMap<string, SourceView>): BeanBatchSummary {
   const bean = object(batch.bean.content);
   const content = object(batch.content);
+  // Every Location a move of the batch names has a row of its state here, finished or not, while it exists.
+  const named = new Map(batch.locations.map((here) => [here.locationId, viewLocation(here.location)]));
+  const withLocations = (amounts: Moved["from"]): MovedWith[] =>
+    amounts.flatMap(({ locationId, weight }) => {
+      const location = locationId === null ? undefined : named.get(locationId);
+      return location ? [{ location, weight: grams(weight) }] : [];
+    });
   const locations = batch.locations
     .flatMap((here): BatchAtLocation[] => {
       if (here.addedAt === null || here.finishedAt !== null) return [];
       const place = { location: viewLocation(here.location), since: here.addedAt.toISOString() };
-      if (!tracked(here)) return [{ ...place, remainingWeight: null, entered: null, used: null }];
-      const since = used.get(usedKey(batch.id, here.locationId)) ?? { shots: 0, weight: 0 };
-      const by = here.remainingWeightVersionId === null ? null : (enteredBy.get(here.remainingWeightVersionId) ?? null);
+      if (!tracked(here)) return [{ ...place, remainingWeight: null, entered: null, used: null, moved: null }];
+      const key = countKey(batch.id, here.locationId);
+      const since = used.get(key) ?? { shots: 0, weight: 0 };
+      const moves = moved.get(key) ?? NOT_MOVED;
+      const by = here.remainingWeightVersionId === null ? null : (startedBy.get(here.remainingWeightVersionId) ?? null);
+      const arrivedFrom = moves.startedBy?.fromLocationId == null ? null : (named.get(moves.startedBy.fromLocationId) ?? null);
       return [
         {
           ...place,
-          remainingWeight: remainingAfter(here.remainingWeight, since.weight),
-          entered: { weight: here.remainingWeight, at: here.remainingWeightAt.toISOString(), by },
+          remainingWeight: remainingAfter(here.remainingWeight, since.weight, moves),
+          entered: { weight: here.remainingWeight, at: here.remainingWeightAt.toISOString(), by, arrivedFrom },
           used: { shots: since.shots, weight: grams(since.weight) },
+          moved: { in: grams(moves.in), from: withLocations(moves.from), away: grams(moves.away), to: withLocations(moves.to) },
         },
       ];
     })

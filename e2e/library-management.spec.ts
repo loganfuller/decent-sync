@@ -53,7 +53,7 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Notes")).toHaveText("Jasmine, bergamot");
 });
 
-test("a lab batch is added at a cafe, given a remaining weight there and finished there, staying at the lab", async ({ page }) => {
+test("part of a lab batch is moved to a cafe, weighed there and finished there, staying at the lab", async ({ page }) => {
   const lab = await createLocation(page, "Roastery lab");
   await createLocation(page, "Belmont");
   const createdBean = await page.request.post("/api/beans", { data: { content: { roaster: "Roux Bakehouse", name: "Lab Sidra" } } });
@@ -66,21 +66,26 @@ test("a lab batch is added at a cafe, given a remaining weight there and finishe
 
   await page.goto("/library/bean-batches");
   await page.getByRole("link", { name: "Lab Sidra, roasted 2026-10-04" }).click();
-  const adding = page.getByRole("form", { name: "Add it at a Location" });
-  await adding.getByLabel("Add it at").click();
-  await page.getByRole("option", { name: "Belmont" }).click();
-  await adding.getByRole("button", { name: "Add" }).click();
   const where = page.getByRole("table", { name: "Locations" });
-  await expect(where.getByRole("row", { name: /^Belmont Not tracked/ })).toBeVisible();
   // Created with a roasted weight and no remaining weight, it starts at that weight at the lab.
   await expect(where.getByRole("row", { name: /^Roastery lab 250 g/ })).toBeVisible();
+  // It reaches the cafe by a move (#704): the page has no control that only adds it there.
+  await expect(page.getByRole("form", { name: "Add it at a Location" })).toHaveCount(0);
+  await where.getByRole("button", { name: "Move it from Roastery lab" }).click();
+  const moving = page.getByRole("dialog", { name: "Move this batch" });
+  await moving.getByLabel("Move from Roastery lab to").click();
+  await page.getByRole("option", { name: "Belmont, which has none" }).click();
+  await moving.getByLabel("Weight to move, in grams").fill("180");
+  await moving.getByRole("button", { name: "Move 180 g to Belmont" }).click();
+  await expect(where.getByRole("row", { name: /^Belmont 180 g/ })).toBeVisible();
+  await expect(where.getByRole("row", { name: /^Roastery lab 70 g/ })).toBeVisible();
 
   await where.getByRole("button", { name: "Enter its weight at Belmont" }).click();
   const entering = page.getByRole("dialog", { name: "Enter weight at Belmont" });
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("200");
   await entering.getByRole("button", { name: "Save" }).click();
   await expect(where.getByRole("row", { name: /^Belmont 200 g/ })).toBeVisible();
-  await expect(field(page.getByRole("region", { name: "Where it is" }), "Total remaining")).toHaveText("450 g");
+  await expect(field(page.getByRole("region", { name: "Where it is" }), "Total remaining")).toHaveText("270 g");
 
   await where.getByRole("button", { name: "Finish it at Belmont" }).click();
   await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("Finished");

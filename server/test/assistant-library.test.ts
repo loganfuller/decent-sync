@@ -74,6 +74,7 @@ function historyEntries(rest: Record_): Record_[] {
       editedAt,
       receivedAt: lostAt,
       copiedFrom: null,
+      move: null,
       lost: true,
       lostTo,
     })),

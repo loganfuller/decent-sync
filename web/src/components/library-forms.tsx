@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAuth, useIsAdmin, useStaffLocationIds } from "@/auth";
+import { batchName } from "@/components/bean-batches";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
@@ -8,19 +9,21 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, api, type BeanBatch, type BeanSummary, type Location } from "@/lib/api";
+import { ApiError, api, type BeanBatch, type BeanSummary, type Location, type Recipe } from "@/lib/api";
+import { type MoveHow, destinationText, movePlan, sourceText } from "@/lib/batch-moves";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { totalText, weightLine, weightText } from "@/lib/remaining-weight";
 
 // Creating and editing the Library's Beans, Bean Batches, Grinders, Baskets
-// and Tools, Archiving and restoring them and Profiles, adding and finishing
-// batches at Locations, and an Admin's hard delete. Each change is the
+// and Tools, Archiving and restoring them and Profiles, moving batches
+// between Locations and finishing them there, and an Admin's hard delete. Each change is the
 // account's edit, made over the item as it stands, and is written to every
 // tablet that holds it.
 
@@ -896,10 +899,13 @@ export function NewGrinderDialog() {
 /**
  * Where a batch is: its total over the Locations that track it, and each
  * Location it is at with its remaining weight there and one line saying
- * what that count starts from and what Shots have used since (ADR-0037),
- * and the Locations it was finished at. An Admin, or Staff working there,
- * enters its weight at a Location, finishes it there, or adds it at
- * another.
+ * what that count starts from and what Shots have used and moves have
+ * brought and taken since (ADR-0037), and the Locations it was finished at.
+ * An Admin, or Staff working there, enters its weight at a Location or
+ * finishes it there, and moves it to another Location, all of it or part
+ * of its weight: the one way the page puts a batch at a second Location.
+ * Staff working elsewhere move it from a Location to one of their own. A
+ * batch at no Location is offered one to add it at.
  */
 export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onChanged(): Promise<void> | void }) {
   const mayChangeAt = useMayChangeAt();
@@ -910,8 +916,10 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const id = useId();
-  const addable = (locations ?? []).filter((location) => mayChangeAt(location.id) && !batch.locations.some((here) => here.location.id === location.id));
+  const addable = batch.locations.length > 0 ? [] : (locations ?? []).filter((location) => mayChangeAt(location.id));
   const total = totalText(batch);
+  /** The Locations the account may move the batch to from one: any other for an Admin or Staff working there, else those Staff work at. */
+  const movableTo = (from: Location) => (locations ?? []).filter((location) => location.id !== from.id && (mayChangeAt(from.id) || mayChangeAt(location.id)));
 
   async function place(location: Location, body: { atLocation?: boolean; remainingWeight?: number | null }) {
     setBusy(true);
@@ -956,6 +964,7 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
                 {batch.locations.map((here) => {
                   const { location } = here;
                   const line = weightLine(here, readerId);
+                  const to = batch.archived ? [] : movableTo(location);
                   return (
                     <TableRow key={location.id}>
                       <TableCell className="font-medium">{location.name}</TableCell>
@@ -964,19 +973,24 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
                         {line !== undefined && here.entered !== null && <p className="text-sm text-muted-foreground">{line}</p>}
                       </TableCell>
                       <TableCell>
-                        {mayChangeAt(location.id) && (
+                        {(to.length > 0 || mayChangeAt(location.id)) && (
                           <div className="flex flex-wrap items-center justify-end gap-2">
-                            <EnterWeightDialog batchId={batch.id} here={here} onChanged={onChanged} />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={busy}
-                              aria-label={`Finish it at ${location.name}`}
-                              onClick={() => void place(location, { atLocation: false })}
-                            >
-                              Finish here
-                            </Button>
+                            {to.length > 0 && <MoveBatchDialog batch={batch} from={here} to={to} onMoved={onChanged} />}
+                            {mayChangeAt(location.id) && (
+                              <>
+                                <EnterWeightDialog batchId={batch.id} here={here} onChanged={onChanged} />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={busy}
+                                  aria-label={`Finish it at ${location.name}`}
+                                  onClick={() => void place(location, { atLocation: false })}
+                                >
+                                  Finish here
+                                </Button>
+                              </>
+                            )}
                           </div>
                         )}
                       </TableCell>
@@ -1029,6 +1043,180 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Moves a batch from the Location the dialog was opened at to another, one
+ * of those the account may move it to (`to`), a Batch Move (ADR-0037): all
+ * of it, which finishes it at the Location it leaves, or part of its weight,
+ * in grams. A batch with no weight there moves as all of it or some of it,
+ * with no amount. It says what each Location will hold afterwards, from
+ * the weights as the page read them, and for a move of all, the Recipes at
+ * the Location left that name the batch; the server decides the move.
+ */
+function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from: BeanBatch["locations"][number]; to: Location[]; onMoved(): Promise<void> | void }) {
+  const tracked = from.remainingWeight !== null;
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState("");
+  const [how, setHow] = useState<MoveHow>(tracked ? "part" : "some");
+  const [weight, setWeight] = useState("");
+  const [recipes, setRecipes] = useState<{ naming: number; slotted: number }>();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const id = useId();
+  const left = from.location;
+  const joined = to.find((candidate) => candidate.id === target);
+  const plan = movePlan(from, joined, batch.locations.find((here) => here.location.id === target), how, weight, recipes);
+
+  // The Recipes at the Location left that name the batch, which a move of all leaves naming one finished there.
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(left.id)}/recipes`).then(
+      ({ recipes: listed }) => {
+        const naming = listed.filter((recipe) => !recipe.archived && recipe.uses.beanBatch?.id === batch.id);
+        if (current) setRecipes({ naming: naming.length, slotted: naming.filter((recipe) => recipe.slot !== null).length });
+      },
+      // The dialog then says nothing of them: the move is as it would be.
+      () => current && setRecipes(undefined),
+    );
+    return () => {
+      current = false;
+    };
+  }, [open, left.id, batch.id]);
+
+  async function move(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!joined || plan.amount === undefined) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api("POST", `/bean-batches/${batch.id}/moves`, { fromLocationId: left.id, toLocationId: joined.id, amount: plan.amount });
+      setOpen(false);
+      await onMoved();
+    } catch (caught) {
+      // The previous release's server, as may answer during a deploy (ADR-0025), has no such route.
+      setError(caught instanceof ApiError && caught.status === 404 && caught.message.startsWith("Cannot POST") ? "The server is being updated and can't move a batch yet. Try again in a minute." : failure(caught, "The batch could not be moved"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // Opened afresh each time, on the batch as the page reads it now.
+        if (next) {
+          setTarget("");
+          setHow(tracked ? "part" : "some");
+          setWeight("");
+          setError(undefined);
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" aria-label={`Move it from ${left.name}`}>
+          Move to…
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Move this batch</DialogTitle>
+          <DialogDescription>
+            {batchLabel(batch)}. {sourceText(from)}
+          </DialogDescription>
+        </DialogHeader>
+        <form aria-label="Move this batch" className="grid gap-4" onSubmit={move}>
+          {error && <FormError error={error} />}
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-to`}>Move from {left.name} to</Label>
+            <Select value={target} onValueChange={setTarget}>
+              <SelectTrigger id={`${id}-to`} className="w-full">
+                <SelectValue placeholder="Choose a Location" />
+              </SelectTrigger>
+              <SelectContent>
+                {to.map((candidate) => (
+                  <SelectItem key={candidate.id} value={candidate.id}>
+                    {destinationText(candidate, batch.locations.find((here) => here.location.id === candidate.id))}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label id={`${id}-how`}>How much</Label>
+            <RadioGroup aria-labelledby={`${id}-how`} value={how} onValueChange={(value) => setHow(value === "all" ? "all" : tracked ? "part" : "some")} className="grid gap-3">
+              <div className="flex items-center gap-2">
+                <RadioGroupItem id={`${id}-all`} value="all" />
+                <Label htmlFor={`${id}-all`} className="font-normal">
+                  {from.remainingWeight === null ? "All of it" : `All of it, ${weightText(from.remainingWeight)}`}
+                </Label>
+              </div>
+              {tracked ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem id={`${id}-part`} value="part" />
+                    <Label htmlFor={`${id}-part`} className="font-normal">
+                      Part of it
+                    </Label>
+                  </div>
+                  {how === "part" && (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        aria-label="Weight to move, in grams"
+                        className="w-28"
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={weight}
+                        onChange={(event) => setWeight(event.target.value)}
+                      />
+                      <span className="text-sm text-muted-foreground">g, less than {from.remainingWeight}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id={`${id}-some`} value="some" />
+                  <Label htmlFor={`${id}-some`} className="font-normal">
+                    Some of it
+                  </Label>
+                </div>
+              )}
+            </RadioGroup>
+          </div>
+          <div role="status" aria-label="What the move will do" className="min-h-5">
+            {plan.problem !== undefined ? (
+              <p className="text-sm text-destructive">{plan.problem}</p>
+            ) : (
+              plan.lines.length > 0 && (
+                <ul className="grid list-disc gap-1.5 rounded-md bg-muted py-3 pr-4 pl-8 text-sm">
+                  {plan.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || plan.amount === undefined}>
+              {plan.submit}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** A batch as a dialog names it: its Bean and roast date, as lists name it, with its Batch Code where it has one. */
+function batchLabel(batch: BeanBatch): string {
+  return batch.batchCode === null ? batchName(batch) : `${batchName(batch)} (${batch.batchCode})`;
 }
 
 /**

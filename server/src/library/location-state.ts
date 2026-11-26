@@ -1,6 +1,7 @@
 import { sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { type EditSource, type ItemRef, heldValue, recordLostEdit, recordReplaced, recordVersion } from "./history.js";
+import { type Count, countKey, grams, heldAfter, movedSince, remainingAfter, usedSince } from "./remaining-weight.js";
 
 // Each Location's state of the Library's Beans, Bean Batches, Grinders,
 // Profiles, Baskets and Tools (ADR-0008): whether a batch is at the Location and its remaining
@@ -12,9 +13,13 @@ import { type EditSource, type ItemRef, heldValue, recordLostEdit, recordReplace
 // there, offers the Grinders that belong to it, and shows a Profile while it
 // is shown there; nothing Archived is offered or shown anywhere.
 //
-// A batch's remaining weight at a Location is the weight last entered there,
-// which is all that is kept: what the Shots pulled there since have used is
-// taken from it as it is read (ADR-0037, `bean-batches.service.ts`).
+// A batch's remaining weight at a Location is worked out as it is read
+// (ADR-0037, `remaining-weight.ts`): the weight its count there starts from,
+// which is the one entered there last, or the amount a Batch Move brought
+// where the batch had none, less what the Shots pulled there since have
+// used, plus what moves have brought since, less what they have taken away.
+// Only the count's start is kept here, and each move in `batch_moves`
+// (`moveBatchBetween`).
 //
 // Whether a batch is at a Location, and whether a Profile is shown there, are
 // each a field of its own (ADR-0020), whose latest edit wins. Each decision
@@ -66,6 +71,8 @@ export async function lockLocation(tx: Prisma.TransactionClient, locationId: str
  * whatever the clock that timed the edit. `held` is whether the tablet's
  * last known record of the batch had it there, absent where the server
  * holds no such record. Says when it decided it, or null if the edit lost.
+ * `versionId` is the version the add is part of, as a Batch Move's is, kept
+ * in place of one of its own.
  */
 export async function addBatchAt(
   tx: Prisma.TransactionClient,
@@ -75,6 +82,7 @@ export async function addBatchAt(
   seenAt: Date | null,
   source: EditSource,
   held?: boolean,
+  versionId?: string,
 ): Promise<Date | null> {
   const before = await presenceAt(tx, batchId, locationId);
   const [added] = await tx.$queryRaw<{ decidedAt: Date }[]>`
@@ -88,7 +96,7 @@ export async function addBatchAt(
         OR COALESCE(batch_locations.finished_at, batch_locations.added_at) <= EXCLUDED.added_at
         OR batch_locations.presence_decided_at <= ${seenAt}::timestamptz
     RETURNING presence_decided_at AS "decidedAt"`;
-  await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at, held);
+  await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at, held, {}, versionId);
   await tx.$executeRaw`
     DELETE FROM bean_origins
     WHERE location_id = ${locationId}::uuid AND bean_id = (SELECT bean_id FROM bean_batches WHERE id = ${batchId}::uuid AND NOT archived)
@@ -107,7 +115,8 @@ export async function addBatchAt(
  * added, whatever the clock that timed the edit. `held` is as `addBatchAt`
  * reads it. Says when it decided it, or null if it was never added there or
  * the edit lost. `by` is what else its version says the edit set: the weight
- * of zero whose entry made the finish (`enterRemainingWeight`).
+ * of zero whose entry made the finish (`enterRemainingWeight`). `versionId`
+ * is as `addBatchAt` reads it.
  */
 export async function finishBatchAt(
   tx: Prisma.TransactionClient,
@@ -118,6 +127,7 @@ export async function finishBatchAt(
   source: EditSource,
   held?: boolean,
   by: Readonly<Record<string, unknown>> = {},
+  versionId?: string,
 ): Promise<Date | null> {
   const before = await presenceAt(tx, batchId, locationId);
   const [finished] = await tx.$queryRaw<{ decidedAt: Date }[]>`
@@ -125,7 +135,7 @@ export async function finishBatchAt(
     WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid AND added_at IS NOT NULL
       AND (COALESCE(finished_at, added_at) <= ${at}::timestamptz OR presence_decided_at <= ${seenAt}::timestamptz)
     RETURNING presence_decided_at AS "decidedAt"`;
-  await keepPresenceEdit(tx, batchId, locationId, false, before, finished?.decidedAt ?? null, seenAt, source, at, held, by);
+  await keepPresenceEdit(tx, batchId, locationId, false, before, finished?.decidedAt ?? null, seenAt, source, at, held, by, versionId);
   return finished?.decidedAt ?? null;
 }
 
@@ -153,7 +163,8 @@ async function presenceAt(tx: Prisma.TransactionClient, batchId: string, locatio
  * Lost Edit, lost to the edit that decided it last. One that decided it
  * over another tablet's edit its own had not seen, which it changed, keeps
  * that edit's value as a Lost Edit, lost to this one, unless the tablet's
- * last known record held that value (`held`).
+ * last known record held that value (`held`). Given `within`, the version
+ * it is part of, it is kept as that one, which its maker recorded.
  */
 async function keepPresenceEdit(
   tx: Prisma.TransactionClient,
@@ -167,6 +178,7 @@ async function keepPresenceEdit(
   at: Date,
   held: boolean | undefined,
   by: Readonly<Record<string, unknown>> = {},
+  within?: string,
 ): Promise<void> {
   const item: ItemRef = { kind: "beanBatch", id: batchId };
   const was = before?.at ?? null;
@@ -174,7 +186,7 @@ async function keepPresenceEdit(
     if (was !== null && was !== value) await recordLostEdit(tx, item, locationId, "atLocation", value, source, at, before!.versionId);
     return;
   }
-  const versionId = await recordVersion(tx, item, locationId, { ...by, atLocation: value }, source, at);
+  const versionId = within ?? (await recordVersion(tx, item, locationId, { ...by, atLocation: value }, source, at));
   await tx.$executeRaw`
     UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
   if (was !== null && was !== value && unseen(before!, seenAt, source) && !heldValue(held, was)) {
@@ -199,7 +211,9 @@ function unseen(before: { decidedAt: Date | null; tabletId: string | null }, see
  * It is where the Location's count starts (ADR-0037): the batch's Remaining
  * Weight there is this weight less the doses of the Shots pulled there after
  * `at`, worked out as it is read (`usedSince`), so nothing here is ever
- * lowered by a Shot. Null leaves the batch untracked there.
+ * lowered by a Shot. Its version names the count, so no Batch Move made
+ * before it bears on the weight (`movedSince`). Null leaves the batch
+ * untracked there.
  *
  * A weight of zero that is entered finishes the batch there, as a finish
  * does, where `finishing` says the entry may: what its maker had seen of the
@@ -254,6 +268,144 @@ export async function enterRemainingWeight(
     await recordReplaced(tx, item, locationId, "remainingWeight", known.value, known.versionId, versionId);
   }
   return { entered: true, finished };
+}
+
+/** How much of a batch a Batch Move takes: an amount in grams, all of it, or, of a batch with no weight where it is, some of it. */
+export type MoveAmount = number | "all" | "some";
+
+/** A Batch Move as it was made: the weight moved, in grams, null for a batch with no weight where it was, and whether it was all of it. */
+export interface BatchMoved {
+  amount: number | null;
+  all: boolean;
+}
+
+/** A Batch Move the batch's state at its Locations refuses, with why, for whoever asked. */
+export class MoveRefused extends Error {}
+
+/** A Location's state of a batch as a Batch Move finds it. */
+interface MovePlace {
+  locationId: string;
+  name: string;
+  there: boolean;
+  weight: number | null;
+  countAt: Date | null;
+  countVersionId: string | null;
+}
+
+/**
+ * Moves the batch from one Location it is at to another (ADR-0037), under
+ * both Locations' locks, which the caller holds: an amount in grams, all of
+ * it, or, of a batch with no weight at the Location left, all or some of it,
+ * moving no weight.
+ *
+ * - **An amount** is above zero, which the request's reader has checked, and
+ *   below what the Location left has, as worked out now. It is taken from
+ *   that Location's count and added to the joined Location's, by the move's
+ *   row alone: neither count starts again, so a Shot pulled at the Location
+ *   left before the move and stored after it still counts there.
+ * - **All** takes what the Location left has and finishes the batch there, in
+ *   the same change. Its count there ends at zero.
+ * - **At the Location joined,** a batch not there is added. Where it had no
+ *   weight, or was not there, the amount arriving is where its count starts.
+ *   The same holds where Shots had used more than its count held, which
+ *   read zero: the count starts again from the amount, as adding to what it
+ *   held would give less than arrived, and the batch's total would fall.
+ * - **With no weight at the Location left,** all finishes it there and adds
+ *   it at the Location joined, and some adds it there and leaves it. Neither
+ *   changes a weight. Some to a Location it is at already would change
+ *   nothing, and is refused.
+ *
+ * It is one version of the batch, at the Location joined, naming the
+ * Location left, the amount and whether it was all (`movedFrom`,
+ * `movedAmount`, `movedAll`), with what it set at the Location joined
+ * (`atLocation`, `remainingWeight`), and one row of `batch_moves`. Made as
+ * having seen every decision at both Locations, as an account's edit is.
+ * Throws `MoveRefused` for a move the batch's state refuses.
+ */
+export async function moveBatchBetween(
+  tx: Prisma.TransactionClient,
+  batchId: string,
+  fromLocationId: string,
+  toLocationId: string,
+  amount: MoveAmount,
+  at: Date,
+  source: EditSource,
+): Promise<BatchMoved> {
+  const places = await tx.$queryRaw<MovePlace[]>`
+    SELECT location.id::text AS "locationId", location.name,
+      COALESCE(here.added_at IS NOT NULL AND here.finished_at IS NULL, false) AS there,
+      here.remaining_weight AS weight, here.remaining_weight_at AS "countAt", here.remaining_weight_version_id::text AS "countVersionId"
+    FROM locations AS location
+    LEFT JOIN batch_locations AS here ON here.location_id = location.id AND here.batch_id = ${batchId}::uuid
+    WHERE location.id IN (${fromLocationId}::uuid, ${toLocationId}::uuid)`;
+  const left = places.find((place) => place.locationId === fromLocationId);
+  const joined = places.find((place) => place.locationId === toLocationId);
+  if (!left || !joined) throw new MoveRefused("No such Location");
+  if (!left.there) throw new MoveRefused(`The batch is not at ${left.name}: it is moved from a Location it is at`);
+
+  const counts = [left, joined].flatMap((place): Count[] =>
+    place.there && place.weight !== null && place.countAt !== null ? [{ batchId, locationId: place.locationId, at: place.countAt, versionId: place.countVersionId }] : [],
+  );
+  const [used, moved] = await Promise.all([usedSince(tx, counts), movedSince(tx, counts)]);
+  /** What the Location's count holds, below zero where Shots have used more than it had; null where the batch has no weight there. */
+  const held = (place: MovePlace): number | null => {
+    if (!counts.some((count) => count.locationId === place.locationId)) return null;
+    const key = countKey(batchId, place.locationId);
+    return heldAfter(place.weight!, used.get(key)?.weight ?? 0, moved.get(key));
+  };
+  const leftHeld = held(left);
+  const leftHas = leftHeld === null ? null : remainingAfter(leftHeld, 0);
+  if (leftHas === null) {
+    if (typeof amount === "number") {
+      throw new MoveRefused(`No weight is entered for the batch at ${left.name}, so no amount of it can be moved: move all of it or some of it, or enter its weight there first`);
+    }
+    if (amount === "some" && joined.there) throw new MoveRefused(`The batch is at ${joined.name} already, and has no weight at ${left.name} to move: nothing would change`);
+  } else {
+    if (amount === "some") throw new MoveRefused(`${left.name} has ${leftHas} g of the batch: move all of it, or an amount in grams`);
+    if (typeof amount === "number" && amount >= leftHas) {
+      throw new MoveRefused(`${left.name} has ${leftHas} g of the batch, and an amount moved is less than what is there: move all of it, or enter a corrected weight there first`);
+    }
+  }
+  const all = amount === "all";
+  const moving = leftHas === null ? null : typeof amount === "number" ? grams(amount) : leftHas;
+  const joinedHeld = held(joined);
+  // The amount arriving is where the joined Location's count starts, where it had none or Shots had overdrawn it.
+  const starts = moving !== null && (joinedHeld === null || joinedHeld < 0);
+
+  const item: ItemRef = { kind: "beanBatch", id: batchId };
+  const fields = { movedFrom: fromLocationId, movedAmount: moving, movedAll: all, ...(joined.there ? {} : { atLocation: true }), ...(starts ? { remainingWeight: moving } : {}) };
+  const versionId = await recordVersion(tx, item, toLocationId, fields, source, at);
+  await tx.batchMove.create({
+    data: {
+      batchId,
+      fromLocationId,
+      toLocationId,
+      amount: moving,
+      movedAll: all,
+      movedAt: at,
+      versionId,
+      fromCountVersionId: leftHas === null ? null : left.countVersionId,
+      toCountVersionId: moving === null ? null : starts ? versionId : joined.countVersionId,
+    },
+  });
+  const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
+  if (!joined.there) await addBatchAt(tx, batchId, toLocationId, at, seenAt, source, undefined, versionId);
+  if (starts) await startCount(tx, batchId, toLocationId, moving, at, versionId);
+  if (all) {
+    await finishBatchAt(tx, batchId, fromLocationId, at, seenAt, source, undefined, {}, versionId);
+    // Everything it had went with the move.
+    if (leftHas !== null) await startCount(tx, batchId, fromLocationId, 0, at, versionId);
+  }
+  return { amount: moving, all };
+}
+
+/** Starts the Location's count of the batch at the weight, as a Batch Move does, by its version. Its time is never earlier than the one known, as a weight entered's is not. */
+async function startCount(tx: Prisma.TransactionClient, batchId: string, locationId: string, weight: number, at: Date, versionId: string): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE batch_locations
+    SET remaining_weight = ${weight}::double precision, remaining_weight_at = GREATEST(${at}::timestamptz, remaining_weight_at),
+      remaining_weight_version_id = ${versionId}::uuid
+    WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
 }
 
 /**

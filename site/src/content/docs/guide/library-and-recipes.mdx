@@ -34,34 +34,46 @@ DYE2's lists on a tablet, its recipes, baskets and tools, are different, because
 
 ## Choose what a Location offers
 
-### Add a Bean Batch at a Location, or finish it there
+### Move a Bean Batch to another Location, or finish it there
 
-A Bean Batch is at a Location from when it is added there until it is finished there, and it can be at several at once.
+A Bean Batch is at a Location from when it is added there until it is finished there, and it can be at several at once. It reaches another Location by a move, of all of it or of part of its weight.
 
 1. Open **Library**, then **Bean Batches**, and open the batch.
-2. In its **Where it is** card, choose a Location under **Add it at** and press **Add**.
-3. When the batch runs out there, press **Finish here**. It is archived on that Location's tablets and stays in the Library.
+2. In its **Where it is** card, press **Move to…** beside the Location it leaves, and choose the Location it joins.
+3. Choose **All of it**, or **Part of it** and type the weight to move, in grams. The dialog says what each Location will hold afterwards.
+4. Press the dialog's last button, which says the move it makes, such as "Move 500 g to Riverside".
+
+- Moving part lowers the weight at the Location it leaves by the amount and raises the weight at the Location it joins by the same amount, so a move never changes the batch's total. The amount must be less than what the Location it leaves has. To move everything, choose **All of it**, and if the number there is wrong, enter the corrected weight first.
+- Moving all takes everything left and finishes the batch at the Location it left, as **Finish here** does: it is archived on that Location's tablets, and Recipes there go on naming it until someone picks another batch for them. The dialog names those Recipes.
+- At the Location it joins, a batch that was not there is added, and the amount arriving is where its count starts. A weight already there rises by the amount.
+- A batch with no weight entered at the Location it leaves has none to split, so the choice is **All of it** or **Some of it**, and no weight changes anywhere. To move a known amount, enter its weight there first.
+- Each move is one line of the batch's history, such as "Moved 5700 g from Roastery Lab to Belmont", with who made it. There is no undo: a wrong move is corrected by moving back.
+
+When a batch runs out at a Location, press **Finish here**. It is archived on that Location's tablets and stays in the Library. The weight there goes with it, and no other Location's weight changes.
+
+A batch that is at no Location has **Add it at** in its **Where it is** card: choose a Location and press **Add**.
 
 <Still name="bean-batches" alt="The Library's Bean Batches, each with the Locations it is at, its remaining weight at each and its total" />
 
 ### Track how much of a batch is left
 
-A batch's remaining weight at a Location keeps itself. It is the weight last entered there, less the dose of each Shot pulled there with the batch since. Nobody has to subtract anything, and a number that drifts is corrected by weighing the bucket.
+A batch's remaining weight at a Location keeps itself. It is the weight last entered there, less the dose of each Shot pulled there with the batch since, plus what has been moved there since and less what has been moved away. Nobody has to subtract anything, and a number that drifts is corrected by weighing the bucket.
 
 1. Open the batch, and in its **Where it is** card press **Enter weight** beside the Location.
 2. Type what is left there, in grams, and press **Save**.
 
-Each Location has one line under its weight, such as "4180 g entered 25 Nov by Sam. Since: 38 Shots used 760 g.", and the card's **Total remaining** adds up the Locations that track the batch. The Bean Batches list shows the same weights.
+Each Location has one line under its weight, such as "4180 g entered 25 Nov by Sam. Since: 38 Shots used 760 g, 500 g moved to Riverside.", and the card's **Total remaining** adds up the Locations that track the batch. Where a move brought the batch to a Location that had no weight for it, the line starts with what arrived, such as "500 g arrived from Downtown 26 Nov." The Bean Batches list shows the same weights.
 
 - Each Location has its own weight. A Shot lowers only the weight at the Location it was pulled at. A sample kept at the lab and the bucket at a cafe are one batch with two weights.
 - Every Shot pulled with the batch at that Location after the weight was entered, Unfinished Shots and Trial Shots too, counts, since the coffee was ground. A Shot from before the entry is already in the weight you entered. A Shot counts its measured dose where it recorded one, otherwise the dose its Workflow was set to, otherwise nothing.
 - The weight follows the Shots. A Shot that arrives late from a tablet that was offline still counts, and correcting a Shot's dose corrects the weight.
+- Entering a weight starts that Location's count again: Shots and moves from before it no longer bear on the number. A move of part of a batch does not, so a Shot pulled before the move that arrives after it still counts where it was pulled.
 - A batch with no weight entered at a Location reads **Not tracked** there, never zero, and Shots take nothing from it. It can be tracked at one Location and not at another. To stop tracking, press **Enter weight**, leave the field empty and save.
 - Shots never take a weight below zero, and reaching zero that way finishes nothing: the batch stays where it is, as the weight entered was too low. Entering a weight of zero yourself says the bucket is empty, so it finishes the batch there, as **Finish here** does. The dialog says so before you save, and the batch's history keeps it as a finish made by a weight of zero.
-- A barista who changes a batch's remaining weight on a tablet enters it for that tablet's Location, and one who sets it to zero finishes the batch there. The tablet shows the weight last entered, which does not fall there as Shots are pulled.
+- A barista who changes a batch's remaining weight on a tablet enters it for that tablet's Location, and one who sets it to zero finishes the batch there. The tablet shows the weight last entered, or the amount a move brought where there was none, which does not change there as Shots are pulled or more is moved.
 - Coffee used outside a Shot is not counted, such as purging a grinder or a bag sold over the counter. Weigh the bucket and enter the weight to correct for it.
 
-Staff enter a weight and finish a batch only at the Locations they work at.
+Staff enter a weight and finish a batch only at the Locations they work at. They move a batch when the Location it leaves or the one it joins is one they work at, so whoever sends a bucket or receives it can record the move.
 
 A Bean has no setting of its own for this. It is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there. A Bean with no batch at a Location yet is also offered there where a tablet created it, linked a Bean of its own to it, or restored it, until a batch is added.
 

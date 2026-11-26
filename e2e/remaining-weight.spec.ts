@@ -51,8 +51,8 @@ test("a batch's page shows its weight at each Location less the Shots pulled the
     "Riverside",
     "Not tracked",
   ]);
-  // Each Location has Enter weight and Finish here, and nothing that only clears a weight.
-  await expect(where.getByRole("button")).toHaveText(["Enter weight", "Finish here", "Enter weight", "Finish here"]);
+  // Each Location has Move to… (#704), Enter weight and Finish here, and nothing that only clears a weight.
+  await expect(where.getByRole("button")).toHaveText(["Move to…", "Enter weight", "Finish here", "Move to…", "Enter weight", "Finish here"]);
   await expect(whereItIs.getByRole("spinbutton")).toHaveCount(0);
 
   // A weight entered at Riverside is its own, and the total is the sum.

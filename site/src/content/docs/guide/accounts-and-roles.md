@@ -20,6 +20,7 @@ Admin, Staff, Viewer and Barista are defined in the [Glossary](../../reference/g
 | Edit Beans, Bean Batches, Profiles, Baskets and Tools, and Archive or restore a Grinder | Yes | Yes | No |
 | Manage Recipes and Grinders, add Bean Batches, Baskets and Tools, return a Profile to an earlier version, and change what a Location offers | Yes | At their Locations | No |
 | Rate a Shot or edit its note | Yes | Shots at their Locations | No |
+| Move a Bean Batch between Locations | Yes | From or to one of their Locations | No |
 | Move a Machine to another Location | Yes | Between their Locations | No |
 | Change a Machine's settings | Yes | The settings open to Staff, at their Locations | No |
 | Reload the Skin on a Machine's Tablet | Yes | At their Locations | No |

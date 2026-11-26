@@ -35,7 +35,9 @@ export interface VersionView {
    * The fields it set, each with its value: of the item's content, by
    * Decaid's names, or of its state at `location` (`atLocation`,
    * `remainingWeight`, `shown`). The first version is the item joining the
-   * Library.
+   * Library. A Batch Move's are what it set at the Location joined, with
+   * the move itself (`movedFrom`, the id of the Location left,
+   * `movedAmount` and `movedAll`), which `move` reads out.
    */
   fields: Record<string, unknown>;
   /** The Location whose state of the item it changed; null for its content. */
@@ -53,6 +55,14 @@ export interface VersionView {
    * exists. Null for every other version.
    */
   copiedFrom: { id: string; name: string | null; location: LocationView | null } | null;
+  /**
+   * For a Batch Move (ADR-0037), one entry of the batch's history: the
+   * Location it left and the one it joined, each null if deleted since, the
+   * weight moved, in grams, null for a batch with no weight where it was,
+   * and whether it was all of it, which finished it at the Location left.
+   * Null for every other version.
+   */
+  move: { from: LocationView | null; to: LocationView | null; amount: number | null; all: boolean } | null;
 }
 
 /**
@@ -138,6 +148,9 @@ export class HistoryService {
     // The items copies were copied from, read as the item's kind reads them, so a copy names its original as it is named now.
     const copiedFromIds = [...new Set(versions.flatMap((version) => (version.copiedFromId === null ? [] : [version.copiedFromId])))];
     const originals = copiedFromIds.length === 0 ? new Map<string, VersionedItem>() : await KINDS[item.kind].read(this.prisma, copiedFromIds);
+    // The Locations Batch Moves left, by the ids their versions name.
+    const leftIds = [...new Set(versions.flatMap((version) => movedFrom(version.fields) ?? []))];
+    const left = new Map((leftIds.length === 0 ? [] : await this.prisma.location.findMany({ where: { id: { in: leftIds } } })).map((location) => [location.id, viewLocation(location)]));
     return versions.map((version) => ({
       id: version.id,
       fields: isObject(version.fields) ? version.fields : {},
@@ -153,6 +166,7 @@ export class HistoryService {
               name: originals.get(version.copiedFromId)?.name ?? null,
               location: version.copiedFromLocation ? viewLocation(version.copiedFromLocation) : null,
             },
+      move: moveOf(version.fields, version.location ? viewLocation(version.location) : null, left),
     }));
   }
 
@@ -193,7 +207,7 @@ export class HistoryService {
     const lostToValues = await Promise.all(
       lost.map((edit) => {
         const version = edit.lostToVersionId === null ? undefined : versions.get(edit.lostToVersionId);
-        return version === undefined ? null : this.valueAt(item, version, edit.field);
+        return version === undefined ? null : this.valueAt(item, version, edit.field, edit.locationId);
       }),
     );
     return lost.map((edit, index) => {
@@ -223,13 +237,22 @@ export class HistoryService {
    * for a field it did not set, as for a Bean that lost with its batch to a
    * version setting the batch alone (`mergeEdit`'s `together`), the value
    * the latest version up to it that set the field left; null for none.
+   * `locationId` is the Location of the edit that lost to it, which a Batch
+   * Move's version, kept at the Location joined, may not be: at the Location
+   * it left, a move of all finished the batch and left its weight at zero.
    */
-  private async valueAt(item: ItemRef, version: { seq: bigint; locationId: string | null; fields: unknown }, field: string): Promise<unknown> {
-    if (isObject(version.fields) && Object.prototype.hasOwnProperty.call(version.fields, field)) return version.fields[field] ?? null;
+  private async valueAt(item: ItemRef, version: { seq: bigint; locationId: string | null; fields: unknown }, field: string, locationId: string | null): Promise<unknown> {
+    const leftByMove = locationId !== null && locationId !== version.locationId && movedFrom(version.fields) === locationId;
+    if (leftByMove && isObject(version.fields) && version.fields.movedAll === true) {
+      if (field === "atLocation") return false;
+      if (field === "remainingWeight" && typeof version.fields.movedAmount === "number") return 0;
+    }
+    if (!leftByMove && isObject(version.fields) && Object.prototype.hasOwnProperty.call(version.fields, field)) return version.fields[field] ?? null;
+    const at = leftByMove ? locationId : version.locationId;
     const { kind, itemId } = itemKey(item);
     const [row] = await this.prisma.$queryRaw<{ value: unknown }[]>`
       SELECT fields -> ${field} AS value FROM item_versions
-      WHERE kind = ${kind} AND item_id = ${itemId} AND location_id IS NOT DISTINCT FROM ${version.locationId}::uuid
+      WHERE kind = ${kind} AND item_id = ${itemId} AND location_id IS NOT DISTINCT FROM ${at}::uuid
         AND seq < ${version.seq} AND fields ? ${field}
       ORDER BY seq DESC LIMIT 1`;
     return row?.value ?? null;
@@ -239,6 +262,18 @@ export class HistoryService {
   private async exists(item: ItemRef): Promise<boolean> {
     return (await this.prisma.versionedItem.count({ where: itemKey(item) })) > 0;
   }
+}
+
+/** The id of the Location a Batch Move's version says it left; undefined for any other version. */
+function movedFrom(fields: unknown): string | undefined {
+  return isObject(fields) && typeof fields.movedFrom === "string" ? fields.movedFrom : undefined;
+}
+
+/** A Batch Move as its version holds it, with its Locations by name, the one left from those read (`left`); null for any other version. */
+function moveOf(fields: unknown, to: LocationView | null, left: ReadonlyMap<string, LocationView>): VersionView["move"] {
+  const from = movedFrom(fields);
+  if (from === undefined || !isObject(fields)) return null;
+  return { from: left.get(from) ?? null, to, amount: typeof fields.movedAmount === "number" ? fields.movedAmount : null, all: fields.movedAll === true };
 }
 
 export function viewSource(

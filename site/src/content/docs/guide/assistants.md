@@ -38,6 +38,7 @@ It can also simulate a Profile or a Draft: on a standard puck, finer or coarser,
 An assistant allowed to change things can:
 
 - Create and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes.
+- Move a Bean Batch between Locations, all of it or part of its weight.
 - Edit a Profile's title, author and notes.
 - Archive and restore Library items.
 - Change what a Location offers.
@@ -95,7 +96,7 @@ A Connected App acts as the account that approved it, so your role limits it exa
 | Your role | What your assistant may do |
 |---|---|
 | Admin | Read everything, and make every change on this page, anywhere. Only an Admin's assistant can turn a Machine's sharing on or off, create and edit Locations, and make the Settings Edits marked for Admins. |
-| Staff | Read everything an Admin's can, except the name of the account behind each recorded change, and the values of plugins' settings, of which it reads only which are set. Change the Library's shared content anywhere, Archive or restore any Grinder, and start, edit and discard any Draft. At the Locations you work at: manage Recipes and Grinders, add Bean Batches, Baskets and Tools, change what the Location offers, return a Profile to an earlier version, publish Drafts, move Machines between them, have a Machine follow a Draft, make the Settings Edits open to Staff, edit Shots, and reload a Skin. |
+| Staff | Read everything an Admin's can, except the name of the account behind each recorded change, and the values of plugins' settings, of which it reads only which are set. Change the Library's shared content anywhere, Archive or restore any Grinder, and start, edit and discard any Draft. At the Locations you work at: manage Recipes and Grinders, add Bean Batches, Baskets and Tools, change what the Location offers, return a Profile to an earlier version, publish Drafts, move Machines between them, move a Bean Batch from or to one of them, have a Machine follow a Draft, make the Settings Edits open to Staff, edit Shots, and reload a Skin. |
 | Viewer | Read what a Viewer sees, which leaves out Drafts. Change nothing, whatever the app asked for. |
 
 A change to your role or your Locations applies to your apps from their next request. An app approved to read and change by someone who is then made a Viewer only reads while they are a Viewer.
