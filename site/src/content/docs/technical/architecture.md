@@ -93,7 +93,7 @@ It keeps no session between calls, so any server instance answers any call.
 The server is its own OAuth authorization server: a person signs in and
 approves an app, to read only or to read and change, which makes it a
 Connected App. The app then acts as that person's account, with its role, and
-each change it makes is recorded as made through it.
+a change that records who made it records the app too.
 
 A change that adds something for people to read or do in the management
 interface adds it to the MCP endpoint too. What grants access or destroys
