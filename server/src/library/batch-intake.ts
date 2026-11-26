@@ -29,19 +29,19 @@ export interface ReportedBatch {
 }
 
 /**
- * A weight the server wrote to a tablet's record of a batch, as its
- * `weightRemaining` (ADR-0037): the batch's Remaining Weight at the tablet's
- * Location as it was worked out then, null for one cleared, and the count it
- * was worked out from (`remaining_weight_version_id`), null where none is
- * known.
+ * A weight a tablet's record of a batch has held as its `weightRemaining`,
+ * or the server has written it (ADR-0037): the batch's Remaining Weight at
+ * the tablet's Location as it was worked out then, or as its barista entered
+ * it, null for one cleared, and the count it was of
+ * (`remaining_weight_version_id`), null where none is known.
  */
 export interface WrittenWeight {
   weight: number | null;
   count: string | null;
 }
 
-/** How many weights written to a record are kept while none is shown to be held: the latest. */
-export const WRITTEN_WEIGHTS_KEPT = 8;
+/** How many of the weights a record has held or been written are kept: the latest, enough for a form left open across a busy spell of Shots. */
+export const WRITTEN_WEIGHTS_KEPT = 16;
 
 /** A Library Bean Batch the tablet's map holds a record of: the record as the tablet last had it. */
 export interface MappedBatch {
@@ -56,10 +56,11 @@ export interface MappedBatch {
   /** The record known, as the tablet reported it or Decaid returned the plugin's write of it. */
   record: Record<string, unknown>;
   /**
-   * The weights the server has written to the record that no answer or
-   * report has shown it to hold yet, oldest first: a record holding one of
-   * them holds the server's write, as when the answer to it was lost with
-   * the connection, and no weight a barista entered.
+   * The weights the record has held or the server has written it under the
+   * count its weight is of, with the writes noted since, oldest first: a
+   * record holding one of them again holds no weight a barista entered, as
+   * when the answer to a write was lost with the connection, or a form
+   * opened on the tablet before a Shot was saved after it.
    */
   writtenWeights?: readonly WrittenWeight[];
   /** The count the weight the record known holds was written from, or that its own entry started; null or absent where none is known. */
@@ -185,7 +186,7 @@ export function heldBatchCode(record: Record<string, unknown>): unknown {
  * does, whatever its time. Each such record brings the changes made to it since the one
  * known: un-archived, the batch is added at the tablet's Location; archived,
  * finished there; its `weightRemaining` changed, its remaining weight there
- * (ADR-0008), unless it holds a weight the server wrote it (`writtenWeightHeld`),
+ * (ADR-0008), unless it holds again a weight it held or was written (`writtenWeightHeld`),
  * which is no entry (ADR-0037); any other field changed, an edit of the batch's content. Otherwise a record carrying a Library batch's global id is
  * that batch, and changes nothing at the Location: the Location's state is
  * then written to it.
@@ -266,9 +267,9 @@ export function planBatchIntake(
  * report reaches the server in the answer, not in a later report, which
  * holds the record as answered. Without a record known, as for one the
  * write created, there is none. A weight the write left as it found it is
- * none either where it is one the server wrote before (`writtenWeightHeld`),
- * as when that write's answer was lost and this one expected the weight
- * before it.
+ * none either where it is one the record held or was written before
+ * (`writtenWeightHeld`), as when that write's answer was lost and this one
+ * expected the weight before it.
  */
 export function editsInAnswer(
   known: Pick<MappedBatch, "archived" | "weightRemaining" | "writtenWeights" | "weightCount"> | null,
@@ -282,23 +283,16 @@ export function editsInAnswer(
 }
 
 /**
- * The server's write that a record holding this weight holds, of those not
- * yet shown to be held (`MappedBatch.writtenWeights`): the latest of that
- * weight, or null if the server wrote it none such. Only a weight that
- * differs from what the server wrote the tablet is a barista's entry
- * (ADR-0037), so a zero the server wrote after Shots finishes nothing.
+ * The weight kept that a record holding this weight holds again, of those
+ * it has held or been written under its count (`MappedBatch.writtenWeights`):
+ * the latest of that weight, or null if there is none such. Only a weight
+ * that differs from those is a barista's entry (ADR-0037), so a zero the
+ * server wrote after Shots finishes nothing, and a form saved with the
+ * weight it was opened with enters nothing.
  */
 export function writtenWeightHeld(written: readonly WrittenWeight[] | undefined, weight: number | null): WrittenWeight | null {
   for (let index = (written?.length ?? 0) - 1; index >= 0; index--) if (written![index]!.weight === weight) return written![index]!;
   return null;
-}
-
-/**
- * The writes still not shown to be held once the record holds `shown`: those
- * made after it. Every one before it was written over by it.
- */
-export function writtenWeightsAfter(written: readonly WrittenWeight[], shown: WrittenWeight): WrittenWeight[] {
-  return written.slice(written.lastIndexOf(shown) + 1);
 }
 
 /** A row's `written_weights` as read from the database: its entries that are well formed. */

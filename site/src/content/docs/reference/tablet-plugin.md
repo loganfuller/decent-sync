@@ -304,7 +304,10 @@ full detail.
   entered at the Location is left as the tablet has it, and tablets at other
   Locations keep their own Location's weight. A weight the plugin sets is
   not a weight entered: it adds nothing to the batch's history, and a zero
-  set after Shots finishes nothing.
+  set after Shots finishes nothing. Nor is going back to a weight the batch
+  showed earlier, as when DYE2's batch page, opened before a Shot, is saved
+  after it with the weight it opened with: the plugin sets the current
+  weight again. To correct the weight, type the one weighed.
 - It shows each Profile its Location shows.
 - It sets the profile of a Draft its Machine follows as the Workflow's
   profile, where an Admin marked the Machine's Location for trying Drafts

@@ -194,6 +194,8 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
 
     await slow.tablet.editBatch(held(slow.tablet, id)!.id, { weightRemaining: 350 });
     await expect.poll(async () => at(await getBatch(id), one)?.entered?.weight, WAIT).toBe(350);
+    // Timed no earlier than the count it replaced, so the Shot pulled since that count started still counts against it.
+    expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 332, used: { shots: 1, weight: 18 } });
     const { versions, lostEdits } = await history(id);
     expect(versions[0]).toMatchObject({ fields: { remainingWeight: 350 }, source: { machine: { id: slow.machine.machine.id } } });
     expect(lostEdits).toEqual([]);
@@ -215,6 +217,31 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
 
     await expect.poll(async () => (await getBatch(id)).finished.map((here) => here.location.id), WAIT).toEqual([one.location.id]);
     expect((await history(id)).versions[0]).toMatchObject({ fields: { remainingWeight: 0, atLocation: false }, source: { machine: { id: two.machine.machine.id } } });
+  });
+
+  it("takes no weight entered from a form saved with the weight it was opened with after Shots were written since, whether the server wrote that weight or the tablet entered it", async () => {
+    // Written by the server: the record held 500 when a barista opened a form of it, as DYE2's batch page fills its
+    // remaining weight from the record and saves it with the rest.
+    const id = await batchAtBar(500);
+    // Pulled now, so that the weight entered below, timed by its tablet, is entered after them.
+    pull(one, id, 18, new Date());
+    await holds(id, 482, one, two);
+    pull(one, id, 18, new Date());
+    await holds(id, 464, one, two);
+    await two.tablet.editBatch(held(two.tablet, id)!.id, { weightRemaining: 500, notes: "opened" });
+    await expect.poll(() => held(one.tablet, id)?.notes, WAIT).toBe("opened");
+    await holds(id, 464, two, one);
+    expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 464, entered: { weight: 500 }, used: { shots: 2 } });
+
+    // Entered on the tablet: the form opened on the weight its barista had just entered there.
+    await two.tablet.editBatch(held(two.tablet, id)!.id, { weightRemaining: 450 });
+    await expect.poll(async () => at(await getBatch(id), one)?.entered?.weight, WAIT).toBe(450);
+    pull(one, id, 20, minutes(3));
+    await holds(id, 430, one, two);
+    await two.tablet.editBatch(held(two.tablet, id)!.id, { weightRemaining: 450, notes: "again" });
+    await expect.poll(() => held(one.tablet, id)?.notes, WAIT).toBe("again");
+    await holds(id, 430, two, one);
+    expect(at(await getBatch(id), one)).toMatchObject({ remainingWeight: 430, entered: { weight: 450 }, used: { shots: 1, weight: 20 } });
   });
 
   it("writes a tablet that was offline while Shots were pulled on another Machine at its Location the current weight when it returns", async () => {

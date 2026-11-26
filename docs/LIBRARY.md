@@ -1379,9 +1379,11 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   edit timed by the record, which loses to a later one the tablet had not
   seen (`batch_locations`, above; ADR-0020). A `weightRemaining` the server
   wrote the record is no weight entered (ADR-0037): one a write's answer
-  names, or, where that answer was lost, one of the weights kept as written
-  and not yet shown to be held (`tablet_bean_batches.written_weights`,
-  `writtenWeightHeld`), a zero among them, which finishes nothing. A
+  names, or one of the weights the record has held or been written under
+  the count its weight is of, kept as they are written or shown
+  (`tablet_bean_batches.written_weights`, `writtenWeightHeld`), as where a
+  write's answer was lost or a form opened before a Shot was saved after it,
+  a zero among them, which finishes nothing. A
   remaining weight replaces the
   one known when the tablet had that value, or its record's weight was
   written from the Location's current count or started it

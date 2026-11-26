@@ -1,8 +1,8 @@
 -- Ticket #705: what the server has written a tablet's record of a Bean Batch
--- as its weight (ADR-0037). `written_weights` holds each weight written to
--- the record that no answer or report has shown it to hold yet, with the
--- count it was worked out from, so a write whose answer was lost is not read
--- back as a weight a barista entered. `weight_count_version_id` is the count
+-- as its weight (ADR-0037). `written_weights` holds the latest weights the
+-- record has held or been written under its count, with the count of each,
+-- so a write whose answer was lost, or a form saved with the weight it was
+-- opened with, is not read back as a weight a barista entered. `weight_count_version_id` is the count
 -- the weight the record holds was written from, or the one its own entry
 -- started, so an entry made on it is known to have seen that count. Both
 -- have defaults, and the previous release neither reads nor writes them

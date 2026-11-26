@@ -18,7 +18,6 @@ import {
   readWrittenWeights,
   weightOf,
   writtenWeightHeld,
-  writtenWeightsAfter,
 } from "./batch-intake.js";
 import { type EditOutcome, editContent, heldIn, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
@@ -249,7 +248,7 @@ async function applyEdits(
   return { changed, decidedAt, count };
 }
 
-/** What a tablet's row of a batch is to hold of the server's writes of its weight: the count the record's weight is of, and the writes not yet shown to be held. */
+/** What a tablet's row of a batch is to hold of the weights its record has held: the count the record's weight is of, and the weights kept (`written_weights`). */
 interface WeightHeld {
   count: string | null;
   written: readonly WrittenWeight[];
@@ -257,18 +256,23 @@ interface WeightHeld {
 
 /**
  * What the row is to hold once the tablet's record is known to hold `weight`
- * (ADR-0037), or null where nothing changes:
+ * (ADR-0037), or null where nothing changes. The weights kept are those the
+ * record has held or been written under the count its weight is of, its own
+ * entry and each write of the server's, and every write noted after the one
+ * it holds, still in flight: a report going back to one of them, as a form
+ * opened on the tablet before a Shot and saved after it does, is no weight a
+ * barista entered. The record's weight is
  *
- * - a weight its barista entered that started the Location's count
- *   (`entered`, the count) has seen that count;
- * - one the server's write just set (`written`, with the count it was worked
- *   out from where the write was awaited) has seen that write's count, and
- *   holds none of the writes before it;
- * - one that is otherwise a write of the server's not yet shown to be held,
- *   as its answer was lost, the same.
+ * - one its barista entered that started the Location's count (`entered`,
+ *   the count), which has seen that count, and is the only weight of it;
+ * - one the server's write set (`written`, with the count it was worked out
+ *   from where the write was awaited), which has seen that write's count;
+ * - one that is otherwise a weight kept, as when the answer to its write
+ *   was lost, which has seen the count kept with it.
  *
- * The writes not shown are kept through a barista's entry: one made as the
- * connection was lost may still have landed after it.
+ * A weight of another count goes once the record holds one of a new count: a
+ * write planned before a barista's entry sets no weight over it, as it
+ * expects the weight before it (`LibraryWrite.expected`).
  */
 function weightHeld(
   known: { weightRemaining: number | null; writtenWeights: readonly WrittenWeight[]; weightCount: string | null } | undefined,
@@ -276,11 +280,18 @@ function weightHeld(
   entered: string | null,
   written?: { count: string | null | undefined },
 ): WeightHeld | null {
-  const pending = known?.writtenWeights ?? [];
-  if (entered !== null) return { count: entered, written: pending };
-  const shown = written !== undefined || weight !== known?.weightRemaining ? writtenWeightHeld(pending, weight) : null;
-  if (written !== undefined) return { count: written.count !== undefined ? written.count : (shown?.count ?? known?.weightCount ?? null), written: shown ? writtenWeightsAfter(pending, shown) : [] };
-  return shown ? { count: shown.count, written: writtenWeightsAfter(pending, shown) } : null;
+  const kept = known?.writtenWeights ?? [];
+  let count: string | null;
+  let index = kept.length;
+  if (entered !== null) count = entered;
+  else {
+    const shown = written !== undefined || weight !== known?.weightRemaining ? writtenWeightHeld(kept, weight) : null;
+    if (written === undefined && shown === null) return null;
+    count = written !== undefined && written.count !== undefined ? written.count : (shown?.count ?? known?.weightCount ?? null);
+    if (shown) index = kept.lastIndexOf(shown);
+  }
+  const before = entered !== null ? [] : kept.slice(0, index).filter((other) => other.count === count);
+  return { count, written: [...before, { weight, count }, ...kept.slice(index + 1)].slice(-WRITTEN_WEIGHTS_KEPT) };
 }
 
 async function saveWeightHeld(tx: Prisma.TransactionClient, tabletId: string, batchId: string, held: WeightHeld | null): Promise<void> {
@@ -296,13 +307,15 @@ async function saveWeightHeld(tx: Prisma.TransactionClient, tabletId: string, ba
  * (ADR-0037): should its answer be lost, as with the connection, the
  * tablet's next report shows the weight, which is then known for the
  * server's own and no weight a barista entered. In PostgreSQL, as the report
- * may reach another instance. The latest few are kept
- * (WRITTEN_WEIGHTS_KEPT), and each goes once an answer or a report shows the
- * record to hold it or a later one (`weightHeld`).
+ * may reach another instance, under the tablet's lock, as its intake
+ * rewrites what is kept. The latest few are kept (WRITTEN_WEIGHTS_KEPT),
+ * until the record holds a weight of another count (`weightHeld`).
  */
 export async function noteWeightWritten(prisma: PrismaService, tabletId: string, batchId: string, weight: number | null, count: string | null): Promise<void> {
   const entry: WrittenWeight = { weight, count };
-  await prisma.$executeRaw`
+  await prisma.$transaction(async (tx) => {
+    await lockTablet(tx, tabletId);
+    await tx.$executeRaw`
     UPDATE tablet_bean_batches SET written_weights = (
       SELECT COALESCE(jsonb_agg(kept.entry ORDER BY kept.position), '[]'::jsonb)
       FROM (
@@ -312,6 +325,7 @@ export async function noteWeightWritten(prisma: PrismaService, tabletId: string,
       ) AS kept
     )
     WHERE tablet_id = ${tabletId}::uuid AND batch_id = ${batchId}::uuid`;
+  });
 }
 
 /**

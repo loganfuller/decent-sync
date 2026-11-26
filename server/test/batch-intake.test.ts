@@ -11,7 +11,6 @@ import {
   readReportedBatches,
   readWrittenWeights,
   writtenWeightHeld,
-  writtenWeightsAfter,
 } from "../src/library/batch-intake.js";
 
 // Taking a tablet's report of its bean batches into the Library, through the
@@ -272,14 +271,12 @@ describe("a weight the server wrote a tablet's record (ADR-0037)", () => {
     expect(editsInAnswer(known, record(LOCAL[0], { weightRemaining: 190 }), new Set())).toEqual([{ field: "remainingWeight", value: 190, had: 250 }]);
   });
 
-  it("is found as the latest write of that weight, and the writes made before it are then written over", () => {
+  it("is found as the latest weight kept of that weight", () => {
     const again = [...written, { weight: 232, count: COUNT[1] }, { weight: null, count: null }];
     expect(writtenWeightHeld(again, 232)).toBe(again[2]);
     expect(writtenWeightHeld(again, null)).toBe(again[3]);
     expect(writtenWeightHeld(again, 100)).toBeNull();
     expect(writtenWeightHeld(undefined, 232)).toBeNull();
-    expect(writtenWeightsAfter(again, again[2]!)).toEqual([{ weight: null, count: null }]);
-    expect(writtenWeightsAfter(again, again[3]!)).toEqual([]);
   });
 
   it("is read from its row leaving out what is not a weight written", () => {
