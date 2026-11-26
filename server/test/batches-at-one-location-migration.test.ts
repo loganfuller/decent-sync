@@ -88,8 +88,8 @@ describe("A Bean Batch at several Locations, from 1.14.0's data", { timeout: 90_
       const before = { several: await versions(several.id), single: await versions(single.id), nowhere: await versions(nowhere.id) };
       const untouched = { single: await batch(single.id), nowhere: await batch(nowhere.id) };
 
+      // The migration's own notification is what tells the tablets.
       await database.query(fs.readFileSync(MIGRATION, "utf8"));
-      await database.query(`NOTIFY library_changes, '${lab.location.id}'`);
 
       const after = await batch(several.id);
       expect(after.locations).toMatchObject([{ location: { id: cafe.location.id }, remainingWeight: 600 }]);

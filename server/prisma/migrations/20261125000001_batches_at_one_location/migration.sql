@@ -45,13 +45,19 @@ WITH "ranked" AS (
   SELECT "version_id", 'beanBatch', "batch_id"::text, "kept",
     jsonb_build_object('atLocation', true, 'movedFrom', "left_ids", 'settled', true), "at"
   FROM "settled"
+), "finished" AS (
+  UPDATE "batch_locations" SET
+    "finished_at" = GREATEST("batch_locations"."added_at", "settled"."at"),
+    "presence_decided_at" = clock_timestamp(),
+    "presence_version_id" = "settled"."version_id"
+  FROM "settled"
+  WHERE "batch_locations"."batch_id" = "settled"."batch_id" AND "batch_locations"."location_id" <> "settled"."kept"
+    AND "batch_locations"."added_at" IS NOT NULL AND "batch_locations"."finished_at" IS NULL
+  RETURNING "batch_locations"."batch_id"
 )
-UPDATE "batch_locations" SET
-  "finished_at" = GREATEST("batch_locations"."added_at", "settled"."at"),
-  "presence_decided_at" = clock_timestamp(),
-  "presence_version_id" = "settled"."version_id"
-FROM "settled"
-WHERE "batch_locations"."batch_id" = "settled"."batch_id" AND "batch_locations"."location_id" <> "settled"."kept"
-  AND "batch_locations"."added_at" IS NOT NULL AND "batch_locations"."finished_at" IS NULL;
+-- Tells every instance, the previous release's too, as `BatchSettling` does,
+-- so the tablets at each Location left archive their record (ADR-0016). It
+-- is delivered as the transaction commits.
+SELECT pg_notify('library_changes', "batch_id"::text) FROM (SELECT DISTINCT "batch_id" FROM "finished") AS "moved";
 
 COMMIT;

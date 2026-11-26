@@ -165,7 +165,14 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
     await expect.poll(() => held(lab.tablets[0]!, created.id)).toMatchObject({ archived: false, weightRemaining: 640 });
     for (const tablet of cafe.tablets) await expect.poll(() => held(tablet, created.id)?.archived).toBe(true);
 
-    // Finished there and then added at the cafe, it is no move, and takes the weight it had where it was last.
+    // Finished there and then added at the cafe, it is no move, and takes the weight it had where it was last: the lab,
+    // finished there last, even where the cafe's finish is timed later, as by a tablet whose clock runs ahead.
+    const database = await server.connectDatabase();
+    try {
+      await database.query(`UPDATE batch_locations SET finished_at = now() + interval '1 hour' WHERE batch_id = $1 AND location_id = $2`, [created.id, cafe.location.id]);
+    } finally {
+      await database.end();
+    }
     expect((await place(created.id, lab.location, { atLocation: false })).status).toBe(200);
     expect(await at(created.id)).toEqual([]);
     expect((await place(created.id, cafe.location, { atLocation: true })).status).toBe(200);

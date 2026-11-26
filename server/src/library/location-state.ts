@@ -215,13 +215,17 @@ async function leaveOthers(tx: Prisma.TransactionClient, batchId: string, locati
 
 /**
  * The Location the batch was at last: the one it is at, the one it was added
- * at last if it is at several, or else the one it was finished at last; null
- * for a batch that has been nowhere.
+ * at last if it is at several, or else the one it was finished at last, by
+ * when the server decided it (`presence_decided_at`), as a finish is timed by
+ * its edit, whose tablet's clock may run ahead; null for a batch that has
+ * been nowhere.
  */
 async function lastAt(tx: Prisma.TransactionClient, batchId: string): Promise<string | null> {
   const [last] = await tx.$queryRaw<{ id: string }[]>`
     SELECT location_id::text AS id FROM batch_locations WHERE batch_id = ${batchId}::uuid AND added_at IS NOT NULL
-    ORDER BY (finished_at IS NULL) DESC, COALESCE(finished_at, added_at) DESC, location_id LIMIT 1`;
+    ORDER BY (finished_at IS NULL) DESC, CASE WHEN finished_at IS NULL THEN added_at END DESC,
+      presence_decided_at DESC NULLS LAST, COALESCE(finished_at, added_at) DESC, location_id
+    LIMIT 1`;
   return last?.id ?? null;
 }
 
