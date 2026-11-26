@@ -145,10 +145,9 @@ export interface TabletSoftwareView {
    */
   pluginMustUpdate: boolean;
   /**
-   * Whether the Tablet's plugin carries out a change of how a plugin or
-   * Skin updates: false for one from before it (ADR-0035), which must
-   * update first, and for a Machine whose plugin has not connected since
-   * its revision was kept.
+   * Always true: every plugin the server accepts carries out a change of
+   * how a plugin or Skin updates (ADR-0035). Kept for the previous
+   * release's pages, which offer none while it is false (ADR-0025).
    */
   takesSourceChanges: boolean;
 }
@@ -278,7 +277,7 @@ export function settingViews(declared: unknown, own: boolean, held?: Record_, or
 /** A Machine's Tablet Software from its Tablet's latest reports; `admin` says whether the plugins' settings are given with their values. */
 export function tabletSoftwareView(
   reports: { plugins: Report | null; pluginSettings: Report | null; skins: Report | null; skinPage: Report | null; decaidUpdate: Report | null; appSettings: Report | null },
-  machine: { decaidVersion: string | null; takesSourceChanges: boolean },
+  machine: { decaidVersion: string | null },
   admin: boolean,
 ): TabletSoftwareView {
   const plugins = latestValue(reports.plugins);
@@ -309,7 +308,7 @@ export function tabletSoftwareView(
     skins: skinList,
     showing: skinList === null ? null : showingView(skinList, page),
     pluginMustUpdate: false,
-    takesSourceChanges: machine.takesSourceChanges,
+    takesSourceChanges: true,
   };
 }
 

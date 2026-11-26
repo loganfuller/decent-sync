@@ -167,10 +167,11 @@ describe("Choosing a Recipe's Reference Shot from a tablet", { timeout: 180_000 
   /** The versions of the Recipe's history that chose or cleared its Reference Shot, the latest first. */
   const choices = async (recipeId: string) =>
     (await api.get<{ versions: Version[] }>(`/recipes/${recipeId}/history`)).versions.filter((version) => Object.hasOwn(version.fields, "referenceShotId"));
-  /** A choice made on the tablet, as a Recipe's history names it. */
+  /** A choice made on the tablet, as a Recipe's history names it: its Machine and tablet, and no barista or account. */
   const madeOn = (machine: CreatedMachine, name: string, tablet: SimulatedTablet) => ({
     machine: { id: machine.machine.id, name },
     tabletId: tablet.storage.read("tabletId"),
+    barista: null,
     account: null,
     connectedApp: null,
   });

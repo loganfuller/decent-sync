@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginMessage, SkinAnswer } from "@decent-sync/protocol";
+import { type PluginMessage, type SkinAnswer, type SkinRequest, WIRE_REVISION } from "@decent-sync/protocol";
 import type { PluginHost, StorageCommand } from "../src/host.js";
 import { KeptDeliveries } from "../src/kept-deliveries.js";
 import { type Delivery, Outbox } from "../src/outbox.js";
@@ -60,7 +60,7 @@ async function connected(options: { follows: boolean; restored?: boolean }) {
   const sent: PluginMessage[] = [];
   const welcome = () => {
     outbox.welcome(async (message) => void sent.push(message));
-    requests.welcomed(async (request) => void sent.push(request));
+    requests.welcomed(async (request) => void sent.push(request), WIRE_REVISION);
   };
   welcome();
   if (options.restored !== false) await outbox.restore();
@@ -232,5 +232,43 @@ describe("A request that follows nothing, as the status", () => {
     ask();
     await turns();
     expect(sentAs()).toEqual(["request"]);
+  });
+});
+
+describe("A request to bring a scanned Bean Batch (#708)", () => {
+  /** The plugin's requests alone, on a connection welcomed by a server at that wire revision, with an outbox that holds nothing. */
+  function welcomedAt(serverRevision: number) {
+    let ids = 0;
+    const requests = new SkinRequests({ nextId: () => `request-${++ids}`, whenDelivered: () => () => {} });
+    const sent: SkinRequest[] = [];
+    requests.welcomed(async (request) => void sent.push(request), serverRevision);
+    return { requests, sent };
+  }
+
+  it("goes out at once to a server at its wire revision, with the text and the barista given", async () => {
+    const { requests, sent } = welcomedAt(WIRE_REVISION);
+    expect(requests.bringsBatches).toBe(true);
+    const asking = requests.ask({ ask: "bringBatch", text: "PR-0470", barista: "Sam" });
+    expect(sent).toEqual([{ type: "request", id: "request-1", ask: "bringBatch", text: "PR-0470", barista: "Sam" }]);
+    const answer: SkinAnswer = { type: "answer", id: "request-1", ask: "bringBatch", result: { outcome: "noMatch" } };
+    requests.answered(answer);
+    expect(await asking).toEqual({ answer });
+  });
+
+  it("is never sent to the previous release's server, which would close the connection on it: it is answered as too old to ask, while every other ask goes out", async () => {
+    const { requests, sent } = welcomedAt(WIRE_REVISION - 1);
+    expect([requests.connected, requests.bringsBatches]).toEqual([true, false]);
+    expect(await requests.ask({ ask: "bringBatch", text: "PR-0470" })).toEqual({ unanswered: "serverTooOld" });
+    expect(sent).toEqual([]);
+    void requests.ask({ ask: "status" });
+    expect(sent.map((request) => request.ask)).toEqual(["status"]);
+    requests.disconnected();
+  });
+
+  it("is refused as unreachable, and brings nothing, while no connection is welcomed", async () => {
+    let ids = 0;
+    const requests = new SkinRequests({ nextId: () => `request-${++ids}`, whenDelivered: () => () => {} });
+    expect(requests.bringsBatches).toBe(false);
+    expect(await requests.ask({ ask: "bringBatch", text: "PR-0470" })).toEqual({ unanswered: "unreachable" });
   });
 });

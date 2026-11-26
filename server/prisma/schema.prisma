@@ -2157,6 +2157,12 @@ model ItemVersion {
   machine              Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
   tabletId             String?       @map("tablet_id") @db.Uuid
   tablet               Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  /// The barista that tablet's Workflow named as it was made, for an edit a
+  /// barista asked for on the tablet and the server made: a Bean Batch
+  /// brought to the Machine's Location by a scan (ticket #708, ADR-0030).
+  /// Null for every other edit, and for every one the previous release
+  /// takes in (ADR-0025).
+  barista              String?
   /// The account that made it in the management interface or through an
   /// assistant, if one did.
   accountId            String?       @map("account_id") @db.Uuid
@@ -2217,6 +2223,8 @@ model LostEdit {
   machine         Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
   tabletId        String?       @map("tablet_id") @db.Uuid
   tablet          Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  /// The barista the losing edit named, as `ItemVersion.barista`.
+  barista         String?
   accountId       String?       @map("account_id") @db.Uuid
   account         Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// The Connected App the losing edit came through, as `ItemVersion.connectedAppId`.

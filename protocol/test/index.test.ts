@@ -55,6 +55,11 @@ import {
   steamTimeOf,
   MAX_REFUSAL_LENGTH,
   MAX_SHOTS_PAGE,
+  MAX_SCANNED_TEXT_LENGTH,
+  MAX_BATCH_MATCHES,
+  MAX_BARISTA_LENGTH,
+  BATCH_BROUGHT_OUTCOMES,
+  BATCH_SCANS_WIRE_REVISION,
   MAX_WRITTEN_FIELDS,
   NOT_SERVED,
   PROTOCOL_VERSION,
@@ -626,8 +631,12 @@ describe("Requests for a Skin", () => {
     return result.ok ? null : result.problem;
   };
 
+  it("brought the ask that brings a scanned Bean Batch in the wire revision after the latest release's", () => {
+    expect(BATCH_SCANS_WIRE_REVISION).toBe(WIRE_REVISION);
+  });
+
   it("names every ask and reason for not being served once", () => {
-    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference", "chooseReference", "editShot"]);
+    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference", "chooseReference", "editShot", "bringBatch"]);
     expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
     expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"]);
   });
@@ -640,7 +649,7 @@ describe("Requests for a Skin", () => {
       const result = decodePluginMessage(frame(message));
       return result.ok ? null : result.problem;
     };
-    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference, chooseReference, editShot");
+    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference, chooseReference, editShot, bringBatch");
     expect(problem({ type: "request", ask: "status" })).toBe("request.id must be a string");
     expect(problem({ ...request, id: "" })).toBe("request.id must not be empty");
     expect(problem({ ...request, id: "x".repeat(MAX_ID_LENGTH + 1) })).toBe(`request.id must be at most ${MAX_ID_LENGTH} characters`);
@@ -701,7 +710,7 @@ describe("Requests for a Skin", () => {
 
   it("refuses an answer that does not say what the plugin relies on, naming each field and repeating none", () => {
     expect(refused({ ...served, id: "" })).toBe("answer.id must not be empty");
-    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference, chooseReference, editShot");
+    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference, chooseReference, editShot, bringBatch");
     expect(refused({ type: "answer", id: request.id, ask: "status" })).toBe("answer.result must be an object");
     expect(refused({ ...served, result: { ...served.result, served: "yes" } })).toBe("answer.result.served must be true or false");
     // Why it is not served goes with not being served, and only with it.
@@ -782,6 +791,50 @@ describe("A Recipe's Reference Shot for a Skin, and the copies a tablet keeps", 
     for (const refusal of ["noSuchShot", "captureOnly", "hardwareMismatch"]) accepted.push({ ...answer, refused: refusal });
     for (const message of accepted) expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
     expect(fromServer(answer)).toBe("answer.result must be an object");
+  });
+
+  it("reads a request to bring a scanned Bean Batch by the text its code held or by the batch chosen, never both, with the barista if one is named, and its answer by its outcome", () => {
+    const batchId = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a72";
+    const request = { type: "request", id: "1j2k3l-4m5n-21", ask: "bringBatch" };
+    const asked = [
+      { ...request, text: "PR-0470" },
+      { ...request, text: "" },
+      { ...request, text: "x".repeat(MAX_SCANNED_TEXT_LENGTH), barista: "x".repeat(MAX_BARISTA_LENGTH) },
+      { ...request, batchId },
+      { ...request, batchId: batchId.toUpperCase(), barista: "Sam" },
+    ];
+    for (const message of asked) expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    expect(fromPlugin(request)).toBe("request.batchId must be a UUID");
+    expect(fromPlugin({ ...request, batchId: "PR-0470" })).toBe("request.batchId must be a UUID");
+    expect(fromPlugin({ ...request, text: "PR-0470", batchId })).toBe("request.batchId must be absent");
+    expect(fromPlugin({ ...request, text: 470 })).toBe("request.text must be a string");
+    expect(fromPlugin({ ...request, text: "x".repeat(MAX_SCANNED_TEXT_LENGTH + 1) })).toBe(`request.text must be at most ${MAX_SCANNED_TEXT_LENGTH} characters`);
+    for (const text of ["a\u0000b", "\ud800"]) expect(fromPlugin({ ...request, text })).toBe("request.text must be text PostgreSQL stores");
+    // The plugin leaves out a barista it reads none of, so one that is empty, too long or unstorable is no plugin's.
+    expect(fromPlugin({ ...request, batchId, barista: "" })).toBe("request.barista must not be empty");
+    expect(fromPlugin({ ...request, batchId, barista: null })).toBe("request.barista must be a string");
+    expect(fromPlugin({ ...request, batchId, barista: "x".repeat(MAX_BARISTA_LENGTH + 1) })).toBe(`request.barista must be at most ${MAX_BARISTA_LENGTH} characters`);
+    expect(fromPlugin({ ...request, batchId, barista: "a\u0000b" })).toBe("request.barista must be text PostgreSQL stores");
+    // The longest text a code may hold fits one frame however its JSON escapes it.
+    expect(frames(encode({ ...request, text: "\u0001".repeat(MAX_SCANNED_TEXT_LENGTH), barista: "\u0001".repeat(MAX_BARISTA_LENGTH) } as PluginMessage), "name")).toHaveLength(1);
+
+    expect(BATCH_BROUGHT_OUTCOMES).toEqual(["moved", "added", "alreadyThere", "several", "noMatch"]);
+    const answer = { type: "answer", id: request.id, ask: "bringBatch" };
+    const match = { id: batchId, roaster: "Roux", name: "Guji", roastDate: "2026-11-20", batchCode: "PR-0470", future: true };
+    const accepted: unknown[] = [
+      { ...answer, result: { outcome: "noMatch" } },
+      { ...answer, result: { outcome: "several", matches: [match, { ...match, roaster: null, name: null, roastDate: null, batchCode: null }], more: false } },
+      { ...answer, result: { outcome: "several", matches: Array.from({ length: MAX_BATCH_MATCHES }, () => match), more: true } },
+    ];
+    for (const outcome of ["moved", "added", "alreadyThere"]) accepted.push({ ...answer, result: { outcome, batchId } });
+    for (const refusal of ["captureOnly", "hardwareMismatch"]) accepted.push({ ...answer, refused: refusal });
+    for (const message of accepted) expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    expect(fromServer(answer)).toBe("answer.result must be an object");
+    expect(fromServer({ ...answer, result: { outcome: "created" } })).toBe(`answer.result.outcome must be one of ${BATCH_BROUGHT_OUTCOMES.join(", ")}`);
+    expect(fromServer({ ...answer, result: { outcome: "moved" } })).toBe("answer.result.batchId must be a UUID");
+    expect(fromServer({ ...answer, result: { outcome: "several", matches: [{ ...match, id: "PR-0470" }], more: false } })).toBe(`answer.result.matches must be an array of at most ${MAX_BATCH_MATCHES} valid entries`);
+    expect(fromServer({ ...answer, result: { outcome: "several", matches: Array.from({ length: MAX_BATCH_MATCHES + 1 }, () => match), more: true } })).toContain("answer.result.matches");
+    expect(fromServer({ ...answer, result: { outcome: "several", matches: [match] } })).toBe("answer.result.more must be true or false");
   });
 
   it("reads a Shot's rating and note from its record's annotations, none where it has none and a blank note as none", () => {

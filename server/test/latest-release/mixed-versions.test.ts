@@ -605,9 +605,10 @@ describe("the latest release beside the change", () => {
     };
     /** Once the plugin has been welcomed, as a Skin listening is told. */
     const welcomed = (tablet: SimulatedTablet) => expect.poll(() => tablet.pushes("changes").at(-1)).toEqual({ what: "connection", connected: true });
-    const served = (machine: CreatedMachine) => ({
+    // The change's plugin says whether it can match scanned text (#708), which it can't through the latest release's server; the latest release's says nothing of it.
+    const served = (machine: CreatedMachine, scan?: boolean) => ({
       status: 200,
-      body: { connected: true, served: true, machine: { id: machine.machine.id, name: machine.machine.name }, location: { id: location.id, name: location.name } },
+      body: { connected: true, served: true, machine: { id: machine.machine.id, name: machine.machine.name }, location: { id: location.id, name: location.name }, ...(scan === undefined ? {} : { scan }) },
     });
     const noShots = [200, { shots: [], nextCursor: null }];
     const shots = async (tablet: SimulatedTablet) => {
@@ -618,13 +619,13 @@ describe("the latest release beside the change", () => {
     // The change's plugin, held by the latest release's instance.
     const held = await connected("Skin status, held by the latest release", "change", "latest release", { location });
     await welcomed(held.tablet);
-    expect(await status(held.tablet)).toEqual(served(held.machine));
+    expect(await status(held.tablet)).toEqual(served(held.machine, false));
     expect(await shots(held.tablet)).toEqual(noShots);
     // Held by the change's instance, as once the deploy is done.
     const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
     loaded.push(moved);
     await welcomed(moved);
-    expect(await status(moved)).toEqual(served(held.machine));
+    expect(await status(moved)).toEqual(served(held.machine, true));
     expect(await shots(moved)).toEqual(noShots);
 
     // The latest release's plugin on the change's server, and Streamline's endpoint as it was.
@@ -634,6 +635,47 @@ describe("the latest release beside the change", () => {
     expect(await shots(behind.tablet)).toEqual(noShots);
     const skin = await behind.tablet.callEndpoint("skin");
     expect([skin.status, JSON.parse(skin.body)]).toEqual([200, { version: 1, surfaces: [], live: { endpoint: "changed" } }]);
+  });
+
+  // Bringing a scanned Bean Batch (#708) is an ask the latest release's server
+  // does not know, and closes a connection on. So the change's plugin never
+  // sends it one: held by that server, as during a deploy, it refuses a scan
+  // as too old to ask, and brings the batch once the change's server holds
+  // it. The latest release's plugin has no `scan` endpoint, which Decaid
+  // answers for it.
+  it("refuses a scan as too old to ask while the latest release's server holds the tablet, and brings the batch once the change's does", async () => {
+    const api = apis.change;
+    const cafe = await api.createLocation("Scans, both releases", "America/Chicago");
+    const lab = await api.createLocation("Scans, the lab, both releases", "America/Chicago");
+    const { bean } = await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed scan" } }, 201);
+    const created = await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { batchCode: "MIXED-708" }, locations: [{ locationId: lab.id, remainingWeight: 500 }] }, 201);
+    const scan = async (tablet: SimulatedTablet) => {
+      const answer = await tablet.callEndpoint("scan", { method: "PUT", body: { text: "MIXED-708" } });
+      return [answer.status, JSON.parse(answer.body)];
+    };
+    const welcomed = (tablet: SimulatedTablet) => expect.poll(() => tablet.pushes("changes").at(-1)).toEqual({ what: "connection", connected: true });
+    const asked = (tablet: SimulatedTablet) => tablet.sent.filter((frame) => (frame as { ask?: unknown }).ask === "bringBatch");
+    /** The Locations the batch is at, as that release's server reads it. */
+    const at = async (release: Release) => (await apis[release].get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${created.batch.id}`)).batch.locations.map((here) => here.location.id);
+
+    const held = await connected("Scans, held by the latest release", "change", "latest release", { location: cafe });
+    await welcomed(held.tablet);
+    expect(await scan(held.tablet)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
+    expect(asked(held.tablet)).toEqual([]);
+    expect(await at("change")).toEqual([lab.id]);
+
+    // Held by the change's instance, as once the deploy is done.
+    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    await welcomed(moved);
+    expect(await scan(moved)).toEqual([200, { outcome: "moved", batchId: expect.any(String), beanId: expect.any(String) }]);
+    expect(asked(moved)).toHaveLength(1);
+    // The latest release's server reads the batch where the scan brought it.
+    for (const release of ["change", "latest release"] as const) expect(await at(release)).toEqual([cafe.id]);
+
+    // The latest release's plugin declares no such endpoint, on either server.
+    const behind = await connected("Scans, the latest release's plugin", "latest release", "change", { location: cafe });
+    expect((await scan(behind.tablet))[0]).toBe(404);
   });
 
   // Each release's server sends a tablet the Reference Shot copies it is due

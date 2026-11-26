@@ -6,8 +6,9 @@ import { KINDS } from "./kinds.js";
 // Each Library item's history (ADR-0020, ADR-0033). Every accepted edit is
 // kept as a version: the fields it set, with their values, the Machine and
 // tablet or the account it came from, with the Connected App the account made
-// it through, if one (ADR-0026), when it was made and when the server took it
-// in. An edit of a Location's state of the item names that Location.
+// it through, if one (ADR-0026), or the barista the tablet's Workflow named,
+// for a batch a scan brought (ADR-0030), when it was made and when the server
+// took it in. An edit of a Location's state of the item names that Location.
 // An edit that lost to another of the same field made without seeing it, or
 // that such an edit replaced, is kept as a Lost Edit, with the version it
 // lost to: read with the item's versions, and never changed.
@@ -24,6 +25,13 @@ export interface EditSource {
   tabletId: string | null;
   accountId: string | null;
   connectedAppId: string | null;
+  /**
+   * The barista the tablet's Workflow named as the edit was made, for one a
+   * barista asked for there and the server made: a Bean Batch brought to
+   * the Machine's Location by a scan (ticket #708). None for a tablet's
+   * report, which names no person, and for an account's edit.
+   */
+  barista?: string | null;
 }
 
 /**
@@ -138,7 +146,7 @@ export async function recordReplaced(
   if (versionId === null) return;
   const version = await tx.itemVersion.findUnique({
     where: { id: versionId },
-    select: { machineId: true, tabletId: true, accountId: true, connectedAppId: true, editedAt: true },
+    select: { machineId: true, tabletId: true, accountId: true, connectedAppId: true, barista: true, editedAt: true },
   });
   if (!version) return;
   const { editedAt, ...source } = version;

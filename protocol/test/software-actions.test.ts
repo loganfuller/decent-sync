@@ -6,7 +6,6 @@ import {
   OWN_CHANGEABLE_SETTING,
   DECENT_SYNC_REPO,
   SOFTWARE_ACTION_KINDS,
-  SOURCE_CHANGES_WIRE_REVISION,
   type SoftwareActed,
   type SoftwareAction,
   WIRE_REVISION,
@@ -42,8 +41,7 @@ const seenPlugin = { version: "0.1.42", kind: "github_branch", repo: "decentespr
 const seenSkin = { version: "0.2.31-cafe.2", sourceUrl: CAFE_ASSET, etag: '"0x8DF4822E30A23B6"' };
 
 describe("a Software Action on the wire", () => {
-  it("names the plugin's own id and the one setting of its own it changes as its manifest does, and a change of how an item updates came in the wire revision after the latest release's", () => {
-    expect(SOURCE_CHANGES_WIRE_REVISION).toBe(WIRE_REVISION);
+  it("names the plugin's own id and the one setting of its own it changes as its manifest does", () => {
     expect(SOFTWARE_ACTION_KINDS.filter(isSourceChangeKind)).toEqual(["changePluginSource", "changeSkinSource"]);
     expect(isPluginRepo(DECENT_SYNC_REPO)).toBe(true);
     const manifest = JSON.parse(fs.readFileSync(new URL("../../plugin/manifest.json", import.meta.url), "utf8")) as { id: string; settings: Record<string, unknown>; permissions: string[] };

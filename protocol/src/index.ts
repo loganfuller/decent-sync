@@ -64,7 +64,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
  * raises. A test reads a release's from the source at its tag, so it stays
  * declared as it is here.
  */
-export const WIRE_REVISION = 6;
+export const WIRE_REVISION = 7;
 
 /**
  * The wire revision of a peer that sends none: the wire of every release
@@ -2101,14 +2101,45 @@ export function liveFrameFits(live: LiveFrame): boolean {
  * makes a Shot the tablet may read whole the Reference Shot of one of those
  * Recipes (ticket #511); and `editShot`, which sets the rating, the note or
  * both of one of that Location's Shots that the asking tablet doesn't hold
- * (ticket #515, ADR-0031). The last two are the asks that change anything.
+ * (ticket #515, ADR-0031); and `bringBatch`, which matches the text of a
+ * scanned QR code to a Bean Batch and brings that batch to its Machine's
+ * Location (ticket #708). The last three are the asks that change anything.
  */
-export const SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot"] as const;
+export const SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot", "bringBatch"] as const;
 
 export type SkinAsk = (typeof SKIN_ASKS)[number];
 
 /** The most Shots a page of a Location's Shots holds (`ask: "shots"`), and how many the plugin asks for where a Skin names no `limit`. */
 export const MAX_SHOTS_PAGE = 50;
+
+/**
+ * The wire revision the `bringBatch` ask arrived in (ticket #708), the
+ * first change after 1.14.0: the plugin sends one only to a server at it,
+ * as the previous release's server closes the connection on an ask it does
+ * not know, and answers a Skin that the server is too old to ask otherwise;
+ * and the server refuses one from a plugin behind it, which no plugin
+ * sends, as a protocol error.
+ */
+export const BATCH_SCANS_WIRE_REVISION = 7;
+
+/**
+ * The longest text of a scanned QR code the server is asked to match
+ * (`ask: "bringBatch"`), in UTF-16 units, as the plugin's other limits on
+ * what a Skin gives are: longer than any label's, and short enough that a
+ * request never passes a frame. The plugin refuses longer text itself.
+ */
+export const MAX_SCANNED_TEXT_LENGTH = 2048;
+
+/** The most Bean Batches an answer lists where scanned text matched several (`SkinBatchBrought.matches`), newest roast first. */
+export const MAX_BATCH_MATCHES = 20;
+
+/**
+ * The longest barista's name a `bringBatch` request carries, in UTF-16
+ * units: the plugin leaves out a longer one, as it does one PostgreSQL
+ * would not store, and the batch's history then names the Machine and
+ * tablet alone.
+ */
+export const MAX_BARISTA_LENGTH = 200;
 
 /**
  * Something the plugin asks the server for a Skin on its tablet (ADR-0030),
@@ -2163,6 +2194,23 @@ export type SkinQuestion =
       rating?: number;
       /** The note to set (`isShotNote`); absent to leave the Shot's as it is. */
       note?: string;
+    }
+  | {
+      ask: "bringBatch";
+      /**
+       * The text a scanned QR code held, as the Skin read it, of at most
+       * MAX_SCANNED_TEXT_LENGTH: the server matches it and decodes
+       * nothing. One of `text` and `batchId` is given, never both.
+       */
+      text?: string;
+      /** The id of one Bean Batch chosen from the matches an earlier answer listed (`SkinBatchMatch.id`). */
+      batchId?: string;
+      /**
+       * The barista the tablet's Workflow named as the Skin asked
+       * (`context.baristaName`), whom the batch's history credits beside
+       * the Machine and tablet; absent where it named none.
+       */
+      barista?: string;
     };
 
 /**
@@ -2294,6 +2342,58 @@ export interface SkinReference {
 }
 
 /**
+ * A Bean Batch that scanned text matched, as an answer lists it for a
+ * barista to choose among (ticket #708). Each value is null where the batch
+ * or its Bean has none.
+ */
+export interface SkinBatchMatch {
+  /** The batch's own id, which a second request names it by (`batchId`). */
+  id: string;
+  /** Its Bean's roaster and name. */
+  roaster: string | null;
+  name: string | null;
+  /** Its roast date, as `YYYY-MM-DD`. */
+  roastDate: string | null;
+  batchCode: string | null;
+}
+
+/**
+ * What became of a `bringBatch` request, as `outcome` says:
+ *
+ * - `moved`, `added` or `alreadyThere`: the text matched one Bean Batch, or
+ *   the request named one, which is at the asking Machine's Location now.
+ *   `moved`: it was at exactly one other Location, and all of it was moved
+ *   from there, as a Batch Move of all (ADR-0037). `added`: it was at
+ *   several other Locations, or at none, and was added at this one with no
+ *   weight moved. `alreadyThere`: nothing changed;
+ * - `several`: the text matched more than one batch, and nothing changed;
+ * - `noMatch`: the text matched no batch that is not Archived of a Bean
+ *   that is not, or the batch named is Archived, of an Archived Bean, or
+ *   none the Library holds, and nothing changed.
+ */
+export const BATCH_BROUGHT_OUTCOMES = ["moved", "added", "alreadyThere", "several", "noMatch"] as const;
+
+/** What `bringBatch` is answered with. */
+export type SkinBatchBrought =
+  | {
+      outcome: "moved" | "added" | "alreadyThere";
+      /**
+       * The batch's own id, which the tablet's record of it carries
+       * (GLOBAL_ID_KEY): the plugin answers its Skin with that record's id
+       * and its bean's, once the tablet holds it.
+       */
+      batchId: string;
+    }
+  | {
+      outcome: "several";
+      /** The batches matched, newest roast first, at most MAX_BATCH_MATCHES. */
+      matches: SkinBatchMatch[];
+      /** Whether more matched than `matches` holds. */
+      more: boolean;
+    }
+  | { outcome: "noMatch" };
+
+/**
  * Why the server refuses what a request asks, in place of a result. `status`
  * is never refused: it says why its Machine is not served.
  *
@@ -2325,7 +2425,8 @@ export type SkinAnswer = { type: "answer"; id: string } & (
   | { ask: "shot"; result: SkinShot }
   | { ask: "reference" | "chooseReference"; result: SkinReference }
   | { ask: "editShot"; result: SkinShotEdited }
-  | { ask: "shots" | "shot" | "reference" | "chooseReference" | "editShot"; refused: SkinRefusal }
+  | { ask: "bringBatch"; result: SkinBatchBrought }
+  | { ask: "shots" | "shot" | "reference" | "chooseReference" | "editShot" | "bringBatch"; refused: SkinRefusal }
 );
 
 /**
@@ -2939,6 +3040,19 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           if (object.note !== undefined) fields.shotNote("note");
           fields.some(["rating", "note"]);
         }
+        // The text as a Skin read it, or the batch a barista chose, and the barista as the plugin read the Workflow's:
+        // each as the plugin checked it before it asked.
+        if (object.ask === "bringBatch") {
+          if (object.text !== undefined) {
+            fields.string("text", { maxLength: MAX_SCANNED_TEXT_LENGTH });
+            fields.storedText("text");
+            fields.absent("batchId");
+          } else fields.uuid("batchId");
+          if (object.barista !== undefined) {
+            fields.string("barista", { nonEmpty: true, maxLength: MAX_BARISTA_LENGTH });
+            fields.storedText("barista");
+          }
+        }
       });
     case "referencesHeld":
       return check<ReferencesHeld>(object, "referencesHeld", (fields) => fields.versionsBySlot("held"));
@@ -3154,6 +3268,17 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         }
         if (object.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
         if (object.ask === "reference" || object.ask === "chooseReference") fields.optionalObject("result", referenceFields);
+        if (object.ask === "bringBatch") {
+          fields.optionalObject("result", (brought) => {
+            brought.oneOf("outcome", BATCH_BROUGHT_OUTCOMES);
+            const outcome = isObject(object.result) ? object.result.outcome : undefined;
+            if (outcome === "moved" || outcome === "added" || outcome === "alreadyThere") brought.uuid("batchId");
+            if (outcome === "several") {
+              brought.array("matches", (match) => isObject(match) && isUuid(match.id), MAX_BATCH_MATCHES);
+              brought.boolean("more");
+            }
+          });
+        }
         if (object.ask === "status") {
           fields.optionalObject("result", (status) => {
             status.boolean("served");
@@ -3313,6 +3438,11 @@ class FieldChecker {
   /** A note a Shot's edit sets (`isShotNote`). */
   shotNote(key: string): void {
     if (!isShotNote(this.object[key])) this.problem(key, "must be text PostgreSQL stores");
+  }
+
+  /** Text PostgreSQL stores, as a Shot's note is (`isShotNote`), where the field is text: `string` says where it is not. */
+  storedText(key: string): void {
+    if (typeof this.object[key] === "string" && !isShotNote(this.object[key])) this.problem(key, "must be text PostgreSQL stores");
   }
 
   /** A Recipe Slot's number. */

@@ -43,6 +43,7 @@
     { "id": "shots", "type": "http", "data": {} },
     { "id": "shot", "type": "http", "data": {} },
     { "id": "reference", "type": "http", "data": {} },
+    { "id": "scan", "type": "http", "data": {} },
     { "id": "page", "type": "http", "data": {} }
   ]
 }

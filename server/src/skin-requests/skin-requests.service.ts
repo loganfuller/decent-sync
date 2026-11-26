@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import { type NotServed, type SkinAnswer, type SkinReference, type SkinRefusal, type SkinRequest, type SkinShotEdited, type SkinStatus } from "@decent-sync/protocol";
+import { type NotServed, type SkinAnswer, type SkinBatchBrought, type SkinReference, type SkinRefusal, type SkinRequest, type SkinShotEdited, type SkinStatus } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { BatchScansService, type Scanned, TRY_AGAIN } from "../library/batch-scans.service.js";
 import { INTAKE_TRANSACTION, lockHeldMachine } from "../library/intake.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -39,7 +40,7 @@ import type { Identity } from "../sync/identity.js";
 // Reference Shot of each Recipe in a slot there, which the connection's
 // `ReferenceCopies` sends as `referenceCopiesDue` here finds them due.
 //
-// Two asks change something. `chooseReference` makes a Shot the tablet may
+// Three asks change something. `chooseReference` makes a Shot the tablet may
 // read whole the Reference Shot of one of its Location's Recipes (ticket
 // #511, amending ADR-0029), through the service the management interface
 // and an assistant's tool choose one through (`RecipeEditsService`). And
@@ -47,11 +48,19 @@ import type { Identity } from "../sync/identity.js";
 // (ticket #515, ADR-0031), through the service the REST API's route and an
 // assistant's tool edit one through (`ShotEditsService`), kept with its
 // Machine and tablet and no account. Its plugin asks only for a Shot its
-// tablet doesn't hold, and writes the ones it does through Decaid. Each is
+// tablet doesn't hold, and writes the ones it does through Decaid. And
+// `bringBatch` matches the text of a QR code a Skin scanned to a Bean Batch,
+// and brings that batch to the Location its Machine is served at (ticket
+// #708, amending ADR-0030 and ADR-0008), by a Batch Move of all from the one
+// other Location it is at, or by adding it (`BatchScansService`), kept with
+// its Machine and tablet, the barista its Workflow named and no account. Each is
 // made while its request is handled or not at all: nothing of it is kept to
 // make later. Its answer may still be lost on the way, as when the
 // connection closes meanwhile, so a plugin that sent the request and has no
 // answer can't tell its Skin whether it was made.
+
+/** How many times a scanned batch is brought anew where its Locations changed under it, before the request is left unanswered. */
+const BRING_ATTEMPTS = 5;
 
 /** The connection a request arrived on: its session, its token's Machine, its tablet, and who that tablet is, as its hello settled it. */
 export interface AskingConnection {
@@ -67,6 +76,7 @@ export class SkinRequestsService {
     private readonly prisma: PrismaService,
     private readonly recipeEdits: RecipeEditsService,
     private readonly shotEdits: ShotEditsService,
+    private readonly batchScans: BatchScansService,
   ) {}
 
   /**
@@ -112,6 +122,40 @@ export class SkinRequestsService {
         const outcome = await this.editShot(connection, request.shotId, { ...(rating !== undefined && { rating }), ...(note !== undefined && { note }) });
         return outcome && { ...answer, ask: "editShot", ...outcome };
       }
+      case "bringBatch": {
+        const scanned = request.text !== undefined ? { text: request.text } : { batchId: request.batchId! };
+        const outcome = await this.bringBatch(connection, scanned, request.barista ?? null);
+        return outcome && { ...answer, ask: "bringBatch", ...outcome };
+      }
+    }
+  }
+
+  /**
+   * Matches what a scan on the connection's tablet asks for, the text its
+   * code held or the batch a barista chose, and brings the one batch it
+   * names to the Location the connection's Machine is served at (ticket
+   * #708); or says that it matched several, or none; or why it is refused;
+   * or null as `answer` gives it. Whether the Machine is served and where,
+   * and the change, are of one transaction, which holds the Machine's row
+   * as a choice of a Reference Shot does (`chooseReference`), so a batch is
+   * brought only by the connection holding a Machine that is served at that
+   * Location as it commits. A batch whose Locations changed as it was being
+   * brought is brought in a transaction of its own, a few times at most
+   * (`TRY_AGAIN`): each is a change of where one batch is made within the
+   * milliseconds between a read and a lock.
+   */
+  private async bringBatch(connection: AskingConnection, scanned: Scanned, barista: string | null): Promise<{ result: SkinBatchBrought } | { refused: SkinRefusal } | null> {
+    for (let attempt = 1; ; attempt++) {
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        if (!(await lockHeldMachine(tx, connection))) return null;
+        const status = await this.status(tx, connection);
+        if (status === null) return null;
+        if (status.notServed !== undefined || status.location === null) return { refused: status.notServed ?? ("captureOnly" as const) };
+        const result = await this.batchScans.bring(tx, scanned, { locationId: status.location.id, machineId: connection.machineId, tabletId: connection.tabletId, barista });
+        return result === TRY_AGAIN ? TRY_AGAIN : { result };
+      }, INTAKE_TRANSACTION);
+      if (outcome !== TRY_AGAIN) return outcome;
+      if (attempt === BRING_ATTEMPTS) throw new Error("A scanned Bean Batch's Locations kept changing as it was brought to a Machine's");
     }
   }
 

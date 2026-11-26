@@ -198,7 +198,7 @@ describe("Drafts", () => {
     const later = { ...softer, title: "Lab soak, longer", steps: softer.steps.map((step) => ({ ...step, seconds: step.seconds + 1 })) };
     const second = await save(draft.id, { profile: later, saves: 1 }, staff.at(other.url));
     expect(second.draft).toMatchObject({ saves: 3, title: "Lab soak, longer", profile: later });
-    expect(second.between).toEqual({ saves: 1, savedBy: { machine: null, tabletId: null, account: { id: adminId, name: null }, connectedApp: null }, savedAt: first.draft.savedAt });
+    expect(second.between).toEqual({ saves: 1, savedBy: { machine: null, tabletId: null, barista: null, account: { id: adminId, name: null }, connectedApp: null }, savedAt: first.draft.savedAt });
     expect((await read(draft.id)).profile).toEqual(later);
     expect((await read(draft.id)).savedBy.account?.name).toBe("Sam Staff");
 

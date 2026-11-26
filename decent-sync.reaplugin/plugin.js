@@ -512,7 +512,6 @@ var __decentSync = (() => {
   }
 
   // ../protocol/src/software-actions.ts
-  var SOURCE_CHANGES_WIRE_REVISION = 6;
   var DECENT_SYNC_REPO = "loganfuller/decent-sync";
   var OWN_CHANGEABLE_SETTING = "PollSeconds";
   var SOFTWARE_ACTION_KINDS = [
@@ -1069,7 +1068,7 @@ var __decentSync = (() => {
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
-  var WIRE_REVISION = 6;
+  var WIRE_REVISION = 7;
   var FIRST_WIRE_REVISION = 1;
   function wireRevisionOf(message) {
     return message.wireRevision ?? FIRST_WIRE_REVISION;
@@ -1409,9 +1408,14 @@ var __decentSync = (() => {
     const uuid = "00000000-0000-0000-0000-000000000000";
     return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
   }
-  var SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot"];
+  var SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot", "bringBatch"];
   var MAX_SHOTS_PAGE = 50;
+  var BATCH_SCANS_WIRE_REVISION = 7;
+  var MAX_SCANNED_TEXT_LENGTH = 2048;
+  var MAX_BATCH_MATCHES = 20;
+  var MAX_BARISTA_LENGTH = 200;
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
+  var BATCH_BROUGHT_OUTCOMES = ["moved", "added", "alreadyThere", "several", "noMatch"];
   var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"];
   var MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
   var MAX_REFERENCE_VERSION_LENGTH = 128;
@@ -1663,6 +1667,17 @@ var __decentSync = (() => {
           }
           if (object3.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
           if (object3.ask === "reference" || object3.ask === "chooseReference") fields.optionalObject("result", referenceFields);
+          if (object3.ask === "bringBatch") {
+            fields.optionalObject("result", (brought) => {
+              brought.oneOf("outcome", BATCH_BROUGHT_OUTCOMES);
+              const outcome = isObject2(object3.result) ? object3.result.outcome : void 0;
+              if (outcome === "moved" || outcome === "added" || outcome === "alreadyThere") brought.uuid("batchId");
+              if (outcome === "several") {
+                brought.array("matches", (match) => isObject2(match) && isUuid(match.id), MAX_BATCH_MATCHES);
+                brought.boolean("more");
+              }
+            });
+          }
           if (object3.ask === "status") {
             fields.optionalObject("result", (status) => {
               status.boolean("served");
@@ -1778,6 +1793,10 @@ var __decentSync = (() => {
     /** A note a Shot's edit sets (`isShotNote`). */
     shotNote(key2) {
       if (!isShotNote(this.object[key2])) this.problem(key2, "must be text PostgreSQL stores");
+    }
+    /** Text PostgreSQL stores, as a Shot's note is (`isShotNote`), where the field is text: `string` says where it is not. */
+    storedText(key2) {
+      if (typeof this.object[key2] === "string" && !isShotNote(this.object[key2])) this.problem(key2, "must be text PostgreSQL stores");
     }
     /** A Recipe Slot's number. */
     recipeSlot(key2) {
@@ -6828,15 +6847,85 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     return error instanceof Error ? error.message : String(error);
   }
 
+  // src/skin-requests.ts
+  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true, chooseReference: true, editShot: false, bringBatch: false };
+  var SKIN_REQUEST_MS = 1e4;
+  var SkinRequests = class {
+    constructor(outbox) {
+      __publicField(this, "outbox", outbox);
+      /** The welcomed connection, with the wire revision its server's welcome gave. */
+      __publicField(this, "connection");
+      /** The requests awaiting an answer, by id, each with what settles it. */
+      __publicField(this, "pending", /* @__PURE__ */ new Map());
+    }
+    /** Whether the plugin holds a connection the server welcomed. */
+    get connected() {
+      return this.connection !== void 0;
+    }
+    /** The server welcomed a connection, whose `send` sends a request on it, at the wire revision its welcome gave. */
+    welcomed(send, serverRevision) {
+      this.connection = { send, serverRevision };
+    }
+    /**
+     * Whether the server the plugin is connected to can be asked to bring a
+     * Bean Batch a scan matched (#708): it is at the wire revision that ask
+     * came in. The previous release's server closes the connection on an ask
+     * it does not know, so it is never sent one. False while the plugin is
+     * not connected.
+     */
+    get bringsBatches() {
+      return this.connection !== void 0 && peerHasWireRevision(this.connection.serverRevision, BATCH_SCANS_WIRE_REVISION);
+    }
+    /** The connection closed: its requests have no answer to come. */
+    disconnected() {
+      this.connection = void 0;
+      for (const settle of [...this.pending.values()]) settle({ unanswered: "unreachable" });
+    }
+    /** The server answered a request; an answer to none awaited, as one that came too late, is dropped. */
+    answered(answer) {
+      this.pending.get(answer.id)?.({ answer });
+    }
+    /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
+    ask(question) {
+      const connection = this.connection;
+      if (!connection) return Promise.resolve({ unanswered: "unreachable" });
+      if (question.ask === "bringBatch" && !this.bringsBatches) return Promise.resolve({ unanswered: "serverTooOld" });
+      const id = this.outbox.nextId();
+      return new Promise((resolve) => {
+        let giveUp = () => {
+        };
+        const settle = (asked) => {
+          if (!this.pending.delete(id)) return;
+          clearTimeout(timer);
+          giveUp();
+          resolve(asked);
+        };
+        const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
+        this.pending.set(id, settle);
+        const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
+        if (!FOLLOWS_REPORTS[question.ask]) return send();
+        giveUp = this.outbox.whenDelivered((delivered) => {
+          if (!delivered) return settle({ unanswered: "unreachable" });
+          if (this.pending.has(id)) send();
+        });
+      });
+    }
+  };
+
   // src/skin-api.ts
   var STATUS_ENDPOINT = "status";
   var SHOTS_ENDPOINT = "shots";
   var SHOT_ENDPOINT = "shot";
   var REFERENCE_ENDPOINT = "reference";
+  var SCAN_ENDPOINT = "scan";
   var CHANGES_ENDPOINT = "changes";
   var MAX_ASKED_LENGTH = 2048;
   var REFUSALS = {
     unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
+    serverTooOld: {
+      status: 503,
+      message: "The Decent Sync server this tablet is connected to is a release too old to ask this. It can be asked once it is upgraded."
+    },
     captureOnly: {
       status: 409,
       message: "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library."
@@ -6865,6 +6954,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         return answerShot(request2, requests);
       case REFERENCE_ENDPOINT:
         return answerReference(request2, requests, references);
+      case SCAN_ENDPOINT:
+        return answerScan(request2, requests);
       default:
         return void 0;
     }
@@ -6872,11 +6963,12 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   async function answerStatus(request2, requests) {
     if (request2.method !== "GET") return methodNotAllowed("GET");
     const asked = await ask2(requests, { ask: "status" });
-    const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
+    const scan = requests?.bringsBatches ?? false;
+    const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null, scan };
     if ("unanswered" in asked) return refusal(asked.unanswered, unanswered);
     if (asked.answer.ask !== "status") return refusal("unreachable", unanswered);
     const { served, notServed, machine, location } = asked.answer.result;
-    const status = { connected: true, served, machine, location };
+    const status = { connected: true, served, machine, location, scan };
     return notServed === void 0 ? json(200, status) : refusal(notServed, status);
   }
   async function answerShots(request2, requests) {
@@ -6961,6 +7053,67 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     const records = reading.kind === "value" ? dye2Records(reading.value) : null;
     return records === null ? void 0 : dye2GlobalIdOf(records.find((record3) => record3.id === recordId));
   }
+  async function answerScan(request2, requests) {
+    if (request2.method !== "PUT") return methodNotAllowed("PUT");
+    const asking = readScan(request2.body);
+    if (typeof asking === "string") return invalid2(asking);
+    if (!requests?.connected) return refusal("unreachable");
+    if (!requests.bringsBatches) return refusal("serverTooOld");
+    let timeUp = false;
+    const timer = setTimeout(() => timeUp = true, SKIN_REQUEST_MS);
+    try {
+      const barista = await workflowBarista();
+      const asked = await ask2(requests, { ask: "bringBatch", ...asking, ...barista !== null && { barista } });
+      if ("unanswered" in asked) return refusal(asked.unanswered);
+      if ("refused" in asked.answer) return refused2(asked.answer.refused);
+      if (asked.answer.ask !== "bringBatch") return refusal("unreachable");
+      const brought = asked.answer.result;
+      if (brought.outcome === "several" || brought.outcome === "noMatch") return json(200, brought);
+      const held = await heldOnTablet(brought.batchId, () => timeUp);
+      if (held) return json(200, { outcome: brought.outcome, ...held });
+      return refusal("unreachable", {}, "The server found the Bean Batch, but this tablet did not hold it in time. It may still arrive: ask again.");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  function readScan(body) {
+    const NOTHING_TO_MATCH = "Give the text the scanned code held as text, or the id of a batch from an earlier answer's matches as match, in a JSON body.";
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return NOTHING_TO_MATCH;
+    const { text, match } = body;
+    if (text !== void 0 && match !== void 0) return "Give text or match, not both.";
+    if (match !== void 0) return isGlobalId(match) ? { batchId: match.toLowerCase() } : "Give match as the id of a batch from an earlier answer's matches.";
+    if (text === void 0) return NOTHING_TO_MATCH;
+    if (!(isShotNote(text) && text.length <= MAX_SCANNED_TEXT_LENGTH)) {
+      return `Give text as the text the scanned code held, of at most ${MAX_SCANNED_TEXT_LENGTH} characters, without a NUL or an unpaired surrogate.`;
+    }
+    return { text };
+  }
+  async function workflowBarista() {
+    try {
+      const answer = await request("GET", "/workflow");
+      if (!answer.ok) return null;
+      const workflow = JSON.parse(answer.text);
+      const name = workflow?.context?.baristaName;
+      const barista = typeof name === "string" ? name.trim() : "";
+      return barista !== "" && barista.length <= MAX_BARISTA_LENGTH && isShotNote(barista) ? barista : null;
+    } catch {
+      return null;
+    }
+  }
+  var HELD_POLL_MS = 250;
+  async function heldOnTablet(batchId, timeUp) {
+    for (; ; ) {
+      const reading = await readCollection("/bean-batches", null);
+      const records = reading.kind === "value" && Array.isArray(reading.value) ? reading.value : [];
+      for (const record3 of records) {
+        if (typeof record3 !== "object" || record3 === null) continue;
+        const { id, beanId, archived } = record3;
+        if (globalIdOf(record3) === batchId && archived !== true && typeof id === "string" && typeof beanId === "string") return { batchId: id, beanId };
+      }
+      if (timeUp()) return null;
+      await new Promise((resolve) => setTimeout(() => resolve(), HELD_POLL_MS));
+    }
+  }
   function askable(value) {
     return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
   }
@@ -7008,60 +7161,6 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       log(`Could not tell Skins that the connection to the server ${connected ? "came" : "went"}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-
-  // src/skin-requests.ts
-  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true, chooseReference: true, editShot: false };
-  var SKIN_REQUEST_MS = 1e4;
-  var SkinRequests = class {
-    constructor(outbox) {
-      __publicField(this, "outbox", outbox);
-      /** The welcomed connection, with the wire revision its server's welcome gave. */
-      __publicField(this, "connection");
-      /** The requests awaiting an answer, by id, each with what settles it. */
-      __publicField(this, "pending", /* @__PURE__ */ new Map());
-    }
-    /** Whether the plugin holds a connection the server welcomed. */
-    get connected() {
-      return this.connection !== void 0;
-    }
-    /** The server welcomed a connection, whose `send` sends a request on it. */
-    welcomed(send) {
-      this.connection = { send };
-    }
-    /** The connection closed: its requests have no answer to come. */
-    disconnected() {
-      this.connection = void 0;
-      for (const settle of [...this.pending.values()]) settle({ unanswered: "unreachable" });
-    }
-    /** The server answered a request; an answer to none awaited, as one that came too late, is dropped. */
-    answered(answer) {
-      this.pending.get(answer.id)?.({ answer });
-    }
-    /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
-    ask(question) {
-      const connection = this.connection;
-      if (!connection) return Promise.resolve({ unanswered: "unreachable" });
-      const id = this.outbox.nextId();
-      return new Promise((resolve) => {
-        let giveUp = () => {
-        };
-        const settle = (asked) => {
-          if (!this.pending.delete(id)) return;
-          clearTimeout(timer);
-          giveUp();
-          resolve(asked);
-        };
-        const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
-        this.pending.set(id, settle);
-        const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
-        if (!FOLLOWS_REPORTS[question.ask]) return send();
-        giveUp = this.outbox.whenDelivered((delivered) => {
-          if (!delivered) return settle({ unanswered: "unreachable" });
-          if (this.pending.has(id)) send();
-        });
-      });
-    }
-  };
 
   // src/skins.ts
   var SKIN_ENDPOINT = "skin";
@@ -7826,11 +7925,9 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
           this.machineEvents.welcome();
-          const serverRevision = wireRevisionOf(message);
           this.outbox.welcome(async (delivery) => {
-            const sent = delivery.type === "softwareActed" && delivery.reason === "differentItem" && !peerHasWireRevision(serverRevision, SOURCE_CHANGES_WIRE_REVISION) ? { ...delivery, reason: "decaid", status: null, message: delivery.message ?? "Its source held another plugin or Skin" } : delivery;
             try {
-              await this.send(handle, sent);
+              await this.send(handle, delivery);
             } catch (error) {
               this.sendFailed(handle, "could not send a delivery");
               throw error;
@@ -7846,7 +7943,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
               this.sendFailed(handle, "could not send a request");
               throw error;
             }
-          });
+          }, wireRevisionOf(message));
           tellConnection(this.host, this.log, true);
           void this.references.welcomed(
             async (held) => {

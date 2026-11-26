@@ -11,9 +11,11 @@ the server over its own connection, and the answer comes back in the same
 call. So far a Skin reads the [status](#status), [the Shots at its Machine's
 Location](#the-locations-shots), [any one of them whole](#a-shot-whole) and
 [a Recipe's Reference Shot](#a-recipes-reference-shot),
-[chooses a Recipe's Reference Shot](#choosing-a-recipes-reference-shot), and
+[chooses a Recipe's Reference Shot](#choosing-a-recipes-reference-shot),
 [edits the rating and note of any Shot at the
-Location](#editing-a-shots-rating-and-note). It may [report its page and be
+Location](#editing-a-shots-rating-and-note), and
+[has the Bean Batch of a QR code it scanned brought to its Machine's
+Location](#scanning-a-bean-batchs-qr-code). It may [report its page and be
 asked to reload](#reporting-the-page-and-reloading). It may also edit a Recipe by
 writing its DYE2 record itself ([Writing DYE2's
 recipes](#writing-dye2s-recipes)). What a Skin reads from Decaid's own
@@ -41,14 +43,14 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   write [an edit of a Shot](#editing-a-shots-rating-and-note). Decaid's own
   API answers in milliseconds. Were it to take most of the 30 seconds, the
   call could run past them, and Decaid then answers it itself, with an
-  `error` and no `code`. Treat that as `unreachable`: a choice or an edit
-  may still have been made.
+  `error` and no `code`. Treat that as `unreachable`: a choice, an edit or
+  a scan may still have been made.
 - **Nothing is queued.** A request refused as `unreachable` was not kept, and
   is not sent later. Ask again. That holds for
   [a choice](#choosing-a-recipes-reference-shot) and for
-  [an edit of another tablet's Shot](#editing-a-shots-rating-and-note) too:
-  one refused while the plugin isn't connected changes nothing, then or
-  later.
+  [an edit of another tablet's Shot](#editing-a-shots-rating-and-note) and
+  for [a scan](#scanning-a-bean-batchs-qr-code) too: one refused while the
+  plugin isn't connected changes nothing, then or later.
 - **Decaid answers some requests itself.** It answers 404 while the plugin
   isn't loaded, and for an endpoint the installed plugin doesn't have, such
   as `status` on the 1.9.0 plugin or an earlier one.
@@ -69,6 +71,8 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
 - **An edit of a Shot is asked at once.** It waits for nothing the tablet
   has still to send, as it is of a Shot another tablet holds, so a Shot can
   be rated while a tablet catches up.
+- **A scan is asked at once too.** Where a batch is, is the server's to say,
+  so a bucket can be scanned while a tablet catches up.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
 own API but for managing plugins and Skins where Decaid asks a token for it
@@ -80,8 +84,9 @@ own Machine's Location, whatever a caller asks for.
 ## Status
 
 `GET /api/v1/plugins/decent-sync.reaplugin/status` says whether the plugin is
-connected to the server, whether its Machine is served, and which Machine and
-Location it is. Call it to decide which screens to show.
+connected to the server, whether its Machine is served, which Machine and
+Location it is, and whether it can match scanned text. Call it to decide
+which screens to show.
 
 A Machine is served while it takes part in the Library: at a Location, with
 its sharing on, connected as itself. Served, it answers 200:
@@ -91,7 +96,8 @@ its sharing on, connected as itself. Served, it answers 200:
   "connected": true,
   "served": true,
   "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Bar Left" },
-  "location": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a71", "name": "Downtown" }
+  "location": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a71", "name": "Downtown" },
+  "scan": true
 }
 ```
 
@@ -105,6 +111,7 @@ moment: that HTTP status, with the same fields and the refusal's `code` and
   "served": false,
   "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Bar Left" },
   "location": null,
+  "scan": true,
   "code": "captureOnly",
   "message": "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library."
 }
@@ -116,6 +123,7 @@ moment: that HTTP status, with the same fields and the refusal's `code` and
 | `served` | Whether the other endpoints answer for this Machine now. |
 | `machine` | The Machine's id and name on the server. Null while the server wasn't asked or didn't answer, and for `hardwareMismatch`. |
 | `location` | The Location the Machine is at, by id and name, whether or not it shares there. Null where it is at none, and wherever `machine` is null. |
+| `scan` | Whether the plugin can [match scanned text](#scanning-a-bean-batchs-qr-code) now: it is connected to a server that can be asked to. False while it isn't connected, and while it is connected to a server of the release before the request, as during an upgrade. Absent on a plugin from before the request, which has no `scan` endpoint: read absent as false. Show a scan control only where `served` and `scan` are both true. |
 | `code`, `message` | Why it isn't served. Absent while it is. |
 
 Each call asks the server afresh. Nothing is remembered from the last answer.
@@ -403,6 +411,114 @@ only blanks, as [a Reference Shot's](#a-recipes-reference-shot) are.
   Shot](#changes), whose copy on each tablet follows the edit. Read the
   list again to show an edit made elsewhere.
 
+## Scanning a Bean Batch's QR code
+
+`PUT /api/v1/plugins/decent-sync.reaplugin/scan` asks which Bean Batch a
+scanned QR code is, and brings that batch to the Machine's Location, so a
+barista can pick a bucket by its label, one that has just arrived included.
+The Skin reads the code: send the text it held, as it was read, in a JSON
+body. The plugin and the server decode nothing.
+
+```json
+{ "text": "PR-0470" }
+```
+
+The server matches the text against the batches that are not Archived, of
+Beans that are not, stopping at the first step that finds any:
+
+1. **The whole text is a Batch Code,** ignoring case and the white space
+   around it.
+2. **The text is a URL or JSON that holds one:** a URL's last path segment,
+   one of its query values or its fragment, or one of JSON's string values,
+   at any depth. A URL has a scheme and `//`, as
+   `https://roaster.example/b/PR-0470` has.
+3. **The text names a Bean:** every word of the text is in the Bean's
+   roaster and name, or every word of the Bean's name is in the text. That
+   matches each of the Bean's batches. A date in the text narrows them to
+   the batches roasted that day, where it is written year first
+   (`2026-11-20`) or with its month by name (`20 Nov 2026`). A date of
+   numbers with the year last is not read, as its day and month would be
+   guessed.
+
+Every answer is 200 with an `outcome`:
+
+| `outcome` | What happened | With |
+|---|---|---|
+| `moved` | The text matched one batch, which was at exactly one other Location. All of it was moved to the Machine's Location, with its remaining weight, and it is finished at the Location it left. | `batchId`, `beanId` |
+| `added` | It matched one batch, which was at several other Locations, or at none. It was added at the Machine's Location and no weight moved, since nothing says which Location's coffee arrived. | `batchId`, `beanId` |
+| `alreadyThere` | It matched one batch, which was at the Machine's Location already. Nothing changed. | `batchId`, `beanId` |
+| `several` | It matched more than one batch. Nothing changed. | `matches`, `more` |
+| `noMatch` | It matched nothing. Nothing changed. | |
+
+For one batch, `batchId` and `beanId` are this tablet's own ids, Decaid's,
+for the batch's record and its bean's:
+
+```json
+{ "outcome": "moved", "batchId": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca", "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b" }
+```
+
+The plugin answers only once Decaid lists that batch, not archived, under a
+bean that is not, so read Decaid's beans and batches again and select it.
+Treat the three outcomes alike unless you have something to say about each.
+
+For several, `matches` lists them, newest roast first, at most 20, and
+`more` says whether more matched than it holds. Each has the Bean's
+`roaster` and `name`, the batch's `roastDate` as `YYYY-MM-DD` and its
+`batchCode`, each null where there is none, and an `id` to choose it by:
+
+```json
+{
+  "outcome": "several",
+  "matches": [
+    { "id": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c", "roaster": "Roux", "name": "Guji Natural", "roastDate": "2026-11-20", "batchCode": "PR-0470" },
+    { "id": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2d", "roaster": "Roux", "name": "Guji Natural", "roastDate": "2026-11-12", "batchCode": null }
+  ],
+  "more": false
+}
+```
+
+Have the barista choose one, and ask again with its `id` as `match` in
+place of the text. That brings the batch as a match of one does:
+
+```json
+{ "match": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c" }
+```
+
+- **A scan takes no weight.** A move is of all the batch had where it was. A
+  batch added is untracked at the Machine's Location until someone enters
+  its weight there.
+- **A scan never creates a batch or brings back an Archived one.** A code
+  for an Archived batch, or for a batch of an Archived Bean, is `noMatch`,
+  as is a `match` that names one, or names no batch at all.
+- **The text is at most 2,048 characters.** Longer text, text with a NUL or
+  an unpaired surrogate, a `match` that is no id, both `text` and `match`,
+  and neither are refused as `invalidRequest`. Empty text is `noMatch`.
+- **Ask the status first.** Show a scan control only while
+  [the status](#status) answers `served` and `scan` as true. A plugin from
+  before this request has no `scan` endpoint, and Decaid answers 404 for it.
+- **It is made now or not at all.** While the plugin isn't connected the
+  request is refused as `unreachable` at once, without being sent, and
+  nothing is kept to send later. A Capture-only Machine is refused as
+  `captureOnly`. While the plugin is connected to a server of the release
+  before this request, as during an upgrade, it is refused as
+  `serverTooOld`, without being sent.
+- **A scan refused for time may still have brought the batch.** The plugin
+  gives the request 10 seconds from when the Skin asked: for the server to
+  answer, and for the tablet to hold the batch. One refused as
+  `unreachable` after it was sent may have moved or added the batch: the
+  server's answer was lost or late, or the tablet's record had yet to
+  arrive, which it does not while the Machine pulls a Shot. Ask again with
+  the same text, which then answers `alreadyThere` once the tablet holds
+  the batch.
+- **The barista is credited, with the Machine.** The batch's history in the
+  management interface names the Machine the scan was made on and the
+  barista its Workflow named then (`context.baristaName`), which the plugin
+  reads from Decaid, and no account. With no barista named it names the
+  Machine alone. Anyone at the tablet may scan.
+- **The Workflow is left alone.** A scan brings a batch to the Location. It
+  puts nothing in the Workflow: the Skin does that when the barista chooses
+  to use the batch, as for any other batch.
+
 ## Refusals
 
 Every refusal is an HTTP status with a `code` to act on and a `message` to
@@ -412,7 +528,7 @@ show. A Skin refused as `unreachable`, `captureOnly` or
 | Code | Status | When |
 |---|---|---|
 | `unreachable` | 503 | The plugin isn't connected to the server, its connection closed before the answer came, or the server didn't answer within 10 seconds. |
-| `serverTooOld` | 503 | Answered only by the plugins of 1.10.0 to 1.11.1, while connected to a 1.9.0 server during an upgrade; later plugins never answer it, as every server they work with has these endpoints. Treat it as `unreachable`. |
+| `serverTooOld` | 503 | The plugin is connected to a server of the release before what was asked, as during an upgrade, so the request was not sent. Answered for [a scan](#scanning-a-bean-batchs-qr-code) while the server is from before it, when [the status](#status) says `scan` is false; and by the plugins of 1.10.0 to 1.11.1 for every endpoint, while connected to a 1.9.0 server. Treat it as `unreachable`. |
 | `captureOnly` | 409 | The Machine is a [Capture-only Machine](../../reference/tablet-plugin/#capture-only-machines): at no Location, or with its sharing off. |
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
 | `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for, or to be edited. For a choice: the Shot is none this tablet can open. |
@@ -421,20 +537,22 @@ show. A Skin refused as `unreachable`, `captureOnly` or
 | `archived` | 409 | A choice only: the Recipe is Archived. |
 | `recipesUnread` | 500 | Decaid didn't give the plugin DYE2's recipes, or gave them in a shape it doesn't recognise, so it couldn't tell which Recipe was asked about. Ask again. |
 | `shotUnwritten` | 500 | An edit of the tablet's own Shot only: Decaid refused the update, or didn't answer it. The `message` gives Decaid's status. Ask again. |
-| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, `recipe` or, for a choice, `shotId`, or one longer than 2,048 characters, or, for an edit, a body that sets neither a rating nor a note, or sets one to a value it can't take, or sets anything else. The `message` says which. |
+| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, `recipe` or, for a choice, `shotId`, or one longer than 2,048 characters, or, for an edit, a body that sets neither a rating nor a note, or sets one to a value it can't take, or sets anything else, or, for a scan, a body with no `text` or `match`, with both, with text longer than 2,048 characters or holding a NUL or an unpaired surrogate, or with a `match` that is no id. The `message` says which. |
 
 The plugin answers some of these itself, at once, without asking the server:
-`unreachable` while it isn't connected, `recipesUnread`,
+`unreachable` while it isn't connected, `serverTooOld`, `recipesUnread`,
 `shotUnwritten`, `noSuchRecipe` for a record that carries no Recipe's id, and
 `invalidRequest` for a `limit`, a missing `id`, `recipe` or `shotId`, an
-`id`, `recipe`, `shotId` or `cursor` too long to be one, or an edit's body.
+`id`, `recipe`, `shotId` or `cursor` too long to be one, an edit's body, or
+a scan's.
 The server answers the rest, and tells a Machine that isn't served so
 whatever it asked for, but for an edit of the tablet's own Shot, which the
 server is never asked.
 
 A request with a method an endpoint doesn't take answers 405, with an `error`
 in place of a `code`. `status`, `shots`, `shot` and `reference` take
-GET, `shot` and `reference` take PUT too, and `page` takes PUT alone.
+GET, `shot` and `reference` take PUT too, and `scan` and `page` take PUT
+alone.
 
 ## Changes
 
@@ -582,7 +700,7 @@ so until it has, the code is in the record's `extras`, under
   key, with the record's other `extras`, when you update a batch, as Decaid
   replaces `extras` whole.
 - A tablet whose plugin is older than this has no key until its plugin
-  updates. Decent Sync writes the key from the release after v1.13.1.
+  updates. Decent Sync writes the key from the release after v1.14.0.
 - This is interim. Once Decaid's record has the field, a later release
   writes it there instead, and this page will say which release. A Skin that
   reads the field first and falls back to the key will keep working.
