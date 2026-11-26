@@ -77,6 +77,7 @@ export const BEAN_FIELDS: FormField[] = [
 
 /** A batch's details, in Decaid's order: not where it is or its remaining weight there, which are each Location's. */
 export const BATCH_FIELDS: FormField[] = [
+  { field: "batchCode", label: "Batch Code", kind: "text" },
   { field: "roastDate", label: "Roast date", kind: "day" },
   { field: "roastLevel", label: "Roast level", kind: "text" },
   { field: "harvestDate", label: "Harvest", kind: "text" },
@@ -342,6 +343,28 @@ export function failure(caught: unknown, otherwise: string): string {
   return caught instanceof Error ? caught.message : otherwise;
 }
 
+/**
+ * A refusal of a Batch Code another batch that is not Archived holds, from
+ * what the server answered, with a link to that batch; undefined for any
+ * other refusal.
+ */
+export function codeTaken(caught: unknown, onFollow?: () => void): ReactNode | undefined {
+  if (!(caught instanceof ApiError) || caught.status !== 409) return undefined;
+  const existing = (caught.data as { existing?: unknown } | undefined)?.existing;
+  if (typeof existing !== "object" || existing === null) return undefined;
+  const { id, name, batchCode } = existing as { id?: unknown; name?: unknown; batchCode?: unknown };
+  if (typeof id !== "string" || typeof batchCode !== "string") return undefined;
+  return (
+    <>
+      Another batch holds the Batch Code {batchCode}:{" "}
+      <Link to={`/library/bean-batches/${id}`} className="underline underline-offset-4" onClick={onFollow}>
+        {typeof name === "string" ? name : "an unnamed batch"}
+      </Link>
+      . A code is one batch's until that batch is Archived.
+    </>
+  );
+}
+
 export function FormError({ error }: { error: ReactNode }) {
   return (
     <Alert variant="destructive">
@@ -372,7 +395,7 @@ export function ContentForm({
 }) {
   const [initial] = useState(() => valuesOf(fields, content));
   const [values, setValues] = useState(initial);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<ReactNode>();
   const [saving, setSaving] = useState(false);
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -390,7 +413,7 @@ export function ContentForm({
       await api("PATCH", path, { content: changed });
       await onSaved();
     } catch (caught) {
-      setError(failure(caught, "The changes could not be saved"));
+      setError(codeTaken(caught) ?? failure(caught, "The changes could not be saved"));
     } finally {
       setSaving(false);
     }
@@ -433,14 +456,14 @@ export function ArchiveButton({
   effect?: string;
   onDone(): Promise<void> | void;
 }) {
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<ReactNode>();
   async function change() {
     setError(undefined);
     try {
       await api("PUT", `${path}/archived`, { archived: !archived });
       await onDone();
     } catch (caught) {
-      setError(failure(caught, archived ? "It could not be restored" : "It could not be Archived"));
+      setError(codeTaken(caught) ?? failure(caught, archived ? "It could not be restored" : "It could not be Archived"));
     }
   }
   return (
@@ -590,7 +613,7 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
   const [beanId, setBeanId] = useState(bean?.id ?? "");
   const [values, setValues] = useState<Values>(() => valuesOf(BATCH_FIELDS, {}));
   const [at, setAt] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<ReactNode>();
   const [saving, setSaving] = useState(false);
   const id = useId();
 
@@ -608,7 +631,7 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
       setOpen(false);
       void navigate(`/library/bean-batches/${batch.id}`);
     } catch (caught) {
-      setError(failure(caught, "The batch could not be created"));
+      setError(codeTaken(caught, () => setOpen(false)) ?? failure(caught, "The batch could not be created"));
     } finally {
       setSaving(false);
     }

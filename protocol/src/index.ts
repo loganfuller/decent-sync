@@ -304,6 +304,27 @@ export const GRINDER_SETTING_RANGE_FIELDS = ["settingMin", "settingMax", "settin
 export const GRINDER_EXTRAS_FIELDS: readonly string[] = ["feedRate", ...GRINDER_RANGE_FIELDS];
 
 /**
+ * The key in a Bean Batch record's `extras` that holds its Batch Code, the
+ * roaster's own identifier for the batch, beside its global id: Decaid's
+ * record has no field for one yet (decentespresso/decaid#1263), and drops
+ * one sent at its top, so until it has, the plugin writes it here (ADR-0036,
+ * interim). A Skin reads it from there. Absent or null where the batch has
+ * none.
+ */
+export const BATCH_CODE_KEY = "decentSyncBatchCode";
+
+/** A Bean Batch's Batch Code as its content names it, and as a write of the batch names it. */
+export const BATCH_CODE_FIELD = "batchCode";
+
+/**
+ * The fields of a Bean Batch that its tablets' records hold in their
+ * `extras`, each with its key there: its Batch Code (BATCH_CODE_KEY). The
+ * server reads it from there and the plugin writes it there, keeping the
+ * record's other keys.
+ */
+export const BATCH_EXTRAS_KEYS: Readonly<Record<string, string>> = { [BATCH_CODE_FIELD]: BATCH_CODE_KEY };
+
+/**
  * The key two Beans with the same roaster and name share, ignoring case and
  * white space at either end: how a bean new to the Library is matched to a
  * Library Bean (ADR-0018). The server matches a tablet's new beans by it, and

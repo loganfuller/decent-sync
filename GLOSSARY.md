@@ -141,6 +141,10 @@ _Avoid_: Coffee (when the product is meant), blend
 One roast of a bean that baristas pick: a single roaster run if you roast, or one roast date from your supplier if you buy. A batch is at a location from when it's added there until it's finished there, and can be at several locations at once.
 _Avoid_: Roast (as a record), run, bag, bucket, lot
 
+**Batch Code**:
+The roaster's own identifier for a bean batch, as on its label: free text with no set format, held once for the batch wherever it is. No two batches that are not archived hold the same one, compared ignoring case and the spaces around it, and an archived batch's code is free for another batch. It is set in the management interface or through an assistant, not on a tablet.
+_Avoid_: Lot number, batch number, batch id (the global id is another thing), SKU
+
 **Stock**:
 How much of a bean batch is held at one location, when it is tracked.
 _Avoid_: Inventory (for one batch at one place), remaining weight

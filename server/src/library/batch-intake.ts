@@ -1,4 +1,4 @@
-import { globalIdOf, isRecordId } from "@decent-sync/protocol";
+import { BATCH_CODE_FIELD, BATCH_CODE_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { changedFields } from "./merge.js";
 
@@ -113,14 +113,38 @@ export function weightOf(record: Record<string, unknown>): number | null {
 }
 
 /**
- * A Bean Batch's content, from a tablet's record of it: Decaid's fields,
- * those this server does not know included, but its id, its bean's id on
- * that tablet, its times and `extras`, which belong to that tablet's record,
- * and `archived` and `weightRemaining`, which are each Location's (ADR-0008).
+ * A Bean Batch's content, from a tablet's record of it, as a tablet's edit
+ * gives it: Decaid's fields, those this server does not know included, but
+ * its id, its bean's id on that tablet, its times and `extras`, which belong
+ * to that tablet's record, and `archived` and `weightRemaining`, which are
+ * each Location's (ADR-0008). And no Batch Code, wherever the record holds
+ * one: a tablet is not a source of Batch Code edits (ADR-0036), so one
+ * changed there is no edit, and is written over (`batchRecordValues`).
  */
 export function batchContent(record: Record<string, unknown>): Record<string, unknown> {
-  const { id, beanId, createdAt, updatedAt, archived, weightRemaining, extras, ...content } = record;
+  const { id, beanId, createdAt, updatedAt, archived, weightRemaining, extras, [BATCH_CODE_FIELD]: batchCode, ...content } = record;
   return content;
+}
+
+/**
+ * What a tablet's record of a Bean Batch holds of the batch's content, as
+ * the server compares it with the batch's to plan a write: `batchContent`,
+ * and the Batch Code it holds in its `extras` (`heldBatchCode`).
+ */
+export function batchRecordValues(record: Record<string, unknown>): Record<string, unknown> {
+  const code = heldBatchCode(record);
+  return code === null ? batchContent(record) : { ...batchContent(record), [BATCH_CODE_FIELD]: code };
+}
+
+/**
+ * What a tablet's record of a Bean Batch holds as its Batch Code, in its
+ * `extras` under BATCH_CODE_KEY, where the plugin writes it (ADR-0036):
+ * whatever is there, as a write of it expects the record to hold exactly
+ * that, or null for none.
+ */
+export function heldBatchCode(record: Record<string, unknown>): unknown {
+  const { extras } = record;
+  return isObject(extras) ? (extras[BATCH_CODE_KEY] ?? null) : null;
 }
 
 /**

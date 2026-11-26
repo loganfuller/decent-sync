@@ -30,6 +30,7 @@ What one release writes outside the wire, the other reads during an upgrade (ADR
 
 - Read what the latest release writes, and write nothing it misreads, in `NOTIFY` payloads and in rows one release writes for the other to read or relay.
 - The same holds for the plugin's storage on the tablet and the records it writes there, which one release leaves for the other after an update.
+- A Bean Batch's Batch Code (#703, ADR-0036) is a field of a `write`'s opaque `fields`, `batchCode`, which the plugin places in the record's `extras` under `decentSyncBatchCode` (`BATCH_EXTRAS_KEYS`): no wire revision. The latest release's plugin, 1.13.1's, writes it at the record's top, where Decaid drops it, so its tablet holds none until its plugin updates (`LIBRARY.md`, Content).
 - Keep the REST API serving the latest release's pages: add routes and fields, and change or remove one only in a later release, unless it was added since the latest release.
 
 ## Live frames

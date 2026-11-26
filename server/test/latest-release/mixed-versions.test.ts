@@ -238,6 +238,45 @@ describe("the latest release beside the change", () => {
       }
     });
 
+    // A Bean Batch's Batch Code (#703), which a tablet's record holds in its `extras` (ADR-0036). The latest release's
+    // plugin writes it at the record's top, where Decaid drops it, so its tablet holds none until Decaid updates the
+    // plugin, and the batch keeps its code; the latest release's server knows no code, and keeps the record's `extras`
+    // whole through its writes.
+    it("keeps a batch's Batch Code where the other release knows none", async () => {
+      const api = apis[server];
+      const location = await api.createLocation(`Codes, the ${plugin}'s plugin`, "America/Chicago");
+      const { tablet } = await connected(`Codes, the ${plugin}'s plugin`, plugin, server, { location });
+      const heldBatch = (batchId: string) => tablet.batches().find((record) => globalIdOf(record) === batchId);
+      if (server === "change") {
+        const { bean } = await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Codes" } }, 201);
+        const created = await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { batchCode: "MIX-1", roastDate: "2026-11-20" }, locations: [{ locationId: location.id }] }, 201);
+        const batchId = created.batch.id;
+        await expect.poll(() => heldBatch(batchId)).toMatchObject({ roastDate: "2026-11-20T00:00:00.000" });
+        // An edit on the tablet, whose record holds no code its plugin could write, is its notes alone.
+        await tablet.editBatch(heldBatch(batchId)!.id, { notes: "Edited on the tablet" });
+        const batch = async () => (await api.get<{ batch: { batchCode: string | null; content: Record<string, unknown> } }>(`/bean-batches/${batchId}`)).batch;
+        await expect.poll(async () => (await batch()).content.notes).toBe("Edited on the tablet");
+        expect((await batch()).batchCode).toBe("MIX-1");
+        expect(heldBatch(batchId)?.extras).toEqual({ decentSyncId: batchId });
+        // A change of the code is refused nothing, and the batch's other edits still reach the tablet.
+        await api.send("PATCH", `/bean-batches/${batchId}`, { content: { batchCode: "MIX-2", roastLevel: "Light" } });
+        await expect.poll(() => heldBatch(batchId)?.roastLevel).toBe("Light");
+        expect((await batch()).batchCode).toBe("MIX-2");
+      } else {
+        // A record holding a code, as this release's server had its plugin write it before the latest release's took the tablet.
+        const bean = await tablet.addBean({ roaster: "Roux", name: "Mixed Codes Held" });
+        const record = await tablet.addBatch(bean.id, { roastDate: "2026-11-21", extras: { decentSyncBatchCode: "MIX-3" } });
+        const listed = async () =>
+          (await api.get<{ batches: { id: string; bean: { name: string | null } }[] }>("/bean-batches")).batches.find((batch) => batch.bean.name === "Mixed Codes Held");
+        await expect.poll(listed).toBeDefined();
+        const batch = (await listed())!;
+        await expect.poll(() => heldBatch(batch.id)?.id).toBe(record.id);
+        await api.send("PATCH", `/bean-batches/${batch.id}`, { content: { notes: "Edited in the management interface" } });
+        await expect.poll(() => heldBatch(batch.id)?.notes).toBe("Edited in the management interface");
+        expect(heldBatch(batch.id)?.extras).toEqual({ decentSyncId: batch.id, decentSyncBatchCode: "MIX-3" });
+      }
+    });
+
     it("writes a Settings Edit and confirms it", async () => {
       const location = await apis[server].createLocation(`Settings, the ${plugin}'s plugin`, "America/Chicago");
       const { machine, tablet } = await connected(`Settings, the ${plugin}'s plugin`, plugin, server, { location });

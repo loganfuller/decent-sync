@@ -91,8 +91,14 @@ function BeanBatchDetails({ id }: { id: string }) {
     <section className="grid gap-6">
       {back}
       <div className="grid gap-1">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold">
-          {batchName(batch)} <BatchBadges batch={batch} />
+        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
+          {batchName(batch)}
+          {batch.batchCode !== null && (
+            <span aria-label={`Batch Code ${batch.batchCode}`} className="rounded-md border bg-muted px-2 py-0.5 font-mono text-sm font-medium">
+              {batch.batchCode}
+            </span>
+          )}
+          <BatchBadges batch={batch} />
         </h1>
         <p className="text-muted-foreground">
           A batch of{" "}
@@ -117,6 +123,10 @@ function BeanBatchDetails({ id }: { id: string }) {
           <CardHeader>
             <CardTitleWithInfo title="Roast">
               <p>As it was created, with the edits made since, on tablets or here.</p>
+              <p>
+                The Batch Code is your own identifier for this roast, as on its label. No other batch that is not Archived may hold
+                it, whatever its case. It is set here, not on a tablet.
+              </p>
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -136,6 +146,9 @@ function BeanBatchDetails({ id }: { id: string }) {
             ) : (
             <>
             <Fields label="Roast">
+              <Field term="Batch Code">
+                {batch.batchCode === null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
+              </Field>
               <Field term="Roasted">
                 <OrNone>{roastDateText(batch.roastDate)}</OrNone>
               </Field>

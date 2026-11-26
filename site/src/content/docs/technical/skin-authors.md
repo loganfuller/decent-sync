@@ -16,7 +16,9 @@ Location](#the-locations-shots), [any one of them whole](#a-shot-whole) and
 Location](#editing-a-shots-rating-and-note). It may [report its page and be
 asked to reload](#reporting-the-page-and-reloading). It may also edit a Recipe by
 writing its DYE2 record itself ([Writing DYE2's
-recipes](#writing-dye2s-recipes)).
+recipes](#writing-dye2s-recipes)). What a Skin reads from Decaid's own
+records, the plugin keeps current there: [a Bean Batch's Batch
+Code](#a-bean-batchs-batch-code) is one.
 
 ## Calling the plugin
 
@@ -518,6 +520,45 @@ fresh page reports a later `loadedAt` than the page before (or, where the
 plugin holds none, reports at all) within 15 seconds; a page that
 reports nothing in that time, or a page of another Skin, leaves it not
 confirmed.
+
+## A Bean Batch's Batch Code
+
+A Bean Batch may hold a Batch Code, the roaster's own identifier for the
+roast, as on its label. A Skin needs nothing from the plugin to show it: the
+plugin writes it onto Decaid's own record of the batch, so a Skin reads it
+where it reads the batch, and it is there while the server can't be reached.
+
+Decaid's batch record has no field for it yet
+([decentespresso/decaid#1263](https://github.com/decentespresso/decaid/issues/1263)),
+so until it has, the code is in the record's `extras`, under
+`decentSyncBatchCode`, beside the batch's Library id, `decentSyncId`
+([ADR-0036](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0036-interim-a-batch-code-in-the-records-extras.md)):
+
+```json
+{
+  "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+  "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+  "roastDate": "2026-11-18T00:00:00.000",
+  "extras": { "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c", "decentSyncBatchCode": "PR-0470" }
+}
+```
+
+- It is text of at most 100 characters, with no set format. Where the batch
+  has none, the key is absent or null: treat both, and anything that is not
+  text, as none.
+- No two batches that are not Archived hold the same code, compared ignoring
+  case and the spaces around it. An archived record may hold a code another
+  batch has since been given.
+- Read it, and don't write it. A value a Skin, or anything else on the
+  tablet, puts under the key is no edit: the plugin writes the Library's
+  code, or none, back over it, and nothing in the Library changes. Keep the
+  key, with the record's other `extras`, when you update a batch, as Decaid
+  replaces `extras` whole.
+- A tablet whose plugin is older than this has no key until its plugin
+  updates. Decent Sync writes the key from the release after v1.13.1.
+- This is interim. Once Decaid's record has the field, a later release
+  writes it there instead, and this page will say which release. A Skin that
+  reads the field first and falls back to the key will keep working.
 
 ## Streamline's endpoints
 

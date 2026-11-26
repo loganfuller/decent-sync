@@ -123,7 +123,13 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
     { path: `/machines/${machineId}?tab=setup`, loaded: (page) => page.getByRole("region", { name: "Location" }).getByRole("definition").first() },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },
-    { path: "/library/bean-batches", loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(), staffHave: "button New Batch" },
+    {
+      path: "/library/bean-batches",
+      loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(),
+      staffHave: "button New Batch",
+      // The list's search, by Bean, roaster or Batch Code (#703), which a Viewer uses as anyone does.
+      filters: [/^searchbox Find a batch$/],
+    },
     { path: `/library/bean-batches/${ids.batch}`, loaded: uptownRow, staffHave: "button Finish it at Uptown" },
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },

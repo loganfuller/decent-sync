@@ -13,6 +13,7 @@ import {
   RECIPE_SETTINGS,
   SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
+  BATCH_EXTRAS_KEYS,
   GRINDER_EXTRAS_FIELDS,
   type ItemDeleted,
   type ItemLeftOut,
@@ -124,8 +125,14 @@ interface Route {
    * that has batches.
    */
   listUnder?(parentPath: string): string;
-  /** Fields a record holds in its `extras`, beside its global id, as Decaid drops them at its top: a Grinder's feed rate note, where DYE2 v0.1.34 keeps it, and its range and defaults (GRINDER_EXTRAS_FIELDS). */
-  inExtras?: readonly string[];
+  /**
+   * Fields a record holds in its `extras`, beside its global id, as Decaid
+   * drops them at its top, each with its key there: a Grinder's feed rate
+   * note, where DYE2 v0.1.34 keeps it, and its range and defaults, under
+   * their own names (GRINDER_EXTRAS_FIELDS), and a Bean Batch's Batch Code,
+   * under a key of Decent Sync's own (BATCH_EXTRAS_KEYS, ADR-0036).
+   */
+  inExtras?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -198,6 +205,7 @@ const ROUTES = {
     sameItem: () => false,
     namedByShots: true,
     listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`,
+    inExtras: BATCH_EXTRAS_KEYS,
   },
   grinder: {
     list: "/grinders?includeArchived=true",
@@ -206,7 +214,7 @@ const ROUTES = {
     deferred: ["archived"],
     sameItem: () => false,
     namedByShots: true,
-    inExtras: GRINDER_EXTRAS_FIELDS,
+    inExtras: Object.fromEntries(GRINDER_EXTRAS_FIELDS.map((field) => [field, field])),
   },
 } satisfies Readonly<Record<string, Route>>;
 
@@ -1083,8 +1091,10 @@ async function update(route: Route, write: LibraryWrite, localId: string): Promi
   const parsedRecord = parsed(current.text);
   const record = isObject(parsedRecord) ? parsedRecord : {};
   const extras = isObject(record.extras) ? record.extras : {};
-  const inExtras = new Set(route.inExtras ?? []);
-  const fields = settable(write, (field) => (inExtras.has(field) ? extras[field] : record[field]));
+  const fields = settable(write, (field) => {
+    const key = extrasKey(route, field);
+    return key === undefined ? record[field] : extras[key];
+  });
   const placedFields = placed(route, fields);
   return {
     answer: await request("PUT", path, { ...placedFields.own, extras: { ...extras, ...placedFields.extras, [GLOBAL_ID_KEY]: write.globalId } }),
@@ -1094,11 +1104,20 @@ async function update(route: Route, write: LibraryWrite, localId: string): Promi
 
 /** A write's fields, split into the record's own and those it holds in its `extras` (`Route.inExtras`). */
 function placed(route: Route, fields: Record<string, unknown>): { own: Record<string, unknown>; extras: Record<string, unknown> } {
-  const inExtras = new Set(route.inExtras ?? []);
   const own: Record<string, unknown> = {};
   const extras: Record<string, unknown> = {};
-  for (const [field, value] of Object.entries(fields)) (inExtras.has(field) ? extras : own)[field] = value;
+  for (const [field, value] of Object.entries(fields)) {
+    const key = extrasKey(route, field);
+    if (key === undefined) own[field] = value;
+    else extras[key] = value;
+  }
   return { own, extras };
+}
+
+/** The key a record holds a field under in its `extras` (`Route.inExtras`), or undefined for a field of its own. */
+function extrasKey(route: Route, field: string): string | undefined {
+  const keys = route.inExtras;
+  return keys && Object.prototype.hasOwnProperty.call(keys, field) ? keys[field] : undefined;
 }
 
 /** The answer to a write that set `writtenFields`, from what Decaid answered last: the record it holds now, or its refusal. */

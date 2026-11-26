@@ -66,9 +66,19 @@ Anything a barista enters on a tablet joins the Library by itself. You can enter
 
 1. Open **Library**, then **Beans**, and press **New Bean**.
 2. Fill in its **Roaster** and **Name**, and what else you know about it, then press **Create**.
-3. On the Bean's page press **New Batch**. Give its **Roast date**, and under **At** the Locations it is at, with the remaining weight at each if you track it. Press **Create**.
+3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, and under **At** the Locations it is at, with the remaining weight at each if you track it. Press **Create**.
 
 The batch, with its Bean, is written to the tablets at each Location you chose.
+
+### Give a batch its Batch Code
+
+A **Batch Code** is your own identifier for a roast, as on its label, such as `PR-0470`. It is free text of up to 100 characters, in any format, and a batch need not have one.
+
+- Give it in the **New Batch** dialog, or open the batch, press **Edit** on its **Roast** card, and fill in or change **Batch Code**. Emptying it clears it. Each change is in the batch's history.
+- One code means one batch. A code that another batch holds is refused, with a link to that batch, whatever its case and whatever spaces surround it: `pr-0470` can't be entered beside `PR-0470`.
+- An Archived batch's code is free to give to another batch. Restoring the Archived batch is then refused until one of the two has another code.
+- On the **Bean Batches** tab the **Batch Code** column shows each batch's code, and **Find a batch** finds a batch by its code, its Bean or its roaster.
+- The code is written to the tablets that hold the batch, where a Skin can show it. It is not set on a tablet: one changed there is put back.
 
 ### Add a Grinder, Basket or Tool
 

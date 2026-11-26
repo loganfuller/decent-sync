@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
 import {
   BEVERAGE_TYPES,
@@ -16,6 +16,7 @@ import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBean
 import { type BeanSummary, type BeanView, BeansService, readBeanId } from "../library/beans.service.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "../library/equipment.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
+import { MAX_BATCH_CODE_LENGTH } from "../library/item-input.js";
 import { HistoryService, type LostEditView, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
 import { type ProfileSummary, type ProfileVersionView, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
 import { type RecipeOnProfileView, type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
@@ -90,6 +91,7 @@ const batchSummary = z.object({
   id,
   bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }).describe("The Bean it is a roast of."),
   roastDate: z.string().nullable().describe("As Decaid recorded it."),
+  batchCode: z.string().nullable().describe("Its Batch Code, the roaster's own identifier for it, which no other Bean Batch that is not Archived holds; null for none."),
   archived: z.boolean(),
   locations: z
     .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams; null for none."), since: time("When it was last added there.") }))
@@ -277,7 +279,13 @@ const findInput = z.object({
     .string()
     .max(500)
     .optional()
-    .describe("Those whose name has each of these words in it, ignoring case: a Bean's roaster and name, a Bean Batch's Bean's, a Profile's title, a Grinder's model, and a Basket's, Tool's or Recipe's name."),
+    .describe("Those whose name has each of these words in it, ignoring case: a Bean's roaster and name, a Bean Batch's Bean's and its Batch Code, a Profile's title, a Grinder's model, and a Basket's, Tool's or Recipe's name."),
+  batchCode: z
+    .string()
+    .min(1)
+    .max(MAX_BATCH_CODE_LENGTH)
+    .optional()
+    .describe("For Bean Batches only: those holding exactly this Batch Code, ignoring case and the spaces around it. At most one that is not Archived holds a code; an Archived one that held it comes too unless archived is false."),
   archived: z.boolean().optional().describe("true for those Archived alone, false for those not Archived alone; both if not given."),
   ...page,
   offset: page.offset.describe("How many to skip: the previous page's offset plus its length."),
@@ -421,7 +429,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "find_library_items",
     title: "Find Library items",
-    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot. ${ITEMS} ${PAGED} ${TIMES}`,
+    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived, and a Bean Batch by its Batch Code: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot. ${ITEMS} ${PAGED} ${TIMES}`,
     inputSchema: findInput,
     outputSchema: findOutput,
     annotations: { readOnlyHint: true },
@@ -429,6 +437,7 @@ export class LibraryTools {
     budget: { rest: "get_library_item reads one item with more of it." },
   })
   async findLibraryItems(input: FindInput): Promise<FindOutput> {
+    if (input.batchCode !== undefined && input.kind !== "beanBatch") throw new BadRequestException("Only a Bean Batch has a Batch Code: ask for it with kind beanBatch");
     const at = await this.locationOf(input.locationId);
     const paged = <T, R>(items: readonly T[], filtered: (item: T) => Filtered, view: (item: T) => R) => {
       const found = chosen(items, input, at, filtered);
@@ -444,10 +453,10 @@ export class LibraryTools {
         // A batch keeps the Locations it is at while it or its Bean is Archived, but no Location offers it then (LIBRARY.md).
         const archivedBeans = at === undefined ? new Set<string>() : await this.archivedBeans();
         const { entries, ...rest } = paged(
-          await this.batches.list(),
+          await this.batches.list(input.batchCode),
           (batch) => ({
             archived: batch.archived,
-            names: [batch.bean.roaster, batch.bean.name],
+            names: [batch.bean.roaster, batch.bean.name, batch.batchCode],
             at: batch.archived || archivedBeans.has(batch.bean.id) ? [] : batch.locations.map((here) => here.location),
           }),
           batchOf,
@@ -625,6 +634,7 @@ function batchOf(batch: BeanBatchSummary | BeanBatchView): z.infer<typeof batchS
     id: batch.id,
     bean: { id: batch.bean.id, roaster: batch.bean.roaster, name: batch.bean.name },
     roastDate: batch.roastDate,
+    batchCode: batch.batchCode,
     archived: batch.archived,
     locations: batch.locations.map((here) => ({ location: locationOf(here.location), remainingWeight: here.remainingWeight, since: timeAt(here.since, here.location) })),
     createdAt: timeAt(batch.createdAt, batch.createdLocation),

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { GLOBAL_ID_KEY, globalIdOf, profileId, readProfile } from "@decent-sync/protocol";
+import { BATCH_CODE_KEY, GLOBAL_ID_KEY, globalIdOf, profileId, readProfile } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -292,6 +292,53 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
       [{ atLocation: true }, throughApp],
       [{ atLocation: false }, throughApp],
     ]);
+  });
+
+  it("sets a Bean Batch's Batch Code as it creates one, changes and clears it, finds the batch by it, and is refused one another batch holds, as the REST API refuses it (#703)", async () => {
+    const batched = await assistant.call<{ beanBatch: Record_ }>("create_bean_batch", { beanId: made.bean, batchCode: " AK-0470 ", roastDate: "2026-11-10", locations: [{ locationId: uptown.id }] });
+    const coded = batched.beanBatch.id as string;
+    expect(batched.beanBatch).toMatchObject({ batchCode: "AK-0470", content: { batchCode: "AK-0470" } });
+    expect(comparable(batched.beanBatch)).toEqual(comparable(await restItem("beanBatch", coded)));
+    await expect.poll(() => (held(tablet.batches(), coded)?.extras as Record_ | undefined)?.[BATCH_CODE_KEY]).toBe("AK-0470");
+
+    // Found by exactly its code, ignoring case and the spaces around it, and by the words of a name search; by no part of it, and for no other kind.
+    type Found = { total: number; beanBatches: { id: string; batchCode: string | null }[] };
+    const found = async (args: Record_) => (await assistant.call<Found>("find_library_items", { kind: "beanBatch", ...args })).beanBatches.map((batch) => batch.id);
+    expect(await found({ batchCode: " ak-0470" })).toEqual([coded]);
+    expect(await found({ batchCode: "AK-04" })).toEqual([]);
+    expect(await found({ name: "kenya ak-04" })).toEqual([coded]);
+    expect(await found({ batchCode: "AK-0470", locationId: harbor.id })).toEqual([]);
+    expect(await toolError(assistant, "find_library_items", { kind: "bean", batchCode: "AK-0470" })).toBe("Only a Bean Batch has a Batch Code: ask for it with kind beanBatch");
+
+    // One another batch that is not Archived holds is refused, naming that batch, as it creates one, edits one and restores one.
+    expect(await toolError(assistant, "create_bean_batch", { beanId: made.bean, batchCode: "ak-0470", locations: [] })).toBe(
+      await restRefusal(api, "POST", "/bean-batches", { beanId: made.bean, content: { batchCode: "ak-0470" }, locations: [] }, 409),
+    );
+    expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, batchCode: "AK-0470" })).toBe(
+      await restRefusal(api, "PATCH", `/bean-batches/${made.batch}`, { content: { batchCode: "AK-0470" } }, 409),
+    );
+    expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, batchCode: "AK-0470" })).toContain(`Assistant Kenya, roasted 2026-11-10 (id ${coded})`);
+
+    const changed = await assistant.call<{ beanBatch: Record_ }>("edit_bean_batch", { id: coded, batchCode: "AK-0471" });
+    expect(changed.beanBatch).toMatchObject({ batchCode: "AK-0471" });
+    await expect.poll(() => (held(tablet.batches(), coded)?.extras as Record_ | undefined)?.[BATCH_CODE_KEY]).toBe("AK-0471");
+    // Archived, its code is another batch's to take, and it is not restored while that batch holds it.
+    await assistant.call("set_archived", { kind: "beanBatch", id: coded, archived: true });
+    await assistant.call("edit_bean_batch", { id: made.batch, batchCode: "ak-0471" });
+    expect(await found({ batchCode: "AK-0471" })).toEqual(expect.arrayContaining([coded, made.batch]));
+    expect(await found({ batchCode: "AK-0471", archived: false })).toEqual([made.batch]);
+    expect(await toolError(assistant, "set_archived", { kind: "beanBatch", id: coded, archived: false })).toBe(
+      await restRefusal(api, "PUT", `/bean-batches/${coded}/archived`, { archived: false }, 409),
+    );
+    const cleared = await assistant.call<{ beanBatch: { batchCode: string | null; content: Record_ } }>("edit_bean_batch", { id: made.batch, batchCode: null });
+    expect(cleared.beanBatch.batchCode).toBeNull();
+    expect(cleared.beanBatch.content).not.toHaveProperty("batchCode");
+    await assistant.call("set_archived", { kind: "beanBatch", id: coded, archived: false });
+
+    // Each change of it is in the batch's history, as the Admin's through the Connected App.
+    const coding = (await versions("beanBatch", made.batch)).filter((version) => "batchCode" in version.fields);
+    expect(coding.map((version) => version.fields)).toEqual([{ batchCode: null }, { batchCode: "ak-0471" }]);
+    for (const version of coding) expect(version.source).toEqual(throughApp);
   });
 
   it("refuses what the REST API refuses, with its message, and input its schemas refuse", async () => {

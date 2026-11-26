@@ -12,6 +12,7 @@ import type { Editor } from "../library/history.js";
 import type { FieldType } from "../library/item-input.js";
 import {
   BASKET_SIZES,
+  MAX_BATCH_CODE_LENGTH,
   rangeText,
   readContentEdit,
   readGrinderLocation,
@@ -70,6 +71,7 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
     notes: "Notes about the coffee.",
   },
   beanBatch: {
+    batchCode: `Its Batch Code, the roaster's own identifier for it, as on its label: free text, kept without the spaces around it, of at most ${MAX_BATCH_CODE_LENGTH} characters. No other Bean Batch that is not Archived may hold it, ignoring case: one another holds is refused, naming that batch.`,
     roastDate: "The day it was roasted.",
     roastLevel: "Such as Light, Medium or Dark.",
     harvestDate: "Its harvest season or year, as text.",
@@ -191,6 +193,8 @@ function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
       return { schema: z.array(z.string()) };
     case "toolAttributes":
       return { schema: z.record(z.string(), attributes) };
+    case "batchCode":
+      return { schema: z.string() };
     case "grindSetting":
       return { schema: z.union([z.number(), z.string()]), note: "A number of 0 or more, 0 being a dial position, or text as typed, such as 2.5 or 1.1.0: null for none." };
   }
@@ -326,7 +330,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "create_bean_batch",
     title: "Create a Bean Batch",
-    description: `Creates a Bean Batch, one roast of a Bean, added at each of the Locations given, whose tablets are then written it. Staff add one only at the Locations they work at. ${TIMES}`,
+    description: `Creates a Bean Batch, one roast of a Bean, added at each of the Locations given, whose tablets are then written it. One with a Batch Code another Bean Batch that is not Archived holds is refused, naming that batch: find_library_items finds a batch by its code. Staff add one only at the Locations they work at. ${TIMES}`,
     inputSchema: newBatchInput,
     outputSchema: z.object({ beanBatch: beanBatchItem }),
     annotations: CHANGES,
@@ -456,7 +460,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "set_archived",
     title: "Archive or restore a Library item",
-    description: `Archives a Library item of any kind, retiring it everywhere: it is offered nowhere and leaves every tablet's lists, but is kept, so past Shots still name it, and nothing is deleted. Or restores one, offered again where it was. An Archived Bean takes its Bean Batches with it. Staff Archive and restore any item but a Recipe, which only at the Locations they work at. ${TIMES}`,
+    description: `Archives a Library item of any kind, retiring it everywhere: it is offered nowhere and leaves every tablet's lists, but is kept, so past Shots still name it, and nothing is deleted. Or restores one, offered again where it was. An Archived Bean takes its Bean Batches with it. An Archived Bean Batch's Batch Code is free for another batch, so restoring one whose code another has taken since is refused, naming that batch. Staff Archive and restore any item but a Recipe, which only at the Locations they work at. ${TIMES}`,
     inputSchema: archivedInput,
     outputSchema: itemOutput,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },

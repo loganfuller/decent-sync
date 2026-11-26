@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -20,6 +20,8 @@ export interface BeanBatchSummary {
   bean: { id: string; roaster: string | null; name: string | null };
   /** Its roast date, from its content, as Decaid recorded it; null where its content has none. */
   roastDate: string | null;
+  /** Its Batch Code, the roaster's own identifier for it, from its content; null where it has none. */
+  batchCode: string | null;
   archived: boolean;
   /** The Locations it is at (ADR-0008), by name, each with its remaining weight there. */
   locations: BatchAtLocation[];
@@ -54,9 +56,15 @@ type ListedBatch = Prisma.BeanBatchGetPayload<{ include: typeof withPlaces }>;
 export class BeanBatchesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Every Bean Batch, by its Bean's name and roaster, ignoring case, then the latest roasted first. */
-  async list(): Promise<BeanBatchSummary[]> {
-    return sorted((await this.prisma.beanBatch.findMany({ include: withPlaces })).map(summary));
+  /**
+   * Every Bean Batch, by its Bean's name and roaster, ignoring case, then the
+   * latest roasted first; or, with a Batch Code, those holding exactly it,
+   * ignoring case and the spaces around it: at most one that is not Archived,
+   * and any Archived that held it.
+   */
+  async list(batchCode?: string): Promise<BeanBatchSummary[]> {
+    const batches = sorted((await this.prisma.beanBatch.findMany({ include: withPlaces })).map(summary));
+    return batchCode === undefined ? batches : batches.filter((batch) => batch.batchCode !== null && sameBatchCode(batch.batchCode, batchCode));
   }
 
   /** The Bean's batches, the latest roasted first. */
@@ -78,6 +86,19 @@ export class BeanBatchesService {
   }
 }
 
+/** Whether two Batch Codes are one: compared ignoring case and the spaces around them, as their uniqueness is. */
+export function sameBatchCode(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** The Batch Code a list is asked for by, from a request's query: `batchCode`, or undefined where it gives none. 400 for one given more than once. */
+export function readBatchCodeFilter(query: Record<string, unknown>): string | undefined {
+  const { batchCode } = query;
+  if (batchCode === undefined || batchCode === "") return undefined;
+  if (typeof batchCode !== "string") throw new BadRequestException("Give one batchCode");
+  return batchCode;
+}
+
 /** A Bean Batch id from a path. */
 export function readBeanBatchId(id: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new NotFoundException("No such Bean Batch");
@@ -91,6 +112,7 @@ function summary(batch: ListedBatch): BeanBatchSummary {
     id: batch.id,
     bean: { id: batch.bean.id, roaster: text(bean.roaster), name: text(bean.name) },
     roastDate: text(content.roastDate),
+    batchCode: text(content.batchCode),
     archived: batch.archived,
     locations: batch.locations
       .flatMap((here) =>

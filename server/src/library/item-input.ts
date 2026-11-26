@@ -32,7 +32,9 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * range is read against it (`NumberRange`). A Grinder's range and defaults
  * are numbers of any sign (`anyNumber`), as DYE2's Grinders page takes them.
  * A Profile's author and notes are text Decaid holds none of as empty
- * (`decaidText`), so clearing one sets it empty, not null.
+ * (`decaidText`), so clearing one sets it empty, not null. A Bean Batch's
+ * Batch Code (`batchCode`) is free text kept trimmed, none where nothing is
+ * left, of at most MAX_BATCH_CODE_LENGTH characters.
  */
 export type FieldType =
   | "text"
@@ -53,6 +55,7 @@ export type FieldType =
   | "profileId"
   | "toolAttributes"
   | "grindSetting"
+  | "batchCode"
   | NumberRange;
 
 /**
@@ -67,6 +70,9 @@ export interface NumberRange {
   readonly whole?: boolean;
   readonly offAtZero?: boolean;
 }
+
+/** The most characters a Batch Code holds: room for a roaster's own numbering, or a short label, and no more. */
+export const MAX_BATCH_CODE_LENGTH = 100;
 
 /** The sizes DYE2's baskets page offers. */
 export const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "bottomless", "other"];
@@ -179,6 +185,12 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       const setting = grindSettingOf(value);
       if (typeof value === "string" && setting === null) return { value: null };
       return (typeof setting === "number" && setting >= 0) || typeof setting === "string" ? { value: setting } : "must be a number of 0 or more, or text: clear it for none";
+    }
+    case "batchCode": {
+      if (typeof value !== "string") return "must be text";
+      const code = value.trim();
+      if (code.length > MAX_BATCH_CODE_LENGTH) return `must be at most ${MAX_BATCH_CODE_LENGTH} characters`;
+      return { value: code === "" ? null : code };
     }
   }
 }
