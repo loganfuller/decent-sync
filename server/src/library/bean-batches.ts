@@ -344,10 +344,11 @@ export async function noteWeightWritten(prisma: PrismaService, tabletId: string,
  * write did not set that differs from the record known was edited on the
  * tablet since, and is merged as a report's edit would be (ADR-0020). A
  * weight the write carried was worked out from the count `weightCount`,
- * which the record has then seen, and `weightSent` is that weight; both
- * undefined for a write that carried none, or one no longer awaited. A write that carried a weight and set none, as
- * the tablet's barista changed it first, holds no weight of the server's: a
- * change of it to the weight the write carried is the barista's entry.
+ * which the record has then seen, and `weightSent` is that weight; both are
+ * undefined for a write that carried none, or one no longer awaited. A write
+ * that carried a weight and set none, as the tablet's barista changed it
+ * first, holds no weight of the server's: a change of it to the weight the
+ * write carried is the barista's entry.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
