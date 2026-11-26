@@ -127,8 +127,8 @@ address on your network, and Decaid v0.9.3 or newer on each tablet.
    URL and token it shows. The token is shown only once.
 5. On each tablet, in Decaid's **Settings**, then **Plugins**,
    [install](https://loganfuller.github.io/decent-sync/get-started/install-the-plugin/)
-   `loganfuller/decent-sync` from a GitHub release, and enter the server URL
-   and token.
+   `loganfuller/decent-sync` from a GitHub release, enter the server URL and
+   token in its settings, and load it.
 
 Over plain `http://`, traffic is unencrypted, each Machine's token included.
 Use it only on a network you trust. The

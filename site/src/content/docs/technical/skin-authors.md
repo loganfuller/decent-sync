@@ -384,8 +384,9 @@ only blanks, as [a Reference Shot's](#a-recipes-reference-shot) are.
   edit as failed.
 - **The later edit of a field wins.** Where the rating or the note was
   changed on the tablet that holds the Shot later than this edit, without
-  seeing it, that tablet's stands, and nothing is kept of the other. An
-  edit of the rating never undoes a note, or the reverse.
+  seeing it, that tablet's stands, and the Shot's page in the management
+  interface lists the other as dropped. An edit of the rating never undoes a
+  note, or the reverse.
 - **The Machine is named, and no person.** The Shot's page in the management
   interface lists an edit made through the server with the Machine it was
   made on, and no account. Anyone at the tablet may edit.

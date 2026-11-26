@@ -24,7 +24,8 @@ Decaid installs the plugin from this repository's GitHub releases. On the
 tablet:
 
 1. Open Decaid's **Settings**, then **Plugins**.
-2. Choose **Install Plugin**, then **GitHub Release**.
+2. Open the menu at the top of the page and choose **Install plugin**, then
+   **GitHub Release**.
 3. Enter `loganfuller/decent-sync` as the repository.
 
 Or, from a computer on the same network, with a
@@ -36,13 +37,26 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
   -H 'content-type: application/json' -d '{"repo": "loganfuller/decent-sync"}'
 ```
 
+Either way, Decaid installs a plugin without starting it. Connecting it to the
+server, below, ends by loading it.
+
 ## Connecting to the server
 
 1. In the management interface, an Admin adds the Machine under **Machines**,
    at its Location. A Machine with no Location only captures (see
    [Capture-only Machines](../../reference/tablet-plugin/#capture-only-machines)). Adding it shows the server
    URL and the Machine's token once, with copy buttons.
-2. Enter both in the plugin's settings on the tablet.
+2. On the tablet, under **Plugins**, open the menu beside Decent Sync, choose
+   **Settings**, and enter both.
+3. In the same menu choose **Load**, and turn on **Auto-load on startup** for
+   it. A newly installed plugin is neither: it runs only once loaded, and
+   without auto-load it stays stopped the next time Decaid starts. From a
+   computer, this request does both, with the same token as the install:
+
+   ```bash
+   curl -X POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/enable \
+     -H "Authorization: Bearer $TOKEN"
+   ```
 
 The plugin connects to `ws://<server host>/sync`, or `wss://` for an
 `https://` server URL, and the Machine shows as online.

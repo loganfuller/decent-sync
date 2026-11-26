@@ -24,7 +24,8 @@ fixed address on your network, such as with a DHCP reservation in your router.
    [Locations and Machines](../../get-started/locations-and-machines/) says
    more about both steps.
 5. [Install the plugin](../../get-started/install-the-plugin/) on each
-   machine's tablet, and enter the server URL and Token.
+   machine's tablet, enter the server URL and Token in its settings, and load
+   it.
 
 The Machine then shows as online in the management interface. To bring in
 other people, see [Invite people](../../get-started/invite-people/).
