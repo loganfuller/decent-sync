@@ -36,5 +36,5 @@ A tablet's record of a batch holds the weight last entered at its Location, as b
 ## Consequences
 
 - The number is only as good as the doses and the last weighing. Coffee used outside a Shot, as when purging a grinder, is corrected by weighing the bucket and entering the weight.
-- A Shot timed by a tablet whose clock is wrong may fall on the wrong side of an entry, and one whose time pulled the server could not work out (`pulled_at`, null for a record with no samples and no offset on its time), counts nowhere.
+- A Shot timed by a tablet whose clock is wrong may fall on the wrong side of an entry, and one whose time pulled the server could not work out (`pulled_at`, null where the server could not work it out from the record's times), counts nowhere.
 - Reads do more work than before: one grouped query over the Shots linked to the batches being read, by the index on a Shot's batch.
