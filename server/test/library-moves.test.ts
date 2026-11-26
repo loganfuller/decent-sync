@@ -287,6 +287,23 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
     expect(held(roastery.tablets[0]!, created.id)?.archived).toBe(false);
   });
 
+  it("moves a batch to a tablet's Location on its un-archive after it saw the batch moved away, though its clock runs slow", async () => {
+    const lab = await api.createLocation("Lagging lab", "America/Chicago");
+    const cafe = await api.createLocation("Lagging cafe", "America/Chicago");
+    const machine = await api.createMachine("Lagging lab 1", lab.id);
+    const lagging = syncingTablet(machine, server, { api: emptyLibrary(String(serial++)), decaidClockOffsetMs: -60_000 });
+    await api.waitForOnline(machine);
+    const created = await batchAt("Lagging Guji", lab, 330);
+    await expect.poll(() => held(lagging, created.id)?.archived).toBe(false);
+    expect((await place(created.id, cafe, { atLocation: true })).status).toBe(200);
+    await expect.poll(() => held(lagging, created.id)?.archived).toBe(true);
+
+    // Timed a minute before the move, by its clock, but after its record was written the move's archive.
+    await lagging.editBatch(held(lagging, created.id)!.id, { archived: false });
+    await expect.poll(() => at(created.id)).toEqual(["Lagging lab"]);
+    expect((await history(created.id)).lostEdits).toEqual([]);
+  });
+
   it("lets Staff move a batch to a Location they work at from one they do not, and refuses them moving one away to another's or finishing one there, over REST and through a tool", async () => {
     const theirs = await api.createLocation("Scope home", "America/Chicago");
     const elsewhere = await api.createLocation("Scope elsewhere", "America/Chicago");

@@ -166,7 +166,7 @@ export async function addBatchAt(
   if (before?.at !== true) {
     // At another Location by an add timed after this one, which its tablet's record had not seen (as of `seenAt`, a
     // decision at its own Location, so the server's own edits, seeing everything, never lose here): this add loses to
-    // that one, moves nothing, and is kept as a Lost Edit where it was not there.
+    // that one, moves nothing, and is kept as a Lost Edit where it had been there and was finished.
     const [later] = await tx.$queryRaw<{ versionId: string | null }[]>`
       SELECT presence_version_id::text AS "versionId" FROM batch_locations
       WHERE batch_id = ${batchId}::uuid AND location_id <> ${locationId}::uuid AND added_at IS NOT NULL AND finished_at IS NULL
