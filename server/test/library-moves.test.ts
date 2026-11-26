@@ -273,8 +273,8 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
       move: { from: { id: cafe.location.id }, to: { id: lab.location.id }, amount: 150, all: false },
       source: { account: { id: me }, machine: null, connectedApp: null },
     });
-    // It set nothing at the lab but its weight, by the move's row.
-    expect(second!.fields).toEqual({ movedFrom: cafe.location.id, movedAmount: 150, movedAll: false });
+    // It added the batch again at the lab, where it was, and set its weight there by the move's row alone.
+    expect(second!.fields).toEqual({ movedFrom: cafe.location.id, movedAmount: 150, movedAll: false, atLocation: true });
     // The assistant reads the entry as the REST API does.
     const history = await assistant.call<{ history: { entries: Record_[] } }>("get_library_item", { kind: "beanBatch", id, history: true });
     expect(history.history.entries[0]).toMatchObject({ move: { from: { id: cafe.location.id }, to: { id: lab.location.id }, amount: 150, all: false }, lost: false });
@@ -328,8 +328,8 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
     expect(moved.totalRemainingWeight).toBe(800);
     expect(at(moved, cafe)).toMatchObject({ remainingWeight: 250, entered: { weight: 250, arrivedFrom: { id: lab.location.id } } });
     expect(at(moved, lab)).toMatchObject({ remainingWeight: 550 });
-    // It was there already, so the move added it nowhere: its entry says only the weight it set.
-    expect((await versions(id))[0]!.fields).toEqual({ movedFrom: lab.location.id, movedAmount: 250, movedAll: false, remainingWeight: 250 });
+    // It was there already, and is added there again, with the weight it set.
+    expect((await versions(id))[0]!.fields).toEqual({ movedFrom: lab.location.id, movedAmount: 250, movedAll: false, atLocation: true, remainingWeight: 250 });
   });
 
   it("refuses an amount of zero and a negative one as a bad request, and one equal to or above what the Location left has, saying to move all or enter a weight, over REST and through the assistant tool", async () => {
@@ -528,6 +528,51 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
     expect(at(toJoined, joined)).toMatchObject({ remainingWeight: 450, entered: { arrivedFrom: null }, moved: { in: 300, away: 0 } });
     expect(at(toJoined, left)).toMatchObject({ remainingWeight: 500 });
     expect(toJoined.totalRemainingWeight).toBe(950);
+  });
+
+  it("adds a batch again at a Location that has it, so a finish there timed before the move and received after it loses to the move, by a weight of zero or by archiving it", async () => {
+    // Tablets whose clocks are half a minute behind, so each finish is timed before the move made after it.
+    const left = await placeNamed("Move slow roastery", server, -30_000);
+    const joined = await placeNamed("Move slow kiosk", other, -30_000);
+    const lostAt = async (id: string) =>
+      (await api.get<{ lostEdits: LostEdit[] }>(`/bean-batches/${id}/history`)).lostEdits.filter((edit) => edit.location?.id === joined.location.id && edit.field === "atLocation");
+
+    // The kiosk's bucket is weighed empty, then 300 g arrives: it has the 300 g, and the empty bucket's weight is its count's start.
+    const emptied = await batchAt(left, { remainingWeight: 1000 });
+    await move(emptied, left, joined, 100);
+    await expect.poll(() => held(joined.tablet, emptied)?.weightRemaining, { timeout: 15_000 }).toBe(100);
+    joined.tablet.loseNetwork();
+    try {
+      await joined.tablet.editBatch(held(joined.tablet, emptied)!.id, { weightRemaining: 0 });
+      expect(await move(emptied, left, joined, 300)).toMatchObject({ totalRemainingWeight: 1000 });
+    } finally {
+      joined.tablet.restoreNetwork();
+    }
+    await expect.poll(async () => (await lostAt(emptied)).length, { timeout: 15_000 }).toBe(1);
+    expect((await lostAt(emptied))[0]).toMatchObject({ value: false, source: { machine: { id: joined.machine.machine.id } }, lostTo: { value: true, source: { account: { id: me } } } });
+    await expect.poll(async () => at(await getBatch(emptied), joined)?.entered?.weight, { timeout: 15_000 }).toBe(0);
+    const afterZero = await getBatch(emptied);
+    expect(at(afterZero, joined)).toMatchObject({ remainingWeight: 300, moved: { in: 300 } });
+    expect(afterZero.totalRemainingWeight).toBe(900);
+    expect(afterZero.finished).toEqual([]);
+
+    // The kiosk archives its batch, then all of the roastery's arrives: the batch is at the kiosk with all of it.
+    const archived = await batchAt(left, { remainingWeight: 1000 });
+    await move(archived, left, joined, 100);
+    await expect.poll(() => held(joined.tablet, archived)?.weightRemaining, { timeout: 15_000 }).toBe(100);
+    joined.tablet.loseNetwork();
+    try {
+      await joined.tablet.editBatch(held(joined.tablet, archived)!.id, { archived: true });
+      expect(await move(archived, left, joined, "all")).toMatchObject({ totalRemainingWeight: 1000 });
+    } finally {
+      joined.tablet.restoreNetwork();
+    }
+    await expect.poll(async () => (await lostAt(archived)).length, { timeout: 15_000 }).toBe(1);
+    const afterArchive = await getBatch(archived);
+    expect(afterArchive.locations).toMatchObject([{ location: { id: joined.location.id }, remainingWeight: 1000 }]);
+    expect(afterArchive.totalRemainingWeight).toBe(1000);
+    // And the kiosk's tablet has it again.
+    await expect.poll(() => held(joined.tablet, archived)?.archived, { timeout: 15_000 }).toBe(false);
   });
 
   it("starts the joined Location's count from the amount arriving where Shots had used more than it held, so the move keeps the total", async () => {

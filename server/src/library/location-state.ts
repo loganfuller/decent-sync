@@ -319,7 +319,9 @@ interface MovePlace {
  *   left before the move and stored after it still counts there.
  * - **All** takes what the Location left has and finishes the batch there, in
  *   the same change. Its count there ends at zero.
- * - **At the Location joined,** a batch not there is added. Where it had no
+ * - **At the Location joined,** it is added, or added again where it is
+ *   already, so a finish there timed before the move and received after it,
+ *   as from a tablet that was offline, loses to it. Where it had no
  *   weight, or was not there, the amount arriving is where its count starts.
  *   The same holds where Shots had used more than its count held, which
  *   read zero: the count starts again from the amount, as adding to what it
@@ -392,7 +394,7 @@ export async function moveBatchBetween(
   const clears = moving === null && !joined.there && joined.weight !== null;
 
   const item: ItemRef = { kind: "beanBatch", id: batchId };
-  const fields = { movedFrom: fromLocationId, movedAmount: moving, movedAll: all, ...(joined.there ? {} : { atLocation: true }), ...(starts || clears ? { remainingWeight: moving } : {}) };
+  const fields = { movedFrom: fromLocationId, movedAmount: moving, movedAll: all, atLocation: true, ...(starts || clears ? { remainingWeight: moving } : {}) };
   const versionId = await recordVersion(tx, item, toLocationId, fields, source, at);
   await tx.batchMove.create({
     data: {
@@ -408,7 +410,8 @@ export async function moveBatchBetween(
     },
   });
   const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
-  if (!joined.there) await addBatchAt(tx, batchId, toLocationId, at, seenAt, source, undefined, versionId);
+  // Added there again where it is already, so a finish there timed before the move, received after it, loses to it.
+  await addBatchAt(tx, batchId, toLocationId, at, seenAt, source, undefined, versionId);
   if (starts || clears) await startCount(tx, batchId, toLocationId, moving, at, versionId);
   if (all) {
     await finishBatchAt(tx, batchId, fromLocationId, at, seenAt, source, undefined, {}, versionId);
