@@ -1219,8 +1219,9 @@ How each is made, carried out and answered:
   what the chosen source serves now, which may be another version, and what
   stays. The outcome gives the version before and after ("0.2.31-cafe.2 →
   0.2.32-cafe.1") and any permissions a plugin's new build adds, and words
-  each refusal for the Admin. Where the Tablet's plugin is of the previous
-  release, the dialog says it must update first.
+  each refusal for the Admin. Where the previous release's server answers,
+  during a deploy, that the Tablet's plugin does not take a change, the
+  dialog says it must update first.
 
 `server/test/software-actions.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL and a simulated Decaid

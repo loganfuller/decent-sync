@@ -549,8 +549,9 @@ export interface TabletSoftware {
   pluginMustUpdate: boolean;
   /**
    * Whether the Tablet's plugin carries out a change of how a plugin or Skin
-   * updates: false for one of the previous release, which must update first.
-   * Absent from the previous release's answer during a deploy (ADR-0025).
+   * updates. Always true from this release's server; false from the previous
+   * release's for a plugin from before these changes, which must update
+   * first, during a deploy (ADR-0025).
    */
   takesSourceChanges?: boolean;
 }

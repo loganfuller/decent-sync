@@ -214,6 +214,7 @@ describe("Changing equipment and Recipes through an assistant", { timeout: 120_0
     expect(throughApp).toEqual({
       machine: null,
       tabletId: null,
+      barista: null,
       account: { id: adminId, name: "Ada Admin" },
       connectedApp: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Test Assistant", host: new URL(app.clientId).host },
     });
