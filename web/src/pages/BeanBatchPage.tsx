@@ -100,13 +100,7 @@ function BeanBatchDetails({ id }: { id: string }) {
           )}
           <BatchBadges batch={batch} />
         </h1>
-        <p className="text-muted-foreground">
-          A batch of{" "}
-          <Link to={`/library/beans/${batch.bean.id}`} className="underline-offset-4 hover:underline">
-            {batch.bean.name ?? "an unnamed Bean"}
-          </Link>
-          {batch.bean.roaster && `, by ${batch.bean.roaster}`}
-        </p>
+        {batch.bean.roaster && <p className="text-lg text-muted-foreground">{batch.bean.roaster}</p>}
       </div>
       {mayChange && (
         <div className="flex flex-wrap items-start gap-2">
@@ -115,81 +109,87 @@ function BeanBatchDetails({ id }: { id: string }) {
         </div>
       )}
 
-
-      <BatchLocationsCard batch={batch} onChanged={changed} />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitleWithInfo title="Roast">
-              <p>As it was created, with the edits made since, on tablets or here.</p>
-              <p>
-                The Batch Code is your own identifier for this roast, as on its label. No other batch that is not Archived may hold
-                it, whatever its case. It is set here, not on a tablet.
-              </p>
-            </CardTitleWithInfo>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
-            {editing && mayChange ? (
-              <ContentForm
-                label="Edit the roast"
-                fields={BATCH_FIELDS}
-                content={batch.content}
-                path={`/bean-batches/${id}`}
-                onCancel={() => setEditing(false)}
-                onSaved={() => {
-                  setEditing(false);
-                  changed();
-                }}
-              />
-            ) : (
-            <>
-            <Fields label="Roast">
-              <Field term="Batch Code">
-                {batch.batchCode === null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
-              </Field>
-              <Field term="Roasted">
-                <OrNone>{roastDateText(batch.roastDate)}</OrNone>
-              </Field>
-              {CONTENT.map(([key, term, show]) => (
-                <Field key={key} term={term}>
-                  <OrNone>{show(batch.content[key], batch.content)}</OrNone>
+      {/* Where it is and what happened to it, beside what it is. */}
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="grid min-w-0 gap-6 lg:col-span-2">
+          <BatchLocationsCard batch={batch} onChanged={changed} />
+          <ItemHistoryCard key={changes} kind="beanBatch" id={id} />
+        </div>
+        <div className="grid min-w-0 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitleWithInfo title="Roast">
+                <p>As it was created, with the edits made since, on tablets or here.</p>
+                <p>
+                  The Batch Code is your own identifier for this roast, as on its label. No other batch that is not Archived may hold
+                  it, whatever its case. It is set here, not on a tablet.
+                </p>
+              </CardTitleWithInfo>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
+              {editing && mayChange ? (
+                <ContentForm
+                  label="Edit the roast"
+                  fields={BATCH_FIELDS}
+                  content={batch.content}
+                  path={`/bean-batches/${id}`}
+                  onCancel={() => setEditing(false)}
+                  onSaved={() => {
+                    setEditing(false);
+                    changed();
+                  }}
+                />
+              ) : (
+              <>
+              <Fields label="Roast">
+                <Field term="Batch Code">
+                  {batch.batchCode === null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
                 </Field>
-              ))}
-            </Fields>
-            {mayChange && (
-              <div>
-                <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
-                  Edit
-                </Button>
-              </div>
-            )}
-            </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              <h2>In the Library</h2>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Fields label="In the Library">
-              <Field term="Created at">
-                <OrNone>{batch.createdLocation?.name}</OrNone>
-              </Field>
-              <Field term="Joined">{formatTime(batch.createdAt)}</Field>
-            </Fields>
-          </CardContent>
-        </Card>
+                <Field term="Roasted">
+                  <OrNone>{roastDateText(batch.roastDate)}</OrNone>
+                </Field>
+                {CONTENT.map(([key, term, show]) => (
+                  <Field key={key} term={term}>
+                    <OrNone>{show(batch.content[key], batch.content)}</OrNone>
+                  </Field>
+                ))}
+              </Fields>
+              {mayChange && (
+                <div>
+                  <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
+                    Edit
+                  </Button>
+                </div>
+              )}
+              </>
+              )}
+            </CardContent>
+          </Card>
+          <ItemShotsCard kind="beanBatch" id={id} />
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                <h2>In the Library</h2>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Fields label="In the Library">
+                <Field term="Bean">
+              <Link to={`/library/beans/${batch.bean.id}`} className="underline-offset-4 hover:underline">
+                {batch.bean.name ?? "An unnamed Bean"}
+              </Link>
+            </Field>
+            <Field term="Created at">
+                  <OrNone>{batch.createdLocation?.name}</OrNone>
+                </Field>
+                <Field term="Joined">{formatTime(batch.createdAt)}</Field>
+              </Fields>
+            </CardContent>
+          </Card>
+      
+        </div>
       </div>
-
-      <ItemShotsCard kind="beanBatch" id={id} />
-
-      <ItemHistoryCard key={changes} kind="beanBatch" id={id} />
     </section>
   );
 }

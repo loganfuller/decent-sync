@@ -114,7 +114,6 @@ test("the Bean Batches list shows each batch's Location and its remaining weight
   await expect(where).toContainText("Moved from Batch lab.");
   await expect(where).toContainText("180.5 g");
   await expect(page.getByRole("group", { name: "At Batch lab" })).toHaveCount(0);
-  await expect(field(page.getByLabel("Finished", { exact: true }), "Batch lab")).toContainText("with 180.5 g");
   // The move is the Machine's that un-archived it, as one entry.
   await expect(page.getByRole("table", { name: "History" }).getByRole("row").filter({ hasText: "Moved from Batch lab to Batch cafe" })).toContainText("Batch lab group 2");
   const roast = page.getByLabel("Roast", { exact: true });

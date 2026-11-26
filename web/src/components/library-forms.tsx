@@ -2,7 +2,6 @@ import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } fr
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { batchName, listed, weightText } from "@/components/bean-batches";
-import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -889,8 +888,8 @@ export function NewGrinderDialog() {
 
 /**
  * Where a batch is: the one Location it is at, since when and where it was
- * moved from, with its remaining weight there, and the Locations it was
- * finished at. A batch is at one Location at a time, so an Admin, or Staff
+ * moved from, with its remaining weight there. Where it was before is in
+ * its history. A batch is at one Location at a time, so an Admin, or Staff
  * working at another Location, moves it there, which takes it away from this
  * one; one working where it is finishes it there, or sets its remaining
  * weight. One the previous release left at several Locations, until the
@@ -999,15 +998,6 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
             </div>
           );
         })}
-        {batch.finished.length > 0 && (
-          <Fields label="Finished">
-            {batch.finished.map((here) => (
-              <Field key={here.location.id} term={here.location.name}>
-                Finished {formatTime(here.finishedAt)}, with {weightText(here.remainingWeight)}
-              </Field>
-            ))}
-          </Fields>
-        )}
       </CardContent>
     </Card>
   );

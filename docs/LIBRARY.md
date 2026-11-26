@@ -3665,9 +3665,8 @@ offered, the Bean Batches, the Location each is at and its remaining weight
 there, the Grinders and the Location each belongs to, and the Profiles and
 where each is shown. Each Bean's page shows its content, where it is
 offered, its batches and its likely duplicates, each batch's page its roast,
-the Location it is at with its remaining weight there, a control to move it
-to another the account may move it to, and where it was
-finished, each Grinder's page its Location and what it is, and each
+the Location it is at with its remaining weight there and a control to move it
+to another the account may move it to, beside its history, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. It opens on its Recipes (`/library/recipes`,
 `web/src/pages/RecipesPage.tsx`, #547), the first of its lists: every

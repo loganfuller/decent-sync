@@ -102,7 +102,6 @@ test("a lab batch is moved to a cafe with its weight, as one entry of its histor
   await expect(atCafe).toContainText("Moved from Roastery lab.");
   await expect(atCafe).toContainText("250 g");
   await expect(atLab).toHaveCount(0);
-  await expect(field(page.getByLabel("Finished", { exact: true }), "Roastery lab")).toContainText("with 250 g");
   const history = page.getByRole("table", { name: "History" });
   await expect(history.getByRole("row").filter({ hasText: "Moved from Roastery lab to Belmont" })).toHaveCount(1);
   await expect(history.getByRole("row").filter({ hasText: "Moved from Roastery lab to Belmont" })).toContainText("You, here");
@@ -114,7 +113,6 @@ test("a lab batch is moved to a cafe with its weight, as one entry of its histor
   await expect(atCafe).toContainText("200 g");
 
   await atCafe.getByRole("button", { name: "Finish it at Belmont" }).click();
-  await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("with 200 g");
   await expect(atCafe).toHaveCount(0);
   await expect(page.getByRole("main")).toContainText("It is at no Location.");
 
