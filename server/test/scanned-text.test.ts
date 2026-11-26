@@ -27,9 +27,17 @@ describe("What in scanned text may be a Batch Code", () => {
     for (const text of ["PR-0470", "Roaster: PR-0470", "mailto:roaster@example.com", "roux guji"]) expect(codeCandidates(text)).toEqual([]);
   });
 
-  it("leaves out a value longer than a Batch Code, and stops at fifty", () => {
+  it("leaves out a value longer than a Batch Code, or one PostgreSQL would not store", () => {
     expect(codeCandidates(JSON.stringify(["x".repeat(101), "x".repeat(100)]))).toEqual(["x".repeat(100)]);
-    expect(codeCandidates(JSON.stringify(Array.from({ length: 80 }, (_, index) => `code-${index}`)))).toHaveLength(50);
+    expect(codeCandidates("https://roaster.example/PR-0470?extra=%00")).toEqual(["PR-0470"]);
+    expect(codeCandidates(String.raw`["PR-0470","a\u0000b","\ud800"]`)).toEqual(["PR-0470"]);
+  });
+
+  it("reads every value, however many come before a code and however deep it is", () => {
+    const many = Array.from({ length: 80 }, (_, index) => `code-${index}`);
+    expect(codeCandidates(JSON.stringify(many))).toEqual(many);
+    const deep = JSON.stringify(Array.from({ length: 20 }).reduce<unknown>((inner) => [inner], "PR-0470"));
+    expect(codeCandidates(deep)).toEqual(["PR-0470"]);
   });
 });
 

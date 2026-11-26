@@ -6885,8 +6885,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     answered(answer) {
       this.pending.get(answer.id)?.({ answer });
     }
-    /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
-    ask(question) {
+    /** Asks the server `question`, and resolves with its answer or why there is none, within `ms`. It never rejects. */
+    ask(question, ms = SKIN_REQUEST_MS) {
       const connection = this.connection;
       if (!connection) return Promise.resolve({ unanswered: "unreachable" });
       if (question.ask === "bringBatch" && !this.bringsBatches) return Promise.resolve({ unanswered: "serverTooOld" });
@@ -6900,7 +6900,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           giveUp();
           resolve(asked);
         };
-        const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
+        const timer = setTimeout(() => settle({ unanswered: "unreachable" }), ms);
         this.pending.set(id, settle);
         const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
         if (!FOLLOWS_REPORTS[question.ask]) return send();
@@ -7059,22 +7059,19 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     if (typeof asking === "string") return invalid2(asking);
     if (!requests?.connected) return refusal("unreachable");
     if (!requests.bringsBatches) return refusal("serverTooOld");
-    let timeUp = false;
-    const timer = setTimeout(() => timeUp = true, SKIN_REQUEST_MS);
-    try {
-      const barista = await workflowBarista();
-      const asked = await ask2(requests, { ask: "bringBatch", ...asking, ...barista !== null && { barista } });
-      if ("unanswered" in asked) return refusal(asked.unanswered);
-      if ("refused" in asked.answer) return refused2(asked.answer.refused);
-      if (asked.answer.ask !== "bringBatch") return refusal("unreachable");
-      const brought = asked.answer.result;
-      if (brought.outcome === "several" || brought.outcome === "noMatch") return json(200, brought);
-      const held = await heldOnTablet(brought.batchId, () => timeUp);
-      if (held) return json(200, { outcome: brought.outcome, ...held });
-      return refusal("unreachable", {}, "The server found the Bean Batch, but this tablet did not hold it in time. It may still arrive: ask again.");
-    } finally {
-      clearTimeout(timer);
-    }
+    const deadline = Date.now() + SKIN_REQUEST_MS;
+    const barista = await workflowBarista();
+    const left = deadline - Date.now();
+    if (left <= 0) return refusal("unreachable");
+    const asked = await requests.ask({ ask: "bringBatch", ...asking, ...barista !== null && { barista } }, left);
+    if ("unanswered" in asked) return refusal(asked.unanswered);
+    if ("refused" in asked.answer) return refused2(asked.answer.refused);
+    if (asked.answer.ask !== "bringBatch") return refusal("unreachable");
+    const brought = asked.answer.result;
+    if (brought.outcome === "several" || brought.outcome === "noMatch") return json(200, brought);
+    const held = await heldOnTablet(brought.batchId, () => Date.now() >= deadline);
+    if (held) return json(200, { outcome: brought.outcome, ...held });
+    return refusal("unreachable", {}, "The server found the Bean Batch, but this tablet did not hold it in time. It may still arrive: ask again.");
   }
   function readScan(body) {
     const NOTHING_TO_MATCH = "Give the text the scanned code held as text, or the id of a batch from an earlier answer's matches as match, in a JSON body.";

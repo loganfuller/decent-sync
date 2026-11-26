@@ -48,8 +48,9 @@ export type Asked = { answer: SkinAnswer } | { unanswered: Unanswered };
  * server has acknowledged what the outbox held then (`Outbox.whenDelivered`),
  * and is matched to its answer by its id. A request is never kept, and never
  * sent again: it is answered as unreachable at once while the plugin is not
- * connected, when its connection closes, and once SKIN_REQUEST_MS have
- * passed, an answer arriving after that being dropped; and as too old to ask
+ * connected, when its connection closes, and once its time has passed
+ * (SKIN_REQUEST_MS, or less where the asker has spent some of it already),
+ * an answer arriving after that being dropped; and as too old to ask
  * while the server is not at the wire revision what is asked came in
  * (`takes`).
  */
@@ -93,8 +94,8 @@ export class SkinRequests {
     this.pending.get(answer.id)?.({ answer });
   }
 
-  /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
-  ask(question: SkinQuestion): Promise<Asked> {
+  /** Asks the server `question`, and resolves with its answer or why there is none, within `ms`. It never rejects. */
+  ask(question: SkinQuestion, ms = SKIN_REQUEST_MS): Promise<Asked> {
     const connection = this.connection;
     if (!connection) return Promise.resolve({ unanswered: "unreachable" });
     if (question.ask === "bringBatch" && !this.bringsBatches) return Promise.resolve({ unanswered: "serverTooOld" });
@@ -107,7 +108,7 @@ export class SkinRequests {
         giveUp();
         resolve(asked);
       };
-      const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
+      const timer = setTimeout(() => settle({ unanswered: "unreachable" }), ms);
       this.pending.set(id, settle);
       const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
       if (!FOLLOWS_REPORTS[question.ask]) return send();

@@ -265,6 +265,20 @@ describe("A request to bring a scanned Bean Batch (#708)", () => {
     requests.disconnected();
   });
 
+  it("waits only the time it is given, as a scan gives what the read of its Workflow left, and drops an answer after it", async () => {
+    vi.useFakeTimers();
+    const { requests, sent } = welcomedAt(WIRE_REVISION);
+    let asked: Asked | undefined;
+    void requests.ask({ ask: "bringBatch", text: "PR-0470" }, 4_000).then((each) => (asked = each));
+    expect(sent).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(asked).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(asked).toEqual({ unanswered: "unreachable" });
+    requests.answered({ type: "answer", id: "request-1", ask: "bringBatch", result: { outcome: "noMatch" } });
+    expect(asked).toEqual({ unanswered: "unreachable" });
+  });
+
   it("is refused as unreachable, and brings nothing, while no connection is welcomed", async () => {
     let ids = 0;
     const requests = new SkinRequests({ nextId: () => `request-${++ids}`, whenDelivered: () => () => {} });

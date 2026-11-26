@@ -1,3 +1,4 @@
+import { isShotNote } from "@decent-sync/protocol";
 import { MAX_BATCH_CODE_LENGTH } from "./item-input.js";
 
 // Reading the text of a scanned QR code (ticket #708), which a Skin read and
@@ -5,18 +6,15 @@ import { MAX_BATCH_CODE_LENGTH } from "./item-input.js";
 // names a Bean, and the dates in it. Nothing here decodes a code, or reads
 // the Library: `BatchScansService` matches what these give against it.
 
-/** The most values of a URL or of JSON that are looked up as Batch Codes: a label holds a handful. */
-const MAX_CODE_CANDIDATES = 50;
-
-/** How deep JSON is read for its string values. */
-const MAX_JSON_DEPTH = 8;
-
 /**
  * What in the text may be a Batch Code, where the text is a URL or JSON
  * (step 2 of matching): a URL's last path segment, each of its query values
  * and its fragment, or each string value of JSON, at any depth. Each is
- * trimmed, and one empty or longer than a Batch Code is left out. None for
- * text that is neither.
+ * trimmed, and one empty, longer than a Batch Code, or that PostgreSQL would
+ * not store (a NUL or an unpaired surrogate a percent- or JSON escape gave)
+ * is left out. None for text that is neither. Every value is read, so a code
+ * listed after others is never missed and two codes in one text both match:
+ * the text's own length (MAX_SCANNED_TEXT_LENGTH) bounds how many there are.
  *
  * A URL is text with a scheme and `//`, as `https://roaster.example/b/PR-0470`:
  * `Roaster: PR-0470` also parses as a URL, of the scheme `roaster`, and is
@@ -28,8 +26,7 @@ export function codeCandidates(text: string): string[] {
   const candidates = new Set<string>();
   for (const value of found) {
     const trimmed = value.trim();
-    if (trimmed !== "" && trimmed.length <= MAX_BATCH_CODE_LENGTH) candidates.add(trimmed);
-    if (candidates.size === MAX_CODE_CANDIDATES) break;
+    if (trimmed !== "" && trimmed.length <= MAX_BATCH_CODE_LENGTH && isShotNote(trimmed)) candidates.add(trimmed);
   }
   return [...candidates];
 }
@@ -51,7 +48,7 @@ function decoded(part: string): string {
   }
 }
 
-/** The string values of JSON, at any depth to MAX_JSON_DEPTH, keys left out; null for text that is not JSON. */
+/** The string values of JSON, at any depth, keys left out; null for text that is not JSON. */
 function jsonStrings(text: string): string[] | null {
   if (!/^[[{"]/.test(text)) return null;
   let value: unknown;
@@ -61,11 +58,11 @@ function jsonStrings(text: string): string[] | null {
     return null;
   }
   const strings: string[] = [];
-  const read = (each: unknown, depth: number): void => {
+  const read = (each: unknown): void => {
     if (typeof each === "string") strings.push(each);
-    else if (typeof each === "object" && each !== null && depth < MAX_JSON_DEPTH) for (const inner of Object.values(each)) read(inner, depth + 1);
+    else if (typeof each === "object" && each !== null) for (const inner of Object.values(each)) read(inner);
   };
-  read(value, 0);
+  read(value);
   return strings;
 }
 

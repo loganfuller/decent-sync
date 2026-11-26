@@ -377,24 +377,22 @@ async function answerScan(request: HttpRequest, requests: SkinRequests | undefin
   if (typeof asking === "string") return invalid(asking);
   if (!requests?.connected) return refusal("unreachable");
   if (!requests.bringsBatches) return refusal("serverTooOld");
-  // The request's time, from when the Skin asked: the server's answer and the tablet's record both come within it.
-  let timeUp = false;
-  const timer = setTimeout(() => (timeUp = true), SKIN_REQUEST_MS);
-  try {
-    const barista = await workflowBarista();
-    const asked = await ask(requests, { ask: "bringBatch", ...asking, ...(barista !== null && { barista }) });
-    if ("unanswered" in asked) return refusal(asked.unanswered);
-    if ("refused" in asked.answer) return refused(asked.answer.refused);
-    // An answer to another ask, which the server never gives this request.
-    if (asked.answer.ask !== "bringBatch") return refusal("unreachable");
-    const brought = asked.answer.result;
-    if (brought.outcome === "several" || brought.outcome === "noMatch") return json(200, brought);
-    const held = await heldOnTablet(brought.batchId, () => timeUp);
-    if (held) return json(200, { outcome: brought.outcome, ...held });
-    return refusal("unreachable", {}, "The server found the Bean Batch, but this tablet did not hold it in time. It may still arrive: ask again.");
-  } finally {
-    clearTimeout(timer);
-  }
+  // The request's time, from when the Skin asked: the Workflow's read, the server's answer and the tablet's record all come within it.
+  const deadline = Date.now() + SKIN_REQUEST_MS;
+  const barista = await workflowBarista();
+  const left = deadline - Date.now();
+  // Not sent once its time is up, so the server brings nothing for a request already refused.
+  if (left <= 0) return refusal("unreachable");
+  const asked = await requests.ask({ ask: "bringBatch", ...asking, ...(barista !== null && { barista }) }, left);
+  if ("unanswered" in asked) return refusal(asked.unanswered);
+  if ("refused" in asked.answer) return refused(asked.answer.refused);
+  // An answer to another ask, which the server never gives this request.
+  if (asked.answer.ask !== "bringBatch") return refusal("unreachable");
+  const brought = asked.answer.result;
+  if (brought.outcome === "several" || brought.outcome === "noMatch") return json(200, brought);
+  const held = await heldOnTablet(brought.batchId, () => Date.now() >= deadline);
+  if (held) return json(200, { outcome: brought.outcome, ...held });
+  return refusal("unreachable", {}, "The server found the Bean Batch, but this tablet did not hold it in time. It may still arrive: ask again.");
 }
 
 /**
