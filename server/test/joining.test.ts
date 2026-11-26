@@ -330,6 +330,8 @@ describe("Joining a Location", () => {
     expect(tablet.writes).toEqual([]);
     const ownBeans = tablet.beans().length;
     const ownProfiles = userProfiles(tablet, true);
+    const ownBatches = tablet.batches().filter((batch) => globalIdOf(batch) === null && batch.archived !== true).map((batch) => batch.id);
+    expect(ownBatches.length).toBeGreaterThan(0);
 
     expect((await move(traveller, uptown)).status).toBe(201);
     // It is written what Uptown offers, and its coffee of the same roaster and name is Uptown's Bean, with Uptown's notes.
@@ -342,6 +344,10 @@ describe("Joining a Location", () => {
     const own = (records: Record_[]) => records.filter((record) => globalIdOf(record) === null);
     await expect.poll(() => own(tablet.beans()).filter((bean) => bean.archived !== true).length).toBe(0);
     await expect.poll(() => own(tablet.batches()).filter((batch) => batch.archived !== true).length).toBe(0);
+    // A Skin on it is told of each of its own batches archived, and of no batch Uptown's written to it (#714).
+    await expect
+      .poll(() => tablet.pushes("changes").flatMap((push) => ((push as Record_).what === "batch" ? [(push as Record_).batch] : [])).sort())
+      .toEqual([...ownBatches].sort());
     await expect.poll(() => own(tablet.grinders()).filter((grinder) => grinder.archived !== true).length).toBe(0);
     expect(own(tablet.beans())).toHaveLength(ownBeans - 1);
     expect(own(tablet.grinders())).toHaveLength(2);

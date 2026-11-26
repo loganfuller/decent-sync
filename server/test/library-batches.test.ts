@@ -102,6 +102,9 @@ describe("Bean Batches at Locations", () => {
   /** The tablet's records of the Library item, each by whether it is archived. */
   const heldBean = (tablet: SimulatedTablet, id: string) => tablet.beans().filter((record) => globalIdOf(record) === id);
   const heldBatch = (tablet: SimulatedTablet, id: string) => tablet.batches().filter((record) => globalIdOf(record) === id);
+  /** The ids of the tablet's batch records a Skin listening on `changes` was told were archived or brought back, in turn (#714). */
+  const batchPushes = (tablet: SimulatedTablet) =>
+    tablet.pushes("changes").flatMap((push) => ((push as Record_).what === "batch" ? [(push as Record_).batch] : []));
   /** Resolves once the tablet holds the item once, carrying its global id, with the fields given. */
   async function holds(records: () => Record_[], fields: Record_): Promise<Record_> {
     await expect.poll(() => records().map((record) => ({ ...pick(record, Object.keys(fields)) }))).toEqual([fields]);
@@ -218,6 +221,36 @@ describe("Bean Batches at Locations", () => {
     await holds(() => heldBatch(two, batch.id), { archived: false });
     await holds(() => heldBean(two, batch.bean.id), { archived: false });
     expect(await offeredAt("Archived Natural")).toEqual(["Archived lab"]);
+  });
+
+  it("tells a Skin on a lab tablet when the server archives a batch there and when it brings it back, and of no write leaving it archived as it was", async () => {
+    const { one, two, cafe } = await lab("Told", 16321);
+    const { record, batch } = await enterBatch(one, "Told Natural");
+    const held = await holds(() => heldBatch(two, batch.id), { archived: false });
+
+    // A remaining weight reaching the other tablet leaves its batch unarchived: nothing is said.
+    await one.editBatch(record.id, { weightRemaining: 200 });
+    await holds(() => heldBatch(two, batch.id), { weightRemaining: 200, archived: false });
+
+    // Finished at the lab, the batch is archived on the other tablet, and that tablet's Skin is told, naming its record.
+    await one.editBatch(record.id, { archived: true });
+    await holds(() => heldBatch(two, batch.id), { archived: true });
+    await expect.poll(() => batchPushes(two)).toEqual([held.id]);
+
+    // Notes reaching the other tablet while the batch is finished leave it archived there: nothing more is said.
+    await one.editBatch(record.id, { notes: "Told while finished" });
+    await holds(() => heldBatch(two, batch.id), { notes: "Told while finished", archived: true });
+    expect(batchPushes(two)).toEqual([held.id]);
+
+    await one.editBatch(record.id, { archived: false });
+    await holds(() => heldBatch(two, batch.id), { archived: false });
+    await expect.poll(() => batchPushes(two)).toEqual([held.id, held.id]);
+    await holds(() => heldBean(two, batch.bean.id), { archived: false });
+
+    // The tablet it was archived on by hand is told nothing by the plugin, nor is the cafe, which never held it.
+    expect(batchPushes(one)).toEqual([]);
+    expect(batchPushes(cafe)).toEqual([]);
+    expect(batchPushes(two)).toEqual([held.id, held.id]);
   });
 
   it("keeps a batch at the lab when a tablet that archived it while offline reconnects after another lab tablet added it back", async () => {

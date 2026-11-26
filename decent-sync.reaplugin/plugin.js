@@ -2978,14 +2978,24 @@ var __decentSync = (() => {
   function recordWriter(kind, route) {
     return {
       list: route.list,
-      write: async (write) => {
+      write: async (write, _log, posted) => {
         if (write.localId === null) return await create(route, write);
         const updated = await update(route, write, write.localId);
-        return answerTo(write, updated.answer, updated.written);
+        const answer = answerTo(write, updated.answer, updated.written);
+        if (answer.type === "written") archivedChanged(kind, posted, updated.before, answer.record);
+        return answer;
       },
       remove: (remove, namedByShot) => deleteRecord(kind, route, remove, namedByShot),
-      setAside: (leave) => readThen(route.records, leave, archiveRecord)
+      setAside: (leave, posted) => readThen(route.records, leave, async (_leave, record3, path) => {
+        const outcome = await archiveRecord(record3, path);
+        if (outcome === "setAside" && record3.archived !== true) archivedChanged(kind, posted, record3, { ...record3, archived: true });
+        return outcome;
+      })
     };
+  }
+  function archivedChanged(kind, posted, before, after) {
+    if (kind !== "beanBatch" || typeof after.id !== "string") return;
+    if (before.archived === true !== (after.archived === true)) posted.batchArchived(after.id);
   }
   var LibraryAccess = class {
     constructor() {
@@ -3014,7 +3024,8 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, loaded, machineMissing2, log, skins, shot) {
+    constructor(library, outbox, loaded, machineMissing2, log, skins, shot, batchArchived = () => {
+    }) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "loaded", loaded);
@@ -3034,7 +3045,7 @@ var __decentSync = (() => {
       __publicField(this, "shotsName", /* @__PURE__ */ new Map());
       /** The Shots still to be sent that `namedByShot` read. */
       __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
-      this.posted = Object.assign((key2) => skins.listPosted(key2), { loaded, workflowWritten: skins.workflowWritten });
+      this.posted = Object.assign((key2) => skins.listPosted(key2), { loaded, workflowWritten: skins.workflowWritten, batchArchived });
       outbox.watch((delivery) => {
         if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
       });
@@ -3240,7 +3251,7 @@ var __decentSync = (() => {
     if (!isObject6(record3)) return current;
     return setAsideRecord(leave, record3, path);
   }
-  async function archiveRecord(_leave, record3, path) {
+  async function archiveRecord(record3, path) {
     if (globalIdOf(record3) !== null) return "taken";
     if (record3.archived === true) return "setAside";
     const archived = await request("PUT", path, { archived: true, extras: isObject6(record3.extras) ? record3.extras : {} });
@@ -3498,7 +3509,7 @@ var __decentSync = (() => {
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
     const current = await request("GET", path);
-    if (!current.ok) return { answer: current, written: [] };
+    if (!current.ok) return { answer: current, written: [], before: {} };
     const parsedRecord = parsed3(current.text);
     const record3 = isObject6(parsedRecord) ? parsedRecord : {};
     const extras = isObject6(record3.extras) ? record3.extras : {};
@@ -3509,7 +3520,8 @@ var __decentSync = (() => {
     const placedFields = placed(route, fields);
     return {
       answer: await request("PUT", path, { ...placedFields.own, extras: { ...extras, ...placedFields.extras, [GLOBAL_ID_KEY]: write.globalId } }),
-      written: Object.keys(fields)
+      written: Object.keys(fields),
+      before: record3
     };
   }
   function placed(route, fields) {
@@ -6982,6 +6994,13 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       log(`Could not tell Skins that a Recipe's Reference Shot changed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  function tellBatch(host, log, batch) {
+    try {
+      host.emit(CHANGES_ENDPOINT, { what: "batch", batch });
+    } catch (error) {
+      log(`Could not tell Skins that a Bean Batch was archived or brought back: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   function tellConnection(host, log, connected) {
     try {
       host.emit(CHANGES_ENDPOINT, { what: "connection", connected });
@@ -7603,7 +7622,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
         },
         log,
         skins,
-        this.shot
+        this.shot,
+        (batch) => tellBatch(host, log, batch)
       );
       this.tabletId = new TabletId(this.storage, log);
       this.liveView = new LiveView(log, localTransports, findMilkProbe);

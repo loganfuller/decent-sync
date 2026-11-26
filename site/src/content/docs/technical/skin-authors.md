@@ -440,7 +440,7 @@ GET, `shot` and `reference` take PUT too, and `page` takes PUT alone.
 
 A Skin listens on the WebSocket endpoint `changes` rather than polling. Each
 push is a JSON object whose `what` names what changed. So far there are
-three: the two here, and `reload`, under
+four: the three here, and `reload`, under
 [Reporting the page, and reloading](#reporting-the-page-and-reloading).
 
 ```json
@@ -469,6 +469,28 @@ Recipe if it is the one on screen.
   the server has sent the copies it missed.
 - **A push may repeat.** One is also sent when the Recipe is renamed, so
   compare what `reference` gives with what is drawn.
+
+```json
+{ "what": "batch", "batch": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca" }
+```
+
+It is sent when the plugin archives a Bean Batch's record on the tablet, or
+brings it back: the batch was finished at the Machine's Location, archived
+in the Library, or moved to another Location, or the Machine joined or
+moved to a Location that does not offer it, or it was added back or
+restored. `batch` is the id of Decaid's record of it, as the Workflow's
+`beanBatchId` names it. The push says nothing of the record: read it again
+from Decaid (`GET /api/v1/bean-batches/{id}`) if the batch is on screen, as
+you would when the page comes back into view.
+
+- **Only the plugin's own writes are pushed.** A batch archived by hand on
+  the tablet, in DYE2, is not, and nothing else changing the record is.
+  Keep reading the record when the page loads or comes back.
+- **It is interim.** Decaid has no push of its own yet for a batch's record
+  changing
+  ([decentespresso/decaid#1271](https://github.com/decentespresso/decaid/issues/1271)).
+  Once it has, follow Decaid's instead: this one will stop in a later
+  release.
 
 - Decaid sends a push only to the sockets open at that moment, and keeps none
   for a socket opened later. Read the status once the socket opens.
