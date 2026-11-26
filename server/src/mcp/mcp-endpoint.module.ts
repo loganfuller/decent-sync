@@ -12,33 +12,23 @@ import { MachineEventsModule } from "../machine-events/machine-events.module.js"
 import { MachinesModule } from "../machines/machines.module.js";
 import { SettingsEditsModule } from "../settings-edits/settings-edits.module.js";
 import { SoftwareActionsModule } from "../software-actions/software-actions.module.js";
-import { SoftwareTools } from "./software.tools.js";
 import { ShotsModule } from "../shots/shots.module.js";
 import { SteamRecordsModule } from "../steam-records/steam-records.module.js";
 import { INSTRUCTIONS } from "./instructions.js";
-import { LibraryChangesTools } from "./library-changes.tools.js";
-import { LibraryTools } from "./library.tools.js";
 import { McpListenStreams } from "./listen-streams.js";
-import { LocationChangesTools } from "./location-changes.tools.js";
-import { LocationsTools } from "./locations.tools.js";
-import { MachineChangesTools } from "./machine-changes.tools.js";
-import { MachinesTools } from "./machines.tools.js";
-import { RecipeChangesTools } from "./recipe-changes.tools.js";
-import { RecordChangesTools } from "./record-changes.tools.js";
-import { RecordsTools } from "./records.tools.js";
-import { SimulationTools } from "./simulation.tools.js";
-import { DraftsTools } from "./drafts.tools.js";
 import { AccessTokenVerifier } from "./token-verifier.js";
+import { TOOL_PROVIDERS } from "./tools.js";
 
 /**
  * The MCP endpoint assistants reach the server through, at `/api/mcp`
  * (ADR-0026): `@nestjs/mcp`, serving the 2026-07-28 revision and the 2025
  * revisions, statelessly, so any instance answers any request. Its tools are
- * this module's providers alone, thin and grouped by area, each calling the
- * server's services. Every request, `tools/list` included, carries a
- * Connected App's access token (`AccessTokenVerifier`), so the route is
- * public to `SessionGuard`; global guards and filters run again around each
- * tool call, outside HTTP. Imported only while MCP_ENABLED is on.
+ * this module's providers alone (`TOOL_PROVIDERS`), thin and grouped by
+ * area, each calling the server's services. Every request, `tools/list`
+ * included, carries a Connected App's access token (`AccessTokenVerifier`),
+ * so the route is public to `SessionGuard`; global guards and filters run
+ * again around each tool call, outside HTTP. Imported only while MCP_ENABLED
+ * is on.
  */
 @Module({})
 export class McpEndpointModule implements NestModule {
@@ -78,21 +68,7 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [
-        McpListenStreams,
-        LocationsTools,
-        LocationChangesTools,
-        LibraryTools,
-        LibraryChangesTools,
-        RecipeChangesTools,
-        MachinesTools,
-        MachineChangesTools,
-        SoftwareTools,
-        RecordsTools,
-        RecordChangesTools,
-        SimulationTools,
-        DraftsTools,
-      ],
+      providers: [McpListenStreams, ...TOOL_PROVIDERS],
       exports: [McpListenStreams],
     };
   }

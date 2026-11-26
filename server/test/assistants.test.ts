@@ -15,6 +15,7 @@ import {
 } from "./support/assistants.js";
 import { rememberSecret } from "./support/secrets.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
+import { readTools, toolsBody } from "../../site/src/assistant-tools.mjs";
 
 // Connecting an assistant (#406; #405, ADR-0026, ADR-0027) at Seam 1: a test
 // app on the MCP SDK's client authorizes with PKCE, the person signs in and
@@ -209,6 +210,40 @@ describe("connecting an assistant", () => {
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));
       expect(locations.find((location) => location.name === "Uptown")!.machines.map((machine) => machine.name)).toEqual(["Uptown Left", "Uptown Right"]);
+    } finally {
+      await assistant.close();
+    }
+  });
+
+  // The documentation site's Assistant tools page (#686) is written as the site is built, from the tool definitions of
+  // the compiled server these tests run (site/src/assistant-tools.mjs). Here its body is made the same way, and held
+  // to what a connected app is given: every tool, by name, with its title and its description, and no other.
+  it("has every tool it registers, with its title and description, in the documentation site's Assistant tools reference, and no other", async () => {
+    const assistant = await Assistant.connect(server.url, app, adminCookie);
+    try {
+      const { tools } = await assistant.client.listTools();
+      expect(tools.length).toBeGreaterThan(0);
+      const body = toolsBody(readTools());
+      const asRead = (html: string) =>
+        html
+          .replace(/<[^>]+>/g, " ")
+          .replaceAll("&lt;", "<")
+          .replaceAll("&gt;", ">")
+          .replaceAll("&quot;", '"')
+          .replaceAll("&amp;", "&")
+          .replace(/\s+/g, " ")
+          .trim();
+      const rows = new Map([...body.matchAll(/^<tr><td><code>([^<]+)<\/code>.*<\/tr>$/gm)].map(([row, name]) => [name!, asRead(row)]));
+      expect([...rows.keys()].sort()).toEqual(tools.map((tool) => tool.name).sort());
+      for (const tool of tools) {
+        const description = tool.description!.replace(/\s+/g, " ").trim();
+        expect(description.length, tool.name).toBeGreaterThan(0);
+        expect(rows.get(tool.name), tool.name).toContain(tool.title!);
+        expect(rows.get(tool.name), tool.name).toContain(description);
+        // A tool that changes something is listed under the heading that says so.
+        const changing = body.indexOf("## Tools that change something");
+        expect(body.indexOf(`<code>${tool.name}</code>`) > changing, tool.name).toBe(tool.annotations?.readOnlyHint !== true);
+      }
     } finally {
       await assistant.close();
     }

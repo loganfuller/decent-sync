@@ -17,6 +17,7 @@ import { chromium } from "@playwright/test";
 import { brokenLinks } from "../check-links.mjs";
 import { ROOT_BASE, SITE } from "../site.config.mjs";
 import { canonicalAtRoot } from "../src/canonical.mjs";
+import { readTools, TOOLS_PAGE } from "../src/assistant-tools.mjs";
 import { pageBody, ROOT_PAGES } from "../src/root-pages.mjs";
 import { minorOf } from "../src/versions.mjs";
 import { serve } from "./support/serve.mjs";
@@ -71,11 +72,13 @@ describe("the built site", () => {
         for (const page of PAGES) assert.ok(existsSync(join(dist, page, "index.html")), `${page} is missing`);
     });
 
-    // The Guide pages written so far (#685), by what a reader would miss, never by their wording: the page itself, its
-    // images, its steps, and its way to the Glossary.
+    // The Guide pages written so far (#685, #686), by what a reader would miss, never by their wording: the page
+    // itself, its images, its steps, and its way to the Glossary. The last two show no image.
     const GUIDE_STILLS = {
         "guide/shots": ["shots", "shot", "overview", "recipe"],
         "guide/machines": ["machines", "live-view", "phone", "machine-activity", "machine-settings", "machine-software"],
+        "guide/assistants": [],
+        "guide/accounts-and-roles": [],
     };
     const content = (path) => {
         const html = read(path);
@@ -105,6 +108,31 @@ describe("the built site", () => {
         // Stated once: no other table of the page gives a margin.
         const others = (main.match(/<table[\s\S]*?<\/table>/g) ?? []).filter((table) => table !== tables[0]);
         for (const table of others) assert.ok(!/\b(10|5|90)%/.test(table), "a margin is stated in a second table");
+    });
+
+    test("sends the Assistants page's reader to the tools, and to the self-hosting page on assistants and turning them off", () => {
+        const main = content("guide/assistants");
+        assert.ok(main.includes('href="../../reference/assistant-tools/"'), "guide/assistants does not link to the Assistant tools reference");
+        assert.ok(main.includes('href="../../self-hosting/internet/#assistants"'), "guide/assistants does not link to the self-hosting page's section on assistants");
+        const hosting = read("self-hosting/internet");
+        assert.ok(hosting.includes('id="assistants"') && hosting.includes('id="turning-assistants-off"'), "self-hosting/internet no longer covers assistants and turning them off");
+    });
+
+    // The reference is written from the server's own tool definitions as the site is built (src/assistant-tools.mjs),
+    // so the test reads the same definitions, never a list of its own.
+    test("lists every tool the server defines on the Assistant tools page, each with its description, from no file of its own", () => {
+        for (const extension of ["md", "mdx"]) assert.ok(!existsSync(join(root, "src", "content", "docs", `${TOOLS_PAGE.id}.${extension}`)), `${TOOLS_PAGE.id} has a hand-written copy`);
+        const main = content(TOOLS_PAGE.id);
+        assert.ok(!main.includes("This page is not written yet"), `${TOOLS_PAGE.id} is still a placeholder`);
+        const tools = readTools();
+        assert.ok(tools.length > 20 && tools.some((tool) => tool.name === "find_shots"), "the tools were not read from the server");
+        const rows = [...main.matchAll(/<tr><td><code>([^<]+)<\/code>[\s\S]*?<\/tr>/g)].map(([row, name]) => [name, text(row).replace(/\s+/g, " ")]);
+        assert.deepEqual(rows.map(([name]) => name).sort(), tools.map((tool) => tool.name).sort(), "the page's rows are not the server's tools");
+        const shown = new Map(rows);
+        for (const { name, title, description } of tools) {
+            assert.ok(shown.get(name).includes(title), `${name} lacks its title`);
+            assert.ok(description.trim().length > 0 && shown.get(name).includes(description.trim().replace(/\s+/g, " ")), `${name} lacks its description`);
+        }
     });
 
     test("lists the six sections and every page in its sidebar, in order", () => {

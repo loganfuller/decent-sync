@@ -122,9 +122,11 @@ logo, font and palette (`site/src/styles/theme.css`). Starlight's version is
 pinned exactly, since the site overrides four of its components.
 
 - `npm run dev -w site` serves it locally, rebuilding on change.
-- `npm run build:site` builds it into `site/dist`, then checks every internal
-  link, image and heading link of the built pages (`site/check-links.mjs`). A
-  broken one fails the build.
+- `npm run build:site` builds the protocol and the server, then the site into
+  `site/dist`, then checks every internal link, image and heading link of the
+  built pages (`site/check-links.mjs`). A broken one fails the build.
+  `npm run build -w site` builds the site alone, from the server as last
+  built.
 - `npm test -w site` builds it and opens it in a browser. It needs
   Playwright's Chromium (`npx playwright install chromium`).
 
@@ -142,6 +144,24 @@ is rendered from its file at the repository's root, `GLOSSARY.md` and
 own first heading, a link to a page's source under `site/src/content/docs/`
 becomes a link to that page, and any other relative link goes to the file on
 GitHub. Edit the root file to change its page.
+
+The Assistant tools page has no file there either. It is written as the site
+is built (`site/src/assistant-tools.mjs`), from the server's own tool
+definitions: `toolDefinitions` in `server/src/mcp/tools.ts` reads each tool's
+name, title and description off the classes the MCP endpoint registers, and
+the site's build runs it from the compiled server, `server/dist`. So no list
+of tools is kept by hand, and a tool's description is its entry on the page.
+
+- The site's build needs the server built, and fails saying so when it is
+  not. It reads the server as last built, so after changing a tool, build the
+  server again (`npm run build -w server`, or `npm run build:site`) and
+  restart `npm run dev -w site`.
+- CI's `site` job and the deploy (`scripts/deploy-site.mjs`) build the server
+  first, so a pull request's check and the published site are never stale.
+- `server/test/assistants.test.ts` holds the page to what a connected app is
+  given by `tools/list`: every tool, with its title and description, and no
+  other. `site/test/site.test.mjs` holds the built page to the same
+  definitions.
 
 The self-hosting and plugin documents became pages of the site.
 `docs/SELF-HOSTING.md` and `docs/PLUGIN.md` are stubs that link to them, since

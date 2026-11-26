@@ -75,14 +75,14 @@ can't connect.
 - An app unused for 30 days stops working until it connects again.
 - Apps usually ask the person before making a change, unless they are set to
   allow it without asking.
-- Each Library change and each Settings Edit made through an app is recorded
-  as the person's, through the app. It shows as "*account*, through *app*" in
-  the item's history, and in the Machine's Settings Edits.
+- A change made through an app is recorded as the person's, through the app,
+  where the server records who made a change: [See what an assistant
+  changed](../../guide/assistants/#see-what-an-assistant-changed) lists where.
 - An app reads what each Machine's tablet runs, its Tablet Software, and the
-  Software Actions made on it, but makes none: installing, removing,
-  approving or configuring anything on a tablet is done by an Admin in the
-  management interface, as it can put code on the tablet. Nor can an app turn
-  a tablet's automatic update checks on or off
+  Software Actions made on it, and makes only one kind, reloading the Skin:
+  installing, removing, approving or configuring anything on a tablet is done
+  by an Admin in the management interface, as it can put code on the tablet.
+  Nor can an app turn a tablet's automatic update checks on or off
   ([ADR-0034](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
   An app approved by an Admin reads the values of plugins' settings; one
   approved by Staff or a Viewer reads which are set, not their values.

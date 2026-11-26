@@ -124,7 +124,7 @@ A person who works at one or more locations. They can edit the library's shared 
 _Avoid_: User (when the role matters), barista (a barista may not have an account)
 
 **Viewer**:
-A person who sees everything Staff see and changes nothing.
+A person who sees everything Staff see but Drafts, and changes nothing.
 _Avoid_: Read-only user, guest, observer
 
 **Connected App**:

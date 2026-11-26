@@ -20,5 +20,8 @@ days.
 account, or resets a forgotten password. A reset issues a one-time link that
 expires after a day.
 
+[Accounts and roles](../../guide/accounts-and-roles/) has each role in full,
+the steps for each of these, and how a Barista differs from an account.
+
 After 5 failed sign-ins for an email within 15 minutes, the server refuses
 that email until the 15 minutes are up, even with the right password.
