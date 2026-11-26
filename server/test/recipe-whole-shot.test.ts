@@ -108,6 +108,15 @@ describe("A Recipe is the whole Shot", { timeout: 120_000 }, () => {
     const listed = (await tablet.callApi("GET", `${route}?includeArchived=true`)).body as Record_[];
     return listed.find((entry) => (entry.extras as Record_ | undefined)?.[GLOBAL_ID_KEY] === globalId)?.id;
   };
+  /**
+   * The tablet's id for its record of a Library item, once it holds one. An expected value is read once, before
+   * `expect.poll` first polls, so one read with `localId` before the record arrives would be fixed at none (#718).
+   */
+  const heldId = async (tablet: SimulatedTablet, route: string, globalId: string) => {
+    let id: unknown;
+    await expect.poll(async () => (id = await localId(tablet, route, globalId)), { timeout: 15_000 }).toEqual(expect.any(String));
+    return id as string;
+  };
   /** The global id the tablet's record of a Library item carries, by the tablet's id for it. */
   const globalOf = async (tablet: SimulatedTablet, route: string, local: string) => {
     const listed = (await tablet.callApi("GET", `${route}?includeArchived=true`)).body as Record_[];
@@ -334,7 +343,7 @@ describe("A Recipe is the whole Shot", { timeout: 120_000 }, () => {
     expect((await (await openDye2Dashboard(a)).pickGrinder(RECORDED_GRINDER_83))?.status).toBe(200);
     expect(held(a)).toMatchObject({ grinder: RECORDED_GRINDER_83, grind: "5", rpm: 1100 });
     await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ grinderId: global83, grindSetting: 5, rpm: 1100 });
-    await expect.poll(async () => held(c), { timeout: 15_000 }).toMatchObject({ grinder: await localId(c, "/grinders", global83), grind: "5", rpm: 1100 });
+    await expect.poll(async () => held(c), { timeout: 15_000 }).toMatchObject({ grinder: await heldId(c, "/grinders", global83), grind: "5", rpm: 1100 });
     await quiet();
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
 
@@ -343,7 +352,7 @@ describe("A Recipe is the whole Shot", { timeout: 120_000 }, () => {
     expect((await tapGrinderInDye2(a, grinder64)).status).toBe(200);
     expect(held(a)).toMatchObject({ grinder: grinder64, grind: null, rpm: null });
     await expect.poll(async () => (await recipe(one)).content.grinderId, { timeout: 15_000 }).toBe(global64);
-    await expect.poll(async () => held(c), { timeout: 15_000 }).toMatchObject({ grinder: await localId(c, "/grinders", global64), grind: null, rpm: null });
+    await expect.poll(async () => held(c), { timeout: 15_000 }).toMatchObject({ grinder: await heldId(c, "/grinders", global64), grind: null, rpm: null });
     await quiet();
     const content = (await recipe(one)).content;
     expect(content).not.toHaveProperty("grindSetting");

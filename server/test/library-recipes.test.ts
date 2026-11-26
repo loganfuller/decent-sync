@@ -135,6 +135,15 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     return list.find((record) => (record.extras as Record_ | undefined)?.[GLOBAL_ID_KEY] === globalId)?.id as string | undefined;
   };
   /**
+   * The tablet's id for its record of a Library item, once it holds one. An expected value is read once, before
+   * `expect.poll` first polls, so one read with `localId` before the record arrives would be fixed at none (#718).
+   */
+  const heldId = async (tablet: SimulatedTablet, route: string, globalId: string) => {
+    let id: unknown;
+    await expect.poll(async () => (id = await localId(tablet, route, globalId)), { timeout: 15_000 }).toEqual(expect.any(String));
+    return id as string;
+  };
+  /**
    * Waits until the Machine's tablet is due nothing, so that a barista's save there races none of the plugin's writes: DYE2's
    * pages and the plugin each read and post the whole list, which Decaid's store does not order (ADR-0005).
    */
@@ -445,9 +454,8 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect((await recipe(saved!.id)).content.beanBatchId).toBe(latest);
     // Each tablet holds that batch beside the Bean, as DYE2 does, by its id for it, once it holds the batch.
     for (const held of [one, two]) {
-      await expect.poll(() => localId(held, "/bean-batches", latest)).toEqual(expect.any(String));
-      await expect.poll(() => byId(held, SLOT_RECIPE)?.beanBatchId).toBe(await localId(held, "/bean-batches", latest));
-      await expect.poll(() => byId(held, SLOT_RECIPE)?.beanId).toBe(await localId(held, "/beans", brazil));
+      await expect.poll(() => byId(held, SLOT_RECIPE)?.beanBatchId).toBe(await heldId(held, "/bean-batches", latest));
+      await expect.poll(() => byId(held, SLOT_RECIPE)?.beanId).toBe(await heldId(held, "/beans", brazil));
     }
 
     // DYE2's editor picks the Brazil's earlier batch, which the tablet brought (decentespresso/dye2#27): it is the Recipe's.
@@ -457,7 +465,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     await editInDye2(one, SLOT_RECIPE, { bean: { id: RECORDED.brazil, name: "Picked Fixture Brazil", batchId: RECORDED.brazilBatch } });
     await expect.poll(async () => (await recipe(saved!.id)).content.beanBatchId).toBe(earlier);
     expect((await recipe(saved!.id)).content.beanId).toBe(brazil);
-    await expect.poll(() => byId(two, SLOT_RECIPE)?.beanBatchId).toBe(await localId(two, "/bean-batches", earlier));
+    await expect.poll(() => byId(two, SLOT_RECIPE)?.beanBatchId).toBe(await heldId(two, "/bean-batches", earlier));
   });
 
   it("takes a dose or RPM DYE2's editor saves as 0 as none, leaving the 0 in that tablet's record, a yield of 0 as 0 (#550), and a grind setting of 0 as the Recipe's (#617)", async () => {

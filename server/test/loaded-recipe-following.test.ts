@@ -122,6 +122,15 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const listed = (await tablet.callApi("GET", `${route}?includeArchived=true`)).body as Record_[];
     return listed.find((entry) => (entry.extras as Record_ | undefined)?.[GLOBAL_ID_KEY] === globalId)?.id;
   };
+  /**
+   * The tablet's id for its record of a Library item, once it holds one. An expected value is read once, before
+   * `expect.poll` first polls, so one read with `localId` before the record arrives would be fixed at none (#718).
+   */
+  const heldId = async (tablet: SimulatedTablet, route: string, globalId: string) => {
+    let id: unknown;
+    await expect.poll(async () => (id = await localId(tablet, route, globalId)), { timeout: 15_000 }).toEqual(expect.any(String));
+    return id as string;
+  };
   /** The global id the tablet's record of a Library item carries, by the tablet's id for it. */
   const globalOf = async (tablet: SimulatedTablet, route: string, local: string) => {
     const listed = (await tablet.callApi("GET", `${route}?includeArchived=true`)).body as Record_[];
@@ -635,7 +644,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await a.changeSettings({ context: { grinderId: held.grinder, targetDoseWeight: held.dose, extras: { rpm: held.rpm } } });
     const grinder = await globalOf(a, "/grinders", held.grinder);
     await expect.poll(async () => (await recipe(two)).content, { timeout: 15_000 }).toMatchObject({ grinderId: grinder, rpm: held.rpm, dose: held.dose });
-    await expect.poll(async () => [extras(d).rpm, context(d).targetDoseWeight, context(d).grinderId], { timeout: 15_000 }).toEqual([held.rpm, held.dose, await localId(d, "/grinders", grinder!)]);
+    await expect.poll(async () => [extras(d).rpm, context(d).targetDoseWeight, context(d).grinderId], { timeout: 15_000 }).toEqual([held.rpm, held.dose, await heldId(d, "/grinders", grinder!)]);
   });
 
   it("brings a Machine that applied an out-of-date copy of the Recipe to its dial, which the copy never sets back", async () => {
@@ -669,8 +678,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const grinder = (await globalOf(a, "/grinders", RECORDED_GRINDER_83))!;
     await a.changeSettings({ context: { grinderId: RECORDED_GRINDER_83, grinderModel: "Fixture Grinder 83" } });
     await expect.poll(async () => (await recipe(one)).content.grinderId, { timeout: 15_000 }).toBe(grinder);
-    await expect.poll(() => localId(c, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
-    await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await localId(c, "/grinders", grinder));
+    await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await heldId(c, "/grinders", grinder));
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
     expect(context(a).grinderId).toBe(RECORDED_GRINDER_83);
@@ -691,8 +699,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(((context(a).extras as Record_).dye as Record_)).toMatchObject({ grinderId: true, grinderModel: true, recipeId: ETHIOPIA });
     // The Recipe's Grinder, which DYE2 saves none of, and C's Workflow's.
     await expect.poll(async () => (await recipe(one)).content.grinderId, { timeout: 15_000 }).toBe(grinder);
-    await expect.poll(() => localId(c, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
-    await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await localId(c, "/grinders", grinder));
+    await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await heldId(c, "/grinders", grinder));
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
     // The grind setting and RPM were the other Grinder's: the Recipe holds none now, and neither does either Machine.
@@ -711,9 +718,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (local = await localId(a, "/bean-batches", next)), { timeout: 15_000 }).toEqual(expect.any(String));
     await a.changeSettings({ context: { beanBatchId: local } });
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
-    // C's record of the batch first, so the id expected of C's Workflow is read once it exists.
-    await expect.poll(() => localId(c, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
-    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", next));
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await heldId(c, "/bean-batches", next));
     await loads(machines.a, one);
 
     // A batch of the Brazil on A: the Recipe's Bean and batch, which DYE2 saves none of, written into C's Workflow and both
@@ -730,7 +735,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       expect(held).not.toContain(undefined);
       await expect.poll(() => [record(tablet, ETHIOPIA)?.beanId, record(tablet, ETHIOPIA)?.beanBatchId], { timeout: 15_000 }).toEqual(held);
     }
-    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await heldId(c, "/bean-batches", brazilBatch));
     await quiet();
 
     // A grind cleared on A: not the Recipe's, nor written back, and it stays loaded.
@@ -778,7 +783,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // A keeps its pick, and C is brought to it.
     expect(context(a).beanBatchId).toBe(RECORDED_BRAZIL_BATCH);
     expect(loadedRecipeWrites(a, received).filter((fields) => "context.beanBatchId" in fields)).toEqual([]);
-    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await heldId(c, "/bean-batches", brazilBatch));
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
@@ -812,7 +817,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await quiet();
     expect((await recipe(one)).content).toMatchObject({ beanId: bean, beanBatchId: next });
     // A is brought to C's pick.
-    await expect.poll(async () => context(a).beanBatchId, { timeout: 15_000 }).toBe(await localId(a, "/bean-batches", next));
+    await expect.poll(async () => context(a).beanBatchId, { timeout: 15_000 }).toBe(await heldId(a, "/bean-batches", next));
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
@@ -886,8 +891,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(brazilBatch);
     expect((await recipe(one)).content.beanId).toEqual(expect.any(String));
-    await expect.poll(() => record(c, ETHIOPIA)?.beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
-    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await expect.poll(() => record(c, ETHIOPIA)?.beanBatchId, { timeout: 15_000 }).toBe(await heldId(c, "/bean-batches", brazilBatch));
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await heldId(c, "/bean-batches", brazilBatch));
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
@@ -933,8 +938,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(recipeReads(a)).toBeGreaterThan(reads);
     const brazil = (await recipe(one)).content.beanId as string;
     expect(brazil).toBe(await globalOf(a, "/beans", String(brazilRecord.beanId)));
-    await expect.poll(() => [record(c, ETHIOPIA)?.name, record(c, ETHIOPIA)?.beanId], { timeout: 15_000 }).toEqual(["Fixture Brazil Classic", await localId(c, "/beans", brazil)]);
-    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await expect.poll(() => [record(c, ETHIOPIA)?.name, record(c, ETHIOPIA)?.beanId], { timeout: 15_000 }).toEqual(["Fixture Brazil Classic", await heldId(c, "/beans", brazil)]);
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await heldId(c, "/bean-batches", brazilBatch));
     await quiet();
     // No push of DYE2's read the Skin's writes: the plugin's own reads did.
     expect(dye2.a.pushes.length).toBe(pushes);
@@ -1014,7 +1019,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const written = await a.callApi("PUT", "/workflow", { profile: classic, context: { beanBatchId: RECORDED_BRAZIL_BATCH, coffeeName: brazilRecord.beanName, coffeeRoaster: brazilRecord.beanRoaster } });
     expect(written.status).toBe(200);
     await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ profileId: CLASSIC, beanBatchId: brazilBatch });
-    await expect.poll(async () => [profile(c).title, context(c).beanBatchId], { timeout: 15_000 }).toEqual(["Classic Italian espresso", await localId(c, "/bean-batches", brazilBatch)]);
+    await expect.poll(async () => [profile(c).title, context(c).beanBatchId], { timeout: 15_000 }).toEqual(["Classic Italian espresso", await heldId(c, "/bean-batches", brazilBatch)]);
     await quiet();
     expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
     expect(dye2.a.cleared).toEqual([]);
@@ -1265,7 +1270,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // Picked on A, with its Bean's coffee: the Recipe's batch and Bean, written into C, and the Bean A's Workflow took.
     await a.changeSettings({ context: { beanBatchId: local, coffeeName: "Picked Peru", coffeeRoaster: roaster } });
     await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ beanBatchId: batch, beanId: peru });
-    await expect.poll(async () => coffee(c), { timeout: 15_000 }).toEqual([await localId(c, "/bean-batches", batch), "Picked Peru", roaster]);
+    await expect.poll(async () => coffee(c), { timeout: 15_000 }).toEqual([await heldId(c, "/bean-batches", batch), "Picked Peru", roaster]);
     await quiet();
     expect(await beanTaken(one)).toEqual([peru, peru]);
     // A clears the batch and types a coffee, its own: the Recipe keeps both.
@@ -1299,7 +1304,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // Offered again and set as the Recipe's: A holds it already, so it is written nothing.
     await api.send("PUT", `/bean-batches/${batch}/archived`, { archived: false });
     await patch(one, { beanBatchId: batch });
-    await expect.poll(async () => coffee(c), { timeout: 15_000 }).toEqual([await localId(c, "/bean-batches", batch), "Held Peru", roaster]);
+    await expect.poll(async () => coffee(c), { timeout: 15_000 }).toEqual([await heldId(c, "/bean-batches", batch), "Held Peru", roaster]);
     await quiet();
     // A clears the batch and types a coffee, its own: the Recipe keeps both.
     await a.changeSettings({ context: { beanBatchId: null, coffeeName: "Typed on A" } });
@@ -1371,13 +1376,13 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const picked = String(await localId(a, "/bean-batches", next));
     await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ bean: { id: String(held.beanId), name: String(held.beanName), batchId: picked } }).save();
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
-    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(await localId(tablet, "/bean-batches", next));
+    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(await heldId(tablet, "/bean-batches", next));
 
     // And a grinder set in the management interface.
     const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "New roast Grinder 2" } }, 201)).grinder.id;
     for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
     await patch(one, { grinderId: grinder });
-    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).grinderId, { timeout: 15_000 }).toBe(await localId(tablet, "/grinders", grinder));
+    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).grinderId, { timeout: 15_000 }).toBe(await heldId(tablet, "/grinders", grinder));
 
     // Neither unloaded it meanwhile: DYE2 clears nothing on a batch or grinder. Once the grinder's writes, and A's and C's
     // reports of them, are done.
