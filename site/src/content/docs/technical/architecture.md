@@ -154,7 +154,10 @@ The server can run as several instances on one database, and during an
 upgrade as two releases side by side.
 
 - State shared between connections or requests lives in PostgreSQL. An
-  instance holds in memory only what belongs to one connection or one request.
+  instance holds in memory only what belongs to one connection or one request,
+  and the limits that protect its own resources, such as how many password
+  checks it runs at once. A limit that must hold across instances, such as
+  the sign-in limit for an email address, is kept in PostgreSQL.
 - Changes that could collide are decided under row or advisory locks.
 - A change made on one instance reaches the others with PostgreSQL's
   `LISTEN` and `NOTIFY`: a Library change on its way to tablets, a Settings
