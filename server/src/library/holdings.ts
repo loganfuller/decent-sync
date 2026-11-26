@@ -1,6 +1,6 @@
-import { LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileOf, recordGlobalId, sameValue } from "@decent-sync/protocol";
+import { BATCH_CODE_FIELD, LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileOf, recordGlobalId, sameValue } from "@decent-sync/protocol";
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
-import { weightOf } from "./batch-intake.js";
+import { heldBatchCode, weightOf } from "./batch-intake.js";
 import { ARCHIVED_FIELD } from "./equipment-intake.js";
 import { KINDS } from "./kinds.js";
 import { heldWorkflow, lacksBeanNulls, recordValueAt, withHeldFieldFlags, withoutZeros } from "./recipe-intake.js";
@@ -508,6 +508,8 @@ function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unk
  * field only while the record holds exactly what the write expects.
  */
 function heldValue(kind: LibraryKind, record: Record<string, unknown>, field: string): unknown {
+  // A Batch Code is held in the record's extras alone, never at its top (ADR-0036).
+  if (kind === "beanBatch" && field === BATCH_CODE_FIELD) return heldBatchCode(record);
   const values = KINDS[kind].recordValues(record);
   if (!(field in values)) return record[field] ?? null;
   // A Recipe's fields are named by their paths in its record (`recipeView`).

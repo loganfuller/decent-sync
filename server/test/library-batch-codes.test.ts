@@ -169,9 +169,11 @@ describe("A Bean Batch's Batch Code", () => {
     const holding = async (code: string) => (await api.get<{ batches: BatchView[] }>(`/bean-batches?batchCode=${code}`)).batches.map((batch) => batch.id);
     expect(await holding("RACE-1")).toEqual([winner.id]);
 
-    // And where the check before a write sees no holder yet: another transaction holds the code, uncommitted. A create and
-    // an edit each wait for it on the index, and are refused once it commits, naming the batch it made.
+    // And where the check before a write sees no holder yet: another transaction holds the code, uncommitted. A create, an
+    // edit and a restore each wait for it on the index, and are refused once it commits, naming the batch it made.
     const spare = await createBatch(bean, { batchCode: "SPARE-1" });
+    const retired = await createBatch(bean, { batchCode: "rAce-2" });
+    expect((await setArchived(retired.id, true)).status).toBe(200);
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");
@@ -181,12 +183,16 @@ describe("A Bean Batch's Batch Code", () => {
       );
       const creating = newBatch(bean, { batchCode: "RACE-2" }, [], api.at(other.url));
       const editing = edit(spare.id, { batchCode: "race-2" });
-      await waitForLockWaits(server, { count: 2 });
+      const restoring = setArchived(retired.id, false);
+      await waitForLockWaits(server, { count: 3 });
       await database.query("COMMIT");
       const named = { id: rows[0]!.id, name: "Raced Yirgacheffe, roasted 2026-11-20", batchCode: "Race-2" };
       expect((await conflict(await creating)).existing).toEqual(named);
       expect((await conflict(await editing)).existing).toEqual(named);
-      expect(await holding("race-2")).toEqual([rows[0]!.id]);
+      expect((await conflict(await restoring)).existing).toEqual(named);
+      expect((await read(retired.id)).archived).toBe(true);
+      // The one Archived holds it still, and comes with the holder.
+      expect((await holding("race-2")).sort()).toEqual([rows[0]!.id, retired.id].sort());
       expect((await read(spare.id)).batchCode).toBe("SPARE-1");
     } finally {
       await database.end();
