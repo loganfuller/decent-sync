@@ -140,7 +140,7 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
    */
   const heldId = async (tablet: SimulatedTablet, route: string, globalId: string) => {
     let id: unknown;
-    await expect.poll(async () => (id = await localId(tablet, route, globalId)), { timeout: 15_000 }).toEqual(expect.any(String));
+    await expect.poll(async () => (id = await localId(tablet, route, globalId)), { timeout: 15_000, message: `the tablet's record of ${route} ${globalId}` }).toEqual(expect.any(String));
     return id as string;
   };
   /**
