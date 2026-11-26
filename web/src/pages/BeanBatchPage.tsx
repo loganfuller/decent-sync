@@ -12,6 +12,7 @@ import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BatchRecipesCard } from "@/components/recipes";
 import { ApiError, api, type BeanBatch } from "@/lib/api";
 
 /** The content fields a batch's page names, in Decaid's order, after its roast date, with how each is shown. */
@@ -117,6 +118,9 @@ function BeanBatchDetails({ id }: { id: string }) {
 
 
       <BatchLocationsCard batch={batch} onChanged={changed} />
+
+      {/* A server of the release before lists none, as during a deploy (ADR-0025): the page goes without the card. */}
+      {batch.recipes && <BatchRecipesCard recipes={batch.recipes} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

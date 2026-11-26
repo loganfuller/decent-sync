@@ -75,10 +75,66 @@ export interface BeanBatchView extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, by name, with when and the weight its count there last started from, which went with it: zero where a Batch Move took all of it. */
   finished: { location: LocationView; remainingWeight: number | null; finishedAt: string }[];
+  /**
+   * The Recipes, not Archived, whose content names it, at any Location,
+   * whether or not it is there now: by their Location's name, then in slot
+   * order, then by name, ignoring case. One naming another batch of its
+   * Bean is not among them.
+   */
+  recipes: BatchRecipe[];
+}
+
+/** A Recipe that names a batch, as the batch's page lists it. */
+export interface BatchRecipe {
+  id: string;
+  /** Its name, from its content; null where its content has none. */
+  name: string | null;
+  /** The Location it belongs to, if it still exists. */
+  location: LocationView | null;
+  /** Its Recipe Slot at its Location, or null for none. */
+  slot: number | null;
+  /** Its dose, in grams, from its content; null for none, as for one of 0 (`RECIPE_NONE_AT_ZERO`). */
+  dose: number | null;
+  /** Its yield, in grams, from its content; null for none. */
+  yield: number | null;
+  /**
+   * Whether the batch is not at the Recipe's Location now, as
+   * `RecipeView.batchFinished` says of it: finished there, moved away from
+   * it entirely, or Archived, it or its Bean.
+   */
+  batchFinished: boolean;
+}
+
+/** A Recipe at a Location that names a batch there, as the Location's list of batches gives it. */
+export interface RecipeHere {
+  id: string;
+  /** Its name, from its content; null where its content has none. */
+  name: string | null;
+  /** Its Recipe Slot at the Location, or null for none. */
+  slot: number | null;
+}
+
+/**
+ * A Bean Batch at one Location, as that Location's list of batches gives it:
+ * what names it, and that Location's own state of it, its Remaining Weight
+ * there, what its count there starts from, and the Shots pulled and the
+ * Batch Moves made there since, none of any other Location's.
+ */
+export interface BatchHere extends Omit<BatchAtLocation, "location"> {
+  /** Its global id, which its record on each tablet carries. */
+  id: string;
+  /** The Bean it is a roast of. */
+  bean: { id: string; roaster: string | null; name: string | null };
+  /** Its roast date, from its content, as Decaid recorded it; null where its content has none. */
+  roastDate: string | null;
+  /** Its Batch Code; null where it has none. */
+  batchCode: string | null;
+  /** The Recipes at the Location, not Archived, that name it: in slot order, then those in no slot, by name, ignoring case. */
+  recipes: RecipeHere[];
 }
 
 const withPlaces = {
-  bean: { select: { id: true, content: true } },
+  bean: { select: { id: true, content: true, archived: true } },
   createdLocation: true,
   locations: { include: { location: true } },
 } as const satisfies Prisma.BeanBatchInclude;
@@ -115,6 +171,54 @@ export class BeanBatchesService {
     return this.read(async (db) => sorted(await this.summaries(db, await db.beanBatch.findMany({ where: { beanId }, include: withPlaces }), scope)));
   }
 
+  /**
+   * The Bean Batches at the Location, each with the Location's own state of
+   * it and the Recipes there that name it: those added there and not
+   * finished there, neither Archived nor of an Archived Bean, as no Location
+   * offers those (LIBRARY.md); the latest roasted first, then by Bean name
+   * and roaster, ignoring case. 404 for no such Location. Read as a list is
+   * (`summaries`), with one more query for the Recipes of them all, so with
+   * no query per batch.
+   */
+  async atLocation(locationId: string, scope: Scope): Promise<{ location: LocationView; batches: BatchHere[] }> {
+    return this.read(async (db) => {
+      const location = await db.location.findUnique({ where: { id: locationId } });
+      if (!location) throw new NotFoundException("No such Location");
+      const batches = await this.summaries(
+        db,
+        await db.beanBatch.findMany({
+          where: { archived: false, bean: { archived: false }, locations: { some: { locationId, addedAt: { not: null }, finishedAt: null } } },
+          include: withPlaces,
+        }),
+        scope,
+      );
+      const ids = batches.map((batch) => batch.id);
+      const naming =
+        ids.length === 0
+          ? []
+          : await db.$queryRaw<(RecipeHere & { batchId: string })[]>`
+              SELECT id::text AS id, NULLIF(content ->> 'name', '') AS name, slot, lower(content ->> 'beanBatchId') AS "batchId"
+              FROM recipes
+              WHERE location_id = ${locationId}::uuid AND NOT archived AND lower(content ->> 'beanBatchId') = ANY(${ids}::text[])`;
+      const here = batches.flatMap((batch): BatchHere[] => {
+        const state = batch.locations.find((each) => each.location.id === locationId);
+        if (!state) return [];
+        const { location: _, ...rest } = state;
+        const recipes = naming
+          .filter((recipe) => recipe.batchId === batch.id)
+          .map(({ id, name, slot }) => ({ id, name, slot }))
+          .sort((a, b) => compareSlots(a.slot, b.slot) || compareText(a.name, b.name) || a.id.localeCompare(b.id));
+        return [{ id: batch.id, bean: batch.bean, roastDate: batch.roastDate, batchCode: batch.batchCode, ...rest, recipes }];
+      });
+      return {
+        location: viewLocation(location),
+        batches: here.sort(
+          (a, b) => latestFirst(a.roastDate, b.roastDate) || compareText(a.bean.name, b.bean.name) || compareText(a.bean.roaster, b.bean.roaster) || a.id.localeCompare(b.id),
+        ),
+      };
+    });
+  }
+
   async get(id: string, scope: Scope): Promise<BeanBatchView> {
     return this.read(async (db) => {
       const batch = await db.beanBatch.findUnique({ where: { id }, include: withPlaces });
@@ -126,7 +230,28 @@ export class BeanBatchesService {
             : [],
         )
         .sort((a, b) => a.location.name.localeCompare(b.location.name));
-      return { ...(await this.summaries(db, [batch], scope))[0]!, content: object(batch.content), finished };
+      const view = (await this.summaries(db, [batch], scope))[0]!;
+      const naming = await db.$queryRaw<{ id: string; content: Prisma.JsonValue; locationId: string | null; slot: number | null }[]>`
+        SELECT id::text AS id, content, location_id::text AS "locationId", slot
+        FROM recipes WHERE lower(content ->> 'beanBatchId') = ${batch.id.toLowerCase()} AND NOT archived`;
+      const elsewhere = [...new Set(naming.flatMap((recipe) => (recipe.locationId === null ? [] : [recipe.locationId])))];
+      const places = new Map((elsewhere.length === 0 ? [] : await db.location.findMany({ where: { id: { in: elsewhere } } })).map((location) => [location.id, viewLocation(location)]));
+      const offered = !batch.archived && !batch.bean.archived;
+      const recipes = naming
+        .map((recipe): BatchRecipe => {
+          const held = object(recipe.content);
+          return {
+            id: recipe.id,
+            name: typeof held.name === "string" && held.name !== "" ? held.name : null,
+            location: recipe.locationId === null ? null : (places.get(recipe.locationId) ?? null),
+            slot: recipe.slot,
+            dose: amount(held.dose) || null,
+            yield: amount(held.yield),
+            batchFinished: !(offered && view.locations.some((here) => here.location.id === recipe.locationId)),
+          };
+        })
+        .sort((a, b) => compareText(a.location?.name ?? null, b.location?.name ?? null) || compareSlots(a.slot, b.slot) || compareText(a.name, b.name) || a.id.localeCompare(b.id));
+      return { ...view, content: object(batch.content), finished, recipes };
     });
   }
 
@@ -246,10 +371,21 @@ function text(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+/** A number of grams a Recipe's content holds; null for none. */
+function amount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 /** Decaid's times, the latest first, with none last. */
 function latestFirst(a: string | null, b: string | null): number {
   if (a === null || b === null) return Number(a === null) - Number(b === null);
   return b.localeCompare(a);
+}
+
+/** Slots in order, with none last. */
+function compareSlots(a: number | null, b: number | null): number {
+  if (a === null || b === null) return Number(a === null) - Number(b === null);
+  return a - b;
 }
 
 /** Text compared ignoring case, with none last. */

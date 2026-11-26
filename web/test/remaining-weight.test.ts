@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BatchAtLocation, EditSource } from "../src/lib/api";
-import { atText, dayText, enteredBy, totalText, weightLine, weightText } from "../src/lib/remaining-weight";
+import { atText, dayText, enteredBy, movedLine, startText, totalText, weightLine, weightText } from "../src/lib/remaining-weight";
 
 // What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706), with what Batch Moves have brought and taken since its count started (#704).
 
@@ -84,5 +84,21 @@ describe("a batch's Remaining Weight in words", () => {
     expect(enteredBy({ ...sam, account: { id: "a2", name: null } }, "a1")).toBe("by an account");
     expect(enteredBy({ machine: null, tabletId: "t1", account: null, connectedApp: null }, undefined)).toBe("on a Machine since removed");
     expect(enteredBy(null, undefined)).toBeUndefined();
+  });
+
+  it("says in a Location's list what a count starts from, and that an untracked batch has no weight entered (#707)", () => {
+    const day = dayText(at, now);
+    expect(startText(here({}), now)).toBe(`of 4180 g entered ${day}`);
+    expect(startText(here({ entered: { weight: 6000, at, by: null, arrivedFrom: { ...location, name: "Roastery Lab" } } }), now)).toBe(`of 6000 g arrived ${day}`);
+    expect(startText(here({ entered: null }), now)).toBe("No weight entered");
+    expect(startText({}, now)).toBe("No weight entered");
+  });
+
+  it("says in a Location's list what was moved in and away since, or that nothing was (#707)", () => {
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    expect(movedLine({ in: 0, from: [], away: 0, to: [] })).toBe("Nothing moved");
+    expect(movedLine(null)).toBe("Nothing moved");
+    expect(movedLine(undefined)).toBe("Nothing moved");
+    expect(movedLine({ in: 200, from: [{ location: riverside, weight: 200 }], away: 500, to: [{ location: riverside, weight: 500 }] })).toBe("200 g moved from Riverside, 500 g moved to Riverside");
   });
 });

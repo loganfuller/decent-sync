@@ -373,7 +373,7 @@ test("a Location's page shows its own block, with its choice of period in its he
     { useInnerText: true },
   );
   await expect(page.getByRole("region", { name: "Machines" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Overview", "Recipes"]);
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Overview", "Recipes", "Bean Batches"]);
   const labTable = overview.getByRole("table", { name: "Recipes by Machine at Lab" });
   await expect(labTable.getByRole("columnheader")).toHaveText(["Recipe", "Lab Left", "Lab Right", "Between Machines"]);
   await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", "2 House Reference 23.5 s · 12 d since roast", "No Recipe loaded"], { useInnerText: true });

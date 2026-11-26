@@ -636,6 +636,19 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         }
       });
 
+      it("lists a Location's 55 Bean Batches a page at a time, each with its weight there and the Recipe there that names it, and reads one with its Recipes", async () => {
+        // Each of Harbor's 55 batches has a weight entered there and one of its Recipes names it.
+        const { ids } = await everyPage("list_location_batches", "beanBatches", { locationId: harbor.id });
+        expect(ids).toHaveLength(new Set(ids).size);
+        expect(ids).toEqual(expect.arrayContaining(made.beanBatches!));
+        const { result } = await assistant.callWithinBudget<Page & { beanBatches: { id: string; remainingWeight: number; recipes: { id: string }[] }[] }>("list_location_batches", { locationId: harbor.id, limit: 50 });
+        expect(result).not.toHaveProperty("cut");
+        expect(result.beanBatches.find((batch) => batch.id === made.beanBatches![0]!)).toMatchObject({ remainingWeight: 750, recipes: [{ id: made.recipes![0]! }] });
+        const read = await assistant.callWithinBudget<{ beanBatch: { recipes: { id: string }[] } }>("get_library_item", { kind: "beanBatch", id: made.beanBatches![0]!, history: true, limit: 50 });
+        expect(read.result).not.toHaveProperty("cut");
+        expect(read.result.beanBatch.recipes).toMatchObject([{ id: made.recipes![0]!, slot: 1 }]);
+      });
+
       it("lists what 55 Shots recorded and the Library items they are linked to, 50 of each list a page, and every value on some page once", async () => {
         // A Machine at the Lab with no tablet, whose Shots are the bar's first copied in PostgreSQL 55 times, a minute
         // apart on 6 November, each recording a Bean, Barista and profile title of its own, linked to a Bean Batch,
