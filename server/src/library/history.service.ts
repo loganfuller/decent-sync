@@ -241,11 +241,12 @@ export class HistoryService {
    * for a field it did not set, as for a Bean that lost with its batch to a
    * version setting the batch alone (`mergeEdit`'s `together`), the value
    * the latest version up to it that set the field left; null for none.
-   * A move, which adds a batch at its own Location, set it not at each
-   * Location it left (`at`, the Location the losing edit is of).
+   * An add of a Bean Batch, as a move, at its own Location set it not at
+   * any other (`at`, the Location the losing edit is of), as a batch is at
+   * one Location at a time.
    */
   private async valueAt(item: ItemRef, version: { seq: bigint; locationId: string | null; fields: unknown }, field: string, at: string | null): Promise<unknown> {
-    if (field === "atLocation" && at !== null && at !== version.locationId && leftBy(item, version.fields).includes(at)) return false;
+    if (field === "atLocation" && item.kind === "beanBatch" && at !== null && at !== version.locationId && isObject(version.fields) && version.fields.atLocation === true) return false;
     if (isObject(version.fields) && Object.prototype.hasOwnProperty.call(version.fields, field)) return version.fields[field] ?? null;
     const { kind, itemId } = itemKey(item);
     const [row] = await this.prisma.$queryRaw<{ value: unknown }[]>`

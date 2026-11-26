@@ -142,26 +142,26 @@ function BeanBatchDetails({ id }: { id: string }) {
                 />
               ) : (
               <>
-              <Fields label="Roast">
-                <Field term="Batch Code">
-                  {batch.batchCode === null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
-                </Field>
-                <Field term="Roasted">
-                  <OrNone>{roastDateText(batch.roastDate)}</OrNone>
-                </Field>
-                {CONTENT.map(([key, term, show]) => (
-                  <Field key={key} term={term}>
-                    <OrNone>{show(batch.content[key], batch.content)}</OrNone>
+                <Fields label="Roast">
+                  <Field term="Batch Code">
+                    {batch.batchCode === null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
                   </Field>
-                ))}
-              </Fields>
-              {mayChange && (
-                <div>
-                  <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
-                    Edit
-                  </Button>
-                </div>
-              )}
+                  <Field term="Roasted">
+                    <OrNone>{roastDateText(batch.roastDate)}</OrNone>
+                  </Field>
+                  {CONTENT.map(([key, term, show]) => (
+                    <Field key={key} term={term}>
+                      <OrNone>{show(batch.content[key], batch.content)}</OrNone>
+                    </Field>
+                  ))}
+                </Fields>
+                {mayChange && (
+                  <div>
+                    <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
+                      Edit
+                    </Button>
+                  </div>
+                )}
               </>
               )}
             </CardContent>
@@ -176,18 +176,17 @@ function BeanBatchDetails({ id }: { id: string }) {
             <CardContent>
               <Fields label="In the Library">
                 <Field term="Bean">
-              <Link to={`/library/beans/${batch.bean.id}`} className="underline-offset-4 hover:underline">
-                {batch.bean.name ?? "An unnamed Bean"}
-              </Link>
-            </Field>
-            <Field term="Created at">
+                  <Link to={`/library/beans/${batch.bean.id}`} className="underline-offset-4 hover:underline">
+                    {batch.bean.name ?? "An unnamed Bean"}
+                  </Link>
+                </Field>
+                <Field term="Created at">
                   <OrNone>{batch.createdLocation?.name}</OrNone>
                 </Field>
                 <Field term="Joined">{formatTime(batch.createdAt)}</Field>
               </Fields>
             </CardContent>
           </Card>
-      
         </div>
       </div>
     </section>

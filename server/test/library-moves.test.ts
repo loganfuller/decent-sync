@@ -259,6 +259,34 @@ describe("A Bean Batch at one Location at a time", { timeout: 120_000 }, () => {
     expect(held(lab.tablets[0]!, created.id)?.archived).toBe(false);
   });
 
+  it("keeps an offline tablet's un-archive timed before a move to a third Location as a Lost Edit, and moves nothing", async () => {
+    const cafe = await locationWith("Stale cafe", [server]);
+    const lab = await locationWith("Stale lab", [server]);
+    const roastery = await locationWith("Stale roastery", [other]);
+    const created = await batchAt("Stale Guji", cafe.location, 610);
+    const [late] = cafe.tablets as [SimulatedTablet];
+    await expect.poll(() => held(late, created.id)?.archived).toBe(false);
+    expect((await place(created.id, lab.location, { atLocation: true })).status).toBe(200);
+    await expect.poll(() => held(late, created.id)?.archived).toBe(true);
+
+    // Offline, a barista at the cafe un-archives it; later an Admin moves it from the lab to the roastery.
+    late.loseNetwork();
+    await late.editBatch(held(late, created.id)!.id, { archived: false });
+    await delay(20);
+    expect((await place(created.id, roastery.location, { atLocation: true })).status).toBe(200);
+    await expect.poll(() => held(roastery.tablets[0]!, created.id)?.archived).toBe(false);
+    const toRoastery = (await history(created.id)).versions[0]!;
+    late.restoreNetwork();
+
+    await expect.poll(async () => (await history(created.id)).lostEdits).toMatchObject([
+      { field: "atLocation", value: true, location: { id: cafe.location.id }, source: { machine: { id: cafe.machines[0]!.machine.id } }, lostTo: { versionId: toRoastery.id, value: false } },
+    ]);
+    expect(await at(created.id)).toEqual(["Stale roastery"]);
+    expect((await history(created.id)).versions[0]!.id).toBe(toRoastery.id);
+    await expect.poll(() => held(late, created.id)?.archived).toBe(true);
+    expect(held(roastery.tablets[0]!, created.id)?.archived).toBe(false);
+  });
+
   it("lets Staff move a batch to a Location they work at from one they do not, and refuses them moving one away to another's or finishing one there, over REST and through a tool", async () => {
     const theirs = await api.createLocation("Scope home", "America/Chicago");
     const elsewhere = await api.createLocation("Scope elsewhere", "America/Chicago");

@@ -1393,8 +1393,10 @@ model BatchLocation {
   remainingWeightAt        DateTime? @map("remaining_weight_at") @db.Timestamptz(3)
   /// The version that last added or finished it there (`ItemVersion`), if
   /// one is known: who did, for a Lost Edit that loses to it, or that it
-  /// becomes once a later edit replaces it unseen. No foreign key:
-  /// versions go only with their item, which takes this row with it.
+  /// becomes once a later edit replaces it unseen. No foreign key: a
+  /// move's version, kept at the Location joined, is also each Location
+  /// left's (ADR-0037), and may go with that Location while this row
+  /// stays; a version that is gone is read as none.
   presenceVersionId        String?   @map("presence_version_id") @db.Uuid
   /// The version that entered the remaining weight there, as `presenceVersionId`.
   remainingWeightVersionId String?   @map("remaining_weight_version_id") @db.Uuid

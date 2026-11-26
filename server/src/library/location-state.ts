@@ -147,7 +147,9 @@ export async function whileNotBusy<T>(change: () => Promise<T>): Promise<T> {
  * entered and the version that entered it, none if none was entered there,
  * so the weight is the batch's wherever it is; a weight the edit gives is
  * entered over it by its caller. An add that loses
- * moves nothing. The caller holds the Location's lock, and takes those of
+ * moves nothing, as does one timed before the batch was added where it is,
+ * at another Location, unseen by its tablet's record: that one loses to the
+ * add there. The caller holds the Location's lock, and takes those of
  * the Locations left first where it can (`lockForAdding`).
  */
 export async function addBatchAt(
@@ -161,6 +163,20 @@ export async function addBatchAt(
 ): Promise<Date | null> {
   await lockBatchPlace(tx, batchId);
   const before = await presenceAt(tx, batchId, locationId);
+  if (before?.at !== true) {
+    // At another Location by an add timed after this one, which its tablet's record had not seen (as of `seenAt`, a
+    // decision at its own Location, so the server's own edits, seeing everything, never lose here): this add loses to
+    // that one, moves nothing, and is kept as a Lost Edit where it was not there.
+    const [later] = await tx.$queryRaw<{ versionId: string | null }[]>`
+      SELECT presence_version_id::text AS "versionId" FROM batch_locations
+      WHERE batch_id = ${batchId}::uuid AND location_id <> ${locationId}::uuid AND added_at IS NOT NULL AND finished_at IS NULL
+        AND added_at > ${at}::timestamptz AND NOT COALESCE(presence_decided_at <= ${seenAt}::timestamptz, false)
+      ORDER BY added_at DESC, location_id LIMIT 1`;
+    if (later) {
+      if (before?.at === false) await recordLostEdit(tx, { kind: "beanBatch", id: batchId }, locationId, "atLocation", true, source, at, later.versionId);
+      return null;
+    }
+  }
   const from = before?.at === true ? null : await lastAt(tx, batchId);
   const [added] = await tx.$queryRaw<{ decidedAt: Date }[]>`
     INSERT INTO batch_locations (batch_id, location_id, added_at, presence_decided_at)

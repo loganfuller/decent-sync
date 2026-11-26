@@ -129,12 +129,12 @@ function grindText(recipe: Recipe): string | undefined {
   return setting === undefined ? grinder : `${grinder} at ${setting}`;
 }
 
-/** A Recipe's Bean Batch, as lists name a batch. */
 /** Where a Recipe that takes a batch from elsewhere moves it from, as its form says before saving: " from Lab", or nothing for a batch at no Location. */
 function movedFromText(batch: BeanBatchSummary): string {
   return batch.locations.length === 0 ? "" : ` from ${listed(batch.locations.map((at) => at.location.name))}, as a batch is at one Location at a time`;
 }
 
+/** A Recipe's Bean Batch, as lists name a batch. */
 export function usedBatchText(recipe: Recipe): string | undefined {
   const { beanBatch, bean } = recipe.uses;
   if (beanBatch) return batchName({ bean: { id: bean?.id ?? "", roaster: bean?.roaster ?? null, name: bean?.name ?? null }, roastDate: beanBatch.roastDate });
@@ -889,9 +889,15 @@ function RecipeForm({
                 <SelectItem value={values.beanBatchId}>{recipe ? (usedBatchText(recipe) ?? "Its batch now") : "Its batch now"}</SelectItem>
               )}
               <ChoiceGroup label={`At ${location.name}`} items={batches.filter(batchHere).map((batch) => [batch.id, batchName(batch)])} />
+              {/* Its own batch, moved away since, stays where it is when the Recipe is saved naming it still. */}
+              {batches
+                .filter((batch) => batch.id === recipe?.uses.beanBatch?.id && !batchHere(batch))
+                .map((batch) => (
+                  <SelectItem key={batch.id} value={batch.id}>{`${batchName(batch)} (its batch now, not at ${location.name})`}</SelectItem>
+                ))}
               <ChoiceGroup
                 label={`Elsewhere: saving moves it to ${location.name}`}
-                items={batches.filter((batch) => !batchHere(batch)).map((batch) => [batch.id, `${batchName(batch)} (moves it here)`])}
+                items={batches.filter((batch) => !batchHere(batch) && batch.id !== recipe?.uses.beanBatch?.id).map((batch) => [batch.id, `${batchName(batch)} (moves it here)`])}
               />
             </SelectContent>
           </Select>
