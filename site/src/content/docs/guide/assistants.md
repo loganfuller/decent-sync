@@ -71,7 +71,7 @@ Then approve it:
 
 A request to connect waits 10 minutes for your answer. After that, start again from the app.
 
-Claude and ChatGPT connect from their own clouds, so for them the server must be on the internet at an `https://` address. An app on your own computer, such as Claude Code or VS Code, needs the server at an `https://` address it can reach from where it runs, which may be on a local network. Apps that can register only by Dynamic Client Registration, such as Cursor, can't connect. [Assistants](../../self-hosting/internet/#assistants) under On the internet has what the server needs, and how to turn assistants off for the whole server.
+Claude and ChatGPT connect from their own clouds, so for them the server must be on the internet at an `https://` address. An app on your own computer, such as Claude Code or VS Code, needs the server at an `https://` address it can reach from where it runs, which may be on a local network, or at `localhost` when it runs on the server's own computer. Apps that can register only by Dynamic Client Registration, such as Cursor, can't connect. [Assistants](../../self-hosting/internet/#assistants) under On the internet has what the server needs, and how to turn assistants off for the whole server.
 
 ## Choose what it may do
 
@@ -95,7 +95,7 @@ A Connected App acts as the account that approved it, so your role limits it exa
 | Your role | What your assistant may do |
 |---|---|
 | Admin | Read everything, and make every change on this page, anywhere. Only an Admin's assistant can turn a Machine's sharing on or off, create and edit Locations, and make the Settings Edits marked for Admins. |
-| Staff | Read everything an Admin's can, except the name of the account behind each recorded change, and the values of plugins' settings, of which it reads only which are set. Change the Library's shared content anywhere, and start, edit and discard any Draft. At the Locations you work at: manage Recipes and Grinders, add Bean Batches, change what the Location offers, publish Drafts, move Machines between them, have a Machine follow a Draft, make the Settings Edits open to Staff, edit Shots, and reload a Skin. |
+| Staff | Read everything an Admin's can, except the name of the account behind each recorded change, and the values of plugins' settings, of which it reads only which are set. Change the Library's shared content anywhere, and start, edit and discard any Draft. At the Locations you work at: manage Recipes and Grinders, add Bean Batches, Baskets and Tools, change what the Location offers, return a Profile to an earlier version, publish Drafts, move Machines between them, have a Machine follow a Draft, make the Settings Edits open to Staff, edit Shots, and reload a Skin. |
 | Viewer | Read what a Viewer sees, which leaves out Drafts. Change nothing, whatever the app asked for. |
 
 A change to your role or your Locations applies to your apps from their next request. An app approved to read and change by someone who is then made a Viewer only reads while they are a Viewer.
@@ -108,7 +108,7 @@ Whatever your role, no assistant can:
 
 ## See what an assistant changed
 
-These changes an assistant makes are recorded as yours, through the app, and show as "*account*, through *app*":
+These changes an assistant makes are recorded as yours, through the app, and show as "*account*, through *app*". Your own show as "You", and Staff and Viewers see anyone else's as "An account":
 
 - a Library change, in the item's history;
 - a Settings Edit, in the Machine's Settings Edits;
@@ -118,7 +118,7 @@ These changes an assistant makes are recorded as yours, through the app, and sho
 
 Other changes, such as creating or editing a Location or moving a Machine, keep no record of who made them, whether an assistant or a person made them.
 
-A change you make yourself in the management interface shows as "*account*, here" in an item's history, so the two are told apart.
+A change you make yourself in the management interface shows with "here" in place of "through *app*", as "You, here", so the two are told apart.
 
 ## How much an answer holds
 

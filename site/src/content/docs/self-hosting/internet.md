@@ -79,9 +79,9 @@ can't connect.
   as the person's, through the app. It shows as "*account*, through *app*" in
   the item's history, and in the Machine's Settings Edits.
 - An app reads what each Machine's tablet runs, its Tablet Software, and the
-  Software Actions made on it, but makes none: installing, removing,
-  approving or configuring anything on a tablet is done by an Admin in the
-  management interface, as it can put code on the tablet. Nor can an app turn
+  Software Actions made on it, and makes only one kind, reloading the Skin:
+  installing, removing, approving or configuring anything on a tablet is done
+  by an Admin in the management interface, as it can put code on the tablet. Nor can an app turn
   a tablet's automatic update checks on or off
   ([ADR-0034](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0034-the-plugin-manages-its-tablets-software-one-action-at-a-time.md)).
   An app approved by an Admin reads the values of plugins' settings; one

@@ -10,7 +10,7 @@ Admin, Staff, Viewer and Barista are defined in the [Glossary](../../reference/g
 ## What each role may do
 
 - An Admin can change everything on the server.
-- Staff work at the Locations chosen for them. They see everything except other people's accounts, edit the Library's shared content anywhere, and change the rest only at their Locations.
+- Staff work at the Locations chosen for them. They see everything except other people's accounts and the values of plugins' settings, edit the Library's shared content anywhere, and change the rest only at their Locations.
 - A Viewer sees everything Staff see, except Drafts, and changes nothing.
 
 | | Admin | Staff | Viewer |
@@ -18,7 +18,7 @@ Admin, Staff, Viewer and Barista are defined in the [Glossary](../../reference/g
 | See the Overview, Shots, Steam Records, the Library, Machines and Locations | Yes | Yes | Yes |
 | See and work on Drafts | Yes | Yes, publishing only to their Locations | No |
 | Edit Beans, Bean Batches, Profiles, Baskets and Tools | Yes | Yes | No |
-| Manage Recipes and Grinders, add Bean Batches, and change what a Location offers | Yes | At their Locations | No |
+| Manage Recipes and Grinders, add Bean Batches, Baskets and Tools, return a Profile to an earlier version, and change what a Location offers | Yes | At their Locations | No |
 | Rate a Shot or edit its note | Yes | Shots at their Locations | No |
 | Move a Machine to another Location | Yes | Between their Locations | No |
 | Change a Machine's settings | Yes | The settings open to Staff, at their Locations | No |

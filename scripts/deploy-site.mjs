@@ -72,11 +72,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { version } = JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8"));
   const { ROOT_BASE } = await import("../site/site.config.mjs");
   // The Assistant tools page is written from the compiled server's tool definitions (site/src/assistant-tools.mjs),
-  // so the server is built here, at the commit being deployed. A ref from before that page was generated has no need
-  // of it, and builds as it did.
-  if (fs.existsSync(path.join(repo, "site", "src", "assistant-tools.mjs"))) {
-    for (const workspace of ["protocol", "server"]) execFileSync("npm", ["run", "build", "-w", workspace], { cwd: repo, stdio: "inherit" });
-  }
+  // so the server is built here, at the commit being deployed.
+  for (const workspace of ["protocol", "server"]) execFileSync("npm", ["run", "build", "-w", workspace], { cwd: repo, stdio: "inherit" });
   const { minor, latest } = deploy(pagesDir, version, (base) => {
     execFileSync("npm", ["run", "build", "-w", "site"], { cwd: repo, stdio: "inherit", env: { ...process.env, SITE_BASE: ROOT_BASE + base } });
     return path.join(repo, "site", "dist");
