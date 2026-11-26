@@ -59,7 +59,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await form.getByLabel("Name", { exact: true }).fill("Lab Guji");
     await form.getByLabel("Beverage").fill("Espresso");
     await form.getByLabel("Bean Batch").click();
-    await samsPage.getByRole("option", { name: "Guji, roasted 2026-10-01 (adds it here)" }).click();
+    await samsPage.getByRole("option", { name: "Guji, roasted 2026-10-01 (moves it here)" }).click();
     await form.getByLabel("Profile").click();
     await samsPage.getByRole("option", { name: "Uptown Bloom (shows it here)" }).click();
     await form.getByLabel("Dose (g)").fill("18");
@@ -78,7 +78,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await samsPage.getByRole("option", { name: "3", exact: true }).click();
     // The form says what saving offers at the lab.
     const also = form.getByRole("status", { name: "Saving also" });
-    await expect(also).toContainText("adds the Bean Batch Guji, roasted 2026-10-01 at Roastery lab");
+    await expect(also).toContainText("moves the Bean Batch Guji, roasted 2026-10-01 to Roastery lab from Uptown, as a batch is at one Location at a time");
     await expect(also).toContainText("shows the Profile Uptown Bloom at Roastery lab");
     await form.getByRole("button", { name: "Create" }).click();
 
@@ -598,7 +598,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await expect(form.getByLabel("Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01 (this Recipe's)");
   // The form says what copying adds and shows at Uptown before saving.
   const also = form.getByRole("status", { name: "Copying also" });
-  await expect(also).toContainText("adds the Bean Batch Copy Guji, roasted 2026-10-01 at Copy Uptown");
+  await expect(also).toContainText("moves the Bean Batch Copy Guji, roasted 2026-10-01 to Copy Uptown from");
   await expect(also).toContainText("shows the Profile Copy Bloom at Copy Uptown");
   await expect(also).toContainText("shows the Basket Copy 20g at Copy Uptown");
   await form.getByRole("button", { name: "Copy" }).click();
@@ -615,11 +615,14 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await expect(history.last()).toContainText("Copied from Copy Lab Guji at Copy lab");
   await expect(history.last().getByRole("link", { name: "Copy Lab Guji" })).toHaveAttribute("href", `/library/recipes/${original.id}`);
 
-  // The Recipe that was in slot 1 is kept at Uptown in no slot; the original is unchanged, still in the lab's slot 1.
+  // The Recipe that was in slot 1 is kept at Uptown in no slot; the original keeps its content, still in the lab's slot 1.
   await page.getByRole("link", { name: "← Copy Uptown" }).click();
   await expect(rows(page.getByRole("table", { name: "Recipes in no slot" }))).toHaveText([/Copy Uptown House/]);
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Copy Lab Guji/]);
-  expect(await (await page.request.get(`/api/recipes/${original.id}`)).json()).toEqual(originalBefore);
+  // Its batch went to Uptown with the copy, as a batch is at one Location at a time (ADR-0037), so it names one finished at the lab.
+  const after = (await (await page.request.get(`/api/recipes/${original.id}`)).json()) as { recipe: { content: unknown; slot: number | null; batchFinished: boolean } };
+  expect(after.recipe.content).toEqual((originalBefore as typeof after).recipe.content);
+  expect(after.recipe).toMatchObject({ slot: 1, batchFinished: true });
 });
 
 test("Staff copy a Recipe only to the Locations they work at", async ({ page, browser }) => {
