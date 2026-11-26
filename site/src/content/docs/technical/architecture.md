@@ -125,7 +125,9 @@ The messages and their runtime validators are defined once, in the
    tablets at the Locations it concerns, one write at a time. The plugin
    carries it out through Decaid's API, or DYE2's storage for Recipes,
    Baskets and Tools, and answers whether it was written. Each shared item
-   carries its global id on the tablet's own record.
+   but a Profile carries its global id on the tablet's own record. A Profile
+   keeps Decaid's id, a hash of what the machine runs, which is the same on
+   every tablet.
 6. **Requests made once.** A Settings Edit and a Software Action go to a
    connected tablet and are answered with what came of them. Neither is kept
    for a tablet that is not connected. An edit of a Shot's rating or note is
@@ -202,7 +204,7 @@ with why it was made and what it rules out. In one line each:
 
 - [ADR-0003](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0003-server-is-source-of-truth.md): the server is the source of truth, and tablets can still edit.
 - [ADR-0005](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0005-interim-recipe-sync-through-dye2-storage.md): Recipes, Baskets and Tools sync by writing DYE2's storage. Interim, until Decaid has resources of its own for them.
-- [ADR-0006](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0006-global-ids-stored-on-tablet-records.md): a shared item carries its global id on the tablet's own record.
+- [ADR-0006](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0006-global-ids-stored-on-tablet-records.md): a shared item carries its global id on the tablet's own record, but a Profile, which keeps Decaid's id.
 - [ADR-0008](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0008-per-location-state-on-shared-items.md): an item is the same everywhere, and each Location keeps whether it is shown, which batches are there and their stock.
 - [ADR-0014](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0014-steam-hot-water-rinse-settings-shared-per-location.md): steam and rinse settings shared by a Location's Machines. Superseded: a Recipe holds them now (ADR-0022).
 - [ADR-0018](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0018-new-tablet-items-join-the-library.md): a new item from a tablet joins the Library, and a Bean is matched by its roaster and name.

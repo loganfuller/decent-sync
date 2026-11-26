@@ -202,8 +202,18 @@ describe("the built site", () => {
             "UPGRADING.md",
         ];
         for (const spec of ["docs/SHOTS.md", "docs/STEAM_RECORDS.md", "docs/WORKFLOW-AND-STATE.md", "docs/COLLECTIONS.md", "docs/LIBRARY.md"]) assert.ok(documents.includes(spec), `${spec} was not read from docs/`);
-        for (const document of documents) assert.ok(main.includes(`href="${GITHUB}/blob/main/${document}"`), `technical/internals does not link ${document}`);
-        // A document in a table has a line on what it covers beside its link.
+        // Each document's link sits in a table row, list item or paragraph that also says what it covers: what is left of
+        // the innermost one holding the link, once the link itself is taken out, is a line of its own.
+        const blocks = [...main.matchAll(/<(tr|li|p)\b[^>]*>((?:(?!<\/?(?:tr|li|p)\b)[\s\S])*)<\/\1>/g)].map(([, , block]) => block);
+        for (const document of documents) {
+            const href = `href="${GITHUB}/blob/main/${document}"`;
+            assert.ok(main.includes(href), `technical/internals does not link ${document}`);
+            const block = blocks.find((candidate) => candidate.includes(href));
+            assert.ok(block, `technical/internals links ${document} outside a table row, list item or paragraph`);
+            const said = text(block.split(href).map((part, index) => (index === 0 ? part.replace(/<a [^>]*$/, "") : part.replace(/^[^>]*>[\s\S]*?<\/a>/, ""))).join(""));
+            assert.ok(said.replace(/[\s,.:;()|]+/g, " ").trim().length > 20, `technical/internals says nothing of ${document}`);
+        }
+        // And a table row has the line in its second cell.
         for (const [, row] of main.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
             const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(([, cell]) => text(cell).trim());
             if (cells.length > 0) assert.ok(cells.length === 2 && cells[1].length > 20, `technical/internals says nothing of ${cells[0]}`);
