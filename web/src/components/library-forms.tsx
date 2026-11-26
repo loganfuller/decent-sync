@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { weightText } from "@/components/bean-batches";
@@ -365,9 +365,20 @@ export function codeTaken(caught: unknown, onFollow?: () => void): ReactNode | u
   );
 }
 
+/**
+ * A form's refusal, brought into view as it appears: a long form in a dialog
+ * is submitted from its foot, with its head, where this is, scrolled away.
+ * Once, as it is shown: a form clears its refusal as it is submitted again,
+ * so each refusal is shown anew.
+ */
 export function FormError({ error }: { error: ReactNode }) {
+  const shown = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Nothing returned: a browser whose scrollIntoView answers with a promise would hand React that as the effect's cleanup.
+    shown.current?.scrollIntoView({ block: "nearest" });
+  }, []);
   return (
-    <Alert variant="destructive">
+    <Alert ref={shown} variant="destructive">
       <AlertDescription>{error}</AlertDescription>
     </Alert>
   );
