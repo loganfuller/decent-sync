@@ -43,18 +43,21 @@ what you see changes:
 - **Entering a weight of zero finishes the batch at that Location**, in the
   management interface, over the REST API, through an assistant and on a
   tablet. A weight that reaches zero through Shots finishes nothing.
-- **A new batch is created at exactly one Location.** The REST API and the
-  `create_bean_batch` assistant tool refuse a batch created at no Location or
-  at several: create it at one, then add it at the others. A batch created
-  with a roasted weight and no remaining weight starts at that weight; send
+- **A new batch is created at exactly one Location.** The `create_bean_batch`
+  assistant tool and the New Batch dialog take one: create it at one, then add
+  it at the others. So that a page still open from the previous release goes on
+  working, the REST API still takes no Location or several in this release,
+  each Location then starting at the weight given for it or untracked; the
+  next release refuses them there too. A batch created at one Location with a
+  roasted weight and no remaining weight starts at that weight; send
   `remainingWeight: null` to leave it untracked.
 - **A create or an add with a remaining weight of zero is refused.**
 - **On tablets, a batch's remaining weight is still the weight last entered.**
   It does not fall on the tablet as Shots are pulled yet.
 
 While the upgrade runs, a page still open from the previous release may show
-a batch's weight as entered where a new page shows it worked out, and its New
-Batch dialog is refused if it names no Location or several. Reload the page.
+a batch's weight as entered where a new page shows it worked out. Reload the
+page.
 
 ## 1.13.1
 

@@ -368,8 +368,8 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(await toolError(assistant, "set_location_offering", { kind: "basket", id: uptownItems.basket, locationId: nowhere, offered: true })).toBe(
       await restRefusal(api, "PUT", `/baskets/${uptownItems.basket}/locations/${nowhere}`, { shown: true }, 404),
     );
-    expect(await toolError(assistant, "create_bean_batch", { beanId: made.bean, locations: [{ locationId: uptown.id }, { locationId: uptown.id }] })).toBe(
-      await restRefusal(api, "POST", "/bean-batches", { beanId: made.bean, locations: [{ locationId: uptown.id }, { locationId: uptown.id }] }, 400),
+    expect(await toolError(assistant, "create_bean_batch", { beanId: made.bean, weight: 0, locations: [{ locationId: uptown.id }] })).toBe(
+      await restRefusal(api, "POST", "/bean-batches", { beanId: made.bean, content: { weight: 0 }, locations: [{ locationId: uptown.id }] }, 400),
     );
     // A value Decaid would refuse, as the REST API reads it.
     expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, roastDate: "2026-02-30" })).toBe(

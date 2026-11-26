@@ -97,8 +97,8 @@ export class LibraryEditsService {
 
   /**
    * Creates a batch of the Bean, added at the Location a request names
-   * (`readNewBatch` takes exactly one), with the weight its count starts
-   * from there if it has one. 404 if there is no such
+   * (`readNewBatch` takes exactly one, but from the previous release's page),
+   * with the weight its count starts from there if it has one. 404 if there is no such
    * Bean or Location, 409 if the Bean is Archived, 403 for Staff at a
    * Location they do not work at. 409, naming the batch, if another batch
    * that is not Archived holds its Batch Code (`refuseTakenCode`).

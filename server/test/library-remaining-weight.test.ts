@@ -342,15 +342,18 @@ describe("A Bean Batch's Remaining Weight at a Location", { timeout: 120_000 }, 
     expect(cleared.beanBatch.locations).toMatchObject([{ remainingWeight: null, entered: null, used: null }]);
   });
 
-  it("creates a batch at exactly one Location, refusing none and two as a bad request, over REST and through the assistant tool", async () => {
-    const both = [{ locationId: lab.location.id }, { locationId: cafe.location.id }];
-    for (const locations of [[], both]) {
-      const message = await restRefusal("POST", "/bean-batches", { beanId: bean, locations }, 400);
-      expect(message).toContain("the one Location the batch is created at");
-      expect(await toolError("create_bean_batch", { beanId: bean, locations })).toBe(message);
-    }
-    expect(await restRefusal("POST", "/bean-batches", { beanId: bean }, 400)).toContain("the one Location");
+  it("creates a batch at exactly one Location through the assistant tool, refusing none and two as a bad request, and over REST still takes the previous release's none or two", async () => {
+    const both = [{ locationId: lab.location.id, remainingWeight: 500 }, { locationId: cafe.location.id }];
+    for (const locations of [[], both]) expect(await toolError("create_bean_batch", { beanId: bean, weight: 6000, locations })).toContain("the one Location the batch is created at");
     expect(await toolError("create_bean_batch", { beanId: bean })).toContain("the one Location");
+
+    // The previous release's New Batch dialog names none or several (ADR-0025): each Location starts at the weight
+    // typed for it, or untracked, and the roasted weight starts no count, as it would be counted at each.
+    const several = await api.send<{ batch: BatchView }>("POST", "/bean-batches", { beanId: bean, content: { weight: 6000 }, locations: both }, 201);
+    expect(Object.fromEntries(several.batch.locations.map((here) => [here.location.id, here.remainingWeight]))).toEqual({ [lab.location.id]: 500, [cafe.location.id]: null });
+    expect(several.batch.totalRemainingWeight).toBe(500);
+    const nowhere = await api.send<{ batch: BatchView }>("POST", "/bean-batches", { beanId: bean, content: { weight: 6000 }, locations: [] }, 201);
+    expect(nowhere.batch).toMatchObject({ locations: [], totalRemainingWeight: null });
   });
 
   it("starts a batch created with a roasted weight and no remaining weight at that weight at its Location, over REST and through the assistant tool, and leaves one given null untracked", async () => {
@@ -442,6 +445,41 @@ describe("A Bean Batch's Remaining Weight at a Location", { timeout: 120_000 }, 
     await expect.poll(async () => (await getBatch(id)).locations, { timeout: 15_000 }).toMatchObject([{ location: { id: lab.location.id }, remainingWeight: 0 }]);
     expect((await getBatch(id)).finished).toEqual([]);
     expect(held(lab.tablet, id)).toMatchObject({ archived: false, weightRemaining: 0 });
+  });
+
+  it("pairs a weight entered with the Shots since that entry, though another weight is entered while the batch is read", async () => {
+    const id = await batchAt(lab, { remainingWeight: 1000 });
+    // Pulled after that entry and before the next, which is entered once the server has linked it.
+    await pull(lab, id, { actual: 200, pulledAt: new Date() });
+    expect(await weightAt(id, lab)).toBe(800);
+
+    const url = new URL(adminDatabaseUrl());
+    url.pathname = `/${server.database}`;
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url.href }) });
+    try {
+      // The batch's row is read, then 800 g is entered before the Shots are counted.
+      const raced = new Proxy(prisma, {
+        get(target, key) {
+          if (key === "beanBatch") {
+            return {
+              findUnique: async (args: Parameters<typeof target.beanBatch.findUnique>[0]) => {
+                const row = await target.beanBatch.findUnique(args);
+                expect((await put(id, lab, { remainingWeight: 800 })).status).toBe(200);
+                return row;
+              },
+            };
+          }
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      const batch = await new BeanBatchesService(raced as unknown as PrismaService).get(id, { kind: "everything" });
+      // The read gives the entry it read, with the Shot pulled since it, not that entry with none of the Shots the next one has.
+      expect(at(batch as unknown as BatchView, lab)).toMatchObject({ remainingWeight: 800, entered: { weight: 1000 }, used: { shots: 1, weight: 200 } });
+    } finally {
+      await prisma.$disconnect();
+    }
+    expect(at(await getBatch(id), lab)).toMatchObject({ remainingWeight: 800, entered: { weight: 800 }, used: { shots: 0, weight: 0 } });
   });
 
   it("reads a list of many batches with no query per batch", async () => {

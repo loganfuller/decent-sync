@@ -898,6 +898,14 @@ describe("the latest release beside the change", () => {
         201,
       );
       const id = created.batch.id;
+      // The same dialog's request reaching the change's server, as during a deploy, is taken as the latest release took it.
+      const throughChange = await apis.change.send<{ batch: Batch }>(
+        "POST",
+        "/bean-batches",
+        { beanId: bean.id, content: { weight: 1000 }, locations: [{ locationId: lab.id, remainingWeight: 500 }, { locationId: cafe.id }] },
+        201,
+      );
+      expect(Object.fromEntries(throughChange.batch.locations.map((here) => [here.location.id, here.remainingWeight]))).toEqual({ [lab.id]: 500, [cafe.id]: null });
       await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { atLocation: true, remainingWeight: 200 });
       await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 450 });
       expect(await weights("change", id)).toEqual({ [lab.id]: 450, [cafe.id]: null, [kiosk.id]: 200 });

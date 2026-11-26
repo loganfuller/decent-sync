@@ -281,19 +281,31 @@ const NO_ZERO_START = "A batch is not added with a remaining weight of 0, which 
  * there starts at its roasted `weight`, if it has one, as Decaid's own create
  * does on a tablet; null leaves it untracked. Zero is refused, given or
  * taken from a roasted weight of zero.
+ *
+ * With `previousRelease`, as the REST API reads it, none or several are
+ * still taken, as the previous release's New Batch dialog sends them and
+ * ADR-0025 has this release serve that page: each then starts at the weight
+ * it gives, or untracked, as that release had it, since a roasted weight
+ * started at several Locations would be counted at each. The release after
+ * this one refuses them there too (#716).
  */
-export function readNewBatch(body: unknown): { beanId: string; content: Record<string, unknown>; locations: { locationId: string; remainingWeight?: number | null }[] } {
+export function readNewBatch(
+  body: unknown,
+  { previousRelease = false }: { previousRelease?: boolean } = {},
+): { beanId: string; content: Record<string, unknown>; locations: { locationId: string; remainingWeight?: number | null }[] } {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   if (typeof fields.beanId !== "string" || !UUID.test(fields.beanId)) throw new BadRequestException("Name the batch's Bean as beanId");
   const listed = fields.locations ?? [];
-  if (!Array.isArray(listed) || listed.length !== 1) {
+  const one = Array.isArray(listed) && listed.length === 1;
+  if (!Array.isArray(listed) || (!one && !previousRelease)) {
     throw new BadRequestException("Send the one Location the batch is created at as locations: [{ locationId, remainingWeight }]. It reaches another Location by being added there");
   }
   const content = readNewContent("beanBatch", { content: fields.content ?? {} });
   const locations = listed.map((here: unknown) => {
     const place = typeof here === "object" && here !== null ? (here as Record<string, unknown>) : {};
     if (typeof place.locationId !== "string" || !UUID.test(place.locationId)) throw new BadRequestException("Name each Location by its locationId");
-    const remainingWeight = place.remainingWeight === undefined ? (typeof content.weight === "number" ? content.weight : undefined) : readWeight(place.remainingWeight);
+    const roasted = one && typeof content.weight === "number" ? content.weight : undefined;
+    const remainingWeight = place.remainingWeight === undefined ? roasted : readWeight(place.remainingWeight);
     if (remainingWeight === 0) throw new BadRequestException(NO_ZERO_START);
     return { locationId: place.locationId.toLowerCase(), ...(remainingWeight === undefined ? {} : { remainingWeight }) };
   });

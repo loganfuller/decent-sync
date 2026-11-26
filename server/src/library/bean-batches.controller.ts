@@ -34,11 +34,16 @@ export class BeanBatchesController {
     return { batches: await this.batches.list(scope, readBatchCodeFilter(query)) };
   }
 
-  /** Creates a batch of a Bean: `{ beanId, content, locations }`, each Location it is added at `{ locationId, remainingWeight? }`. */
+  /**
+   * Creates a batch of a Bean: `{ beanId, content, locations }`, the one
+   * Location it is created at `{ locationId, remainingWeight? }`. None or
+   * several are still taken in this release, from the previous release's
+   * page (`readNewBatch`).
+   */
   @AllowStaff()
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
-    const { beanId, content, locations } = readNewBatch(body);
+    const { beanId, content, locations } = readNewBatch(body, { previousRelease: true });
     const id = await this.edits.createBatch(beanId, content, locations, managementEditor(session.account.id), session.scope);
     return { batch: await this.batches.get(id, session.scope) };
   }

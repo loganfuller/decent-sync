@@ -113,10 +113,10 @@ export class BeanBatchesService {
    * the weights, however many batches there are.
    */
   private async summaries(batches: ListedBatch[], scope: Scope): Promise<BeanBatchSummary[]> {
-    const ids = batches.map((batch) => batch.id);
+    const entries = batches.flatMap((batch) => batch.locations.flatMap((here) => (tracked(here) ? [{ batchId: batch.id, locationId: here.locationId, at: here.remainingWeightAt }] : [])));
     const versionIds = batches.flatMap((batch) => batch.locations.flatMap((here) => (tracked(here) && here.remainingWeightVersionId !== null ? [here.remainingWeightVersionId] : [])));
     const [used, versions] = await Promise.all([
-      usedSince(this.prisma, ids),
+      usedSince(this.prisma, entries),
       versionIds.length === 0 ? [] : this.prisma.itemVersion.findMany({ where: { id: { in: versionIds } }, include: withSource }),
     ]);
     const enteredBy = new Map(versions.map((version) => [version.id, viewSource(version, scope)]));
@@ -137,7 +137,10 @@ interface Used {
 
 /**
  * What the Shots pulled at each Location since the batch's weight was
- * entered there used, by `usedKey`, for the batches given (ADR-0037): every
+ * entered there used, by `usedKey`, for the weights entered given, each
+ * with the time it was entered as the batch's row was read (ADR-0037).
+ * The time is taken from that read, not looked up again, so a weight
+ * entered in between is never paired with the Shots of another. Every
  * Shot linked to the batch whose Location is that one and that was pulled
  * after the entry, Unfinished Shots and Trial Shots among them, each by its
  * measured dose, else the dose its Workflow was set to, else nothing. A Shot
@@ -145,14 +148,17 @@ interface Used {
  * Nothing is kept: a Shot edited, linked to another batch, deleted or
  * arriving late changes the answer the next time it is read.
  */
-export async function usedSince(db: Pick<Prisma.TransactionClient, "$queryRaw">, batchIds: readonly string[]): Promise<Map<string, Used>> {
-  if (batchIds.length === 0) return new Map();
+export async function usedSince(
+  db: Pick<Prisma.TransactionClient, "$queryRaw">,
+  entries: readonly { batchId: string; locationId: string; at: Date }[],
+): Promise<Map<string, Used>> {
+  if (entries.length === 0) return new Map();
   const rows = await db.$queryRaw<{ batchId: string; locationId: string; shots: number; weight: number }[]>`
     SELECT here.batch_id::text AS "batchId", here.location_id::text AS "locationId", count(*)::integer AS shots,
       COALESCE(sum(COALESCE(shot.actual_dose, shot.target_dose, 0)), 0)::double precision AS weight
-    FROM batch_locations AS here
-    JOIN shots AS shot ON shot.library_batch_id = here.batch_id AND shot.location_id = here.location_id AND shot.pulled_at > here.remaining_weight_at
-    WHERE here.batch_id = ANY(${[...batchIds]}::uuid[]) AND here.remaining_weight IS NOT NULL AND here.remaining_weight_at IS NOT NULL
+    FROM unnest(${entries.map((entry) => entry.batchId)}::uuid[], ${entries.map((entry) => entry.locationId)}::uuid[], ${entries.map((entry) => entry.at)}::timestamptz[])
+      AS here(batch_id, location_id, entered_at)
+    JOIN shots AS shot ON shot.library_batch_id = here.batch_id AND shot.location_id = here.location_id AND shot.pulled_at > here.entered_at
     GROUP BY here.batch_id, here.location_id`;
   return new Map(rows.map((row) => [usedKey(row.batchId, row.locationId), { shots: row.shots, weight: grams(row.weight) }]));
 }
