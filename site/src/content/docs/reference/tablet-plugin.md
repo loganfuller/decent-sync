@@ -296,7 +296,8 @@ full detail.
 - It writes each batch's Batch Code there too, under `decentSyncBatchCode`,
   as Decaid's record has no field for one yet. A code changed on the tablet
   is written over with the Library's.
-- It sets each batch's remaining weight to the weight at its Location.
+- It sets each batch's remaining weight to the weight entered for it, which
+  goes with the batch when it moves to another Location.
 - It shows each Profile its Location shows.
 - It sets the profile of a Draft its Machine follows as the Workflow's
   profile, where an Admin marked the Machine's Location for trying Drafts
@@ -308,7 +309,7 @@ full detail.
   someone has the Machine follow it again.
 
 What the Location no longer offers of these, such as a batch finished there
-or a Profile hidden there, is archived or hidden on the tablet, never deleted.
+or moved to another Location, or a Profile hidden there, is archived or hidden on the tablet, never deleted.
 Recipes, Baskets and Tools differ: one Archived is removed from DYE2's lists,
 and stays in the Library
 ([Library and Recipes](../../guide/library-and-recipes/#what-is-shared-with-which-machines)).
@@ -322,7 +323,7 @@ Profile is that Profile.
 | On the tablet | In the Library |
 |---|---|
 | Archive a batch | Finishes the batch at that Location |
-| Un-archive a batch | Adds the batch back at that Location |
+| Un-archive a batch | Moves the batch to that Location, from wherever it is |
 | Archive or delete a bean | Finishes the bean's batches at that Location |
 | Archive or delete a grinder | Archives the Grinder, on every tablet at that Location |
 | Hide or delete a profile, or change its steps | Hides the Profile at that Location |

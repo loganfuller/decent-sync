@@ -12,11 +12,12 @@ import { LibraryEditsService } from "./library-edits.service.js";
 import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBatchCodeFilter, readBeanBatchId } from "./bean-batches.service.js";
 
 /**
- * The Library's Bean Batches, the Locations each is at and its remaining
- * weight there. Staff read them, create them and edit their details, and
- * Archive and restore them, as Admins do, but add and finish them, and set
- * their remaining weight, only at their own Locations; only an Admin
- * hard-deletes one.
+ * The Library's Bean Batches, the Location each is at, one at a time
+ * (ADR-0037), and its remaining weight there. Staff read them, create them
+ * and edit their details, and Archive and restore them, as Admins do, but
+ * add and finish them, and set their remaining weight, only at their own
+ * Locations: adding one at theirs moves it there from any Location; only an
+ * Admin hard-deletes one.
  */
 @Controller("api/bean-batches")
 export class BeanBatchesController {
@@ -34,12 +35,12 @@ export class BeanBatchesController {
     return { batches: await this.batches.list(readBatchCodeFilter(query)) };
   }
 
-  /** Creates a batch of a Bean: `{ beanId, content, locations }`, each Location it is added at `{ locationId, remainingWeight? }`. */
+  /** Creates a batch of a Bean: `{ beanId, content, locations }`, the one Location it is created at `{ locationId, remainingWeight? }`; 400 for none or several. */
   @AllowStaff()
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
-    const { beanId, content, locations } = readNewBatch(body);
-    const id = await this.edits.createBatch(beanId, content, locations, managementEditor(session.account.id), session.scope);
+    const { beanId, content, location } = readNewBatch(body);
+    const id = await this.edits.createBatch(beanId, content, location, managementEditor(session.account.id), session.scope);
     return { batch: await this.batches.get(id) };
   }
 
@@ -67,7 +68,11 @@ export class BeanBatchesController {
     return { batch: await this.batches.get(batchId) };
   }
 
-  /** Adds it at the Location or finishes it there, and sets its remaining weight there: `{ atLocation, remainingWeight }`, either or both. */
+  /**
+   * Adds it at the Location or finishes it there, and sets its remaining weight there: `{ atLocation, remainingWeight }`,
+   * either or both. Adding it moves it there: it is finished wherever else it is, and the weight entered for it goes
+   * with it unless one is given.
+   */
   @AllowStaff()
   @Put(":id/locations/:locationId")
   async place(

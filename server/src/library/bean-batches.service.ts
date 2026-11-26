@@ -8,7 +8,7 @@ export interface BatchAtLocation {
   location: LocationView;
   /** The remaining weight entered there last, in grams: null if none was, or it was cleared. */
   remainingWeight: number | null;
-  /** When it was last added there, by the edit's time: a tablet's edit by its clock. A tablet adding it again while it is there moves it. */
+  /** When it was last added there, by the edit's time: a tablet's edit by its clock. A tablet adding it again while it is there moves this later. */
   since: string;
 }
 
@@ -23,7 +23,13 @@ export interface BeanBatchSummary {
   /** Its Batch Code, the roaster's own identifier for it, from its content; null where it has none. */
   batchCode: string | null;
   archived: boolean;
-  /** The Locations it is at (ADR-0008), by name, each with its remaining weight there. */
+  /**
+   * The Location it is at (ADR-0008), with its remaining weight there: a
+   * list of one, as a batch is at one Location at a time (ADR-0037), or of
+   * none once it is finished there. The one it was added at last is first,
+   * for one the previous release left at several while it serves beside this
+   * one (ADR-0025), until it is settled (`BatchSettling`).
+   */
   locations: BatchAtLocation[];
   /** When it joined the Library, by PostgreSQL's clock. */
   createdAt: string;
@@ -41,6 +47,8 @@ export interface BeanBatchView extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, by name, with when and the remaining weight there last entered. */
   finished: { location: LocationView; remainingWeight: number | null; finishedAt: string }[];
+  /** The Locations its latest move took it from to where it is, those that still exist; empty if it was added there without leaving another, or is at none. */
+  movedFrom: LocationView[];
 }
 
 const withPlaces = {
@@ -89,7 +97,20 @@ export class BeanBatchesService {
           : [],
       )
       .sort((a, b) => a.location.name.localeCompare(b.location.name));
-    return { ...summary(batch), content: object(batch.content), finished };
+    return { ...summary(batch), content: object(batch.content), finished, movedFrom: await this.movedFrom(batch) };
+  }
+
+  /** The Locations the move that brought the batch where it is took it from, as that move's version keeps them. */
+  private async movedFrom(batch: ListedBatch): Promise<LocationView[]> {
+    const [here] = present(batch);
+    if (!here || here.presenceVersionId === null) return [];
+    const version = await this.prisma.itemVersion.findUnique({ where: { id: here.presenceVersionId }, select: { fields: true } });
+    const fields = version ? object(version.fields) : {};
+    // A batch settled where it was stayed there: it was moved from nowhere.
+    const ids = Array.isArray(fields.movedFrom) && fields.settled !== true ? fields.movedFrom.filter((id): id is string => typeof id === "string") : [];
+    if (ids.length === 0) return [];
+    const left = new Map((await this.prisma.location.findMany({ where: { id: { in: ids } } })).map((location) => [location.id, viewLocation(location)]));
+    return ids.flatMap((id) => left.get(id) ?? []);
   }
 }
 
@@ -116,16 +137,17 @@ function summary(batch: ListedBatch): BeanBatchSummary {
     roastDate: text(content.roastDate),
     batchCode: text(content.batchCode),
     archived: batch.archived,
-    locations: batch.locations
-      .flatMap((here) =>
-        here.addedAt !== null && here.finishedAt === null
-          ? [{ location: viewLocation(here.location), remainingWeight: here.remainingWeight, since: here.addedAt.toISOString() }]
-          : [],
-      )
-      .sort((a, b) => a.location.name.localeCompare(b.location.name)),
+    locations: present(batch).map((here) => ({ location: viewLocation(here.location), remainingWeight: here.remainingWeight, since: here.addedAt.toISOString() })),
     createdAt: batch.createdAt.toISOString(),
     createdLocation: batch.createdLocation ? viewLocation(batch.createdLocation) : null,
   };
+}
+
+/** The batch's state at each Location it is at, the one it was added at last first, as it is settled (`settleBatch`). */
+function present(batch: ListedBatch): (ListedBatch["locations"][number] & { addedAt: Date })[] {
+  return batch.locations
+    .filter((here): here is typeof here & { addedAt: Date } => here.addedAt !== null && here.finishedAt === null)
+    .sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime() || a.locationId.localeCompare(b.locationId));
 }
 
 /** By Bean name, then roaster, ignoring case, then the latest roast date first, then the newest. */

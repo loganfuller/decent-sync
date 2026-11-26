@@ -25,7 +25,7 @@ import { standing } from "./join-plan.js";
 import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, leftOutIds, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
-import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
+import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockForAdding, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
 
 // The Library's Bean Batches and the tablets that hold them (ADR-0006,
@@ -36,7 +36,8 @@ import { changedFields } from "./merge.js";
 // batches of a bean it leaves out (left-out.ts). On a
 // tablet, a batch's `archived` says it is not at the tablet's Location and
 // its `weightRemaining` is the remaining weight there: un-archiving one adds
-// it there, archiving or deleting it finishes it there, and a new
+// it there, which moves it there from wherever else it is (ADR-0037),
+// archiving or deleting it finishes it there, and a new
 // `weightRemaining` is the remaining weight there (location-state.ts). The
 // server keeps, per tablet, each batch's local id there and the record as
 // the tablet last had it, as for Beans (beans.ts), under the same locks. An
@@ -116,7 +117,8 @@ export async function takeInBatches(
     if (screened.due || leftOutDue) await notify(tx, "library_changes", locationId);
     return takenInAt;
   }
-  await lockLocation(tx, locationId);
+  // With the locks of the Locations an un-archived batch would be moved from, in their order (`lockForAdding`).
+  await lockForAdding(tx, locationId, joining ? [] : steps.flatMap((step) => (step.kind === "update" && adds(step.edits) ? [step.batchId] : [])));
   await lockItems(
     tx,
     "beanBatch",
@@ -176,6 +178,11 @@ export async function takeInBatches(
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
+}
+
+/** Whether a tablet's edits of a batch add it at its Location, as un-archiving its record does. */
+function adds(edits: readonly LocationEdit[]): boolean {
+  return edits.some((edit) => edit.field === "at" && edit.value);
 }
 
 /** Whether a tablet's record of a batch (`known`) had it at its Location, as one not archived is; undefined without one. */
@@ -267,7 +274,7 @@ export async function recordBatchWritten(
     let decided: SeenDecision | null = null;
     let changed = false;
     if (locationId !== null && edits.length > 0) {
-      await lockLocation(tx, locationId);
+      await lockForAdding(tx, locationId, adds(edits) ? [batchId] : []);
       const applied = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null, source, heldThere(known));
       changed = applied.changed;
       decided = applied.decidedAt === null ? null : { at: applied.decidedAt, locationId };

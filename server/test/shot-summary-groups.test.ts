@@ -288,7 +288,7 @@ describe("Shot Summaries by group", () => {
     const guji = await made("/beans", { content: { roaster: "Roux", name: "Guji" } });
     const brazil = await made("/beans", { content: { roaster: "Roux", name: "Brazil" } });
     const batch = async (beanId: string, bean: string, roastDate: string) => ({
-      id: await made("/bean-batches", { beanId, content: { roastDate }, locations: [{ locationId: lab.id }, { locationId: harbor.id }] }),
+      id: await made("/bean-batches", { beanId, content: { roastDate }, locations: [{ locationId: lab.id }] }),
       bean: { id: beanId, roaster: "Roux", name: bean },
       roastDate: expect.stringMatching(new RegExp(`^${roastDate}`)) as unknown as string,
     });

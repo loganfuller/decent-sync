@@ -105,7 +105,7 @@ describe("Editing the Library in the management interface", () => {
     expect((await api.get<{ bean: BeanView }>(`/beans/${bean.id}`)).bean.offeredAt.map((location) => location.name)).toEqual(["Uptown"]);
   });
 
-  it("writes a lab batch added at a cafe, with its Bean, to the cafe's tablets, and archives it on them once finished there", async () => {
+  it("writes a lab batch added at a cafe, which moves it there, with its Bean, to the cafe's tablets, archiving it on the lab's, and on the cafe's once finished there", async () => {
     const lab = await locationWith("Lab", [21011]);
     const belmont = await locationWith("Belmont", [21012, 21013]);
     const labBean = await lab.tablets[0]!.addBean({ roaster: "Roux", name: "Lab Sidamo" });
@@ -129,11 +129,11 @@ describe("Editing the Library in the management interface", () => {
       // With no batch there now, its Bean is no longer offered there.
       await expect.poll(() => heldBean(tablet, beanId)?.archived).toBe(true);
     }
-    // The lab still has it.
-    expect(heldBatch(lab.tablets[0]!, batch!.id)).toMatchObject({ archived: false });
+    // The lab no longer had it: adding it at the cafe moved it there (ADR-0037).
+    expect(heldBatch(lab.tablets[0]!, batch!.id)).toMatchObject({ archived: true });
     const finished = (await api.get<{ batch: BatchView }>(`/bean-batches/${batch!.id}`)).batch;
-    expect(finished.locations.map((here) => here.location.name)).toEqual(["Lab"]);
-    expect(finished.finished.map((here) => here.location.name)).toEqual(["Belmont"]);
+    expect(finished.locations).toEqual([]);
+    expect(finished.finished.map((here) => here.location.name)).toEqual(["Belmont", "Lab"]);
     // A remaining weight is set only where the batch is.
     expect((await place(batch!.id, belmont.location, { remainingWeight: 10 })).status).toBe(409);
   });
@@ -142,7 +142,9 @@ describe("Editing the Library in the management interface", () => {
     const north = await locationWith("North", [21021]);
     const south = await locationWith("South", [21022]);
     const bean = await createBean({ roaster: "Roux", name: "Edited Kenya", notes: "Blackcurrant" });
-    await createBatch(bean.id, [{ locationId: north.location.id }, { locationId: south.location.id }]);
+    // A batch of it at each, as a batch is at one Location at a time.
+    await createBatch(bean.id, [{ locationId: north.location.id }]);
+    await createBatch(bean.id, [{ locationId: south.location.id }]);
     for (const tablet of [...north.tablets, ...south.tablets]) await expect.poll(() => heldBean(tablet, bean.id)?.notes).toBe("Blackcurrant");
 
     const edited = await api.send<{ bean: BeanView }>("PATCH", `/beans/${bean.id}`, { content: { notes: "Blackcurrant, cola", region: "Nyeri", processing: null } });
@@ -216,7 +218,7 @@ describe("Editing the Library in the management interface", () => {
     await expect.poll(() => heldBatch(tablet, batch.id)?.archived).toBe(false);
     // A batch of an Archived Bean is not added.
     await api.send("PUT", `/beans/${bean.id}/archived`, { archived: true });
-    expect((await api.call("POST", "/bean-batches", { beanId: bean.id, locations: [] })).status).toBe(409);
+    expect((await api.call("POST", "/bean-batches", { beanId: bean.id, locations: [{ locationId: cafe.location.id }] })).status).toBe(409);
   });
 
   it("refuses to hard-delete an item a Shot names", async () => {

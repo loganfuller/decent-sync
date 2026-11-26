@@ -25,6 +25,45 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### A Bean Batch is at one Location at a time
+
+Until now a Bean Batch could be at several Locations at once, and stayed
+at each until someone finished it there. From this release it is at one:
+adding it at a Location moves it there, with the remaining weight entered
+for it, and the tablets at the Location it left archive it
+([Move a Bean Batch to a Location](site/src/content/docs/guide/library-and-recipes.mdx#move-a-bean-batch-to-a-location-or-finish-it-there)).
+
+The upgrade settles the batches you have by itself, and asks nothing of you:
+
+- A batch that is at several Locations stays at the one it was added at
+  last, with the remaining weight entered there, and is finished at the
+  others. Its history gains one entry saying so, made by the upgrade, and
+  the tablets at the Locations it left archive it. Nothing is deleted.
+- A batch at one Location, or at none, is left as it is.
+
+Before upgrading, look through **Library**, **Bean Batches** for a batch
+whose **At** column names more than one Location. The upgrade leaves it at
+the one it was added at last. If the bucket is somewhere else, move the
+batch there after the upgrade: open it and press **Move to…**. If you keep part of a roast at a second Location,
+such as a sample at the roastery, create a second batch for it there.
+
+Three things now behave differently:
+
+- A new batch is created at exactly one Location. A request to
+  `POST /api/bean-batches`, or the `create_bean_batch` assistant tool, that
+  names no Location or more than one is refused with 400.
+- A Recipe set to use a batch from another Location, or copied to a Location
+  with its batch, moves that batch there. The form says so before you save.
+- Staff may move a batch to a Location they work at from any Location.
+  Finishing a batch without moving it still needs the Location it is at.
+
+While the previous release still serves beside this one during the deploy, a
+batch added at a second Location through it is at both. Nothing fails over
+it: each instance of this release settles such a batch within ten minutes,
+and any move of it does at once.
+
 ## 1.13.1
 
 ### Check every tablet runs the 1.13.0 plugin before deploying

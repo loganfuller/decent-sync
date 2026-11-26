@@ -69,7 +69,7 @@ test("the Beans list shows each Bean and the Locations offering it, and a Bean's
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Decaf")).toHaveText("Yes, Swiss Water");
 });
 
-test("the Bean Batches list shows each batch's Locations and its remaining weight at each, and a batch's page shows them with its roast", async ({ page }) => {
+test("the Bean Batches list shows each batch's Location and its remaining weight there, and a batch's page shows them with its roast", async ({ page }) => {
   const lab = await createLocation(page, "Batch lab");
   const cafe = await createLocation(page, "Batch cafe");
   const labTablet = await tabletAt(page, server, "Batch lab group", lab, "15011", tabletApi);
@@ -85,15 +85,15 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expect.poll(async () => batchAt(page, "Batch Guji")).toEqual([["Batch lab", 180.5]]);
 
   // The lab's second group moves to the cafe, its tablet still holding the lab's batch, archived there, which a
-  // barista un-archives: the batch is at the cafe too, where no weight was entered yet. It moves once its tablet
-  // holds the batch, which the server writes there after the Library takes it in: moved before, it never would.
+  // barista un-archives: the batch moves to the cafe, with the weight entered at the lab. The group moves once its
+  // tablet holds the batch, which the server writes there after the Library takes it in: moved before, it never would.
   const lightBatch = () => travellerTablet.batches().find((record) => record.roastLevel === "light");
   await expect.poll(lightBatch).toMatchObject({ archived: false });
   const traveller = await machineNamed(page, "Batch lab group 2");
   expect((await page.request.post(`/api/machines/${traveller.id}/location-history`, { data: { locationId: cafe.id } })).status()).toBe(201);
   await expect.poll(() => lightBatch()?.archived).toBe(true);
   await travellerTablet.editBatch(lightBatch()!.id, { archived: false });
-  await expect.poll(async () => batchAt(page, "Batch Guji")).toEqual([["Batch cafe", null], ["Batch lab", 180.5]]);
+  await expect.poll(async () => batchAt(page, "Batch Guji")).toEqual([["Batch cafe", 180.5]]);
   await expect.poll(async () => batchAt(page, "Batch Heirloom")).toEqual([["Batch cafe", null]]);
 
   await page.goto("/");
@@ -102,16 +102,21 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expect(page.getByRole("heading", { name: "Bean Batches", level: 1 })).toBeVisible();
   await expectTip(page.getByRole("main"), "Bean Batches", /^The Bean Batches in the Library\./);
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe (no weight entered), Batch lab (180.5 g)", "Batch lab", ""].join(""),
+    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe (180.5 g)", "Batch lab", ""].join(""),
     ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe (no weight entered)", "Batch cafe", ""].join(""),
   ]);
 
   await page.getByRole("link", { name: "Batch Guji, roasted 2026-10-01" }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji, roasted 2026-10-01", level: 1 })).toBeVisible();
-  await expectTip(page.getByRole("main"), "Locations", /^Where it is, from when it was added there until it is finished there/);
+  await expectTip(page.getByRole("main"), "Where it is", /^A batch is at one Location at a time, from when it is added there until it is finished there or moved to another/);
   await expectTip(page.getByRole("main"), "Roast", /^As it was created, with the edits made since, on tablets or here\.The Batch Code is your own identifier for this roast/);
-  const locations = page.getByRole("table", { name: "Locations" });
-  await expect(rows(locations).locator("td:nth-child(-n+2)")).toHaveText(["Batch cafe", "no weight entered", "Batch lab", "180.5 g"]);
+  const where = page.getByRole("group", { name: "At Batch cafe" });
+  await expect(where).toContainText("Moved from Batch lab.");
+  await expect(where).toContainText("180.5 g");
+  await expect(page.getByRole("group", { name: "At Batch lab" })).toHaveCount(0);
+  await expect(field(page.getByLabel("Finished", { exact: true }), "Batch lab")).toContainText("with 180.5 g");
+  // The move is the Machine's that un-archived it, as one entry.
+  await expect(page.getByRole("table", { name: "History" }).getByRole("row").filter({ hasText: "Moved from Batch lab to Batch cafe" })).toContainText("Batch lab group 2");
   const roast = page.getByLabel("Roast", { exact: true });
   await expect(field(roast, "Batch Code")).toHaveText("-");
   await expect(field(roast, "Roasted")).toHaveText("2026-10-01");
@@ -124,10 +129,10 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   // Its Bean's page lists its batches.
   await page.getByRole("link", { name: "Batch Guji", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji", level: 1 })).toBeVisible();
-  await expectTip(page.getByRole("main"), "Batches", "Its roasts, the latest first, and the Locations each is at.");
-  await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Batch cafe, Batch lab");
+  await expectTip(page.getByRole("main"), "Batches", "Its roasts, the latest first, and the Location each is at.");
+  await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Batch cafe");
   await expect(rows(page.getByRole("table", { name: "Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "Batch cafe (no weight entered), Batch lab (180.5 g)"].join(""),
+    ["Batch Guji, roasted 2026-10-01", "Batch cafe (180.5 g)"].join(""),
   ]);
 });
 

@@ -14,7 +14,7 @@ import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
 import { NoDoseForRatio, ratioValues } from "./recipe-intake.js";
-import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from "./location-state.js";
+import { type ShownKind, addBatchAt, lockForAdding, offerBeanAt, showAt, whileNotBusy } from "./location-state.js";
 import { refuseUnrunnableAt } from "./profile-reach.js";
 
 // Recipes created and edited in the management interface, moved between the
@@ -110,14 +110,14 @@ export class RecipeEditsService {
    */
   async create(locationId: string, content: Record<string, unknown>, slot: SlotChoice, editor: Editor, scope: Scope): Promise<string> {
     if (!includesLocation(scope, locationId)) throw staffElsewhere("create a Recipe");
-    return this.prisma.$transaction(async (tx) => {
+    return whileNotBusy(() => this.prisma.$transaction(async (tx) => {
       if ((await tx.location.count({ where: { id: locationId } })) === 0) throw new NotFoundException("No such Location");
-      await lockLocation(tx, locationId);
+      await lockForAdding(tx, locationId, batchNamed(content));
       const source = accountSource(editor);
       const at = await editTime(tx);
       const values = await setUses(tx, locationId, content, {}, source, at);
       return insertRecipe(tx, locationId, values, slot, source, at);
-    }, INTAKE_TRANSACTION);
+    }, INTAKE_TRANSACTION));
   }
 
   /**
@@ -127,7 +127,8 @@ export class RecipeEditsService {
    * but for its Grinder, the one chosen from the Location's, its grind
    * setting kept as a starting point, and its Bean Batch where another, or
    * none, is chosen. What it uses is checked and offered at the Location as
-   * an edit's is (`recipeEditValues`): a batch not there is added there, and
+   * an edit's is (`recipeEditValues`): a batch not there is added there, which
+   * moves it there from the Location it is at (ADR-0037), and
    * a Profile, Basket or Tool not shown there is shown there. Its steam, hot
    * water and flush settings are the Recipe's, and so is its Reference Shot. It goes in the slot chosen, the Recipe
    * there taken out of it and kept, or the lowest free one, or none. The
@@ -138,12 +139,13 @@ export class RecipeEditsService {
    */
   async copy(id: string, to: RecipeCopy, editor: Editor, scope: Scope): Promise<string> {
     if (!includesLocation(scope, to.locationId)) throw staffElsewhere("copy a Recipe to a Location");
-    return this.prisma.$transaction(async (tx) => {
+    return whileNotBusy(() => this.prisma.$transaction(async (tx) => {
       if ((await tx.location.count({ where: { id: to.locationId } })) === 0) throw new NotFoundException("No such Location");
-      await lockLocation(tx, to.locationId);
-      // Read as it stands, without its lock: the copy is of its content then, and changes nothing of it.
+      // Read as it stands, without its lock: the copy is of its content then, and changes nothing of it. Before the
+      // Location's lock, as the batch it names says which other Location's the copy takes with it (`lockForAdding`).
       const [original] = await tx.$queryRaw<{ id: string; locationId: string | null; content: unknown; referenceShotId: string | null }[]>`
         SELECT id::text AS id, location_id::text AS "locationId", content, reference_shot_id AS "referenceShotId" FROM recipes WHERE id = ${id}::uuid`;
+      await lockForAdding(tx, to.locationId, batchNamed(to.beanBatchId !== undefined ? { beanBatchId: to.beanBatchId } : original && isObject(original.content) ? original.content : {}));
       if (!original) throw new NotFoundException("No such Recipe");
       // A copy is for another Location; at its own, the slot chosen could be the Recipe's own, which the copy would take from it.
       if (original.locationId === to.locationId) throw new BadRequestException("Copy a Recipe to another Location than its own");
@@ -164,7 +166,7 @@ export class RecipeEditsService {
       // Its id as PostgreSQL writes it, as versions name items, however the request spelled it. It starts with the
       // Recipe's Reference Shot as stored, listed or not, so one hidden now comes back to both as its hardware is adopted.
       return insertRecipe(tx, to.locationId, values, to.slot, source, at, { id: original.id, locationId: original.locationId }, original.referenceShotId);
-    }, INTAKE_TRANSACTION);
+    }, INTAKE_TRANSACTION));
   }
 
   /**
@@ -180,7 +182,7 @@ export class RecipeEditsService {
       const set = await recipeEditValues(tx, recipe.locationId, values, recipe.content, source, at);
       const edited = await editContent(tx, { kind: "recipe", id }, { values: set, at, seenAt: "everything" }, source);
       return edited.writesDue;
-    });
+    }, batchNamed(values));
   }
 
   /**
@@ -290,20 +292,27 @@ export class RecipeEditsService {
     scope: Scope,
     what: string,
     apply: (tx: Prisma.TransactionClient, recipe: Placed, source: EditSource, at: Date) => Promise<boolean>,
+    /** The batches the change may add at the Recipe's Location, whose locks it takes with the Location's (`lockForAdding`). */
+    adding: readonly string[] = [],
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await whileNotBusy(() => this.prisma.$transaction(async (tx) => {
       // The Location a Recipe belongs to never changes.
       const [owned] = await tx.$queryRaw<{ locationId: string | null }[]>`SELECT location_id::text AS "locationId" FROM recipes WHERE id = ${id}::uuid`;
       if (!owned) throw new NotFoundException("No such Recipe");
       if (!includesLocation(scope, owned.locationId)) throw staffElsewhere(what);
       if (owned.locationId === null) throw new ConflictException("This Recipe's Location no longer exists");
-      const recipe = await placed(tx, id, owned.locationId);
+      const recipe = await placed(tx, id, owned.locationId, adding);
       if (!recipe) throw new NotFoundException("No such Recipe");
       if (await apply(tx, recipe, accountSource(editor), await editTime(tx))) {
         await notify(tx, "library_changes", owned.locationId);
       }
-    }, INTAKE_TRANSACTION);
+    }, INTAKE_TRANSACTION));
   }
+}
+
+/** The batch a Recipe's values name, as the batches adding it at the Recipe's Location may move (`lockForAdding`): none where they name none. */
+function batchNamed(values: Readonly<Record<string, unknown>>): string[] {
+  return typeof values.beanBatchId === "string" && UUID.test(values.beanBatchId) ? [values.beanBatchId] : [];
 }
 
 /**
@@ -312,8 +321,8 @@ export class RecipeEditsService {
  * the server holds them; or null where it is gone. The Location a Recipe
  * belongs to never changes, so it is read before its lock is taken.
  */
-async function placed(tx: Prisma.TransactionClient, id: string, locationId: string): Promise<Placed | null> {
-  await lockLocation(tx, locationId);
+async function placed(tx: Prisma.TransactionClient, id: string, locationId: string, adding: readonly string[] = []): Promise<Placed | null> {
+  await lockForAdding(tx, locationId, adding);
   await lockItems(tx, "recipe", [id]);
   const [row] = await tx.$queryRaw<{ slot: number | null; archived: boolean; content: unknown; referenceShotId: string | null }[]>`
     SELECT slot, archived, content, reference_shot_id AS "referenceShotId" FROM recipes WHERE id = ${id}::uuid`;
@@ -467,8 +476,9 @@ async function batchOfBean(tx: Prisma.TransactionClient, locationId: string, bea
  * as an Archived Tool it keeps beside a new one, is not checked again.
  *
  * - a Grinder only one of the Location's, not Archived;
- * - a Bean Batch not Archived, added at the Location if it is not there, and
- *   its Bean set as the Recipe's; none clears the Bean too;
+ * - a Bean Batch not Archived, added at the Location if it is not there,
+ *   which moves it there from the Location it is at (ADR-0037), and its Bean
+ *   set as the Recipe's; none clears the Bean too;
  * - a Profile, Basket or Tool not Archived, shown at the Location if it is
  *   not shown there; a Profile only one every Machine there can run
  *   (`refuseUnrunnableAt`, #588);

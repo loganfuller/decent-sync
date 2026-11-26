@@ -102,7 +102,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
 
-  it("copies a lab Recipe to a cafe's slot 1 with a cafe Grinder: the cafe's tablets hold it by their own ids, its batch added and its Profile, Basket and Tool shown there", async () => {
+  it("copies a lab Recipe to a cafe's slot 1 with a cafe Grinder: the cafe's tablets hold it by their own ids, its batch moved there and its Profile, Basket and Tool shown there", async () => {
     const lab = await locationWith("Copied lab", 46001, [server]);
     const cafe = await locationWith("Copied cafe", 46002, [server, other]);
     const { bean, batch } = await batchAt("Copied Guji", lab.location);
@@ -151,9 +151,9 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
       ["Cafe House", null],
     ]);
 
-    // The batch is at the cafe now, and the Profile, Basket and Tool shown there.
+    // The batch is at the cafe now, moved there from the lab (ADR-0037), and the Profile, Basket and Tool shown there.
     const atCafe = (here: { location: { id: string } }) => here.location.id === cafe.location.id;
-    expect((await api.get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${batch.id}`)).batch.locations.some(atCafe)).toBe(true);
+    expect((await api.get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${batch.id}`)).batch.locations.map((here) => here.location.id)).toEqual([cafe.location.id]);
     for (const path of [`/profiles/${encodeURIComponent(profileId)}`, `/baskets/${basket.id}`, `/tools/${tool.id}`]) {
       const read = Object.values(await api.get<Record<string, { shownAt: { location: { id: string } }[] }>>(path))[0]!;
       expect(read.shownAt.some(atCafe), path).toBe(true);
@@ -210,8 +210,10 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
       copiedFrom: { id: original.id, name: "Copied Espresso", location: { id: lab.location.id } },
     });
     expect(history[0]!.copiedFrom).toBeNull();
-    // The original is not changed.
-    expect(await recipe(original.id)).toEqual(original);
+    // The original is not changed, but that its batch went to the cafe with the copy, so it names one finished at the lab.
+    const kept = await recipe(original.id);
+    expect(kept.content).toEqual(original.content);
+    expect(kept).toMatchObject({ name: "Copied Espresso", slot: 2, batchFinished: true });
     expect(await versions(original.id)).toEqual(originalHistory);
     expect(originalHistory.every((version) => version.copiedFrom === null)).toBe(true);
   });

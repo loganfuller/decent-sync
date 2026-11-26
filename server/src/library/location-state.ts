@@ -1,4 +1,5 @@
 import { sameValue } from "@decent-sync/protocol";
+import { ConflictException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { type EditSource, type ItemRef, heldValue, recordLostEdit, recordReplaced, recordVersion } from "./history.js";
 
@@ -41,6 +42,17 @@ import { type EditSource, type ItemRef, heldValue, recordLostEdit, recordReplace
 // timed by its edit: a tablet's by its record's `updatedAt` in UTC, a delete,
 // which Decaid does not time, by PostgreSQL's clock, but never before the
 // record the tablet was last known to have (`deletedAt`).
+//
+// A batch is at one Location at a time (ADR-0037), a rule kept in the one
+// place a batch is added at a Location (`addBatchAt`): adding it there
+// finishes it at every other Location it is at, in the same transaction, and
+// the weight entered for it goes with it. That is a move, kept as one version
+// of the batch, at the Location joined, naming the Locations left
+// (`movedFrom`). Each Location left is finished under its own lock too, and
+// every add of a batch runs under that batch's lock (`lockBatchPlace`), so two
+// adds of one batch at different Locations at once, through any instance,
+// leave it at one. Locks are taken in one order: each Location's, in id order,
+// then each batch's, in id order (`lockForAdding`), before any item's row.
 
 /** The namespace of the advisory locks each Location's state changes under, with the Location's hash as the second key. */
 const LOCATION_LOCK = 4_000_007;
@@ -48,6 +60,65 @@ const LOCATION_LOCK = 4_000_007;
 /** Holds the Location's lock until the transaction ends, so its state changes one report at a time. */
 export async function lockLocation(tx: Prisma.TransactionClient, locationId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCATION_LOCK}::integer, hashtext(${locationId}))`;
+}
+
+/** The namespace of the advisory locks each batch is added at a Location under, with the batch's hash as the second key. */
+const BATCH_PLACE_LOCK = 4_000_012;
+
+/** Holds the batch's lock until the transaction ends, so it is added at one Location at a time. */
+async function lockBatchPlace(tx: Prisma.TransactionClient, batchId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BATCH_PLACE_LOCK}::integer, hashtext(lower(${batchId})))`;
+}
+
+/**
+ * Takes the locks a change that may add the batches at a Location runs
+ * under: the Locations' own and those of each Location the batches are at,
+ * which adding them elsewhere finishes them at, in id order, and then the
+ * batches', in id order. Called before any other Location's lock or row
+ * lock is taken, so no two changes wait on each other. A Location a batch
+ * reaches after this read it is locked by `addBatchAt` only if it is free
+ * (`LocationBusy`).
+ */
+export async function lockPlaces(tx: Prisma.TransactionClient, locationIds: readonly string[], batchIds: readonly string[]): Promise<void> {
+  const batches = [...new Set(batchIds.map((id) => id.toLowerCase()))].sort();
+  const at =
+    batches.length === 0
+      ? []
+      : await tx.$queryRaw<{ id: string }[]>`
+          SELECT DISTINCT location_id::text AS id FROM batch_locations
+          WHERE batch_id = ANY(${batches}::uuid[]) AND added_at IS NOT NULL AND finished_at IS NULL`;
+  for (const id of [...new Set([...locationIds, ...at.map((place) => place.id)])].sort()) await lockLocation(tx, id);
+  for (const id of batches) await lockBatchPlace(tx, id);
+}
+
+/** Takes the locks of a change at the Location that may add the batches there (`lockPlaces`). */
+export function lockForAdding(tx: Prisma.TransactionClient, locationId: string, batchIds: readonly string[]): Promise<void> {
+  return lockPlaces(tx, [locationId], batchIds);
+}
+
+/**
+ * A move found its batch at a Location whose lock another change holds, one
+ * the batch reached after the move's locks were taken: the move takes no
+ * lock it would have to wait for out of order, and its change is made again
+ * (`whileNotBusy`). A tablet's delivery that meets it is stored again when
+ * redelivered, as after any failure that would not repeat.
+ */
+export class LocationBusy extends Error {
+  constructor() {
+    super("Where a Bean Batch is changed as it was being moved");
+  }
+}
+
+/** Makes a change that may move a batch, again where it found a Location busy (`LocationBusy`), three times at most: then 409. */
+export async function whileNotBusy<T>(change: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await change();
+    } catch (error) {
+      if (!(error instanceof LocationBusy)) throw error;
+      if (attempt === 3) throw new ConflictException("Where this Bean Batch is changed as this was saved: try again");
+    }
+  }
 }
 
 /**
@@ -62,6 +133,20 @@ export async function lockLocation(tx: Prisma.TransactionClient, locationId: str
  * whatever the clock that timed the edit. `held` is whether the tablet's
  * last known record of the batch had it there, absent where the server
  * holds no such record. Says when it decided it, or null if the edit lost.
+ *
+ * An add that is decided moves the batch (ADR-0037): it is finished, at the
+ * edit's time, at every other Location it is at, whatever decided its
+ * presence there, as the rule is the batch's and no edit of that Location's
+ * state; the one version kept names them (`movedFrom`), and each Location
+ * left keeps it as what decided its presence, so a later edit there that
+ * loses knows what it lost to. Nothing a move replaces at a Location left is
+ * kept as a Lost Edit: the move's entry says it. A batch that was not at the
+ * Location takes the weight entered for it where it was added last of those
+ * it leaves, with when it was entered and the version that entered it, none
+ * if none was entered there, so the weight is the batch's wherever it is; a
+ * weight the edit gives is entered over it by its caller. An add that loses
+ * moves nothing. The caller holds the Location's lock, and takes those of
+ * the Locations left first where it can (`lockForAdding`).
  */
 export async function addBatchAt(
   tx: Prisma.TransactionClient,
@@ -72,6 +157,7 @@ export async function addBatchAt(
   source: EditSource,
   held?: boolean,
 ): Promise<Date | null> {
+  await lockBatchPlace(tx, batchId);
   const before = await presenceAt(tx, batchId, locationId);
   const [added] = await tx.$queryRaw<{ decidedAt: Date }[]>`
     INSERT INTO batch_locations (batch_id, location_id, added_at, presence_decided_at)
@@ -84,7 +170,9 @@ export async function addBatchAt(
         OR COALESCE(batch_locations.finished_at, batch_locations.added_at) <= EXCLUDED.added_at
         OR batch_locations.presence_decided_at <= ${seenAt}::timestamptz
     RETURNING presence_decided_at AS "decidedAt"`;
-  await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at, held);
+  const left = added ? await leaveOthers(tx, batchId, locationId, at) : [];
+  const versionId = await keepPresenceEdit(tx, batchId, locationId, true, before, added?.decidedAt ?? null, seenAt, source, at, held, left);
+  if (versionId !== null && left.length > 0) await arriveFrom(tx, batchId, locationId, left, versionId, before?.at !== true);
   await tx.$executeRaw`
     DELETE FROM bean_origins
     WHERE location_id = ${locationId}::uuid AND bean_id = (SELECT bean_id FROM bean_batches WHERE id = ${batchId}::uuid AND NOT archived)
@@ -94,6 +182,78 @@ export async function addBatchAt(
       )`;
   return added?.decidedAt ?? null;
 }
+
+/**
+ * Finishes the batch, at the time given, at every Location it is at but the
+ * one named, under each one's lock, taken only if it is free where the
+ * caller does not hold it already (`LocationBusy`). Returns those Locations,
+ * the one it was added at last first.
+ */
+async function leaveOthers(tx: Prisma.TransactionClient, batchId: string, locationId: string, at: Date): Promise<string[]> {
+  const others = await tx.$queryRaw<{ id: string }[]>`
+    SELECT location_id::text AS id FROM batch_locations
+    WHERE batch_id = ${batchId}::uuid AND location_id <> ${locationId}::uuid AND added_at IS NOT NULL AND finished_at IS NULL
+    ORDER BY location_id`;
+  for (const other of others) {
+    const [{ locked }] = await tx.$queryRaw<[{ locked: boolean }]>`SELECT pg_try_advisory_xact_lock(${LOCATION_LOCK}::integer, hashtext(${other.id})) AS locked`;
+    if (!locked) throw new LocationBusy();
+  }
+  if (others.length === 0) return [];
+  // Read again in the write: under their locks and the batch's, it can only have been finished at one meanwhile.
+  const left = await tx.$queryRaw<{ id: string }[]>`
+    WITH leaving AS (
+      UPDATE batch_locations SET finished_at = GREATEST(added_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
+      WHERE batch_id = ${batchId}::uuid AND location_id = ANY(${others.map((other) => other.id)}::uuid[]) AND added_at IS NOT NULL AND finished_at IS NULL
+      RETURNING location_id::text AS id, added_at
+    )
+    SELECT id FROM leaving ORDER BY added_at DESC, id`;
+  return left.map((place) => place.id);
+}
+
+/**
+ * Has each Location a move left (`left`, the one the batch was added at last
+ * first) keep the move's version as what decided the batch's presence there,
+ * and, with `carrying`, the Location joined take the weight entered at the
+ * first of them.
+ */
+async function arriveFrom(tx: Prisma.TransactionClient, batchId: string, locationId: string, left: readonly string[], versionId: string, carrying: boolean): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ANY(${[...left]}::uuid[])`;
+  if (!carrying) return;
+  await tx.$executeRaw`
+    UPDATE batch_locations AS here SET
+      remaining_weight = origin.remaining_weight, remaining_weight_at = origin.remaining_weight_at,
+      remaining_weight_version_id = origin.remaining_weight_version_id
+    FROM batch_locations AS origin
+    WHERE here.batch_id = ${batchId}::uuid AND here.location_id = ${locationId}::uuid
+      AND origin.batch_id = here.batch_id AND origin.location_id = ${left[0]}::uuid`;
+}
+
+/**
+ * Settles a batch that is at several Locations, as the previous release
+ * leaves one it adds at a second while it still serves beside this one
+ * (ADR-0025, ADR-0037): it stays at the one it was added at last, with the
+ * weight entered there, and is finished at the others, as the upgrade's
+ * migration settles those it finds. One version of the batch, from the
+ * server itself (`settled`), names them. Says whether it was at several.
+ * The caller holds the locks of the Locations it is at (`lockPlaces`).
+ */
+export async function settleBatch(tx: Prisma.TransactionClient, batchId: string, at: Date): Promise<boolean> {
+  await lockBatchPlace(tx, batchId);
+  const [kept] = await tx.$queryRaw<{ id: string; places: number }[]>`
+    SELECT location_id::text AS id, (count(*) OVER ())::integer AS places FROM batch_locations
+    WHERE batch_id = ${batchId}::uuid AND added_at IS NOT NULL AND finished_at IS NULL
+    ORDER BY added_at DESC, location_id LIMIT 1`;
+  if (!kept || kept.places < 2) return false;
+  const left = await leaveOthers(tx, batchId, kept.id, at);
+  if (left.length === 0) return false;
+  const versionId = await recordVersion(tx, { kind: "beanBatch", id: batchId }, kept.id, { atLocation: true, movedFrom: left, settled: true }, SERVER_ITSELF, at);
+  await arriveFrom(tx, batchId, kept.id, left, versionId, false);
+  return true;
+}
+
+/** An edit the server makes itself, as it settles a batch: from no Machine and no account. */
+const SERVER_ITSELF: EditSource = { machineId: null, tabletId: null, accountId: null, connectedAppId: null };
 
 /**
  * Finishes the batch at the Location, timed by the edit, unless it was added
@@ -147,7 +307,9 @@ async function presenceAt(tx: Prisma.TransactionClient, batchId: string, locatio
  * Lost Edit, lost to the edit that decided it last. One that decided it
  * over another tablet's edit its own had not seen, which it changed, keeps
  * that edit's value as a Lost Edit, lost to this one, unless the tablet's
- * last known record held that value (`held`).
+ * last known record held that value (`held`). An add that moved the batch
+ * names the Locations it left (`left`) in its version. Returns the version's
+ * id, or null if it kept none.
  */
 async function keepPresenceEdit(
   tx: Prisma.TransactionClient,
@@ -160,19 +322,21 @@ async function keepPresenceEdit(
   source: EditSource,
   at: Date,
   held: boolean | undefined,
-): Promise<void> {
+  left: readonly string[] = [],
+): Promise<string | null> {
   const item: ItemRef = { kind: "beanBatch", id: batchId };
   const was = before?.at ?? null;
   if (decidedAt === null) {
     if (was !== null && was !== value) await recordLostEdit(tx, item, locationId, "atLocation", value, source, at, before!.versionId);
-    return;
+    return null;
   }
-  const versionId = await recordVersion(tx, item, locationId, { atLocation: value }, source, at);
+  const versionId = await recordVersion(tx, item, locationId, { atLocation: value, ...(left.length > 0 ? { movedFrom: left } : {}) }, source, at);
   await tx.$executeRaw`
     UPDATE batch_locations SET presence_version_id = ${versionId}::uuid WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid`;
   if (was !== null && was !== value && unseen(before!, seenAt, source) && !heldValue(held, was)) {
     await recordReplaced(tx, item, locationId, "atLocation", was, before!.versionId, versionId);
   }
+  return versionId;
 }
 
 /** Whether a field's latest decision was another tablet's, which the editing tablet's record had not seen (`seenAt`). */

@@ -311,8 +311,8 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(await toolError(assistant, "find_library_items", { kind: "bean", batchCode: "AK-0470" })).toBe("Only a Bean Batch has a Batch Code: ask for it with kind beanBatch");
 
     // One another batch that is not Archived holds is refused, naming that batch, as it creates one, edits one and restores one.
-    expect(await toolError(assistant, "create_bean_batch", { beanId: made.bean, batchCode: "ak-0470", locations: [] })).toBe(
-      await restRefusal(api, "POST", "/bean-batches", { beanId: made.bean, content: { batchCode: "ak-0470" }, locations: [] }, 409),
+    expect(await toolError(assistant, "create_bean_batch", { beanId: made.bean, batchCode: "ak-0470", locations: [{ locationId: harbor.id }] })).toBe(
+      await restRefusal(api, "POST", "/bean-batches", { beanId: made.bean, content: { batchCode: "ak-0470" }, locations: [{ locationId: harbor.id }] }, 409),
     );
     expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, batchCode: "AK-0470" })).toBe(
       await restRefusal(api, "PATCH", `/bean-batches/${made.batch}`, { content: { batchCode: "AK-0470" } }, 409),
@@ -348,8 +348,8 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     );
     const archived = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Retired Sumatra" } }, 201)).bean.id;
     await api.send("PUT", `/beans/${archived}/archived`, { archived: true });
-    expect(await toolError(assistant, "create_bean_batch", { beanId: archived, locations: [] })).toBe(
-      await restRefusal(api, "POST", "/bean-batches", { beanId: archived, locations: [] }, 409),
+    expect(await toolError(assistant, "create_bean_batch", { beanId: archived, locations: [{ locationId: harbor.id }] })).toBe(
+      await restRefusal(api, "POST", "/bean-batches", { beanId: archived, locations: [{ locationId: harbor.id }] }, 409),
     );
     expect(await toolError(assistant, "set_location_offering", { kind: "beanBatch", id: made.batch, locationId: harbor.id, remainingWeight: 10 })).toBe(
       await restRefusal(api, "PUT", `/bean-batches/${made.batch}/locations/${harbor.id}`, { remainingWeight: 10 }, 409),
@@ -422,14 +422,15 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect((await sam.assistant.call<{ profile: { profile: Record_ } }>("edit_profile", { id: uptownItems.profile, notes: "Sam's notes" })).profile.profile).toMatchObject({ notes: "Sam's notes" });
     await sam.assistant.call("set_archived", { kind: "bean", id: made.bean, archived: true });
     await sam.assistant.call("set_archived", { kind: "bean", id: made.bean, archived: false });
-    // What Harbor offers, but not Uptown.
+    // What Harbor offers, but not Uptown: a batch added at Harbor.
     const added = await sam.assistant.call<{ beanBatch: { locations: { location: LocationView }[] } }>("set_location_offering", {
       kind: "beanBatch",
       id: made.batch,
       locationId: harbor.id,
       offered: true,
     });
-    expect(added.beanBatch.locations.map((here) => here.location.name)).toEqual(["Harbor", "Uptown"]);
+    // Which moves it there from Uptown, where Sam does not work (ADR-0037).
+    expect(added.beanBatch.locations.map((here) => here.location.name)).toEqual(["Harbor"]);
     for (const [name, args, method, path, body] of [
       ["create_bean_batch", { beanId: made.bean, locations: [{ locationId: uptown.id }] }, "POST", "/bean-batches", { beanId: made.bean, locations: [{ locationId: uptown.id }] }],
       ["set_location_offering", { kind: "beanBatch", id: made.batch, locationId: uptown.id, offered: false }, "PUT", `/bean-batches/${made.batch}/locations/${uptown.id}`, { atLocation: false }],

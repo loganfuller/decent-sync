@@ -30,7 +30,7 @@ const CONTENT: [key: string, term: string, show: (value: unknown, content: Recor
   ["notes", "Notes", text],
 ];
 
-/** One Bean Batch: what it is, the Locations it is at with its remaining weight at each, and where it was finished. */
+/** One Bean Batch: what it is, the one Location it is at with its remaining weight there, and where it was finished. */
 export function BeanBatchPage() {
   const { id = "" } = useParams();
   return <BeanBatchDetails key={id} id={id} />;

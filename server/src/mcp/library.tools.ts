@@ -95,7 +95,7 @@ const batchSummary = z.object({
   archived: z.boolean(),
   locations: z
     .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams; null for none."), since: time("When it was last added there.") }))
-    .describe("The Locations it is at, by name, kept while it or its Bean is Archived, though neither is offered anywhere then."),
+    .describe("The Location it is at, a list of one, as a Bean Batch is at one Location at a time, or of none once it is finished there; kept while it or its Bean is Archived, though neither is offered anywhere then. Adding it at another Location moves it there (set_location_offering)."),
   createdAt: joinedAt,
   createdLocation,
 });
@@ -241,6 +241,12 @@ const version = z.object({
     "The fields it set, each with its value: of the item's content, by Decaid's names, or of its state at its Location (atLocation, remainingWeight, shown), or a Recipe's referenceShotId, its Reference Shot's id, null when cleared. The first version is the item joining the Library.",
   ),
   location: location.nullable().describe("The Location whose state of the item it changed; null for its content."),
+  movedFrom: z
+    .array(location)
+    .describe("For a Bean Batch's entry that added it at its Location (atLocation true) and so moved it there, as a batch is at one Location at a time: the Locations it left, finished there by the same edit. Empty for every other entry."),
+  settled: z
+    .boolean()
+    .describe("Whether the server made it itself, settling a Bean Batch that was at several Locations at the one it was added at last, as the upgrade to one Location at a time does: movedFrom then names those it was finished at, and source names no one."),
   source,
   editedAt: time("When it was made: a tablet's edit by the tablet's clock."),
   receivedAt: time("When the server took it in."),
@@ -328,7 +334,8 @@ export const beanBatchItem = batchSummary.extend({
   content: content(`${RECORD_FIELDS} Its remaining weight and whether it is Archived are each Location's, so left out.`),
   finished: z
     .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams."), finishedAt: time("When it was finished there.") }))
-    .describe("The Locations it was at and has been finished at since, by name."),
+    .describe("The Locations it was at and has been finished at since, by name: those a move took it from among them."),
+  movedFrom: z.array(location).describe("The Locations its latest move took it from to where it is; empty if it was added there without leaving another, or is at none."),
 });
 
 /** One Library item, under its kind's key, as get_library_item reads it and the tools changing one return it. */
@@ -647,6 +654,7 @@ function batchViewOf(batch: BeanBatchView): NonNullable<GetOutput["beanBatch"]> 
     ...batchOf(batch),
     content: batch.content,
     finished: batch.finished.map((here) => ({ location: locationOf(here.location), remainingWeight: here.remainingWeight, finishedAt: timeAt(here.finishedAt, here.location) })),
+    movedFrom: batch.movedFrom.map(locationOf),
   };
 }
 
@@ -786,6 +794,8 @@ function versionOf(entry: VersionView, itemLocation: LocationView | null): z.inf
     id: entry.id,
     fields: entry.fields,
     location: maybeLocation(entry.location),
+    movedFrom: entry.movedFrom.flatMap((left) => maybeLocation(left) ?? []),
+    settled: entry.settled,
     source: sourceOf(entry.source),
     editedAt: timeAt(entry.editedAt, where),
     receivedAt: timeAt(entry.receivedAt, where),
@@ -802,6 +812,8 @@ function lostEditOf(entry: LostEditView, itemLocation: LocationView | null): z.i
     id: entry.id,
     fields: { [entry.field]: entry.value ?? null },
     location: maybeLocation(entry.location),
+    movedFrom: [],
+    settled: false,
     source: sourceOf(entry.source),
     editedAt: timeAt(entry.editedAt, where),
     receivedAt: timeAt(entry.lostAt, where),

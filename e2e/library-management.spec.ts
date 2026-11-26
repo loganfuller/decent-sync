@@ -2,11 +2,13 @@ import { expect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Creating and editing the Library's Beans and Bean Batches in the
-// management interface, and adding and finishing batches at Locations
-// there (ticket #87). What each Location's tablets are written of them is
-// server/test/library-management.test.ts's.
+// management interface (ticket #87), a batch created at one Location, and
+// moved to another, with its weight, or finished where it is, on its page
+// (ticket #704, ADR-0037). What each Location's tablets are written of them
+// is server/test/library-management.test.ts's and library-moves.test.ts's.
 useFreshServer();
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
@@ -31,15 +33,25 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   const newBatch = page.getByRole("dialog", { name: "New Batch of Uptown Gesha" });
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-10-03");
   await newBatch.getByLabel("Weight (g)", { exact: true }).fill("1000");
-  await newBatch.getByLabel("Uptown", { exact: true }).check();
-  await newBatch.getByLabel("Remaining weight at Uptown (g)").fill("850");
+  // It is created at one Location, chosen from a list of them: no Location is ticked beside another.
+  await expect(newBatch).toContainText("A batch is at one Location at a time");
+  await expect(newBatch.getByLabel("Uptown", { exact: true })).toHaveCount(0);
+  // Left empty, the remaining weight is the roasted weight entered.
+  await expect(newBatch.getByLabel("Remaining weight (g)")).toHaveValue("1000");
+  await newBatch.getByRole("button", { name: "Create" }).click();
+  await expect(newBatch.getByRole("alert")).toHaveText("Choose the Location it is at");
+  await newBatch.getByLabel("At", { exact: true }).click();
+  await expect(page.getByRole("option", { name: "Downtown" })).toBeVisible();
+  await page.getByRole("option", { name: "Uptown" }).click();
+  await newBatch.getByLabel("Remaining weight (g)").fill("850");
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Uptown Gesha, roasted 2026-10-03", level: 1 })).toBeVisible();
   await expect(field(page.getByLabel("Roast", { exact: true }), "Weight")).toHaveText("1000 g");
-  const where = page.getByRole("table", { name: "Locations" });
-  await expect(where.getByRole("row", { name: /^Uptown 850 g/ })).toBeVisible();
+  const where = page.getByRole("group", { name: "At Uptown" });
+  await expect(where.getByRole("link", { name: "Uptown" })).toBeVisible();
+  await expect(where).toContainText("850 g");
   await expect(where.getByLabel("Remaining weight at Uptown (g)")).toHaveValue("850");
-  await expect(where.getByRole("row", { name: /^Downtown/ })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "At Downtown" })).toHaveCount(0);
 
   // Its Bean, edited here.
   await page.getByRole("link", { name: "Uptown Gesha" }).click();
@@ -50,35 +62,71 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Notes")).toHaveText("Jasmine, bergamot");
 });
 
-test("a lab batch is added at a cafe, given a remaining weight there and finished there, staying at the lab", async ({ page }) => {
+test("a lab batch is moved to a cafe with its weight, as one entry of its history, given a weight there, finished there, and moved again from nowhere", async ({ page }) => {
   const lab = await createLocation(page, "Roastery lab");
   await createLocation(page, "Belmont");
   const createdBean = await page.request.post("/api/beans", { data: { content: { roaster: "Roux Bakehouse", name: "Lab Sidra" } } });
   expect(createdBean.status()).toBe(201);
   const { bean } = (await createdBean.json()) as { bean: { id: string } };
   const createdBatch = await page.request.post("/api/bean-batches", {
-    data: { beanId: bean.id, content: { roastDate: "2026-10-04", weight: 250 }, locations: [{ locationId: lab.id }] },
+    data: { beanId: bean.id, content: { roastDate: "2026-10-04", weight: 250, batchCode: "LS-0104" }, locations: [{ locationId: lab.id, remainingWeight: 250 }] },
   });
   expect(createdBatch.status()).toBe(201);
 
   await page.goto("/library/bean-batches");
   await page.getByRole("link", { name: "Lab Sidra, roasted 2026-10-04" }).click();
-  const adding = page.getByRole("form", { name: "Add it at a Location" });
-  await adding.getByLabel("Add it at").click();
+  await expectTip(page.getByRole("main"), "Where it is", /^A batch is at one Location at a time, from when it is added there until it is finished there or moved to another\./);
+  const atLab = page.getByRole("group", { name: "At Roastery lab" });
+  await expect(atLab).toContainText("250 g");
+  await expect(atLab).not.toContainText("Moved from");
+
+  // Moved to the cafe: the dialog says what moving does, and offers the Locations it is not at.
+  await atLab.getByRole("button", { name: "Move to…" }).click();
+  const moving = page.getByRole("dialog", { name: "Move this batch" });
+  await expect(moving).toContainText("Lab Sidra, roasted 2026-10-04 (LS-0104) is at Roastery lab. A batch is at one Location at a time, so moving it takes it away from Roastery lab.");
+  await expect(moving.getByRole("listitem")).toHaveText([
+    "Its remaining weight, 250 g, goes with it unless you enter another.",
+    "Recipes at Roastery lab that name it go on naming it.",
+    "Roastery lab's tablets stop offering it.",
+  ]);
+  await expect(moving.getByLabel("Weight on arrival, in grams")).toHaveAttribute("placeholder", "250");
+  await expect(moving.getByRole("button", { name: "Move", exact: true })).toBeDisabled();
+  await moving.getByLabel("Move to", { exact: true }).click();
+  await expect(page.getByRole("option", { name: "Roastery lab" })).toHaveCount(0);
   await page.getByRole("option", { name: "Belmont" }).click();
-  await adding.getByRole("button", { name: "Add" }).click();
-  const where = page.getByRole("table", { name: "Locations" });
-  await expect(where.getByRole("row", { name: /^Belmont no weight entered/ })).toBeVisible();
+  await moving.getByRole("button", { name: "Move to Belmont" }).click();
+  await expect(moving).toHaveCount(0);
 
-  await where.getByLabel("Remaining weight at Belmont (g)").fill("200");
-  await where.getByRole("button", { name: "Set the remaining weight at Belmont" }).click();
-  await expect(where.getByRole("row", { name: /^Belmont 200 g/ })).toBeVisible();
+  // It is at the cafe alone, with the weight entered at the lab, and its history keeps the move as one entry.
+  const atCafe = page.getByRole("group", { name: "At Belmont" });
+  await expect(atCafe).toContainText("Moved from Roastery lab.");
+  await expect(atCafe).toContainText("250 g");
+  await expect(atLab).toHaveCount(0);
+  await expect(field(page.getByLabel("Finished", { exact: true }), "Roastery lab")).toContainText("with 250 g");
+  const history = page.getByRole("table", { name: "History" });
+  await expect(history.getByRole("row").filter({ hasText: "Moved from Roastery lab to Belmont" })).toHaveCount(1);
+  await expect(history.getByRole("row").filter({ hasText: "Moved from Roastery lab to Belmont" })).toContainText("You, here");
+  // No entry of its own says it was finished at the lab: the move's does.
+  await expect(history.getByRole("row").filter({ hasText: /At Roastery lab\s*No/ })).toHaveCount(0);
 
-  await where.getByRole("button", { name: "Finish it at Belmont" }).click();
+  await atCafe.getByLabel("Remaining weight at Belmont (g)").fill("200");
+  await atCafe.getByRole("button", { name: "Set the remaining weight at Belmont" }).click();
+  await expect(atCafe).toContainText("200 g");
+
+  await atCafe.getByRole("button", { name: "Finish it at Belmont" }).click();
   await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("with 200 g");
-  await expect(where.getByRole("row", { name: /^Belmont/ })).toHaveCount(0);
-  // The lab still has it.
-  await expect(where.getByRole("row", { name: /^Roastery lab/ })).toBeVisible();
+  await expect(atCafe).toHaveCount(0);
+  await expect(page.getByRole("main")).toContainText("It is at no Location.");
+
+  // At no Location, it is moved to one, with a weight entered on arrival.
+  await page.getByRole("button", { name: "Move to…" }).click();
+  await expect(moving).toContainText("is at no Location.");
+  await moving.getByLabel("Move to", { exact: true }).click();
+  await page.getByRole("option", { name: "Roastery lab" }).click();
+  await moving.getByLabel("Weight on arrival, in grams").fill("180");
+  await moving.getByRole("button", { name: "Move to Roastery lab" }).click();
+  await expect(atLab).toContainText("180 g");
+  await expect(atLab).not.toContainText("Moved from");
 });
 
 test("creating a Bean whose roaster and name the Library has is refused, with a link to that Bean", async ({ page }) => {

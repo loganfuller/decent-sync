@@ -38,11 +38,14 @@ describe("A Bean Batch's Batch Code", () => {
   let other: TestServer;
   let api: AdminApi;
   let serial = 70_301;
+  /** A Location with no tablet, where a batch is created when its test names none: a batch is created at exactly one. */
+  let shelf: string;
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
+    shelf = (await api.createLocation("Code shelf", "America/Chicago")).id;
   });
   afterAll(async () => {
     await server?.stop();
@@ -58,8 +61,9 @@ describe("A Bean Batch's Batch Code", () => {
   }
 
   const createBean = async (name: string) => (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name } }, 201)).bean.id;
-  const newBatch = (beanId: string, content: Record_, locations: { locationId: string }[] = [], as: AdminApi = api) => as.call("POST", "/bean-batches", { beanId, content, locations });
-  const createBatch = async (beanId: string, content: Record_, locations: { locationId: string }[] = []) =>
+  const newBatch = (beanId: string, content: Record_, locations: { locationId: string }[] = [{ locationId: shelf }], as: AdminApi = api) =>
+    as.call("POST", "/bean-batches", { beanId, content, locations });
+  const createBatch = async (beanId: string, content: Record_, locations: { locationId: string }[] = [{ locationId: shelf }]) =>
     (await api.send<{ batch: BatchView }>("POST", "/bean-batches", { beanId, content, locations }, 201)).batch;
   const edit = (id: string, content: Record_, as: AdminApi = api) => as.call("PATCH", `/bean-batches/${id}`, { content });
   const setArchived = (id: string, archived: boolean) => api.call("PUT", `/bean-batches/${id}/archived`, { archived });
@@ -161,7 +165,7 @@ describe("A Bean Batch's Batch Code", () => {
   it("leaves one batch holding a code two requests race for, through two instances, the other refused naming it", async () => {
     const bean = await createBean("Raced Yirgacheffe");
     // At once, through either instance: nothing but the database decides between them.
-    const answers = await Promise.all([newBatch(bean, { batchCode: "RACE-1" }), newBatch(bean, { batchCode: "race-1" }, [], api.at(other.url))]);
+    const answers = await Promise.all([newBatch(bean, { batchCode: "RACE-1" }), newBatch(bean, { batchCode: "race-1" }, undefined, api.at(other.url))]);
     expect(answers.map((answer) => answer.status).sort()).toEqual([201, 409]);
     const winner = ((await answers.find((answer) => answer.status === 201)!.json()) as { batch: BatchView }).batch;
     const loser = (await answers.find((answer) => answer.status === 409)!.json()) as Refusal;
@@ -181,7 +185,7 @@ describe("A Bean Batch's Batch Code", () => {
         `INSERT INTO bean_batches (id, bean_id, content) VALUES (gen_random_uuid(), $1, '{"batchCode": "Race-2", "roastDate": "2026-11-20T00:00:00.000"}') RETURNING id::text AS id`,
         [bean],
       );
-      const creating = newBatch(bean, { batchCode: "RACE-2" }, [], api.at(other.url));
+      const creating = newBatch(bean, { batchCode: "RACE-2" }, undefined, api.at(other.url));
       const editing = edit(spare.id, { batchCode: "race-2" });
       const restoring = setArchived(retired.id, false);
       await waitForLockWaits(server, { count: 3 });

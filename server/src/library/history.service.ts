@@ -38,6 +38,20 @@ export interface VersionView {
    * Library.
    */
   fields: Record<string, unknown>;
+  /**
+   * For a Bean Batch's version that added it at `location` and so moved it
+   * there (ADR-0037): the Locations it left, finished there by the same
+   * edit, those that still exist, the one it was added at last first. Empty
+   * for every other version.
+   */
+  movedFrom: LocationView[];
+  /**
+   * Whether the server made it itself, settling a Bean Batch that was at
+   * several Locations at the one it was added at last, as the upgrade to one
+   * Location at a time does (ADR-0037): `movedFrom` then names those it was
+   * finished at, and `source` names no one.
+   */
+  settled: boolean;
   /** The Location whose state of the item it changed; null for its content. */
   location: LocationView | null;
   source: SourceView;
@@ -138,9 +152,13 @@ export class HistoryService {
     // The items copies were copied from, read as the item's kind reads them, so a copy names its original as it is named now.
     const copiedFromIds = [...new Set(versions.flatMap((version) => (version.copiedFromId === null ? [] : [version.copiedFromId])))];
     const originals = copiedFromIds.length === 0 ? new Map<string, VersionedItem>() : await KINDS[item.kind].read(this.prisma, copiedFromIds);
+    const leftIds = [...new Set(versions.flatMap((version) => leftBy(item, version.fields)))];
+    const left = new Map((leftIds.length === 0 ? [] : await this.prisma.location.findMany({ where: { id: { in: leftIds } } })).map((location) => [location.id, viewLocation(location)]));
     return versions.map((version) => ({
       id: version.id,
-      fields: isObject(version.fields) ? version.fields : {},
+      fields: fieldsSet(item, version.fields),
+      movedFrom: leftBy(item, version.fields).flatMap((id) => left.get(id) ?? []),
+      settled: item.kind === "beanBatch" && isObject(version.fields) && version.fields.settled === true,
       location: version.location ? viewLocation(version.location) : null,
       source: viewSource(version, scope),
       editedAt: version.editedAt.toISOString(),
@@ -193,7 +211,7 @@ export class HistoryService {
     const lostToValues = await Promise.all(
       lost.map((edit) => {
         const version = edit.lostToVersionId === null ? undefined : versions.get(edit.lostToVersionId);
-        return version === undefined ? null : this.valueAt(item, version, edit.field);
+        return version === undefined ? null : this.valueAt(item, version, edit.field, edit.locationId);
       }),
     );
     return lost.map((edit, index) => {
@@ -223,8 +241,11 @@ export class HistoryService {
    * for a field it did not set, as for a Bean that lost with its batch to a
    * version setting the batch alone (`mergeEdit`'s `together`), the value
    * the latest version up to it that set the field left; null for none.
+   * A move, which adds a batch at its own Location, set it not at each
+   * Location it left (`at`, the Location the losing edit is of).
    */
-  private async valueAt(item: ItemRef, version: { seq: bigint; locationId: string | null; fields: unknown }, field: string): Promise<unknown> {
+  private async valueAt(item: ItemRef, version: { seq: bigint; locationId: string | null; fields: unknown }, field: string, at: string | null): Promise<unknown> {
+    if (field === "atLocation" && at !== null && at !== version.locationId && leftBy(item, version.fields).includes(at)) return false;
     if (isObject(version.fields) && Object.prototype.hasOwnProperty.call(version.fields, field)) return version.fields[field] ?? null;
     const { kind, itemId } = itemKey(item);
     const [row] = await this.prisma.$queryRaw<{ value: unknown }[]>`
@@ -239,6 +260,22 @@ export class HistoryService {
   private async exists(item: ItemRef): Promise<boolean> {
     return (await this.prisma.versionedItem.count({ where: itemKey(item) })) > 0;
   }
+}
+
+/** What a move's version keeps beside the field it set (`addBatchAt`, `settleBatch`), read out of `fields` into the view's own. */
+const MOVE_KEYS = ["movedFrom", "settled"];
+
+/** The fields a version set: a Bean Batch's move without what it keeps of the Locations left. */
+function fieldsSet(item: ItemRef, fields: unknown): Record<string, unknown> {
+  if (!isObject(fields)) return {};
+  if (item.kind !== "beanBatch" || !Object.hasOwn(fields, "atLocation")) return fields;
+  return Object.fromEntries(Object.entries(fields).filter(([field]) => !MOVE_KEYS.includes(field)));
+}
+
+/** The ids of the Locations a Bean Batch's version left, as a move keeps them; none for any other version. */
+function leftBy(item: ItemRef, fields: unknown): string[] {
+  if (item.kind !== "beanBatch" || !isObject(fields) || !Array.isArray(fields.movedFrom)) return [];
+  return fields.movedFrom.filter((id): id is string => typeof id === "string");
 }
 
 export function viewSource(

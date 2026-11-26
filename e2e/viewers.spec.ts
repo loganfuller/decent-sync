@@ -130,7 +130,7 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       // The list's search, by Bean, roaster or Batch Code (#703), which a Viewer uses as anyone does.
       filters: [/^searchbox Find a batch$/],
     },
-    { path: `/library/bean-batches/${ids.batch}`, loaded: uptownRow, staffHave: "button Finish it at Uptown" },
+    { path: `/library/bean-batches/${ids.batch}`, loaded: (page) => page.getByRole("group", { name: "At Uptown" }), staffHave: "button Finish it at Uptown" },
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },
     { path: "/library/profiles", loaded: (page) => rows(page.getByRole("table", { name: "Profiles" })).first() },

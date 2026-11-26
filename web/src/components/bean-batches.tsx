@@ -49,9 +49,14 @@ export function weightText(weight: number | null): string {
   return weight === null ? "no weight entered" : `${weight} g`;
 }
 
-/** Where a batch is, by Location name, with its remaining weight at each. */
+/** Where a batch is, by its Location's name, with its remaining weight there: one Location, but for a batch the previous release left at several. */
 export function atText(locations: BatchAtLocation[]): string {
   return locations.length === 0 ? "Nowhere" : locations.map((here) => `${here.location.name} (${weightText(here.remainingWeight)})`).join(", ");
+}
+
+/** Names as a sentence lists them: "A", "A and B", "A, B and C". */
+export function listed(names: string[]): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 /** What may need someone's attention about a batch. */

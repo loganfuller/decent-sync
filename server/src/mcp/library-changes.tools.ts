@@ -235,7 +235,11 @@ const placeAt = z.strictObject({
 });
 const newBatchInput = z.strictObject({
   beanId: id.describe("The id of the Bean it is a roast of, as find_library_items gives it. The Bean may not be Archived."),
-  locations: z.array(placeAt).max(100).default([]).describe("The Locations to add it at, each once, with its remaining weight there if known. Staff add it only at the Locations they work at."),
+  locations: z
+    .array(placeAt)
+    .max(100)
+    .default([])
+    .describe("The one Location it is created at, as a list of exactly one, with its remaining weight there if known: none or several is refused, as a Bean Batch is at one Location at a time. Staff create it only at a Location they work at."),
   ...contentFields("beanBatch", false),
 });
 const batchEditInput = z.strictObject({ id: id.describe("The Bean Batch's id, as find_library_items gives it."), ...contentFields("beanBatch", true) });
@@ -274,7 +278,7 @@ const offeringInput = z.strictObject({
   offered: z
     .boolean()
     .optional()
-    .describe("true to show a Profile, Basket or Tool at the Location, or add a Bean Batch there; false to hide it there, or finish the batch there. Required but for a Bean Batch's remaining weight alone."),
+    .describe("true to show a Profile, Basket or Tool at the Location, or add a Bean Batch there, which moves it there from wherever it is; false to hide it there, or finish the batch there. Required but for a Bean Batch's remaining weight alone."),
   remainingWeight: z
     .number()
     .nullable()
@@ -330,7 +334,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "create_bean_batch",
     title: "Create a Bean Batch",
-    description: `Creates a Bean Batch, one roast of a Bean, added at each of the Locations given, whose tablets are then written it. One with a Batch Code another Bean Batch that is not Archived holds is refused, naming that batch: find_library_items finds a batch by its code. Staff add one only at the Locations they work at. ${TIMES}`,
+    description: `Creates a Bean Batch, one roast of a Bean, at the one Location given, whose tablets are then written it. To have it elsewhere later, move it with set_location_offering. One with a Batch Code another Bean Batch that is not Archived holds is refused, naming that batch: find_library_items finds a batch by its code. Staff create one only at a Location they work at. ${TIMES}`,
     inputSchema: newBatchInput,
     outputSchema: z.object({ beanBatch: beanBatchItem }),
     annotations: CHANGES,
@@ -339,7 +343,7 @@ export class LibraryChangesTools {
   async createBeanBatch({ beanId, locations, ...fields }: z.infer<typeof newBatchInput>, context: McpContext): Promise<ItemOutput> {
     const batch = readNewBatch({ beanId, locations, content: fields });
     const { scope } = callerOf(context);
-    const batchId = await this.edits.createBatch(batch.beanId, batch.content, batch.locations, editorOf(context), scope);
+    const batchId = await this.edits.createBatch(batch.beanId, batch.content, batch.location, editorOf(context), scope);
     return this.library.read("beanBatch", batchId);
   }
 
@@ -496,7 +500,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "set_location_offering",
     title: "Change what a Location offers",
-    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and sets a batch's remaining weight there; the Location's tablets are written the change. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
+    description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and sets a batch's remaining weight there; the Location's tablets are written the change. A Bean Batch is at one Location at a time, so adding it at a Location moves it there: it is finished wherever else it is, whose tablets archive it, the weight entered for it goes with it unless remainingWeight gives another, and its history keeps the move as one entry naming both Locations. Staff move a batch to a Location they work at from any Location, and finish one without moving it only at a Location they work at. Hiding a Basket archives it on the Location's tablets, and hiding a Tool removes it from them. Showing a Profile at a Location where a Machine can't run its values, as a DE1 a flow above 15 ml/s, which a Bengle runs up to 20, is refused, naming the Machines and values; the server never writes it to such a Machine. Staff change only what the Locations they work at offer. ${TIMES}`,
     inputSchema: offeringInput,
     outputSchema: itemOutput,
     annotations: { ...CHANGES, idempotentHint: true },

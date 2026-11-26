@@ -130,7 +130,9 @@ take part as their token's Machine.
 A tablet holds only what its Machine's Location offers (ADR-0008):
 
 - a **Bean Batch** while it is at the Location: from when it was added there
-  until it is finished there, unless it or its Bean is Archived;
+  until it is finished there, or added at another Location, which moves it
+  there (A Bean Batch is at one Location at a time, below), unless it or its
+  Bean is Archived;
 - a **Bean** while one of its batches is there, and, while none of its
   batches is there yet, where a tablet created it, linked a bean of its own
   to it, or un-archived its record, unless it is Archived. This document and
@@ -161,6 +163,57 @@ never deleted, so their Shots still find it (Writing to tablets, below);
 a Basket it does not show is archived on DYE2's list, and a Tool, which
 DYE2 cannot archive, removed from it (Taking in a tablet's baskets and
 tools, below).
+
+### A Bean Batch is at one Location at a time
+
+Adding a batch at a Location moves it there (ADR-0037): it is finished at
+every other Location it is at, in the same transaction, and the weight
+entered for it goes with it. The rule is in the one function that adds a
+batch at a Location (`addBatchAt` in `location-state.ts`), so every way of
+adding obeys it: the REST placement route and the assistant tool, a tablet's
+record un-archived, and a Recipe at the Location set to use the batch or
+copied there with it.
+
+- **What an add that is decided does.** It finishes the batch, at the edit's
+  time, at each other Location it is at, whatever decided its presence there,
+  and keeps nothing it replaces there as a Lost Edit. An add that loses on
+  time moves nothing, and is a Lost Edit as before.
+- **The weight.** A batch that was not at the Location takes the remaining
+  weight entered at the Location it left, the one it was added at last if it
+  left several, with when it was entered and the entry that entered it
+  (`remaining_weight`, `remaining_weight_at`, `remaining_weight_version_id`),
+  and none if none was entered there. A weight the edit gives is then entered
+  over it as any weight is. The row of the Location left keeps what it held.
+  One added again where it already is keeps its weight there.
+- **History.** One entry, at the Location joined: `{ atLocation: true,
+  movedFrom: [...] }`, the ids of the Locations left, the one added at last
+  first. Each Location left keeps that entry as its `presence_version_id`.
+  The history reads `movedFrom` out of `fields` into the entry's own
+  `movedFrom`, the Locations by name, and answers a Lost Edit at a Location
+  left that lost to it with the value it set there, not at the Location.
+- **Tablets.** Nothing is new: the Location left no longer offers the batch,
+  so its tablets archive their record, and its Bean's if no other batch of it
+  is there, and the Location joined offers it, so its tablets are written it
+  un-archived with the weight (Writing to tablets, below).
+- **Locks.** A move changes the state of each Location it leaves, under that
+  Location's lock too, and every add of a batch runs under that batch's own
+  advisory lock (`lockBatchPlace`), which decides between two adds of one
+  batch at Locations that share no lock. `lockForAdding` takes them in one
+  order, before any item's row: each Location's, the one joined and those the
+  batches are at, in id order, then each batch's, in id order. Its callers
+  are the placement route, a tablet's report or answer that un-archives a
+  batch, and a Recipe's create, copy and edit. A Location the batch reached
+  after that read is locked only if it is free; otherwise the change throws
+  `LocationBusy` and is made again (`whileNotBusy`), three times before 409,
+  or, in a tablet's delivery, when it is redelivered.
+- **A batch at several Locations**, as the previous release leaves one it
+  adds at a second while it serves beside this one (ADR-0025), is read with
+  the Location it was added at last first, which pages take as where it is,
+  and settled there by `BatchSettling` (`batch-settling.ts`) as each instance
+  starts and every ten minutes: `settleBatch` finishes it at the others, as
+  one entry from the server itself, `{ atLocation: true, movedFrom: [...],
+  settled: true }`, which the history gives as `settled`. The upgrade's
+  migration (`20261125000001_batches_at_one_location`) does the same in SQL.
 
 ### A Profile reaches only the Machines that can run it
 
@@ -761,13 +814,14 @@ Lost Edit names is kept, still refused, so history goes on naming it
   instance, nor one beside a tablet's new bean. An edit that gives a Bean
   another's roaster and name is not refused: it is a likely duplicate, as a
   tablet's rename makes one (ADR-0018).
-- **Bean Batches.** A batch is created of a Bean, not Archived, at the
-  Locations chosen, each with its remaining weight there if one is entered,
-  as edits of each Location's state of it (`addBatchAt`,
-  `enterRemainingWeight`), under those Locations' locks, taken in id order.
-  Adding it at a Location, finishing it there and setting its remaining
-  weight there are each such an edit; a remaining weight is set only where
-  the batch is, or is added. Its details are its content.
+- **Bean Batches.** A batch is created of a Bean, not Archived, at the one
+  Location chosen, with its remaining weight there if one is entered, as
+  edits of that Location's state of it (`addBatchAt`,
+  `enterRemainingWeight`), under its lock. Adding it at a Location, which
+  moves it there (A Bean Batch is at one Location at a time, above),
+  finishing it there and setting its remaining weight there are each such an
+  edit; a remaining weight is set only where the batch is, or is added. Its
+  details are its content.
 - **Grinders.** A Grinder is created belonging to a Location, which never
   changes; its Archived state and its content are edited under that
   Location's lock, as a tablet's are. Its form and page have its range and
@@ -1306,7 +1360,8 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   and an `updatedAt` the plugin could place) is ignored.
 - A record the map holds stays that batch, its record replacing the one known
   as a bean's does, and also when, as old, it differs at the Location. What changed since the record known is what the tablet did
-  at its Location (ADR-0008): un-archived, the batch is added there;
+  at its Location (ADR-0008): un-archived, the batch is added there, which
+  moves it there from wherever else it is (ADR-0037);
   archived, it is finished there; a changed `weightRemaining`, cleared
   included, is its remaining weight there. Adding or finishing it there is an
   edit timed by the record, which loses to a later one the tablet had not
@@ -3238,13 +3293,17 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `?batchCode=`, only the batches holding exactly that code, ignoring case
   and the spaces around it: at most one that is not Archived, and any
   Archived that held it. `locations`
-  lists the Locations it is at, by name, each `{ location, remainingWeight,
+  lists the Location it is at, one, or none once it is finished there, and
+  each, the one it was added at last first, for a batch the previous release
+  left at several, each `{ location, remainingWeight,
   since }`: the remaining weight entered there last, in grams, or null if none
   was or it was cleared, and when it was last added there, which a tablet
   adding it again while it is there moves.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
-  `content` and `finished`, the Locations it was at and has been finished at
-  since, each `{ location, remainingWeight, finishedAt }`; or 404.
+  `content`, `finished`, the Locations it was at and has been finished at
+  since, each `{ location, remainingWeight, finishedAt }`, and `movedFrom`,
+  the Locations its latest move took it from to where it is, empty if it was
+  added there without leaving another; or 404.
 - `GET /api/grinders` returns `{ grinders }`, each `{ id, model, burrs,
   burrType, archived, location, createdAt }`, by model, ignoring case, then
   by their Location's name. `model`, `burrs` and `burrType` are its
@@ -3406,16 +3465,22 @@ Every endpoint requires the account session; Staff read them as Admins do.
   clear it, edits one; `PUT /api/beans/:id/archived`, with `{ archived }`,
   Archives or restores one; each returns `{ bean }`. 400 for a field that is
   not Decaid's or a value Decaid would refuse.
-- `POST /api/bean-batches`, with `{ beanId, content, locations }`, each
-  Location `{ locationId, remainingWeight }`, the weight optional, creates a
-  batch at them, and returns `{ batch }` with 201; 409 if its Bean is
-  Archived. `PATCH /api/bean-batches/:id` and `PUT
+- `POST /api/bean-batches`, with `{ beanId, content, locations }`, a list
+  of exactly one Location `{ locationId, remainingWeight }`, the weight
+  optional, creates a batch at it, and returns `{ batch }` with 201; 400 for
+  no Location or more than one, as a batch is at one Location at a time
+  (`locations` stays a list, as the previous release's pages send it); 409 if
+  its Bean is Archived. `PATCH /api/bean-batches/:id` and `PUT
   /api/bean-batches/:id/archived` edit its details and Archive or restore it.
   `PUT /api/bean-batches/:id/locations/:locationId`, with `{ atLocation,
-  remainingWeight }`, either or both, adds it at the Location (true) or
+  remainingWeight }`, either or both, adds it at the Location (true), which
+  moves it there from wherever else it is, with the weight entered for it
+  unless one is given, or
   finishes it there (false), and sets its remaining weight there, null to
-  clear it; 409 for a weight where it is not and is not added. Each returns
-  `{ batch }`. 403 for Staff at a Location they do not work at.
+  clear it; 409 for a weight where it is not and is not added, and for a move
+  that found where the batch is changing three times over. Each returns
+  `{ batch }`. 403 for Staff at a Location they do not work at: the Location
+  named, so Staff move a batch to a Location of theirs from any.
 - `POST /api/grinders`, with `{ locationId, content }`, its model required,
   creates a Grinder belonging to that Location, and returns `{ grinder }`
   with 201. `PATCH /api/grinders/:id` and `PUT /api/grinders/:id/archived` edit
@@ -3527,7 +3592,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ versions, lostEdits }`, the item's history (`HistoryView` in
   `server/src/library/history.service.ts`): its history entries (ADR-0020)
   and its Lost Edits (ADR-0033, below). `versions` are the history entries, the latest taken
-  in first, each `{ id, fields, location, source, editedAt, receivedAt }`:
+  in first, each `{ id, fields, location, movedFrom, settled, source, editedAt, receivedAt }`
+  (`movedFrom` and `settled` are a Bean Batch's move, A Bean Batch is at one
+  Location at a time, above; empty and false otherwise):
   the fields it set, with their values, of the item's content, or of its
   state at
   `location` (`atLocation`, `remainingWeight`, `shown`), null for its
@@ -3593,11 +3660,12 @@ Every endpoint requires the account session; Staff read them as Admins do.
   for no such Machine.
 
 The management interface's Library section lists the Beans and where each is
-offered, the Bean Batches, the Locations each is at and its remaining weight
-at each, the Grinders and the Location each belongs to, and the Profiles and
+offered, the Bean Batches, the Location each is at and its remaining weight
+there, the Grinders and the Location each belongs to, and the Profiles and
 where each is shown. Each Bean's page shows its content, where it is
 offered, its batches and its likely duplicates, each batch's page its roast,
-the Locations it is at with its remaining weight at each, and where it was
+the Location it is at with its remaining weight there, a control to move it
+to another the account may move it to, and where it was
 finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. It opens on its Recipes (`/library/recipes`,

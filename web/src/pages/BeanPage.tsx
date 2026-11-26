@@ -176,7 +176,7 @@ function BeanDetails({ id }: { id: string }) {
       <Card>
         <CardHeader>
           <CardTitleWithInfo title="Batches">
-            <p>Its roasts, the latest first, and the Locations each is at.</p>
+            <p>Its roasts, the latest first, and the Location each is at.</p>
           </CardTitleWithInfo>
         </CardHeader>
         <CardContent>

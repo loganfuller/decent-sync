@@ -18,7 +18,7 @@ Machines share by Location. What a barista enters on one tablet joins the Librar
 | Item | Which Machines get it |
 |---|---|
 | Bean | Those at each Location where one of its Bean Batches is. Until a batch is added there, also those where a tablet created the Bean, linked a Bean of its own to it, or restored it. |
-| Bean Batch | Those at each Location it was added at, with its own remaining weight at each. |
+| Bean Batch | Those at the one Location it is at, with its remaining weight. |
 | Grinder | Those at the one Location it belongs to. |
 | Profile, Basket, Tool | Those at each Location that shows it. |
 | Recipe | Those at the one Location it belongs to. |
@@ -34,16 +34,25 @@ DYE2's lists on a tablet, its recipes, baskets and tools, are different, because
 
 ## Choose what a Location offers
 
-### Add a Bean Batch at a Location, or finish it there
+### Move a Bean Batch to a Location, or finish it there
 
-A Bean Batch is at a Location from when it is added there until it is finished there, and it can be at several at once.
+A Bean Batch is at one Location at a time, as the bucket it is in. It is there from when it is added there until it is finished there, or moved to another Location.
 
 1. Open **Library**, then **Bean Batches**, and open the batch.
-2. In its **Locations** card, choose a Location under **Add it at** and press **Add**.
-3. To record what is left, type the remaining weight in the Location's row and press **Set**.
-4. When the batch runs out there, press **Finish here**. It is archived on that Location's tablets and stays in the Library.
+2. Its **Where it is** card names the Location it is at, since when, and where it was moved from.
+3. To move it, press **Move to…**, choose the Location under **Move to**, and press the button that names it. The batch is taken away from the Location it was at, whose tablets archive it, and the other Location's tablets are written it.
+4. To record what is left, type the remaining weight and press **Set**.
+5. When the batch runs out, press **Finish here**. It is archived on that Location's tablets and stays in the Library, at no Location, and can be moved to one again.
 
-<Still name="bean-batches" alt="The Library's Bean Batches, each with the Locations it is at and its remaining weight at each" />
+A move takes the batch's remaining weight with it. If you weighed the bucket as it arrived, type that under **Weight on arrival, in grams** instead. Recipes at the Location it left go on naming the batch, marked as naming one that is finished there, as when a batch is finished. The move is one entry in the batch's **History**, naming both Locations and who or which Machine made it.
+
+A barista moves a batch too: un-archiving a batch on a tablet moves it to that tablet's Location.
+
+Staff can move a batch to a Location they work at from any Location, so a cafe can receive a bucket without asking the roastery. Finishing a batch, or setting its weight, needs the Location it is at.
+
+To keep part of a roast at a second Location, such as a sample at the roastery while the bucket goes to a cafe, create a second batch for it there.
+
+<Still name="bean-batches" alt="The Library's Bean Batches, each with the Location it is at and its remaining weight" />
 
 A Bean has no setting of its own for this. It is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there. A Bean with no batch at a Location yet is also offered there where a tablet created it, linked a Bean of its own to it, or restored it, until a batch is added.
 
@@ -66,9 +75,9 @@ Anything a barista enters on a tablet joins the Library by itself. You can enter
 
 1. Open **Library**, then **Beans**, and press **New Bean**.
 2. Fill in its **Roaster** and **Name**, and what else you know about it, then press **Create**.
-3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, and under **At** the Locations it is at, with the remaining weight at each if you track it. Press **Create**.
+3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, and under **At** the one Location it is at, with its remaining weight if you track it. Press **Create**.
 
-The batch, with its Bean, is written to the tablets at each Location you chose.
+The batch, with its Bean, is written to the tablets at the Location you chose.
 
 ### Give a batch its Batch Code
 
@@ -115,7 +124,7 @@ A Location's Recipes are on its own page, in the **Recipes** card, and every Loc
 3. Under **Recipe Slot**, choose **The next free slot**, **A slot of my choosing**, or **No slot: kept here only**.
 4. Press **Create**.
 
-The lists offer what the Location has first. Choosing a Bean Batch from elsewhere adds it at the Location, and choosing a Profile, Basket or Tool not shown there shows it there. The form says so under **Saving also** before you save.
+The lists offer what the Location has first. Choosing a Bean Batch from elsewhere moves it to the Location, as a batch is at one Location at a time, and choosing a Profile, Basket or Tool not shown there shows it there. The form says so under **Saving also** before you save.
 
 A Recipe created on a tablet, in DYE2, joins the Library the same way.
 

@@ -19,8 +19,11 @@ async function createBean(page: Page, name: string): Promise<string> {
   return ((await created.json()) as { bean: { id: string } }).bean.id;
 }
 
+/** A batch of the Bean, created at a Location of its own kind, as a batch is created at exactly one: the "Shelf", made when first needed. */
 async function createBatch(page: Page, beanId: string, content: Record<string, unknown>): Promise<string> {
-  const created = await page.request.post("/api/bean-batches", { data: { beanId, content, locations: [] } });
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  const shelf = locations.find((location) => location.name === "Shelf") ?? (await createLocation(page, "Shelf"));
+  const created = await page.request.post("/api/bean-batches", { data: { beanId, content, locations: [{ locationId: shelf.id }] } });
   expect(created.status()).toBe(201);
   return ((await created.json()) as { batch: { id: string } }).batch.id;
 }
@@ -36,7 +39,8 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   const newBatch = page.getByRole("dialog", { name: "New Batch of Ethiopia Guji Natural" });
   await newBatch.getByLabel("Batch Code", { exact: true }).fill(" LR-0412 ");
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-11-18");
-  await newBatch.getByLabel("Downtown", { exact: true }).check();
+  await newBatch.getByLabel("At", { exact: true }).click();
+  await page.getByRole("option", { name: "Downtown" }).click();
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Ethiopia Guji Natural, roasted 2026-11-18", level: 1 })).toBeVisible();
   // Beside the title, and first in the Roast card.
@@ -59,9 +63,9 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   const list = page.getByRole("table", { name: "Bean Batches" });
   await expect(list.getByRole("columnheader")).toHaveText(["Batch", "Batch Code", "Roaster", "At", "Created at", "Attention"]);
   await expect(rows(list)).toHaveText([
-    ["Brazil Cerrado, roasted 2026-11-12", "LR-0409", "Lantern Coffee Roasters", "Nowhere", "-", ""].join(""),
+    ["Brazil Cerrado, roasted 2026-11-12", "LR-0409", "Lantern Coffee Roasters", "Shelf (no weight entered)", "-", ""].join(""),
     ["Ethiopia Guji Natural, roasted 2026-11-18", "LR-0413", "Lantern Coffee Roasters", "Downtown (no weight entered)", "-", ""].join(""),
-    ["Ethiopia Guji Natural, roasted 2026-11-01", "-", "Lantern Coffee Roasters", "Nowhere", "-", ""].join(""),
+    ["Ethiopia Guji Natural, roasted 2026-11-01", "-", "Lantern Coffee Roasters", "Shelf (no weight entered)", "-", ""].join(""),
   ]);
   const search = page.getByRole("search", { name: "Find a batch" });
   await search.getByLabel("Find a batch").fill("lr-041");
@@ -94,6 +98,8 @@ test("a Batch Code another batch holds is refused with a link to that batch, cre
   await page.getByRole("button", { name: "New Batch" }).click();
   const newBatch = page.getByRole("dialog", { name: "New Batch of Colombia Huila" });
   await newBatch.getByLabel("Batch Code", { exact: true }).fill("lr-0412");
+  await newBatch.getByLabel("At", { exact: true }).click();
+  await page.getByRole("option", { name: "Shelf" }).click();
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(newBatch.getByRole("alert")).toHaveText("Another batch holds the Batch Code LR-0412: Colombia Huila, roasted 2026-11-18. A code is one batch's until that batch is Archived.");
   // Another code is taken, and the dialog's refusal goes.

@@ -1291,7 +1291,11 @@ export interface BeanBatchSummary {
   /** Its Batch Code, the roaster's own identifier for it; null where it has none. */
   batchCode: string | null;
   archived: boolean;
-  /** The Locations it is at, by name, with its remaining weight at each. */
+  /**
+   * The Location it is at, with its remaining weight there: one, as a batch is at one Location at a time, or none
+   * once it is finished there. One the previous release left at several, until the server settles it, lists each,
+   * the one it was added at last first.
+   */
   locations: BatchAtLocation[];
   /** When it joined the Library. */
   createdAt: string;
@@ -1304,6 +1308,8 @@ export interface BeanBatch extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, with when and the remaining weight last entered there. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
+  /** The Locations its latest move took it from to where it is; empty if it was added there without leaving another. The previous release's server answers without it (ADR-0025). */
+  movedFrom?: Location[];
 }
 
 /** A Location showing a Profile. */
@@ -1669,6 +1675,13 @@ export interface ItemVersion {
   fields: Record<string, unknown>;
   /** The Location whose state of the item it changed; null for its content. */
   location: Location | null;
+  /**
+   * For a Bean Batch's version that added it at `location` and so moved it there: the Locations it left. Empty for
+   * every other version; the previous release's server answers without it (ADR-0025).
+   */
+  movedFrom?: Location[];
+  /** Whether the server made it itself, settling a Bean Batch that was at several Locations at the one it was added at last, as the upgrade to one Location at a time does. */
+  settled?: boolean;
   source: EditSource;
   /** When it was made: a tablet's by its record's time, a management-interface edit by the server's clock. */
   editedAt: string;

@@ -22,7 +22,7 @@ type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test("a batch's page counts its Shots from both Locations and opens them in the Shots list, as its Bean's does, and the Shots list filters by Bean Batch and by Grinder", async ({ page }) => {
+test("a batch's page counts its Shots from both Locations it has been at and opens them in the Shots list, as its Bean's does, and the Shots list filters by Bean Batch and by Grinder", async ({ page }) => {
   const lab = await post<{ location: { id: string } }>(page, "/api/locations", { name: "Roastery lab", timeZone: "America/Chicago" });
   const cafe = await post<{ location: { id: string } }>(page, "/api/locations", { name: "Belmont", timeZone: "America/Chicago" });
   const labTablet = await tabletAt(page, server, "Lab group", lab.location.id, "27001", tabletApi);
@@ -31,7 +31,7 @@ test("a batch's page counts its Shots from both Locations and opens them in the 
   const { batch } = await post<{ batch: { id: string } }>(page, "/api/bean-batches", {
     beanId: bean.id,
     content: { roastDate: "2026-10-04" },
-    locations: [{ locationId: lab.location.id }, { locationId: cafe.location.id }],
+    locations: [{ locationId: lab.location.id }],
   });
   const labGrinder = (await post<{ grinder: { id: string } }>(page, "/api/grinders", { locationId: lab.location.id, content: { model: "Lab EK43" } })).grinder;
   const cafeGrinder = (await post<{ grinder: { id: string } }>(page, "/api/grinders", { locationId: cafe.location.id, content: { model: "Belmont Mythos" } })).grinder;
@@ -40,6 +40,8 @@ test("a batch's page counts its Shots from both Locations and opens them in the 
     grinderId: tablet.grinders().find((record) => globalIdOf(record) === grinderId)?.id,
   });
   await expect.poll(() => Object.values(local(labTablet, labGrinder.id)).every(Boolean)).toBe(true);
+  // The bucket goes on to the cafe: the lab's tablet keeps its record of the batch, archived, and the cafe's holds one too.
+  expect((await page.request.put(`/api/bean-batches/${batch.id}/locations/${cafe.location.id}`, { data: { atLocation: true } })).status()).toBe(200);
   await expect.poll(() => Object.values(local(cafeTablet, cafeGrinder.id)).every(Boolean)).toBe(true);
 
   labTablet.pullShot(shotWith("lab-linked", "27001", local(labTablet, labGrinder.id), 8));

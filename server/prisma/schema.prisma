@@ -1329,7 +1329,9 @@ model TabletBean {
 
 /// One roast of a Bean (ADR-0008), by its global id (ADR-0006). Its content
 /// is the same everywhere; whether it is at each Location, and its remaining
-/// weight there, are each Location's own (`BatchLocation`).
+/// weight there, are each Location's own (`BatchLocation`). It is at one
+/// Location at a time (ADR-0037), a rule of the code that adds it at one
+/// (`addBatchAt`), which no constraint enforces.
 model BeanBatch {
   id                String    @id @default(uuid(7)) @db.Uuid
   beanId            String    @map("bean_id") @db.Uuid

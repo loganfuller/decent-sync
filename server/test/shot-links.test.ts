@@ -102,7 +102,7 @@ describe("Shots linked to the Library", () => {
     };
   }
 
-  it("links Shots pulled with a shared batch at two Locations to it, each to its Location's Grinder and to the Profile they were pulled with, and filters by them", async () => {
+  it("links Shots pulled with a batch at the two Locations it has been at to it, each to its Location's Grinder and to the Profile they were pulled with, and filters by them", async () => {
     const lab = await api.createLocation("Linked lab", "America/Chicago");
     const cafe = await api.createLocation("Linked cafe", "America/New_York");
     const labMachine = await api.createMachine("Linked lab 1", lab.id);
@@ -115,13 +115,16 @@ describe("Shots linked to the Library", () => {
 
     const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Linked Guji" } }, 201)).bean;
     const batch = (
-      await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }, { locationId: cafe.id }] }, 201)
+      await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }] }, 201)
     ).batch;
     const grinder = async (location: LocationView, model: string) =>
       (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
     const labGrinder = await grinder(lab, "Linked lab EK43");
     const cafeGrinder = await grinder(cafe, "Linked cafe EK43");
-    for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
+    // The bucket goes from the lab to the cafe: each tablet has held the batch, the lab's record of it archived since.
+    await expect.poll(() => held(labTablet.batches(), batch.id)).toBeTruthy();
+    await api.send("PUT", `/bean-batches/${batch.id}/locations/${cafe.id}`, { atLocation: true });
+    await expect.poll(() => held(cafeTablet.batches(), batch.id)).toBeTruthy();
     await expect.poll(() => held(labTablet.grinders(), labGrinder.id)).toBeTruthy();
     await expect.poll(() => held(cafeTablet.grinders(), cafeGrinder.id)).toBeTruthy();
 

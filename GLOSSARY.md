@@ -138,7 +138,7 @@ A coffee as sold by a roaster, identified by roaster and name. It is offered at 
 _Avoid_: Coffee (when the product is meant), blend
 
 **Bean Batch**:
-One roast of a bean that baristas pick: a single roaster run if you roast, or one roast date from your supplier if you buy. A batch is at a location from when it's added there until it's finished there, and can be at several locations at once.
+One roast of a bean that baristas pick: a single roaster run if you roast, or one roast date from your supplier if you buy. A batch is at one location at a time: from when it's added there until it's finished there, or until it's added at another location, which moves it there with the remaining weight entered for it. To keep part of a roast somewhere else, create a second batch for it.
 _Avoid_: Roast (as a record), run, bag, bucket, lot
 
 **Batch Code**:

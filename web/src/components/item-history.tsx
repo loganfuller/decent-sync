@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback } from "react";
 import { Link } from "react-router";
 import { useAuth } from "@/auth";
+import { listed } from "@/components/bean-batches";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
@@ -218,6 +219,27 @@ function HistoryValue({ field, value, names }: { field: string; value: unknown; 
   return <>{valueText(field, value, names)}</>;
 }
 
+/** Whether a version is a Bean Batch's move: it was added at a Location and so finished at those it left, as a batch is at one Location at a time. */
+function isMove(version: ItemVersion): boolean {
+  return version.location !== null && version.fields.atLocation === true && (version.movedFrom ?? []).length > 0;
+}
+
+/**
+ * A Bean Batch's move as one line naming both Locations, in place of the field it set: "Moved from Lab to Downtown".
+ * One the server settled where it was added last, as the upgrade to one Location at a time does, stayed there.
+ */
+function MoveText({ version }: { version: ItemVersion }) {
+  if (!isMove(version)) return null;
+  const left = listed((version.movedFrom ?? []).map((location) => location.name));
+  return (
+    <p className="text-sm">
+      {version.settled
+        ? `Stayed at ${version.location!.name}, where it was added last, and finished at ${left}`
+        : `Moved from ${left} to ${version.location!.name}`}
+    </p>
+  );
+}
+
 /** A History card's content, which reads the item's history while it is shown. */
 function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: ReadonlyMap<string, string> }) {
   const load = useCallback(async () => historyRows(await api<History>("GET", `${itemApiPath(kind, id)}/history`)), [kind, id]);
@@ -270,9 +292,10 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                   <TableRow key={version.id}>
                     <TableCell>{formatTime(version.editedAt)}</TableCell>
                     <TableCell className="whitespace-normal">
-                      <SourceText source={version.source} />
+                      {version.settled ? "The upgrade to one Location at a time" : <SourceText source={version.source} />}
                     </TableCell>
                     <TableCell className="whitespace-normal">
+                      <MoveText version={version} />
                       {version.copiedFrom && (
                         <p className="mb-1 text-sm">
                           Copied from{" "}
@@ -281,7 +304,7 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                         </p>
                       )}
                       <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
-                        {Object.entries(version.fields).map(([field, value]) => (
+                        {(isMove(version) ? [] : Object.entries(version.fields)).map(([field, value]) => (
                           <div key={field} className="contents">
                             <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
                             <dd className="min-w-0 wrap-anywhere">

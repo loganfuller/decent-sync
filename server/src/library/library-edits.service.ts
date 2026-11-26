@@ -11,12 +11,14 @@ import { grinderEdit, newGrinderProblem } from "./grinder-range.js";
 import { type EditSource, type Editor, type ItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, batchName, idSql } from "./kinds.js";
-import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showAt } from "./location-state.js";
+import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockForAdding, lockLocation, showAt, whileNotBusy } from "./location-state.js";
 import { refuseUnrunnableAt } from "./profile-reach.js";
 
 // Creating and editing Beans, Bean Batches and Grinders in the management
 // interface, Archiving and restoring them, and adding and finishing batches
-// at Locations with their remaining weight there (ticket #87); showing and
+// at Locations with their remaining weight there (ticket #87), a batch at
+// one Location at a time, so that adding it at another moves it (ADR-0037,
+// #704); showing and
 // hiding Profiles at Locations, and Archiving and restoring them (ticket
 // #88); and showing and hiding Baskets and Tools at Locations (ticket #138),
 // and creating, editing, Archiving and restoring them (ticket #139).
@@ -40,7 +42,9 @@ import { refuseUnrunnableAt } from "./profile-reach.js";
 // details, a Basket's, a Tool's and a Profile's title, author and notes) and Archive and restore items, but add
 // and finish batches, set their remaining weight, create and edit Grinders,
 // create Baskets and Tools, and show and hide Profiles, Baskets and Tools
-// only at their own Locations, as a Grinder belongs to one.
+// only at their own Locations, as a Grinder belongs to one. Adding a batch
+// at one of their Locations moves it there from wherever it is, theirs or
+// not; finishing one without moving it needs the Location it is at.
 
 /** A batch at a Location as a request sets it: whether it is there, and its remaining weight there, null to clear it. */
 export interface BatchPlacement {
@@ -96,25 +100,25 @@ export class LibraryEditsService {
   }
 
   /**
-   * Creates a batch of the Bean, added at each of the Locations, each with
-   * its remaining weight there if one is given. 404 if there is no such
-   * Bean or Location, 409 if the Bean is Archived, 403 for Staff at a
-   * Location they do not work at. 409, naming the batch, if another batch
-   * that is not Archived holds its Batch Code (`refuseTakenCode`).
+   * Creates a batch of the Bean, added at the Location, the one it is at
+   * (ADR-0037), with its remaining weight there if one is given. 404 if
+   * there is no such Bean or Location, 409 if the Bean is Archived, 403 for
+   * Staff at a Location they do not work at. 409, naming the batch, if
+   * another batch that is not Archived holds its Batch Code
+   * (`refuseTakenCode`).
    */
   async createBatch(
     beanId: string,
     content: Record<string, unknown>,
-    at: readonly { locationId: string; remainingWeight?: number | null }[],
+    here: { locationId: string; remainingWeight?: number | null },
     editor: Editor,
     scope: Scope,
   ): Promise<string> {
-    for (const here of at) if (!includesLocation(scope, here.locationId)) throw staffElsewhere("add a batch");
+    if (!includesLocation(scope, here.locationId)) throw staffElsewhere("add a batch");
     const code = content[BATCH_CODE_FIELD];
     return this.keepingCodesApart(() => code, null, () => this.prisma.$transaction(async (tx) => {
-      const places = [...at].sort((a, b) => a.locationId.localeCompare(b.locationId));
-      await this.checkLocations(tx, places.map((here) => here.locationId));
-      for (const here of places) await lockLocation(tx, here.locationId);
+      await this.checkLocations(tx, [here.locationId]);
+      await lockLocation(tx, here.locationId);
       // Under its row lock, so it is neither Archived nor hard-deleted until the batch is created.
       const [bean] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM beans WHERE id = ${beanId}::uuid FOR SHARE`;
       if (!bean) throw new NotFoundException("No such Bean");
@@ -124,8 +128,8 @@ export class LibraryEditsService {
       const source = accountSource(editor);
       const when = await editTime(tx);
       await recordJoined(tx, { kind: "beanBatch", id: created.id }, content, when, source);
-      for (const here of places) await place(tx, created.id, here.locationId, { atLocation: true, remainingWeight: here.remainingWeight }, when, source);
-      if (places.length > 0) await notify(tx, "library_changes", created.id);
+      await place(tx, created.id, here.locationId, { atLocation: true, remainingWeight: here.remainingWeight }, when, source);
+      await notify(tx, "library_changes", created.id);
       return created.id;
     }, INTAKE_TRANSACTION));
   }
@@ -151,7 +155,7 @@ export class LibraryEditsService {
 
   /**
    * Archives a batch, so it is offered nowhere and its Batch Code is free for
-   * another batch, or restores it, at the Locations it is at. 409, naming the
+   * another batch, or restores it, at the Location it is at. 409, naming the
    * batch, for restoring one whose Batch Code another batch has taken since
    * (`refuseTakenCode`).
    */
@@ -198,15 +202,20 @@ export class LibraryEditsService {
 
   /**
    * Adds the batch at the Location or finishes it there, and sets its
-   * remaining weight there, each an edit of the Location's state of it. 404
-   * if there is no such batch or Location, 403 for Staff elsewhere, 409 for
-   * a remaining weight where the batch is not and is not added.
+   * remaining weight there, each an edit of the Location's state of it.
+   * Adding it moves it there from wherever it is (ADR-0037, `addBatchAt`),
+   * with the weight entered for it unless the request gives another. 404 if
+   * there is no such batch or Location, 403 for Staff elsewhere: the
+   * Location named is the one joined, or the one it is finished or weighed
+   * at, so Staff move a batch to a Location of theirs from any, and finish
+   * one only where they work. 409 for a remaining weight where the batch is
+   * not and is not added.
    */
   async placeBatch(id: string, locationId: string, placement: BatchPlacement, editor: Editor, scope: Scope): Promise<void> {
     if (!includesLocation(scope, locationId)) throw staffElsewhere("change where a batch is");
-    await this.prisma.$transaction(async (tx) => {
+    await whileNotBusy(() => this.prisma.$transaction(async (tx) => {
       await this.checkLocations(tx, [locationId]);
-      await lockLocation(tx, locationId);
+      await lockForAdding(tx, locationId, placement.atLocation === true ? [id] : []);
       // Under its key's lock, so it is not hard-deleted until its state here changes.
       const batch = await tx.$queryRaw<unknown[]>`SELECT 1 FROM bean_batches WHERE id = ${id}::uuid FOR KEY SHARE`;
       if (batch.length === 0) throw notFound("beanBatch");
@@ -217,7 +226,7 @@ export class LibraryEditsService {
       }
       await place(tx, id, locationId, placement, await editTime(tx), accountSource(editor));
       await notify(tx, "library_changes", locationId);
-    }, INTAKE_TRANSACTION);
+    }, INTAKE_TRANSACTION));
   }
 
   /** Creates a Grinder belonging to the Location. 404 if there is no such Location, 403 for Staff elsewhere. */

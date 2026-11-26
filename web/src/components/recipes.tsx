@@ -3,7 +3,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
-import { batchName } from "@/components/bean-batches";
+import { batchName, listed } from "@/components/bean-batches";
 import { ItemHistoryCard, attributePairs } from "@/components/item-history";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
@@ -130,6 +130,11 @@ function grindText(recipe: Recipe): string | undefined {
 }
 
 /** A Recipe's Bean Batch, as lists name a batch. */
+/** Where a Recipe that takes a batch from elsewhere moves it from, as its form says before saving: " from Lab", or nothing for a batch at no Location. */
+function movedFromText(batch: BeanBatchSummary): string {
+  return batch.locations.length === 0 ? "" : ` from ${listed(batch.locations.map((at) => at.location.name))}, as a batch is at one Location at a time`;
+}
+
 export function usedBatchText(recipe: Recipe): string | undefined {
   const { beanBatch, bean } = recipe.uses;
   if (beanBatch) return batchName({ bean: { id: bean?.id ?? "", roaster: bean?.roaster ?? null, name: bean?.name ?? null }, roastDate: beanBatch.roastDate });
@@ -777,7 +782,7 @@ function RecipeForm({
   const offered: string[] = [];
   if (values.beanBatchId !== initial.beanBatchId) {
     const batch = batches.find((candidate) => candidate.id === values.beanBatchId);
-    if (batch && !batchHere(batch)) offered.push(`adds the Bean Batch ${batchName(batch)} at ${location.name}`);
+    if (batch && !batchHere(batch)) offered.push(`moves the Bean Batch ${batchName(batch)} to ${location.name}${movedFromText(batch)}`);
   }
   if (values.profileId !== initial.profileId) {
     const profile = profiles.find((candidate) => candidate.id === values.profileId);
@@ -885,8 +890,8 @@ function RecipeForm({
               )}
               <ChoiceGroup label={`At ${location.name}`} items={batches.filter(batchHere).map((batch) => [batch.id, batchName(batch)])} />
               <ChoiceGroup
-                label={`Elsewhere: saving adds it at ${location.name}`}
-                items={batches.filter((batch) => !batchHere(batch)).map((batch) => [batch.id, `${batchName(batch)} (adds it here)`])}
+                label={`Elsewhere: saving moves it to ${location.name}`}
+                items={batches.filter((batch) => !batchHere(batch)).map((batch) => [batch.id, `${batchName(batch)} (moves it here)`])}
               />
             </SelectContent>
           </Select>
@@ -1209,7 +1214,7 @@ const KEEP = "keep";
  * the Recipe there taken out of it, the next free one, or none, with one of
  * that Location's Grinders, its grind setting kept as a starting point, and
  * its Bean Batch, or another at that Location, or none. It says first what
- * copying adds, offers or shows there. A copy goes to another Location than
+ * copying moves, offers or shows there. A copy goes to another Location than
  * the Recipe's own. It is shown open, by the action that asks for it, each
  * time afresh from the Recipe as it is then, and `onClose` is called as it
  * closes.
@@ -1270,12 +1275,12 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
         : `${beanOnly.name ?? "Unnamed Bean"}, no batch (this Recipe's Bean, with none at ${target.name})`
       : `${usedBatchText(recipe) ?? "Its batch"} (this Recipe's)`;
 
-  // What copying adds or shows at the Location that it does not offer now, so the copy can be loaded there.
+  // What copying moves to the Location or shows there that it does not offer now, so the copy can be loaded there.
   const offered: string[] = [];
   if (target && choices) {
     const shownThere = (item: { shownAt: { location: { id: string } }[] } | undefined) => item?.shownAt.some((at) => at.location.id === locationId) ?? true;
     const ownBatch = choices.batches.find((batch) => batch.id === recipe.uses.beanBatch?.id);
-    if (batchId === KEEP && ownBatch && !atTarget(ownBatch)) offered.push(`adds the Bean Batch ${batchName(ownBatch)} at ${target.name}`);
+    if (batchId === KEEP && ownBatch && !atTarget(ownBatch)) offered.push(`moves the Bean Batch ${batchName(ownBatch)} to ${target.name}${movedFromText(ownBatch)}`);
     const bean = choices.beans.find((candidate) => candidate.id === beanOnly?.id);
     if (batchId === KEEP && bean && !beanBatchThere && !bean.offeredAt.some((at) => at.id === locationId)) {
       offered.push(`offers the Bean ${bean.name ?? "Unnamed Bean"} at ${target.name}`);

@@ -152,6 +152,50 @@ describe("the latest release beside the change", () => {
     expect(readBuiltPlugin().source).toContain(IGNORED);
   });
 
+  // A Bean Batch is at one Location at a time (#704, ADR-0037). The latest release adds a batch at a second Location
+  // and leaves it at both. The change reads such a batch, the Location it was added at last first, settles it there as
+  // an instance starts, as a deploy's next one does, and moves it as any other, and no request of either release fails.
+  it("settles a batch the latest release leaves at two Locations, with no request of either release failing", async () => {
+    const [change, latest] = [apis.change, apis["latest release"]];
+    const lab = await change.createLocation("Two places lab", "America/Chicago");
+    const cafe = await change.createLocation("Two places cafe", "America/Chicago");
+    const { tablet: labTablet } = await connected("Two places lab", "change", "change", { location: lab });
+    const { tablet: cafeTablet } = await connected("Two places cafe", "latest release", "latest release", { location: cafe });
+    const held = (tablet: SimulatedTablet, batchId: string) => tablet.batches().find((record) => globalIdOf(record) === batchId);
+    const { bean } = await change.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Two Places" } }, 201);
+    const created = await change.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-11-20" }, locations: [{ locationId: lab.id, remainingWeight: 400 }] }, 201);
+    const batchId = created.batch.id;
+    const at = async (api: AdminApi) => (await api.get<{ batch: { locations: { location: { name: string } }[] } }>(`/bean-batches/${batchId}`)).batch.locations.map((here) => here.location.name);
+    await expect.poll(() => held(labTablet, batchId)?.archived).toBe(false);
+
+    await latest.send("PUT", `/bean-batches/${batchId}/locations/${cafe.id}`, { atLocation: true });
+    expect(await at(latest)).toEqual(["Two places cafe", "Two places lab"]);
+    expect(await at(change)).toEqual(["Two places cafe", "Two places lab"]);
+    for (const path of ["/bean-batches", `/bean-batches/${batchId}/history`, `/beans/${bean.id}`]) expect((await change.call("GET", path)).status, path).toBe(200);
+    await expect.poll(() => held(cafeTablet, batchId)?.archived).toBe(false);
+
+    const next = await startTestServer({ env, sharing: servers["latest release"] });
+    try {
+      await expect.poll(() => at(change), { timeout: 20_000 }).toEqual(["Two places cafe"]);
+    } finally {
+      await next.stop();
+    }
+    expect(await at(latest)).toEqual(["Two places cafe"]);
+    const { versions } = await change.get<{ versions: Record<string, unknown>[] }>(`/bean-batches/${batchId}/history`);
+    expect(versions[0]).toMatchObject({ fields: { atLocation: true }, location: { id: cafe.id }, movedFrom: [{ id: lab.id }], settled: true });
+    // The latest release reads the history that entry is in.
+    expect((await latest.call("GET", `/bean-batches/${batchId}/history`)).status).toBe(200);
+    await expect.poll(() => held(labTablet, batchId)?.archived).toBe(true);
+    expect(held(cafeTablet, batchId)?.archived).toBe(false);
+
+    // Left at two again, it is at one once the change moves it, wherever to.
+    await latest.send("PUT", `/bean-batches/${batchId}/locations/${lab.id}`, { atLocation: true });
+    const kiosk = await change.createLocation("Two places kiosk", "America/Chicago");
+    await change.send("PUT", `/bean-batches/${batchId}/locations/${kiosk.id}`, { atLocation: true });
+    expect(await at(change)).toEqual(["Two places kiosk"]);
+    for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => held(tablet, batchId)?.archived).toBe(true);
+  });
+
   describe.each([
     { pairing: "the latest release's plugin with the change's server", plugin: "latest release", server: "change" },
     { pairing: "the change's plugin with the latest release's server", plugin: "change", server: "latest release" },

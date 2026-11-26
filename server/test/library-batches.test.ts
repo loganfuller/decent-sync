@@ -493,54 +493,46 @@ describe("Bean Batches at Locations", () => {
     expect(two.writes.some((write) => write.startsWith("DELETE"))).toBe(false);
   });
 
-  /**
-   * A batch at the lab and at the cafe: entered on the first lab tablet, and
-   * added at the cafe on a lab tablet that moved there still holding it,
-   * where a barista un-archives it. The cafe's other tablet is written it.
-   */
-  async function atTwoLocations(name: string, serials: number) {
-    const setup = await lab(name, serials);
-    const { one, two, cafe, machines, cafeLocation } = setup;
-    const third = await api.createMachine(`${name} lab 3`, setup.labLocation.id);
-    const three = load(third, String(serials + 3));
+  it("makes a weightRemaining changed on one tablet its Location's remaining weight, reaching the Location's other tablets, takes it with the batch to the Location of a tablet that un-archives it, and leaves it there when a tablet at the Location it left deletes the Bean", async () => {
+    const { one, two, cafe, machines, labLocation, cafeLocation } = await lab("Weighed", 16031);
+    const third = await api.createMachine("Weighed lab 3", labLocation.id);
+    const three = load(third, "16034");
     await api.waitForOnline(third);
-    const { batch } = await enterBatch(one, `${name} Blend`);
+    const { batch } = await enterBatch(one, "Weighed Blend");
     await holds(() => heldBatch(two, batch.id), { archived: false });
     await holds(() => heldBatch(three, batch.id), { archived: false });
 
-    // Moved to the cafe, the second lab tablet has the batch archived, as the cafe does not offer it.
+    // The lab counts it, which reaches the lab's other tablets.
+    await one.editBatch(heldBatch(one, batch.id)[0]!.id, { weightRemaining: 180.5 });
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed lab", 180.5]]);
+    await holds(() => heldBatch(three, batch.id), { weightRemaining: 180.5 });
+    await holds(() => heldBatch(two, batch.id), { weightRemaining: 180.5 });
+
+    // Moved to the cafe, the second lab tablet has the batch archived, as the cafe does not offer it. A barista there
+    // un-archives it, which moves the batch to the cafe (ADR-0037), with the weight the lab counted.
     expect((await api.call("POST", `/machines/${machines[1].machine.id}/location-history`, { locationId: cafeLocation.id })).status).toBe(201);
     const moved = await holds(() => heldBatch(two, batch.id), { archived: true });
     await two.editBatch(moved.id, { archived: false });
-    await expect.poll(() => whereAt(batch.id)).toEqual([[`${name} cafe`, null], [`${name} lab`, 250]]);
-    await holds(() => heldBatch(cafe, batch.id), { archived: false });
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 180.5]]);
+    await holds(() => heldBatch(cafe, batch.id), { archived: false, weightRemaining: 180.5 });
     await holds(() => heldBean(two, batch.bean.id), { archived: false });
-    return { ...setup, three, batch };
-  }
+    for (const tablet of [one, three]) await holds(() => heldBatch(tablet, batch.id), { archived: true });
 
-  it("makes a weightRemaining changed on one tablet its Location's remaining weight, reaching the Location's other tablets, while another Location's stays, and finishes a Bean's batches at the Location of the tablet that deletes it, and only there", async () => {
-    const { one, two, three, cafe, batch } = await atTwoLocations("Weighed", 16031);
     // The cafe counts its own, which reaches the moved tablet there.
     await cafe.editBatch(heldBatch(cafe, batch.id)[0]!.id, { weightRemaining: 200 });
-    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200], ["Weighed lab", 250]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200]]);
     await holds(() => heldBatch(two, batch.id), { weightRemaining: 200 });
 
-    await one.editBatch(heldBatch(one, batch.id)[0]!.id, { weightRemaining: 180.5 });
-    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200], ["Weighed lab", 180.5]]);
-    await holds(() => heldBatch(three, batch.id), { weightRemaining: 180.5 });
-    expect(heldBatch(cafe, batch.id)[0]!.weightRemaining).toBe(200);
-    expect(heldBatch(two, batch.id)[0]!.weightRemaining).toBe(200);
-
-    // Deleted on a lab tablet, the Bean stops being offered there.
+    // Deleted on a lab tablet, where it is no longer offered, the Bean stays at the cafe with its batch.
     const logged = [server.output().length, other.output().length] as const;
-    const bean = await holds(() => heldBean(one, batch.bean.id), { archived: false });
+    const bean = await holds(() => heldBean(one, batch.bean.id), { archived: true });
     // As DYE2 deletes a bean: its batches first, since Decaid refuses to delete a bean that has any.
     await one.deleteBean(bean.id);
     expect(one.beans()).toEqual([]);
 
-    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200]]);
     await holds(() => heldBatch(three, batch.id), { archived: true });
     await holds(() => heldBean(three, batch.bean.id), { archived: true });
+    expect(await whereAt(batch.id)).toEqual([["Weighed cafe", 200]]);
     expect(await offeredAt("Weighed Blend")).toEqual(["Weighed cafe"]);
     // The cafe's tablets keep them.
     expect(heldBatch(cafe, batch.id)).toMatchObject([{ archived: false }]);

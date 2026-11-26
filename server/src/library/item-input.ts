@@ -270,12 +270,18 @@ export function readArchived(body: unknown): boolean {
   return archived;
 }
 
-/** A new batch, from a request: `{ beanId, content, locations }`, each Location `{ locationId, remainingWeight? }`, its ids in lower case. */
-export function readNewBatch(body: unknown): { beanId: string; content: Record<string, unknown>; locations: { locationId: string; remainingWeight?: number | null }[] } {
+/**
+ * A new batch, from a request: `{ beanId, content, locations }`, the one
+ * Location it is created at `{ locationId, remainingWeight? }`, its ids in
+ * lower case. `locations` stays a list, as the previous release's pages send
+ * it (ADR-0025), of exactly one: a batch is at one Location at a time
+ * (ADR-0037), so none or several is a bad request.
+ */
+export function readNewBatch(body: unknown): { beanId: string; content: Record<string, unknown>; location: { locationId: string; remainingWeight?: number | null } } {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   if (typeof fields.beanId !== "string" || !UUID.test(fields.beanId)) throw new BadRequestException("Name the batch's Bean as beanId");
   const listed = fields.locations ?? [];
-  if (!Array.isArray(listed)) throw new BadRequestException("Send the Locations it is at as locations, each { locationId, remainingWeight }");
+  if (!Array.isArray(listed)) throw new BadRequestException("Send the Location it is at as locations, a list of one { locationId, remainingWeight }");
   const locations = listed.map((here: unknown) => {
     const place = typeof here === "object" && here !== null ? (here as Record<string, unknown>) : {};
     if (typeof place.locationId !== "string" || !UUID.test(place.locationId)) throw new BadRequestException("Name each Location by its locationId");
@@ -284,8 +290,13 @@ export function readNewBatch(body: unknown): { beanId: string; content: Record<s
       ...(place.remainingWeight === undefined ? {} : { remainingWeight: readWeight(place.remainingWeight) }),
     };
   });
-  return { beanId: fields.beanId.toLowerCase(), content: readNewContent("beanBatch", { content: fields.content ?? {} }), locations };
+  const [location] = locations;
+  if (location === undefined || locations.length > 1) throw new BadRequestException(ONE_LOCATION);
+  return { beanId: fields.beanId.toLowerCase(), content: readNewContent("beanBatch", { content: fields.content ?? {} }), location };
 }
+
+/** Why a new batch given no Location, or several, is refused. */
+export const ONE_LOCATION = "A Bean Batch is created at exactly one Location: send one in locations. Adding it at another later moves it there";
 
 /** Where a request places a batch at a Location: `{ atLocation, remainingWeight }`, either or both. */
 export function readPlacement(body: unknown): { atLocation?: boolean; remainingWeight?: number | null } {
