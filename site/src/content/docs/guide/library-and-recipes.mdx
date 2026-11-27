@@ -5,7 +5,7 @@ description: What the Library shares with which Machines, and how a dial-in chan
 
 import Still from "../../../components/Still.astro";
 
-The Library is the Beans, Bean Batches, Grinders, Profiles, Baskets, Tools and Recipes that Decent Sync keeps and shares with your Machines. Enter something once, on a tablet or here, and it reaches the other tablets that should have it. This page covers what goes where, entering and editing coffee and equipment, Recipes and their Recipe Slots, and what happens to an edit or a delete.
+The Library is the Beans, Bean Batches, Grinders, Profiles, Baskets, Tools and Recipes that Decent Sync keeps and shares with your Machines. Enter something once, on a tablet or here, and it reaches the other tablets that should have it. This page covers what goes where, where each Bean Batch is and how much of it is left, entering and editing coffee and equipment, Recipes and their Recipe Slots, and what happens to an edit or a delete.
 
 Profiles have a page of their own: [Profiles and Drafts](../profiles-and-drafts/). The terms in capitals are defined in the [Glossary](../../reference/glossary/).
 
@@ -18,7 +18,7 @@ Machines share by Location. What a barista enters on one tablet joins the Librar
 | Item | Which Machines get it |
 |---|---|
 | Bean | Those at each Location where one of its Bean Batches is. Until a batch is added there, also those where a tablet created the Bean, linked a Bean of its own to it, or restored it. |
-| Bean Batch | Those at each Location it was added at, each with the weight last entered there. |
+| Bean Batch | Those at each Location it is at, each with its remaining weight there. |
 | Grinder | Those at the one Location it belongs to. |
 | Profile, Basket, Tool | Those at each Location that shows it. |
 | Recipe | Those at the one Location it belongs to. |
@@ -32,11 +32,13 @@ DYE2's lists on a tablet, its recipes, baskets and tools, are different, because
 - An Archived Recipe, Basket or Tool is removed from them, and so is a Tool the Location hides. A Basket it hides is archived there. Each stays in the Library, and is written back when it is restored or shown again.
 - A tablet joining a Location that already has Recipes, not counting Archived ones, drops the recipes of its own that are not the Location's, and the same goes for its baskets and tools. They are not kept. A Location with none of a kind yet takes the joining tablet's in.
 
-## Choose what a Location offers
+## Where a Bean Batch is, and how much is left
+
+A Bean Batch is at a Location from when it is added there until it is finished there. It can be at several at once, each with its own remaining weight.
 
 ### Move a Bean Batch to another Location, or finish it there
 
-A Bean Batch is at a Location from when it is added there until it is finished there, and it can be at several at once. It reaches another Location by a move, of all of it or of part of its weight.
+A batch reaches another Location by a move, of all of it or of part of its weight.
 
 1. Open **Library**, then **Bean Batches**, and open the batch.
 2. In its **Where it is** card, press **Move to…** beside the Location it leaves, and choose the Location it joins. Where there is only one you may move it to, it is already chosen.
@@ -54,7 +56,7 @@ When a batch runs out at a Location, press **Finish here**. A confirmation names
 
 - The batch is archived on that Location's tablets and stays in the Library. The weight there goes with it, and no other Location's weight changes.
 - Recipes at that Location that name the batch go on naming it, and those in a Recipe Slot read "Batch finished here". The confirmation says how many there are.
-- A finish is put back only by a move from another Location. To send what is left somewhere else, cancel and use **Move to…** instead.
+- There is no undo. A batch still at another Location comes back by a move from there, and one that is at no Location by **Add it at**. To send what is left somewhere else, cancel and use **Move to…** instead.
 
 Under the Locations the batch is at, the card has a line for each Location it has left, such as "Moved to Riverside 26 Nov" where a move of all took it there, and "Finished 26 Nov" otherwise.
 
@@ -85,11 +87,9 @@ The Bean Batches list shows the same weights, a line for each Location under **A
 - A batch with no weight entered at a Location reads **Not tracked** there, never zero, and Shots take nothing from it. It can be tracked at one Location and not at another. To stop tracking, press **Enter weight**, leave the field empty and save.
 - Shots never take a weight below zero, and reaching zero that way finishes nothing: the batch stays where it is, as the weight entered was too low. Entering a weight of zero yourself says the bucket is empty, so it finishes the batch there, as **Finish here** does. The dialog says so before you save, its button reads **Finish here**, and it asks nothing more. The batch's history keeps it as a finish made by a weight of zero.
 - Each tablet at a Location shows the batch's remaining weight there, kept up to date after each Shot and each move; a tablet that was offline catches up when it reconnects.
-- A barista enters the day's weight at the Machine, on a tablet running the Streamline Cafe Skin: in the Skin's bean and batch dialog, highlight the batch, press **Enter weight**, type what the scale reads and save. It is a weight entered at that Machine's Location, as one entered here is, and starts the count there again. The batch's history names the Machine it was entered on and no account, as a tablet has no sign-in. It arrives with the tablet's next report, every 30 seconds unless its plugin's poll interval was changed, or once the tablet reconnects where the server could not be reached.
+- A barista enters the day's weight at the Machine, on a tablet running the [Streamline Cafe Skin](https://github.com/loganfuller/streamline-cafe-js): in the Skin's bean and batch dialog, highlight the batch, press **Enter weight**, type what the scale reads and save. It is a weight entered at that Machine's Location, as one entered here is, and starts the count there again. The batch's history names the Machine it was entered on and no account, as a tablet has no sign-in. It arrives with the tablet's next report, every 30 seconds unless its plugin's poll interval was changed, or once the tablet reconnects where the server could not be reached.
 - Where the weight entered in the Skin leaves nothing, its button reads "Finish batch" and the batch is finished at that Location, as **Finish here** does.
-- The Skin takes the weight of the container a batch is kept in off what the scale reads. That weight is a setting of the Skin on each tablet, "Batch container weight" in its own settings, 0 until it is set. Decent Sync neither holds nor sets it, so set it on each tablet that weighs batches.
-- A remaining weight changed on a tablet any other way, as in DYE2, is entered for that tablet's Location too, and one set to zero finishes the batch there. A batch whose weight on the tablet already reads zero can't be finished by typing zero again there: use the Skin's "Finish batch", which archives the tablet's record, archive it on the tablet another way, or press **Finish here**.
-- A weight typed on a tablet that equals one the tablet showed since the count there last started may not be taken: the tablet goes back to the weight worked out. Enter that weight here instead.
+- A remaining weight changed on a tablet any other way, as in DYE2, is entered for that tablet's Location too, and one set to zero finishes the batch there.
 - Coffee used outside a Shot is not counted, such as purging a grinder or a bag sold over the counter. Weigh the bucket and enter the weight to correct for it.
 
 Staff enter a weight and finish a batch only at the Locations they work at. They move a batch when the Location it leaves or the one it joins is one they work at, so whoever sends a bucket or receives it can record the move. A scan, a weight entered or a batch finished on a tablet needs no account: each bears only on that tablet's own Location.
@@ -113,7 +113,9 @@ Everything in a row is that Location's own. A batch at two Locations is in each 
 
 Nothing is changed from a batch's **Recipes** card. A Location's card changes only a batch's weight there, with **Enter weight**, which is on a row that reads **Not tracked** too, as that is how tracking starts there. A weight of zero finishes the batch at that Location, and its row leaves the card. Move a batch, or finish it without weighing it, from the batch's **Where it is** card. Viewers read both cards, and Staff read every Location's.
 
-A Bean has no setting of its own for this. It is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there. A Bean with no batch at a Location yet is also offered there where a tablet created it, linked a Bean of its own to it, or restored it, until a batch is added.
+## Choose what a Location offers
+
+A Location offers the Bean Batches that are there and the Profiles, Baskets and Tools it shows. A Bean has no setting of its own: it is offered wherever one of its batches is, so finishing a Bean's last batch at a Location stops offering the Bean there. A Bean with no batch at a Location yet is also offered there where a tablet created it, linked a Bean of its own to it, or restored it, until a batch is added.
 
 ### Show or hide a Profile, Basket or Tool
 
@@ -136,7 +138,7 @@ Anything a barista enters on a tablet joins the Library by itself. You can enter
 2. Fill in its **Roaster** and **Name**, and what else you know about it, then press **Create**.
 3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, the **Location** it is at, and its **Roasted weight (g)**. Press **Create**.
 
-The batch, with its Bean, is written to the tablets at that Location. Given a roasted weight, its remaining weight there starts at that weight; type another under **Remaining weight (g)** if some of it is already gone. A batch is created at one Location, so its weight is counted once, and reaches another by being added there.
+The batch, with its Bean, is written to the tablets at that Location. Given a roasted weight, its remaining weight there starts at that weight; type another under **Remaining weight (g)** if some of it is already gone. A batch is created at one Location, so its weight is counted once, and reaches another by [a move](#move-a-bean-batch-to-another-location-or-finish-it-there).
 
 ### Give a batch its Batch Code
 

@@ -25,7 +25,7 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.15.0
 
 ### Check every tablet runs the 1.13.1 plugin or later before deploying
 

@@ -704,8 +704,8 @@ so until it has, the code is in the record's `extras`, under
   code, or none, back over it, and nothing in the Library changes. Keep the
   key, with the record's other `extras`, when you update a batch, as Decaid
   replaces `extras` whole.
-- A tablet whose plugin is older than this has no key until its plugin
-  updates. Decent Sync writes the key from the release after v1.14.0.
+- Decent Sync writes the key from v1.15.0. A tablet whose plugin is older
+  has no key until its plugin updates.
 - This is interim. Once Decaid's record has the field, a later release
   writes it there instead, and this page will say which release. A Skin that
   reads the field first and falls back to the key will keep working.

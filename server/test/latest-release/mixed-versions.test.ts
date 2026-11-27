@@ -15,7 +15,7 @@ import { CURVES_REVISION } from "../../src/shots/extraction.js";
 import { latestReleaseDir, latestReleaseTag, releaseCurvesRevision, releaseWireRevision } from "../support/latest-release.mjs";
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
-import { derivedShot, preheatShotFixture, shotFixture } from "../support/shot-fixtures.js";
+import { derivedShot, preheatShotFixture } from "../support/shot-fixtures.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
 import { PluginStorage, RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
@@ -236,45 +236,6 @@ describe("the latest release beside the change", () => {
         await api.send("PATCH", `/grinders/${grinder.id}`, { content: { notes: "Edited in the management interface" } });
         await expect.poll(() => heldGrinder(tablet, grinder.id)?.notes).toBe("Edited in the management interface");
         expect(heldGrinder(tablet, grinder.id)?.extras).toMatchObject({ bcUuid: "fixture-bc-uuid", ...range });
-      }
-    });
-
-    // A Bean Batch's Batch Code (#703), which a tablet's record holds in its `extras` (ADR-0036). The latest release's
-    // plugin writes it at the record's top, where Decaid drops it, so its tablet holds none until Decaid updates the
-    // plugin, and the batch keeps its code; the latest release's server knows no code, and keeps the record's `extras`
-    // whole through its writes.
-    it("keeps a batch's Batch Code where the other release knows none", async () => {
-      const api = apis[server];
-      const location = await api.createLocation(`Codes, the ${plugin}'s plugin`, "America/Chicago");
-      const { tablet } = await connected(`Codes, the ${plugin}'s plugin`, plugin, server, { location });
-      const heldBatch = (batchId: string) => tablet.batches().find((record) => globalIdOf(record) === batchId);
-      if (server === "change") {
-        const { bean } = await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Codes" } }, 201);
-        const created = await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { batchCode: "MIX-1", roastDate: "2026-11-20" }, locations: [{ locationId: location.id }] }, 201);
-        const batchId = created.batch.id;
-        await expect.poll(() => heldBatch(batchId)).toMatchObject({ roastDate: "2026-11-20T00:00:00.000" });
-        // An edit on the tablet, whose record holds no code its plugin could write, is its notes alone.
-        await tablet.editBatch(heldBatch(batchId)!.id, { notes: "Edited on the tablet" });
-        const batch = async () => (await api.get<{ batch: { batchCode: string | null; content: Record<string, unknown> } }>(`/bean-batches/${batchId}`)).batch;
-        await expect.poll(async () => (await batch()).content.notes).toBe("Edited on the tablet");
-        expect((await batch()).batchCode).toBe("MIX-1");
-        expect(heldBatch(batchId)?.extras).toEqual({ decentSyncId: batchId });
-        // A change of the code is refused nothing, and the batch's other edits still reach the tablet.
-        await api.send("PATCH", `/bean-batches/${batchId}`, { content: { batchCode: "MIX-2", roastLevel: "Light" } });
-        await expect.poll(() => heldBatch(batchId)?.roastLevel).toBe("Light");
-        expect((await batch()).batchCode).toBe("MIX-2");
-      } else {
-        // A record holding a code, as this release's server had its plugin write it before the latest release's took the tablet.
-        const bean = await tablet.addBean({ roaster: "Roux", name: "Mixed Codes Held" });
-        const record = await tablet.addBatch(bean.id, { roastDate: "2026-11-21", extras: { decentSyncBatchCode: "MIX-3" } });
-        const listed = async () =>
-          (await api.get<{ batches: { id: string; bean: { name: string | null } }[] }>("/bean-batches")).batches.find((batch) => batch.bean.name === "Mixed Codes Held");
-        await expect.poll(listed).toBeDefined();
-        const batch = (await listed())!;
-        await expect.poll(() => heldBatch(batch.id)?.id).toBe(record.id);
-        await api.send("PATCH", `/bean-batches/${batch.id}`, { content: { notes: "Edited in the management interface" } });
-        await expect.poll(() => heldBatch(batch.id)?.notes).toBe("Edited in the management interface");
-        expect(heldBatch(batch.id)?.extras).toEqual({ decentSyncId: batch.id, decentSyncBatchCode: "MIX-3" });
       }
     });
 
@@ -599,16 +560,17 @@ describe("the latest release beside the change", () => {
   // release's plugin the tablet runs.
   it("answers a Skin whichever release's instance holds its tablet, and whichever release's plugin it runs", async () => {
     const location = await apis.change.createLocation("Skin status, both releases", "America/Chicago");
+    // Without whether it can match scanned text (#708), which the plugins from 1.15.0 say and `skin-status.test.ts` covers.
     const status = async (tablet: SimulatedTablet) => {
       const answer = await tablet.callEndpoint("status");
-      return { status: answer.status, body: JSON.parse(answer.body) as Record<string, unknown> };
+      const { scan: _scan, ...body } = JSON.parse(answer.body) as Record<string, unknown>;
+      return { status: answer.status, body };
     };
     /** Once the plugin has been welcomed, as a Skin listening is told. */
     const welcomed = (tablet: SimulatedTablet) => expect.poll(() => tablet.pushes("changes").at(-1)).toEqual({ what: "connection", connected: true });
-    // The change's plugin says whether it can match scanned text (#708), which it can't through the latest release's server; the latest release's says nothing of it.
-    const served = (machine: CreatedMachine, scan?: boolean) => ({
+    const served = (machine: CreatedMachine) => ({
       status: 200,
-      body: { connected: true, served: true, machine: { id: machine.machine.id, name: machine.machine.name }, location: { id: location.id, name: location.name }, ...(scan === undefined ? {} : { scan }) },
+      body: { connected: true, served: true, machine: { id: machine.machine.id, name: machine.machine.name }, location: { id: location.id, name: location.name } },
     });
     const noShots = [200, { shots: [], nextCursor: null }];
     const shots = async (tablet: SimulatedTablet) => {
@@ -619,13 +581,13 @@ describe("the latest release beside the change", () => {
     // The change's plugin, held by the latest release's instance.
     const held = await connected("Skin status, held by the latest release", "change", "latest release", { location });
     await welcomed(held.tablet);
-    expect(await status(held.tablet)).toEqual(served(held.machine, false));
+    expect(await status(held.tablet)).toEqual(served(held.machine));
     expect(await shots(held.tablet)).toEqual(noShots);
     // Held by the change's instance, as once the deploy is done.
     const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
     loaded.push(moved);
     await welcomed(moved);
-    expect(await status(moved)).toEqual(served(held.machine, true));
+    expect(await status(moved)).toEqual(served(held.machine));
     expect(await shots(moved)).toEqual(noShots);
 
     // The latest release's plugin on the change's server, and Streamline's endpoint as it was.
@@ -635,47 +597,6 @@ describe("the latest release beside the change", () => {
     expect(await shots(behind.tablet)).toEqual(noShots);
     const skin = await behind.tablet.callEndpoint("skin");
     expect([skin.status, JSON.parse(skin.body)]).toEqual([200, { version: 1, surfaces: [], live: { endpoint: "changed" } }]);
-  });
-
-  // Bringing a scanned Bean Batch (#708) is an ask the latest release's server
-  // does not know, and closes a connection on. So the change's plugin never
-  // sends it one: held by that server, as during a deploy, it refuses a scan
-  // as too old to ask, and brings the batch once the change's server holds
-  // it. The latest release's plugin has no `scan` endpoint, which Decaid
-  // answers for it.
-  it("refuses a scan as too old to ask while the latest release's server holds the tablet, and brings the batch once the change's does", async () => {
-    const api = apis.change;
-    const cafe = await api.createLocation("Scans, both releases", "America/Chicago");
-    const lab = await api.createLocation("Scans, the lab, both releases", "America/Chicago");
-    const { bean } = await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed scan" } }, 201);
-    const created = await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { batchCode: "MIXED-708" }, locations: [{ locationId: lab.id, remainingWeight: 500 }] }, 201);
-    const scan = async (tablet: SimulatedTablet) => {
-      const answer = await tablet.callEndpoint("scan", { method: "PUT", body: { text: "MIXED-708" } });
-      return [answer.status, JSON.parse(answer.body)];
-    };
-    const welcomed = (tablet: SimulatedTablet) => expect.poll(() => tablet.pushes("changes").at(-1)).toEqual({ what: "connection", connected: true });
-    const asked = (tablet: SimulatedTablet) => tablet.sent.filter((frame) => (frame as { ask?: unknown }).ask === "bringBatch");
-    /** The Locations the batch is at, as that release's server reads it. */
-    const at = async (release: Release) => (await apis[release].get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${created.batch.id}`)).batch.locations.map((here) => here.location.id);
-
-    const held = await connected("Scans, held by the latest release", "change", "latest release", { location: cafe });
-    await welcomed(held.tablet);
-    expect(await scan(held.tablet)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
-    expect(asked(held.tablet)).toEqual([]);
-    expect(await at("change")).toEqual([lab.id]);
-
-    // Held by the change's instance, as once the deploy is done.
-    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
-    loaded.push(moved);
-    await welcomed(moved);
-    expect(await scan(moved)).toEqual([200, { outcome: "moved", batchId: expect.any(String), beanId: expect.any(String) }]);
-    expect(asked(moved)).toHaveLength(1);
-    // The latest release's server reads the batch where the scan brought it.
-    for (const release of ["change", "latest release"] as const) expect(await at(release)).toEqual([cafe.id]);
-
-    // The latest release's plugin declares no such endpoint, on either server.
-    const behind = await connected("Scans, the latest release's plugin", "latest release", "change", { location: cafe });
-    expect((await scan(behind.tablet))[0]).toBe(404);
   });
 
   // Each release's server sends a tablet the Reference Shot copies it is due
@@ -911,203 +832,6 @@ describe("the latest release beside the change", () => {
         await apis.change.waitForMachine(machine.machine.name, (viewed) => !viewed.online);
         expect(tablet.sent).not.toContainEqual(expect.objectContaining({ type: "heartbeat" }));
       }
-    });
-
-    // A Bean Batch's Remaining Weight (#706, ADR-0037): the latest release goes on adding batches at Locations and
-    // entering weights, each stored as it always was, and the change works its weight out from those and the Shots
-    // pulled since. The latest release's pages read the same route, whose fields they know keep their names.
-    it("reads a batch the latest release creates at two Locations, adds at a third and enters weights for, its weights falling with Shots in the change's reads alone", async () => {
-      const old = apis["latest release"];
-      const lab = await apis.change.createLocation("Weights, the lab", "America/Chicago");
-      const cafe = await apis.change.createLocation("Weights, the cafe", "America/Chicago");
-      const kiosk = await apis.change.createLocation("Weights, the kiosk", "America/Chicago");
-      const machineSerial = String(serial);
-      const { tablet } = await connected("Weights, on the latest release", "latest release", "latest release", { location: lab });
-      type Batch = {
-        id: string;
-        totalRemainingWeight?: number | null;
-        locations: { location: { id: string }; remainingWeight: number | null; entered?: unknown; used?: unknown }[];
-        finished: { location: { id: string } }[];
-      };
-      const read = async (through: Release, id: string) => (await apis[through].get<{ batch: Batch }>(`/bean-batches/${id}`)).batch;
-      const weights = async (through: Release, id: string) => Object.fromEntries((await read(through, id)).locations.map((here) => [here.location.id, here.remainingWeight]));
-
-      // The latest release's New Batch dialog still creates one at two Locations at once, and its page adds it at a third.
-      const { bean } = await old.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Weights" } }, 201);
-      const created = await old.send<{ batch: Batch }>(
-        "POST",
-        "/bean-batches",
-        { beanId: bean.id, content: { roastDate: "2026-11-20", weight: 1000 }, locations: [{ locationId: lab.id, remainingWeight: 500 }, { locationId: cafe.id }] },
-        201,
-      );
-      const id = created.batch.id;
-      // The same dialog's request reaching the change's server, as during a deploy, is taken as the latest release took it.
-      const throughChange = await apis.change.send<{ batch: Batch }>(
-        "POST",
-        "/bean-batches",
-        { beanId: bean.id, content: { weight: 1000 }, locations: [{ locationId: lab.id, remainingWeight: 500 }, { locationId: cafe.id }] },
-        201,
-      );
-      expect(Object.fromEntries(throughChange.batch.locations.map((here) => [here.location.id, here.remainingWeight]))).toEqual({ [lab.id]: 500, [cafe.id]: null });
-      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { atLocation: true, remainingWeight: 200 });
-      await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 450 });
-      expect(await weights("change", id)).toEqual({ [lab.id]: 450, [cafe.id]: null, [kiosk.id]: 200 });
-      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 650 });
-      expect((await read("change", id)).locations.find((here) => here.location.id === lab.id)).toMatchObject({ entered: { weight: 450 }, used: { shots: 0, weight: 0 } });
-
-      // A Shot at the lab, taken in by the latest release's server: the change's read falls by its dose, and the latest release's reads the weight entered.
-      const held = () => tablet.batches().find((record) => globalIdOf(record) === id);
-      await expect.poll(held).toBeTruthy();
-      const fixture = shotFixture();
-      const workflow = fixture.workflow as Record<string, unknown>;
-      tablet.pullShot({
-        ...fixture,
-        id: "mixed-weights-shot",
-        timestamp: new Date(Date.now() + 60_000).toISOString(),
-        annotations: { actualDoseWeight: 19 },
-        workflow: { ...workflow, machine: { ...(workflow.machine as Record<string, unknown>), serialNumber: machineSerial }, context: { ...(workflow.context as Record<string, unknown>), beanBatchId: held()!.id } },
-      });
-      await expect.poll(() => weights("change", id), { timeout: 15_000 }).toEqual({ [lab.id]: 431, [cafe.id]: null, [kiosk.id]: 200 });
-      expect(await weights("latest release", id)).toEqual({ [lab.id]: 450, [cafe.id]: null, [kiosk.id]: 200 });
-
-      // A weight the latest release enters starts the count again, and one it clears leaves the batch untracked there.
-      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { remainingWeight: null });
-      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 431 });
-      expect((await weights("change", id))[kiosk.id]).toBeNull();
-      // Zero entered through the change finishes it there, which the latest release reads as a finish.
-      await apis.change.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 0 });
-      for (const through of ["change", "latest release"] as const) {
-        const batch = await read(through, id);
-        expect(batch.finished.map((here) => here.location.id), through).toEqual([lab.id]);
-        expect(batch.locations.map((here) => here.location.id).sort(), through).toEqual([cafe.id, kiosk.id].sort());
-      }
-      // Its history, read through the latest release, holds the finish made by a weight of zero as fields it knows.
-      const history = await old.get<{ versions: { fields: Record<string, unknown> }[] }>(`/bean-batches/${id}/history`);
-      expect(history.versions[0]!.fields).toEqual({ remainingWeight: 0, atLocation: false });
-    });
-
-    // A tablet's record holding its Location's Remaining Weight (#705, ADR-0037): the weight is a field of a `write`'s
-    // opaque `fields` as it always was, so the latest release's plugin carries it out unchanged, and what the server
-    // wrote is kept in columns of its own, which the latest release neither reads nor writes. The latest release's
-    // server goes on writing the weight a count starts from to the tablets connected to it, for as long as a deploy lasts.
-    it("writes a tablet running the latest release's plugin its Location's weight after a Shot, as no weight entered, beside the latest release's server, which writes its own tablets the weight the count starts from and takes a barista's entry in as before", async () => {
-      const bar = await apis.change.createLocation("Held, the bar", "America/Chicago");
-      const machineSerial = String(serial);
-      const mine = await connected("Held, the latest release's plugin", "latest release", "change", { location: bar });
-      const theirs = await connected("Held, the latest release's server", "change", "latest release", { location: bar });
-      type Batch = { id: string; locations: { location: { id: string }; remainingWeight: number | null; entered?: { weight: number } | null }[]; finished: unknown[] };
-      const read = async (id: string) => (await apis.change.get<{ batch: Batch }>(`/bean-batches/${id}`)).batch;
-      const versions = async (id: string) => (await apis.change.get<{ versions: { fields: Record<string, unknown> }[] }>(`/bean-batches/${id}/history`)).versions;
-      const held = (tablet: SimulatedTablet, id: string) => tablet.batches().find((record) => globalIdOf(record) === id);
-
-      const { bean } = await apis.change.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Held" } }, 201);
-      const created = await apis.change.send<{ batch: Batch }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: bar.id, remainingWeight: 36 }] }, 201);
-      const id = created.batch.id;
-      for (const { tablet } of [mine, theirs]) await expect.poll(() => held(tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(36);
-      const before = await versions(id);
-
-      // Two Shots on the Machine connected to the change's server, which use more than the batch had: its tablet is written
-      // each new weight, the last of them zero, by the latest release's plugin.
-      const fixture = shotFixture();
-      const workflow = fixture.workflow as Record<string, unknown>;
-      // Each pulled now: after the weight was entered, and before the one a barista enters below.
-      const pull = (shotId: string) =>
-        mine.tablet.pullShot({
-          ...fixture,
-          id: shotId,
-          timestamp: new Date().toISOString(),
-          annotations: { actualDoseWeight: 19 },
-          workflow: { ...workflow, machine: { ...(workflow.machine as Record<string, unknown>), serialNumber: machineSerial }, context: { ...(workflow.context as Record<string, unknown>), beanBatchId: held(mine.tablet, id)!.id } },
-        });
-      pull("mixed-held-1");
-      await expect.poll(() => held(mine.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(17);
-      pull("mixed-held-2");
-      await expect.poll(() => held(mine.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(0);
-      // A later change on that tablet is taken in with the zero the server wrote it, which is no weight entered and finishes nothing.
-      await mine.tablet.editBatch(held(mine.tablet, id)!.id, { roastLevel: "light" });
-      await expect.poll(() => held(theirs.tablet, id)?.roastLevel, { timeout: 15_000 }).toBe("light");
-      expect(await read(id)).toMatchObject({ finished: [], locations: [{ remainingWeight: 0, entered: { weight: 36 } }] });
-      expect((await versions(id)).filter((version) => "remainingWeight" in version.fields || "atLocation" in version.fields)).toEqual(
-        before.filter((version) => "remainingWeight" in version.fields || "atLocation" in version.fields),
-      );
-      // The latest release's server writes its tablet the weight the count starts from, as it always did.
-      expect(held(theirs.tablet, id)).toMatchObject({ archived: false, weightRemaining: 36 });
-
-      // A barista weighs the bucket on the tablet connected to the latest release's server, which takes the entry in as it
-      // always did: the count starts again, and the change writes its own tablet the new weight.
-      await theirs.tablet.editBatch(held(theirs.tablet, id)!.id, { weightRemaining: 120 });
-      await expect.poll(async () => (await read(id)).locations[0]?.entered?.weight, { timeout: 15_000 }).toBe(120);
-      await expect.poll(() => held(mine.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(120);
-      expect((await read(id)).finished).toEqual([]);
-    });
-
-    // A Batch Move (#704, ADR-0037): a new route and a new table, which the latest release neither calls nor reads. It
-    // goes on adding and finishing batches at Locations and entering weights, each stored as it always was: a weight
-    // it enters is a new version, and so a new count, which no move made before it bears on.
-    it("moves a batch through the change beside the latest release, whose pages go on reading it, adding and finishing it and entering weights, each weight it enters starting that Location's count again", async () => {
-      const old = apis["latest release"];
-      const lab = await apis.change.createLocation("Moves, the lab", "America/Chicago");
-      const cafe = await apis.change.createLocation("Moves, the cafe", "America/Chicago");
-      const kiosk = await apis.change.createLocation("Moves, the kiosk", "America/Chicago");
-      const { tablet } = await connected("Moves, on the latest release", "latest release", "latest release", { location: lab });
-      type Batch = {
-        id: string;
-        totalRemainingWeight?: number | null;
-        locations: { location: { id: string }; remainingWeight: number | null; entered?: { weight: number; arrivedFrom?: unknown } | null; moved?: { in: number; away: number } | null }[];
-        finished: { location: { id: string } }[];
-      };
-      const read = async (through: Release, id: string) => (await apis[through].get<{ batch: Batch }>(`/bean-batches/${id}`)).batch;
-      const weights = async (through: Release, id: string) => Object.fromEntries((await read(through, id)).locations.map((here) => [here.location.id, here.remainingWeight]));
-      const at = async (id: string, location: LocationView) => (await read("change", id)).locations.find((here) => here.location.id === location.id);
-      const move = (id: string, from: LocationView, to: LocationView, amount: number | "all") =>
-        apis.change.send<{ batch: Batch }>("POST", `/bean-batches/${id}/moves`, { fromLocationId: from.id, toLocationId: to.id, amount });
-
-      // Created through the latest release, at the lab, and part of it moved to the cafe through the change.
-      const { bean } = await old.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Mixed Moves" } }, 201);
-      const id = (await old.send<{ batch: Batch }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-11-21" }, locations: [{ locationId: lab.id, remainingWeight: 1000 }] }, 201)).batch.id;
-      const held = () => tablet.batches().find((record) => globalIdOf(record) === id);
-      await expect.poll(() => held()?.archived).toBe(false);
-      await move(id, lab, cafe, 400);
-      expect(await weights("change", id)).toEqual({ [lab.id]: 600, [cafe.id]: 400 });
-      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 1000 });
-      // The latest release's page reads the same route: the batch at both, each with the weight its count starts from, as it knows nothing of moves.
-      expect(await weights("latest release", id)).toEqual({ [lab.id]: 1000, [cafe.id]: 400 });
-      // And its history, the move among it, as fields of a version at the Location joined.
-      const history = await old.get<{ versions: { fields: Record<string, unknown>; location: { id: string } | null }[] }>(`/bean-batches/${id}/history`);
-      expect(history.versions[0]).toMatchObject({ location: { id: cafe.id }, fields: { movedFrom: lab.id, movedAmount: 400, movedAll: false, atLocation: true, remainingWeight: 400 } });
-
-      // A weight the latest release enters at the Location left starts its count again: the move is no longer since.
-      await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { remainingWeight: 550 });
-      expect(await at(id, lab)).toMatchObject({ remainingWeight: 550, entered: { weight: 550, arrivedFrom: null }, moved: { in: 0, away: 0 } });
-      expect(await at(id, cafe)).toMatchObject({ remainingWeight: 400, entered: { weight: 400, arrivedFrom: { id: lab.id } } });
-      // And one it enters at the Location joined is a weight entered, no longer one that arrived.
-      await old.send("PUT", `/bean-batches/${id}/locations/${cafe.id}`, { remainingWeight: 380 });
-      expect(await at(id, cafe)).toMatchObject({ remainingWeight: 380, entered: { weight: 380, arrivedFrom: null }, moved: { in: 0, away: 0 } });
-      // A move made after its entries counts since them, and the two releases read the same weight until it does.
-      expect(await weights("latest release", id)).toEqual(await weights("change", id));
-      await move(id, cafe, lab, 50);
-      expect(await weights("change", id)).toEqual({ [lab.id]: 600, [cafe.id]: 330 });
-
-      // The latest release's page adds the batch at a third Location, moving no weight, and finishes it at the cafe.
-      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { atLocation: true });
-      expect(await weights("change", id)).toEqual({ [lab.id]: 600, [cafe.id]: 330, [kiosk.id]: null });
-      await old.send("PUT", `/bean-batches/${id}/locations/${cafe.id}`, { atLocation: false });
-      expect(await read("change", id)).toMatchObject({ totalRemainingWeight: 600, finished: [{ location: { id: cafe.id } }] });
-
-      // All of it moved through the change: finished at the lab for both releases, whose tablet, on the latest release's server and plugin, archives it.
-      await move(id, lab, kiosk, "all");
-      for (const through of ["change", "latest release"] as const) {
-        const batch = await read(through, id);
-        expect(batch.locations.map((here) => here.location.id), through).toEqual([kiosk.id]);
-        expect(batch.locations[0]!.remainingWeight, through).toBe(600);
-        expect(batch.finished.map((here) => here.location.id).sort(), through).toEqual([cafe.id, lab.id].sort());
-      }
-      await expect.poll(() => held()?.archived, { timeout: 15_000 }).toBe(true);
-      // The latest release's page finishes it there, and adds it back at the lab, as it always could.
-      await old.send("PUT", `/bean-batches/${id}/locations/${kiosk.id}`, { remainingWeight: 0 });
-      await old.send("PUT", `/bean-batches/${id}/locations/${lab.id}`, { atLocation: true, remainingWeight: 120 });
-      expect(await at(id, lab)).toMatchObject({ remainingWeight: 120, entered: { weight: 120, arrivedFrom: null }, moved: { in: 0, away: 0 } });
-      await expect.poll(() => held()?.archived, { timeout: 15_000 }).toBe(false);
     });
 
     it("writes a Library edit made through one instance to the tablet the other holds", async () => {
