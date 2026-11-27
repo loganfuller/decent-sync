@@ -172,8 +172,7 @@ In production at its author's cafe. See
 [the releases](https://loganfuller.github.io/decent-sync/project/releases/) for
 what each added, and the
 [roadmap](https://loganfuller.github.io/decent-sync/project/roadmap/) for what
-is planned: monitoring and alerts, calibration checks, and scanning a Bean
-Batch's QR code at the bar.
+is planned: monitoring and alerts, and calibration checks.
 
 ## License
 

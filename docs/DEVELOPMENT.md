@@ -307,7 +307,7 @@ Replace `X.Y.Z` with the new version.
    `UPGRADING.md`, if there are any, with the version. Where the release
    finishes a milestone, add its row to the site's Releases page
    (`site/src/content/docs/project/releases.md`), and take what it built out
-   of the Roadmap page beside it. Rebuild the test
+   of the Roadmap page beside it and of the README's Status. Rebuild the test
    durations manifest too, once CI has passed on `main` for the last change
    the release holds. Commit the changes and merge them to `main`:
 
