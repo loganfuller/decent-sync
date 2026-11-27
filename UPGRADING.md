@@ -93,9 +93,9 @@ tab:
   weight" setting, 0 until set, which Decent Sync neither holds nor sets.
 - **A weight the tablet showed earlier may not be taken.** A weight entered
   in the Skin that equals one of the last sixteen the tablet's record held
-  since the Location's weight was last entered is not taken as entered, and the tablet goes back
-  to showing the weight worked out. Enter it in the management interface
-  instead.
+  since the Location's count last started is not taken as entered, and the
+  tablet goes back to showing the weight worked out. Enter it in the
+  management interface instead.
 
 A Skin's author enters a weight and finishes a batch the same way
 ([For a Skin's author](site/src/content/docs/technical/skin-authors.md#entering-a-bean-batchs-weight-and-finishing-it)).

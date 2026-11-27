@@ -746,7 +746,8 @@ writes the Location's other tablets the weight, or archives their records.
 - **Finish by archiving, never by writing zero.** A record that already
   reads zero keeps its weight when zero is written to it, so the server
   finds no weight entered. A zero the server wrote there after Shots is no
-  weight entered either, and finishes nothing. An archive is a finish whatever the record reads.
+  weight entered either, and finishes nothing. An archive is a finish
+  whatever the record reads.
 - **A weight the record held before may not be taken.** After each Shot and
   each move the server writes the record its Location's current weight, and
   keeps the latest sixteen weights the record has held since the Location's
