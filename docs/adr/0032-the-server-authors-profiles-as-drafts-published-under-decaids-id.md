@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (amended by ADR-0038: a Profile has one current version everywhere and a history, so a new version is shown wherever the Profile is, Recipes follow it, a chain no longer forks, and returning to an earlier version acts everywhere)
 ---
 
 # The server authors Profiles, as Drafts published under Decaid's id
