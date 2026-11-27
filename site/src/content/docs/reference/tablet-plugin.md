@@ -307,7 +307,10 @@ full detail.
   set after Shots finishes nothing. Nor is going back to a weight the batch
   showed earlier, as when DYE2's batch page, opened before a Shot, is saved
   after it with the weight it opened with: the plugin sets the current
-  weight again. To correct the weight, type the one weighed.
+  weight again. To correct the weight, type the one weighed. One the batch
+  showed earlier since its Location's count last started may be taken as
+  the plugin's own and set back: enter that weight in the management
+  interface instead.
 - It shows each Profile its Location shows.
 - It sets the profile of a Draft its Machine follows as the Workflow's
   profile, where an Admin marked the Machine's Location for trying Drafts
