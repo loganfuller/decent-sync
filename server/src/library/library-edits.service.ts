@@ -228,8 +228,8 @@ export class LibraryEditsService {
   /**
    * Moves the batch from one Location it is at to another, all of it or part
    * of its weight (ADR-0037, `moveBatchBetween`): one change, under both
-   * Locations' locks, taken in id order as a batch created at several takes
-   * them, so two moves at once are made one after the other, through any
+   * Locations' locks, taken in id order, so two moves at once are made one
+   * after the other, through any
    * instance, the second over what the first left. Staff move it when the
    * Location it leaves or the one it joins is theirs, so whoever sends it or
    * receives it can record it: 403 where neither is. 404 if there is no such
