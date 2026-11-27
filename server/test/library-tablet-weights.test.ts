@@ -388,6 +388,28 @@ describe("A tablet's record of a Bean Batch holds its Location's Remaining Weigh
     for (const place of [one, two]) await expect.poll(() => held(place.tablet, emptied)?.archived, WAIT).toBe(true);
   });
 
+  // Ticket #725: how a Skin finishes a batch whose record already reads zero, as a zero written there would change nothing.
+  it("finishes a batch whose record reads a zero the server wrote after Shots at the Location once a tablet archives the record, named in its history by the Machine and no account", async () => {
+    const id = await batchAtBar(30);
+    pull(one, id, 18);
+    pull(one, id, 18, minutes(2));
+    await holds(id, 0, one, two);
+    expect((await getBatch(id)).finished).toEqual([]);
+
+    // Archived alone, on the tablet that pulled no Shot of it: the record keeps the zero it was written.
+    const archived = await two.tablet.editBatch(held(two.tablet, id)!.id, { archived: true });
+    expect(archived).toMatchObject({ archived: true, weightRemaining: 0 });
+    await expect.poll(async () => (await getBatch(id)).finished.map((here) => here.location.id), WAIT).toEqual([one.location.id]);
+    expect((await getBatch(id)).locations).toEqual([]);
+    const { versions, lostEdits } = await history(id);
+    expect(versions[0]).toMatchObject({ fields: { atLocation: false }, location: { id: two.location.id }, source: { machine: { id: two.machine.machine.id }, account: null } });
+    // A finish, and no weight entered: the zero was the server's own.
+    expect(versions[0]!.fields).not.toHaveProperty("remainingWeight");
+    expect(lostEdits).toEqual([]);
+    // Archived on the Location's other tablet too.
+    await expect.poll(() => held(one.tablet, id)?.archived, WAIT).toBe(true);
+  });
+
   it("writes the tablets at the Location left and at the Location joined their Locations' new weights after a move of an amount, with no history entry beyond the move's", async () => {
     const id = await batchAtBar(1000);
     await addAtAnnex(id, 100);

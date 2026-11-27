@@ -20,7 +20,9 @@ asked to reload](#reporting-the-page-and-reloading). It may also edit a Recipe b
 writing its DYE2 record itself ([Writing DYE2's
 recipes](#writing-dye2s-recipes)). What a Skin reads from Decaid's own
 records, the plugin keeps current there: [a Bean Batch's Batch
-Code](#a-bean-batchs-batch-code) is one.
+Code](#a-bean-batchs-batch-code) is one. A Skin [enters a Bean Batch's weight
+and finishes a batch](#entering-a-bean-batchs-weight-and-finishing-it) by
+writing Decaid's record of it, with nothing asked of the plugin.
 
 ## Calling the plugin
 
@@ -707,6 +709,62 @@ so until it has, the code is in the record's `extras`, under
 - This is interim. Once Decaid's record has the field, a later release
   writes it there instead, and this page will say which release. A Skin that
   reads the field first and falls back to the key will keep working.
+
+## Entering a Bean Batch's weight, and finishing it
+
+A Skin enters what is left of a Bean Batch, and finishes one, by writing
+Decaid's own record of it. It asks nothing of the plugin, so both work while
+the server can't be reached. The Streamline Cafe Skin does so from its bean
+and batch dialog
+([ADR-0037](https://github.com/loganfuller/decent-sync/blob/main/docs/adr/0037-a-batchs-remaining-weight-is-per-location-and-worked-out-from-shots.md),
+What a tablet holds).
+
+To enter a weight, write `weightRemaining` alone, in grams, with Decaid's
+`PUT /api/v1/bean-batches/{id}`, which keeps every field it is not given:
+
+```json
+{ "weightRemaining": 2890 }
+```
+
+To finish the batch, archive the record the same way:
+
+```json
+{ "archived": true }
+```
+
+The plugin reports the changed record at its next poll, 30 s by default, or
+once it reconnects. The server takes a changed `weightRemaining` as a weight
+entered at the Machine's Location, which starts the count there again, and an
+archived record as the batch finished there. Either is timed by the record,
+and the batch's history names the Machine and no account. The server then
+writes the Location's other tablets the weight, or archives their records.
+
+- **Never send the whole record.** Its `extras` hold the batch's Library id
+  and [Batch Code](#a-bean-batchs-batch-code), and Decaid replaces `extras`
+  whole. A record read a moment ago may also hold a weight the server has
+  since written over, after a Shot.
+- **Finish by archiving, never by writing zero.** A record that already
+  reads zero does not change when zero is written to it, so nothing is
+  reported. A zero the server wrote there after Shots is no weight entered,
+  and finishes nothing. An archive is a finish whatever the record reads.
+- **A weight the record held before may not be taken.** After each Shot and
+  each move the server writes the record its Location's current weight, and
+  keeps the weights the record has held since the Location's count last
+  started, so as not to read its own write back as an entry. A weight
+  written by a Skin that equals one of them is not taken as entered, and the
+  server writes its own number back: a batch entered at 400 g and written
+  382 g after a Shot, then entered at exactly 400 g again, reads 382 g
+  again. Nothing tells the Skin. This limit is accepted, and a different
+  weight, by as little as a gram, is taken.
+- **Read the record again after writing it.** Nothing pushes a Skin a change
+  it made itself ([Changes](#changes)). On the Location's other tablets, the
+  plugin's archive of the record is pushed as a `batch`.
+- **A Capture-only Machine's records are its own.** Nothing written there is
+  taken at any Location.
+- **A container's weight is the Skin's.** A Skin that takes the weight of the
+  container a batch is kept in off what the scale reads holds that weight
+  itself, as Streamline Cafe does in a setting on each tablet. Decent Sync
+  neither holds nor sets it, and is written only what is left.
 
 ## Streamline's endpoints
 
