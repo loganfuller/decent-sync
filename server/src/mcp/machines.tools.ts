@@ -103,7 +103,14 @@ const settingsCollection = z
   })
   .nullable();
 
-const changedItem = z.object({ kind: z.string(), id: z.string(), name: z.string().nullable() }).nullable();
+const changedItem = z
+  .object({
+    kind: z.string(),
+    id: z.string(),
+    name: z.string().nullable(),
+    batch: workflowBatch.optional().describe("For a Bean Batch, the Bean, roast date and Batch Code it is named by, as the Library holds them now."),
+  })
+  .nullable();
 const changeFields = { change: z.enum(["write", "delete", "remove", "leaveOut"]), kind: z.string(), item: changedItem, localId: z.string().nullable() };
 
 /** A Machine as get_machine gives it, apart from its Workflow, settings, sharing status and its tablet's versions. */
@@ -760,5 +767,5 @@ function pairedDevicesOf({ reportedAt, available, receivedAt, scale, auxiliarySc
 }
 
 function changeOf({ change, kind, item, localId }: ChangeView) {
-  return { change, kind, item: item && { kind: item.kind, id: item.id, name: item.name }, localId };
+  return { change, kind, item: item && { kind: item.kind, id: item.id, name: item.name, ...(item.batch && { batch: item.batch }) }, localId };
 }

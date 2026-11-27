@@ -3774,9 +3774,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
   last change it applied, or null, and `refused` the changes it refused that
   are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
   localId }`: `change` is `write`, `delete`, `remove` or `leaveOut`; `kind` a Library
-  kind or `workflow`; `item` the item, `{ kind, id, name }`,
-  `name` a Bean's roaster and name, a batch's Bean and the
-  day it was roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a
+  kind or `workflow`; `item` the item, `{ kind, id, name }`, and for a
+  batch `batch` (#732), `{ id, bean, roastDate, batchCode }`, which the page
+  names it by; `name` a Bean's roaster and name, a batch's Bean, its Batch
+  Code and the day it was roasted, as `Guji LR-0411, roasted 2026-10-01`,
+  or `Guji, roasted 2026-10-01` for one with no code, a Grinder's model, a
   Profile's title or a Basket's, Tool's or Recipe's name, null where its
   content has none, or for the Workflow "Grinder, batch and Basket", null
   for a record set aside, which is none of the Library's, or an item
@@ -3799,9 +3801,11 @@ is written as a day, read from its text so no time zone moves it, with its
 year when that is not this year, and always where the date is itself the
 value shown. A name is the link to the batch's page, but on that page, in a
 dialog and in an option of a select. The refusal of a Batch Code another
-batch holds gives that batch's Bean and roast date as `existing`, so the
-page names it too. A batch named by the server, as in a Machine's sharing
-status and to an assistant, is still "Guji, roasted 2026-10-01"
+batch holds gives that batch's Bean and roast date as `existing`, and a
+Machine's sharing status gives a batch's parts as `batch`, so the page names
+those too. A batch the server names in text, as in a refusal's message, a
+sharing status's `name` and to an assistant, is named the same way with its
+day as ISO's, for no reader's locale: "Guji LR-0411, roasted 2026-10-01"
 (`batchName` in `server/src/library/kinds.ts`).
 
 The management interface's Library section lists the Beans and where each is

@@ -4,6 +4,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { machineNotFound } from "../machines/input.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type PlannedChange, deleteKey, leaveOutKey, removeKey, writeKey } from "./holdings.js";
+import { type BatchLink, batchLinksOf } from "./batch-links.js";
 import { writtenKind } from "./kinds.js";
 import { changesDue } from "./tablet-due.js";
 
@@ -116,6 +117,8 @@ export interface ChangedItemView {
   kind: WrittenKind;
   id: string;
   name: string | null;
+  /** For a Bean Batch, what it is named by (#732): its Bean, roast date and Batch Code, as the Library holds them. */
+  batch?: BatchLink;
 }
 
 /** A change, as a Machine's sharing status shows it. */
@@ -240,7 +243,11 @@ async function itemNames(tx: Prisma.TransactionClient, changes: readonly Omit<Ta
     if (!isWrittenKind(kind)) continue;
     const ids = [...new Set(changes.filter((change) => change.kind === kind && change.itemId !== null).map((change) => change.itemId!))];
     if (ids.length === 0) continue;
-    for (const [id, name] of await writtenKind(kind).itemNames(tx, ids)) named.set(`${kind}:${id}`, { kind, id, name });
+    const batches = kind === "beanBatch" ? await batchLinksOf(tx, ids) : undefined;
+    for (const [id, name] of await writtenKind(kind).itemNames(tx, ids)) {
+      const batch = batches?.get(id.toLowerCase());
+      named.set(`${kind}:${id}`, { kind, id, name, ...(batch && { batch }) });
+    }
   }
   return named;
 }

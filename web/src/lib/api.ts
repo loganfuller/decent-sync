@@ -221,7 +221,13 @@ export interface TabletChange {
    */
   kind: ItemKind | "workflow" | "loadedRecipe" | "draft";
   /** The item, named as its page names it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
-  item: { kind: ItemKind | "workflow" | "loadedRecipe" | "draft"; id: string; name: string | null } | null;
+  item: {
+    kind: ItemKind | "workflow" | "loadedRecipe" | "draft";
+    id: string;
+    name: string | null;
+    /** For a Bean Batch, what it is named by: its Bean, roast date and Batch Code. Absent from the release before (ADR-0025), whose `name` is "Guji, roasted 2026-10-01". */
+    batch?: BatchLink;
+  } | null;
   /** Decaid's id for the tablet's record; null for a create, a Workflow or a Loaded Recipe. */
   localId: string | null;
 }
