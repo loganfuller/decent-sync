@@ -222,9 +222,10 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
       moved: { in: 0, from: [], away: 5700, to: [{ location: { id: cafe.location.id }, weight: 5700 }] },
     });
     expect(moved.finished).toEqual([]);
-    await expect.poll(() => held(cafe.tablet, id)?.archived, { timeout: 15_000 }).toBe(false);
-    // The cafe's tablets hold the weight its count starts from.
-    expect(held(cafe.tablet, id)).toMatchObject({ weightRemaining: 5700 });
+    // The cafe's tablets hold the weight its count starts from. The plugin creates the record first and writes its weight after,
+    // so a wait for the record alone can end before the weight lands.
+    await expect.poll(() => held(cafe.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(5700);
+    expect(held(cafe.tablet, id)).toMatchObject({ archived: false });
     expect(held(lab.tablet, id)).toMatchObject({ archived: false });
 
     // A second delivery to a Location that has some raises its weight by the amount, and some moved back lowers it.
@@ -299,8 +300,8 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
         fields: { movedFrom: lab.location.id, movedAmount: 2900, movedAll: true, atLocation: true, remainingWeight: 2900 },
       });
       await expect.poll(() => held(lab.tablet, id)?.archived, { timeout: 15_000 }).toBe(true);
-      await expect.poll(() => held(cafe.tablet, id)?.archived, { timeout: 15_000 }).toBe(false);
-      expect(held(cafe.tablet, id)).toMatchObject({ weightRemaining: 2900 });
+      await expect.poll(() => held(cafe.tablet, id)?.weightRemaining, { timeout: 15_000 }).toBe(2900);
+      expect(held(cafe.tablet, id)).toMatchObject({ archived: false });
     }
   });
 
