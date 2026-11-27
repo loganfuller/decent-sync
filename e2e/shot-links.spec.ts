@@ -7,6 +7,7 @@ import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { chooseFilter, field, filterChip, openCard, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
+import { roastDay } from "./support/days.js";
 
 // Shots linked to the Library (ticket #92): each Library item's page lists
 // the Shots that used it, and the Shots list filters by Bean Batch and by
@@ -75,7 +76,7 @@ test("a batch's page counts its Shots from both Locations and opens them in the 
   await shots.getByRole("link", { name: "Open in the Shots list" }).click();
   await expect(page).toHaveURL(new RegExp(`/shots\\?beanBatchId=${batch.id}$`));
   await expect(rows(list)).toHaveCount(2);
-  await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Linked Sidra, roasted 2026-10-04");
+  await expect(filterChip(page, "Bean Batch")).toHaveText(`Bean Batch:Linked Sidra, roasted ${roastDay("2026-10-04")}`);
 
   // By Grinder, each Location's own.
   await chooseFilter(page, "Bean Batch", "Any Bean Batch");
@@ -105,8 +106,8 @@ test("a batch's page counts its Shots from both Locations and opens them in the 
   await expect(field(details, "Grinder").getByRole("link", { name: "Lab EK43" })).toHaveAttribute("href", `/library/grinders/${labGrinder.id}`);
   // The Library's Grinder by its name now, with the model the Shot recorded, which is another, and its grind setting.
   await expect(field(details, "Grinder")).toHaveText("Lab EK43 (recorded as DF64 v2) at 8");
-  await details.getByRole("link", { name: "Linked Sidra, roasted 2026-10-04" }).click();
-  await expect(page.getByRole("heading", { name: "Linked Sidra, roasted 2026-10-04", level: 1 })).toBeVisible();
+  await details.getByRole("link", { name: "Linked Sidra", exact: true }).click();
+  await expect(page.getByRole("heading", { name: `Linked Sidra, roasted ${roastDay("2026-10-04")}`, level: 1 })).toBeVisible();
 });
 
 /** The test tablet's Shot pulled on the Machine of that serial, naming the batch and Grinder by the ids given, rated as given. */

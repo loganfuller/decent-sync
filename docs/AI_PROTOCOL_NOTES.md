@@ -35,6 +35,7 @@ What one release writes outside the wire, the other reads during an upgrade (ADR
 - The barista a history entry names (#708, ADR-0030) is `item_versions.barista`, with `conflicts.barista` for a Lost Edit: new columns, null but for a Bean Batch a scan brought. The latest release neither reads nor writes them, so an entry read through its instance names the Machine and tablet without the barista, and this release's pages read a source with no `barista` as none.
 - `library_changes` is also sent as a Shot is stored that changes what counts against a tracked batch's weight at its Location, with that Location's id, and with a Machine's id as its Shots are credited to other Locations. Every instance of either release only looks again on it, whatever its payload.
 - Keep the REST API serving the latest release's pages: add routes and fields, and change or remove one only in a later release, unless it was added since the latest release.
+- A batch named with its Batch Code (#732) is fields added to REST answers: `batchCode` on a Shot's batch, the Shots filter's batches, a Shot Summary's groups by Bean Batch and a Recipe's `uses.beanBatch`, `beanBatch` on a Workflow's summary, and `beanBatch` on a dial-in trail's change of `beanBatchId`. The latest release's server answers without them: this release's pages then name a batch by its Bean and roast date, a Machine's Workflow card has no Bean Batch row, and its Activity reads a change of batch as it did.
 
 ## Live frames
 

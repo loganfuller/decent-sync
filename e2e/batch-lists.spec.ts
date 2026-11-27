@@ -6,6 +6,7 @@ import { rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 import { expectTip } from "./support/tooltips.js";
+import { roastDay } from "./support/days.js";
 
 // What a Bean Batch is for and what a Location has, in the management
 // interface (ticket #707): a batch's page lists the Recipes that name it, at
@@ -84,11 +85,11 @@ test("a batch's page lists the Recipes that name it at any Location, and a Locat
   await expect(here).toContainText("3 batches here, 2 with a weight");
   const listed = here.getByRole("table", { name: "Bean Batches here" });
   await expect(rows(listed)).toHaveText([
-    /^Ethiopia Guji NaturalRoasted 2026-11-18LR-04123641\.5 gof 4180 g entered .+38\.5 g used, 2 Shots500 g moved to RiversideGuji Espresso slot 2Guji Long no slotEnter weight$/,
+    new RegExp(String.raw`^Ethiopia Guji NaturalRoasted ${roastDay("2026-11-18")}LR-04123641\.5 gof 4180 g entered .+38\.5 g used, 2 Shots500 g moved to RiversideGuji Espresso slot 2Guji Long no slotEnter weight$`),
     // A batch with no weight here is not tracked, never zero, and one with no Batch Code has a dash, as in the list of batches (#726).
-    /^Ethiopia Guji NaturalRoasted 2026-11-10-Not trackedNo weight enteredShotsLast week's Guji no slotEnter weight$/,
+    new RegExp(String.raw`^Ethiopia Guji NaturalRoasted ${roastDay("2026-11-10")}-Not trackedNo weight enteredShotsLast week's Guji no slotEnter weight$`),
     // A count with no Shot since says so, in place of "0 g used, 0 Shots" (#726).
-    /^Ethiopia Guji NaturalRoasted 2026-11-02LR-0399250 gof 250 g entered .+No Shots sinceNothing movedNoneEnter weight$/,
+    new RegExp(String.raw`^Ethiopia Guji NaturalRoasted ${roastDay("2026-11-02")}LR-0399250 gof 250 g entered .+No Shots sinceNothing movedNoneEnter weight$`),
   ]);
   // An Admin has Enter weight on each row, on the untracked one too, and the card's tip no longer sends them to the batch's page for it.
   await expect(listed.getByRole("button", { name: /^Enter the weight of / })).toHaveCount(3);
@@ -96,7 +97,7 @@ test("a batch's page lists the Recipes that name it at any Location, and a Locat
   // Riverside's has the same batch with Riverside's own weight, Shots, moves and Recipe.
   await page.goto(`/locations/${riverside.id}`);
   await expect(here).toContainText("1 batch here, 1 with a weight");
-  await expect(rows(listed)).toHaveText([/^Ethiopia Guji NaturalRoasted 2026-11-18LR-0412500 gof 500 g arrived .+No Shots sinceNothing movedGuji Cupping slot 5Enter weight$/]);
+  await expect(rows(listed)).toHaveText([new RegExp(String.raw`^Ethiopia Guji NaturalRoasted ${roastDay("2026-11-18")}LR-0412500 gof 500 g arrived .+No Shots sinceNothing movedGuji Cupping slot 5Enter weight$`)]);
   // A Location with none says so.
   await page.goto(`/locations/${harbor.id}`);
   await expect(page.getByRole("region", { name: "Bean Batches", exact: true })).toContainText("No Bean Batch is here.");

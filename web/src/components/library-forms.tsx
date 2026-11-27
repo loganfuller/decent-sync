@@ -28,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api, type BatchAtLocation, type BeanBatch, type BeanBatchSummary, type BeanSummary, type ItemHistory, type ItemVersion, type Location, type Recipe } from "@/lib/api";
 import { type MoveHow, destinationText, finishLines, movePlan, recipesAt, sourceText } from "@/lib/batch-moves";
-import { batchWords } from "@/lib/batch-name";
+import { batchTitle, batchWords } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { barOf, differenceText, leftText, totalLine, totalText, weightLineParts, weightText } from "@/lib/remaining-weight";
 
@@ -360,20 +360,28 @@ export function failure(caught: unknown, otherwise: string): string {
 
 /**
  * A refusal of a Batch Code another batch that is not Archived holds, from
- * what the server answered, with a link to that batch; undefined for any
- * other refusal.
+ * what the server answered, with a link to that batch, named as its page
+ * titles it, the code being said already (#732), or as the server named it
+ * where it gave no Bean, as the previous release's doesn't (ADR-0025);
+ * undefined for any other refusal.
  */
 export function codeTaken(caught: unknown, onFollow?: () => void): ReactNode | undefined {
   if (!(caught instanceof ApiError) || caught.status !== 409) return undefined;
   const existing = (caught.data as { existing?: unknown } | undefined)?.existing;
   if (typeof existing !== "object" || existing === null) return undefined;
-  const { id, name, batchCode } = existing as { id?: unknown; name?: unknown; batchCode?: unknown };
+  const { id, name, batchCode, bean, roastDate } = existing as { id?: unknown; name?: unknown; batchCode?: unknown; bean?: { name?: unknown } | null; roastDate?: unknown };
   if (typeof id !== "string" || typeof batchCode !== "string") return undefined;
+  const title =
+    typeof bean === "object" && bean !== null
+      ? batchTitle({ bean: { name: typeof bean.name === "string" ? bean.name : null }, roastDate: typeof roastDate === "string" ? roastDate : null })
+      : typeof name === "string"
+        ? name
+        : "an unnamed batch";
   return (
     <>
       Another batch holds the Batch Code {batchCode}:{" "}
       <Link to={`/library/bean-batches/${id}`} className="underline underline-offset-4" onClick={onFollow}>
-        {typeof name === "string" ? name : "an unnamed batch"}
+        {title}
       </Link>
       . A code is one batch's until that batch is Archived.
     </>

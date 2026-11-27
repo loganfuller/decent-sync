@@ -28,7 +28,7 @@ interface BatchView {
 
 interface Refusal {
   message: string;
-  existing?: { id: string; name: string; batchCode: string };
+  existing?: { id: string; name: string; batchCode: string; bean: { name: string | null }; roastDate: string | null };
 }
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
@@ -113,7 +113,8 @@ describe("A Bean Batch's Batch Code", () => {
   it("refuses a code another batch that is not Archived holds, ignoring case and the spaces around it, naming that batch, as one is created or edited", async () => {
     const bean = await createBean("Refused Huila");
     const holder = await createBatch(bean, { batchCode: "LR-0412", roastDate: "2026-11-12" });
-    const named = { id: holder.id, name: "Refused Huila, roasted 2026-11-12", batchCode: "LR-0412" };
+    // With its Bean's name and roast date, which the management interface names it by (#732).
+    const named = { id: holder.id, name: "Refused Huila, roasted 2026-11-12", batchCode: "LR-0412", bean: { name: "Refused Huila" }, roastDate: "2026-11-12T00:00:00.000" };
 
     const created = await conflict(await newBatch(bean, { batchCode: " lr-0412  " }));
     expect(created.existing).toEqual(named);
@@ -150,7 +151,7 @@ describe("A Bean Batch's Batch Code", () => {
     expect(taker.batchCode).toBe("br-0001");
 
     const refused = await conflict(await setArchived(retired.id, false));
-    expect(refused.existing).toEqual({ id: taker.id, name: "Retired Cerrado, roasted 2026-11-01", batchCode: "br-0001" });
+    expect(refused.existing).toEqual({ id: taker.id, name: "Retired Cerrado, roasted 2026-11-01", batchCode: "br-0001", bean: { name: "Retired Cerrado" }, roastDate: "2026-11-01T00:00:00.000" });
     expect((await read(retired.id)).archived).toBe(true);
 
     // An Archived batch may be given a code another holds, and is restored once its own is free: changed, or the other's Archived.
@@ -190,7 +191,7 @@ describe("A Bean Batch's Batch Code", () => {
       const restoring = setArchived(retired.id, false);
       await waitForLockWaits(server, { count: 3 });
       await database.query("COMMIT");
-      const named = { id: rows[0]!.id, name: "Raced Yirgacheffe, roasted 2026-11-20", batchCode: "Race-2" };
+      const named = { id: rows[0]!.id, name: "Raced Yirgacheffe, roasted 2026-11-20", batchCode: "Race-2", bean: { name: "Raced Yirgacheffe" }, roastDate: "2026-11-20T00:00:00.000" };
       expect((await conflict(await creating)).existing).toEqual(named);
       expect((await conflict(await editing)).existing).toEqual(named);
       expect((await conflict(await restoring)).existing).toEqual(named);

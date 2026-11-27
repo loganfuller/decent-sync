@@ -6,6 +6,7 @@ import { boxes } from "./support/layout.js";
 import { batchAt, batchLeft, batchLocations, field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
+import { roastDay } from "./support/days.js";
 
 // A Bean Batch's pages as the v1.15.0 mockups lay them out (ticket #726): a
 // batch's page in two columns, leading with what is left of it in all and at
@@ -137,7 +138,7 @@ test("a batch's page is in two columns on a wide screen and one on a phone, lead
   const whereItIs = page.getByRole("region", { name: "Where it is" });
 
   // Under the title, the Bean, linked, and its roaster.
-  await expect(main.getByRole("heading", { level: 1 })).toHaveText("Ethiopia Guji Natural, roasted 2026-11-18LR-0412");
+  await expect(main.getByRole("heading", { level: 1 })).toHaveText(`Ethiopia Guji Natural, roasted ${roastDay("2026-11-18")}LR-0412`);
   await expect(main.getByText("Ethiopia Guji Natural, by Lantern Coffee Roasters", { exact: true })).toBeVisible();
   await expect(main.getByText(/A batch of/)).toHaveCount(0);
   await expect(main.getByRole("link", { name: "Ethiopia Guji Natural", exact: true })).toHaveAttribute("href", `/library/beans/${bean.id}`);
@@ -279,7 +280,7 @@ test("Archive and Delete are under More beside a batch's name, each asking first
 
   // Archive asks first; cancelled, nothing changes, and the focus is back on More.
   await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
-  const archiving = page.getByRole("alertdialog", { name: "Archive Menu Kenya, roasted 2026-11-18?" });
+  const archiving = page.getByRole("alertdialog", { name: `Archive Menu Kenya LR-0500, roasted ${roastDay("2026-11-18")}?` });
   await expect(archiving).toContainText("It is offered nowhere from now on, and archived on every tablet that holds it, but kept, so past Shots still name it. It can be restored.");
   await archiving.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("main").getByRole("button", { name: "More", exact: true })).toBeFocused();
@@ -305,7 +306,7 @@ test("Archive and Delete are under More beside a batch's name, each asking first
 
   // Delete asks first too, and, confirmed, leaves for the list, which no longer has the batch.
   await (await menu(page)).filter({ hasText: "Delete" }).click();
-  const deleting = page.getByRole("alertdialog", { name: "Delete Menu Kenya, roasted 2026-11-18?" });
+  const deleting = page.getByRole("alertdialog", { name: `Delete Menu Kenya LR-0500, roasted ${roastDay("2026-11-18")}?` });
   await expect(deleting).toContainText("It is deleted from every tablet that holds it, now or once it connects, and cannot be restored. Only an item no Shot names can be deleted; Archive any other.");
   await deleting.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Menu Kenya");
@@ -327,7 +328,7 @@ test("Finish here asks first, naming the batch and what finishing does, and chan
   await whereItIs.getByRole("button", { name: "Finish it at Downtown" }).click();
   const asking = page.getByRole("alertdialog", { name: "Finish this batch at Downtown?" });
   // It names the batch, with its Batch Code, and what Downtown has of it, then what finishing does, in a move of all's lines.
-  await expect(asking).toContainText("Finish Guji, roasted 2026-11-18 (LR-0412F). Downtown has 2920 g of it.");
+  await expect(asking).toContainText(`Finish Guji LR-0412F, roasted ${roastDay("2026-11-18")}. Downtown has 2920 g of it.`);
   await expect(asking.getByRole("listitem")).toHaveText([
     "Downtown stops listing the batch, and its tablets stop offering it.",
     "The 2920 g there goes with it. No other Location's weight changes.",
@@ -347,7 +348,7 @@ test("Finish here asks first, naming the batch and what finishing does, and chan
   // An untracked batch that no Recipe names there: the weight and the Recipes lines are left out.
   await whereItIs.getByRole("button", { name: "Finish it at Riverside" }).click();
   const untracked = page.getByRole("alertdialog", { name: "Finish this batch at Riverside?" });
-  await expect(untracked).toContainText("Finish Guji, roasted 2026-11-18 (LR-0412F). It is at Riverside, with no weight entered there.");
+  await expect(untracked).toContainText(`Finish Guji LR-0412F, roasted ${roastDay("2026-11-18")}. It is at Riverside, with no weight entered there.`);
   await expect(untracked.getByRole("listitem")).toHaveText(["Riverside stops listing the batch, and its tablets stop offering it."]);
   await untracked.getByRole("button", { name: "Cancel" }).click();
 
@@ -372,24 +373,24 @@ test("a Location's Bean Batches card has Enter weight on each row for an Admin a
   const listed = here.getByRole("table", { name: "Bean Batches here" });
   const row = (bean: string) => rows(listed).filter({ hasText: bean });
   await expect(listed.getByRole("columnheader")).toHaveText(["Batch", "Batch Code", "Remaining here", "Since then", "Recipes here", "Enter its weight"]);
-  await expect(row("Row Kenya")).toHaveText(/^Row KenyaRoasted 2026-11-18LR-04162920 gof 2920 g entered .+No Shots sinceNothing movedNoneEnter weight$/);
-  await expect(row("Row House")).toHaveText("Row HouseRoasted 2026-11-18-Not trackedNo weight enteredShotsNoneEnter weight");
+  await expect(row("Row Kenya")).toHaveText(new RegExp(String.raw`^Row KenyaRoasted ${roastDay("2026-11-18")}LR-04162920 gof 2920 g entered .+No Shots sinceNothing movedNoneEnter weight$`));
+  await expect(row("Row House")).toHaveText(`Row HouseRoasted ${roastDay("2026-11-18")}-Not trackedNo weight enteredShotsNoneEnter weight`);
   // Move to… and Finish here stay on the batch's page.
   await expect(listed.getByRole("button")).toHaveText(["Enter weight", "Enter weight"]);
 
   // On an untracked row it is how tracking starts here: the same dialog, naming the batch and the Location.
-  await listed.getByRole("button", { name: "Enter the weight of Row House, roasted 2026-11-18" }).click();
+  await listed.getByRole("button", { name: `Enter the weight of Row House, roasted ${roastDay("2026-11-18")}` }).click();
   const entering = page.getByRole("dialog", { name: "Enter weight at Belmont" });
-  await expect(entering).toContainText("Row House, roasted 2026-11-18. What is left of it at Belmont now, as weighed.");
+  await expect(entering).toContainText(`Row House, roasted ${roastDay("2026-11-18")}. What is left of it at Belmont now, as weighed.`);
   await expect(entering.getByRole("status")).toHaveText("Left empty, the batch is not tracked at Belmont.");
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("750");
   await entering.getByRole("button", { name: "Save" }).click();
-  await expect(row("Row House")).toHaveText(/^Row HouseRoasted 2026-11-18-750 gof 750 g entered .+No Shots sinceNothing movedNoneEnter weight$/);
+  await expect(row("Row House")).toHaveText(new RegExp(String.raw`^Row HouseRoasted ${roastDay("2026-11-18")}-750 gof 750 g entered .+No Shots sinceNothing movedNoneEnter weight$`));
   await expect(here).toContainText("2 batches here, 2 with a weight");
 
   // A weight that differs from the one worked out says by how much before it is saved, and the weight saved shows in the row.
-  await listed.getByRole("button", { name: "Enter the weight of Row Kenya, roasted 2026-11-18" }).click();
-  await expect(entering).toContainText("Row Kenya, roasted 2026-11-18 (LR-0416). What is left of it at Belmont now, as weighed.");
+  await listed.getByRole("button", { name: `Enter the weight of Row Kenya LR-0416, roasted ${roastDay("2026-11-18")}` }).click();
+  await expect(entering).toContainText(`Row Kenya LR-0416, roasted ${roastDay("2026-11-18")}. What is left of it at Belmont now, as weighed.`);
   await expect(entering.getByLabel("Remaining weight (g)", { exact: true })).toHaveValue("2920");
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("292");
   await expect(entering.getByRole("status")).toHaveText("2628 g less than the 2920 g worked out.");
@@ -404,7 +405,7 @@ test("a Location's Bean Batches card has Enter weight on each row for an Admin a
     const sams = samsPage.getByRole("table", { name: "Bean Batches here" });
     await expect(sams.getByRole("button", { name: /^Enter the weight of / })).toHaveCount(2);
     // A weight of zero finishes the batch here, with no second confirmation, and its row leaves the list.
-    await sams.getByRole("button", { name: "Enter the weight of Row House, roasted 2026-11-18" }).click();
+    await sams.getByRole("button", { name: `Enter the weight of Row House, roasted ${roastDay("2026-11-18")}` }).click();
     const samsDialog = samsPage.getByRole("dialog", { name: "Enter weight at Belmont" });
     await samsDialog.getByLabel("Remaining weight (g)", { exact: true }).fill("0");
     await expect(samsDialog.getByRole("status")).toHaveText("A weight of 0 finishes the batch at Belmont.");
@@ -417,17 +418,17 @@ test("a Location's Bean Batches card has Enter weight on each row for an Admin a
     await asNew(page, browser, role, location, async (othersPage) => {
       await othersPage.goto(`/locations/${belmont.id}`);
       const others = othersPage.getByRole("region", { name: "Bean Batches", exact: true });
-      await expect(rows(others.getByRole("table", { name: "Bean Batches here" }))).toHaveText([/^Row KenyaRoasted 2026-11-18LR-04162780 gof 2780 g entered .+No Shots sinceNothing movedNone$/]);
+      await expect(rows(others.getByRole("table", { name: "Bean Batches here" }))).toHaveText([new RegExp(String.raw`^Row KenyaRoasted ${roastDay("2026-11-18")}LR-04162780 gof 2780 g entered .+No Shots sinceNothing movedNone$`)]);
       await expect(others.getByRole("columnheader")).toHaveText(["Batch", "Batch Code", "Remaining here", "Since then", "Recipes here"]);
       await expect(others.getByRole("button", { name: /Enter/ })).toHaveCount(0);
     });
   }
   // Left empty, it clears the weight, and the row stays, not tracked.
   await page.reload();
-  await listed.getByRole("button", { name: "Enter the weight of Row Kenya, roasted 2026-11-18" }).click();
+  await listed.getByRole("button", { name: `Enter the weight of Row Kenya LR-0416, roasted ${roastDay("2026-11-18")}` }).click();
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("");
   await entering.getByRole("button", { name: "Save" }).click();
-  await expect(rows(listed)).toHaveText(["Row KenyaRoasted 2026-11-18LR-0416Not trackedNo weight enteredShotsNoneEnter weight"]);
+  await expect(rows(listed)).toHaveText([`Row KenyaRoasted ${roastDay("2026-11-18")}LR-0416Not trackedNo weight enteredShotsNoneEnter weight`]);
   expect(((await (await page.request.get(`/api/bean-batches/${tracked}`)).json()) as { batch: { locations: { remainingWeight: number | null }[] } }).batch.locations.map((at) => at.remainingWeight)).toEqual([null]);
 });
 
@@ -467,25 +468,25 @@ test("each page reads the previous release's server, as during a deploy: a batch
   await expect(page.getByRole("region", { name: "Recipes", exact: true })).toHaveCount(0);
   await expect(page.getByRole("table", { name: "History" })).toBeVisible();
   // With no Batch Code sent, the title shows none and the Roast card a dash.
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deploy Sidra, roasted 2026-11-18");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Deploy Sidra, roasted ${roastDay("2026-11-18")}`);
   await expect(field(page.getByLabel("Roast", { exact: true }), "Batch Code")).toHaveText("-");
   // The confirmation before Finish here names the batch without a Batch Code and says nothing of Recipes it was not told of.
   await whereItIs.getByRole("button", { name: "Finish it at Downtown" }).click();
   const asking = page.getByRole("alertdialog", { name: "Finish this batch at Downtown?" });
-  await expect(asking).toContainText("Deploy Sidra, roasted 2026-11-18. Downtown has 500 g of it.");
+  await expect(asking).toContainText(`Deploy Sidra, roasted ${roastDay("2026-11-18")}. Downtown has 500 g of it.`);
   await expect(asking.getByRole("listitem")).toHaveText(["Downtown stops listing the batch, and its tablets stop offering it.", "The 500 g there goes with it. No other Location's weight changes."]);
   await asking.getByRole("button", { name: "Cancel" }).click();
   // Enter weight names the batch the same way, and still says how far a weight typed is from the one it reads.
   await whereItIs.getByRole("button", { name: "Enter its weight at Downtown" }).click();
   const entering = page.getByRole("dialog", { name: "Enter weight at Downtown" });
-  await expect(entering).toContainText("Deploy Sidra, roasted 2026-11-18. What is left of it at Downtown now, as weighed.");
+  await expect(entering).toContainText(`Deploy Sidra, roasted ${roastDay("2026-11-18")}. What is left of it at Downtown now, as weighed.`);
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("50");
   await expect(entering.getByRole("status")).toHaveText("450 g less than the 500 g worked out.");
   await entering.getByRole("button", { name: "Cancel" }).click();
 
   // The list sums the weights too, and a Location's page goes without its Bean Batches card.
   await page.goto("/library/bean-batches");
-  await expect(rows(page.getByRole("table", { name: "Bean Batches" })).filter({ hasText: "Deploy Sidra" })).toHaveText("Deploy Sidra, roasted 2026-11-18-Lantern Coffee RoastersDowntown 500 g500 g");
+  await expect(rows(page.getByRole("table", { name: "Bean Batches" })).filter({ hasText: "Deploy Sidra" })).toHaveText(`Deploy SidraRoasted ${roastDay("2026-11-18")}-Lantern Coffee RoastersDowntown 500 g500 g`);
   await page.goto(`/locations/${downtown.id}`);
   await expect(page.getByRole("region", { name: "Recipes", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Bean Batches", exact: true })).toHaveCount(0);

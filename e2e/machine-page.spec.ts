@@ -204,8 +204,8 @@ test("a tab reads what it shows only while it is open: the Live View streams on 
   await page.goto(`/machines/${benchId}`);
   await streamed;
   await expect(region(page, "Workflow")).toBeVisible();
-  // Now reads the Workflow and its Live View, and nothing of the other tabs.
-  expect(new Set(asked)).toEqual(new Set(["live", "workflow"]));
+  // Now reads the Workflow, its summary, for the Bean Batch it names (#732), and its Live View, and nothing of the other tabs.
+  await expect.poll(() => new Set(asked)).toEqual(new Set(["live", "workflow", "workflow-summary"]));
 
   // Setup reads what its cards show, and no stream is opened while it is the one open.
   asked.length = 0;

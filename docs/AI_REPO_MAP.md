@@ -85,6 +85,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/machines/`: machine entries, tokens, identity, Pending Machines, Location History, tablets, crediting.
 - `src/sync/`: the plugin's WebSocket gateway at `/sync`, identity resolution and each connection's writes.
 - `src/library/`: the Library: taking in tablets' reports, edits, each item's history with its Lost Edits (`history.ts`, `history.service.ts`), each Location's state of an item and a Bean Batch moved between Locations (`location-state.ts`), a batch matched to the text of a scanned QR code and brought to a Machine's Location (`batch-scans.service.ts`, with the reading of the text in `scanned-text.ts`), its Remaining Weight worked out, and the tablets told to write it as a Shot is stored (`remaining-weight.ts`), Recipes, joining, writes due, which Machines a Profile reaches by their model (`profile-reach.ts`), Drafts (`drafts.*`), publishing them and returning to earlier versions (`publishing.service.ts`), and a Machine following one, with its Trial Shots (`draft-following.ts`, what its tablet is due and how following ends; `draft-following.service.ts`, the REST side).
+- `src/library/batch-links.ts`: a Bean Batch as what points at one names it, a Shot, a filter or a Workflow: its Bean, roast date and Batch Code.
 - `src/shots/`, `src/steam-records/`: capture, extraction, Shot Summaries, spec judgements, edits and reads.
 - `src/machine-events/`: Workflow and machine state events, Loaded Recipes, dial-in trail and Machine use.
 - `src/collections/`: collections, paired devices, the values of plugins' settings as each reader may see them, and Settings History.
@@ -117,6 +118,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/pages/`: one page per route.
 - `src/components/`: the pages' parts; `ui/` holds the shadcn/ui components.
 - `src/lib/`: pure modules, tested in `test/`; `api.ts` calls the REST API, `build.ts` follows the server's build.
+- `src/lib/batch-name.ts`, `src/components/batch-name.tsx`: how every page names a Bean Batch, in words and as drawn.
 - `src/assets/`, `public/`: the logo drawings and the browser icons.
 
 ### `site/`

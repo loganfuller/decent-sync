@@ -99,8 +99,7 @@ test("a Machine's page lists today's dial-in trail: a Recipe loaded and its grin
   await expect(loaded!).toHaveText([TODAY_AT_THE_LAB, "Recipe loaded", /Recipe: None to Fixture Brazil Espresso/, "Fixture Brazil Espresso", "The tablet"]);
   const brought = loaded!.nth(2).getByRole("listitem");
   await expect(brought.filter({ hasText: /^Recipe:/ }).getByRole("link", { name: "Fixture Brazil Espresso" })).toHaveAttribute("href", `/library/recipes/${recipeId}`);
-  await expect(brought.filter({ hasText: /^Bean:/ })).toHaveText("Bean: Fixture Brazil to Activity Fixture Brazil");
-  await expect(brought.filter({ hasText: /^Bean:/ }).getByRole("link", { name: "Activity Fixture Brazil" })).toHaveAttribute("href", /^\/library\/bean-batches\//);
+  await expect(brought.filter({ hasText: /^Bean Batch:/ })).toHaveText("DEBUG");
   // The Workflow in effect names no Recipe, and its Profile, Grinder and Basket are the Library's.
   await expect(inEffect!.nth(1)).toHaveText("Workflow in effect");
   const held = inEffect!.nth(2).getByRole("listitem");

@@ -103,7 +103,7 @@ A batch's page has a **Recipes** card: every Recipe that names the batch, at any
 
 A Location's page has a **Bean Batches** card: the batches there now, the latest roasted first. A batch finished there, moved away entirely or Archived is not in it. Each row gives:
 
-- the Bean, the roast date and the Batch Code;
+- the Bean over the day it was roasted, such as "Roasted 17 Nov", and the Batch Code;
 - the remaining weight there, with the weight its count starts from, such as "of 4180 g entered 25 Nov", or **Not tracked** where no weight was entered there, never zero;
 - the coffee used and the number of Shots pulled there since the count started, or "No Shots since", and what was moved in and away since;
 - the Recipes at that Location that name the batch, each with its Recipe Slot;
@@ -136,9 +136,28 @@ Anything a barista enters on a tablet joins the Library by itself. You can enter
 
 1. Open **Library**, then **Beans**, and press **New Bean**.
 2. Fill in its **Roaster** and **Name**, and what else you know about it, then press **Create**.
-3. On the Bean's page press **New Batch**. Give its **Roast date**, its **Batch Code** if you number your roasts, the **Location** it is at, and its **Roasted weight (g)**. Press **Create**.
+3. On the Bean's page press **New Batch**, in the heading of its **Batches** card. Give its **Roast date**, its **Batch Code** if you number your roasts, the **Location** it is at, and its **Roasted weight (g)**. Press **Create**.
 
 The batch, with its Bean, is written to the tablets at that Location. Given a roasted weight, its remaining weight there starts at that weight; type another under **Remaining weight (g)** if some of it is already gone. A batch is created at one Location, so its weight is counted once, and reaches another by [a move](#move-a-bean-batch-to-another-location-or-finish-it-there).
+
+### See a Bean's batches
+
+A Bean's page leads with its **Batches** card, its roasts with the latest first. Beside the card's title is how many of them are at a Location and what those Locations hold in all, such as "4 at a Location, 17090 g in all", or "none with a weight" where no Location tracks one.
+
+| Column | What it gives |
+|---|---|
+| **Roasted** | The day the batch was roasted, which opens the batch. An Archived batch reads **Archived** beside it. |
+| **Batch Code** | The batch's Batch Code, or a dash. |
+| **At** | Each Location the batch is at, with its remaining weight there, or "At no Location". |
+| **Remaining in all** | The sum over the Locations that track it. |
+
+### How a batch is named
+
+Wherever the management interface mentions a batch, it names it by its Bean and its Batch Code, such as House Espresso `LR-0411`.
+
+- A batch with no Batch Code is named by its roast date instead, such as "House Espresso, roasted 10 Nov".
+- A roast date is written as a day, with its year when that is not this year. It is the day entered, in whatever time zone the page is read.
+- A name is a link to the batch's page. In a dialog or a list of choices, which can't link, it is written out in full, such as "House Espresso LR-0411, roasted 17 Nov".
 
 ### Give a batch its Batch Code
 
@@ -176,7 +195,7 @@ A Recipe is in at most one slot. Taking a Recipe in slots 1 to 5 off any Machine
 
 <Still name="location" alt="Downtown's page: its Overview block, with a status card for each of its two Machines, and its Recipes card, with four Recipes in Recipe Slots 1 to 4, each with its Bean Batch, Profile, dose and yield, Grinder setting and Reference Shot" />
 
-A Location's Recipes are on its own page, in the **Recipes** card, and every Location's are together on the Library's **Recipes** tab.
+A Location's Recipes are on its own page, in the **Recipes** card, and every Location's are together on the Library's **Recipes** tab. Each row names the Recipe's Bean Batch by its Bean and Batch Code, over the day it was roasted, and links to the batch. **Batch finished here** beside the batch marks one that is no longer at the Location, and **Archived** beside a Recipe's name an Archived Recipe.
 
 ### Create a Recipe
 

@@ -5,6 +5,7 @@ import { batchLocations } from "./support/locators.js";
 import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
+import { roastDay, roastDayWithYear } from "./support/days.js";
 
 // The Library's Beans, Bean Batches, Grinders and Profiles in the
 // management interface. Simulated tablets running the built plugin, at two
@@ -104,12 +105,12 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expectTip(page.getByRole("main"), "Bean Batches", /^The Bean Batches in the Library\./);
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
     // A line for each Location: "not tracked" beside one with no weight where another has one, and the name alone where none has (#726).
-    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe not trackedBatch lab 180.5 g", "180.5 g", ""].join(""),
-    ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe", "Not tracked", ""].join(""),
+    [`Batch GujiRoasted ${roastDay("2026-10-01")}`, "-", "Roux Bakehouse", "Batch cafe not trackedBatch lab 180.5 g", "180.5 g", ""].join(""),
+    ["Batch HeirloomNo roast date", "-", "Sandbox Coffee Roasters", "Batch cafe", "Not tracked", ""].join(""),
   ]);
 
-  await page.getByRole("link", { name: "Batch Guji, roasted 2026-10-01" }).click();
-  await expect(page.getByRole("heading", { name: "Batch Guji, roasted 2026-10-01", level: 1 })).toBeVisible();
+  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: "Batch Guji", exact: true }).click();
+  await expect(page.getByRole("heading", { name: `Batch Guji, roasted ${roastDay("2026-10-01")}`, level: 1 })).toBeVisible();
   // The page explains neither weights nor Batch Codes in a paragraph (#706): the Library's guide page does.
   await expectTip(page.getByRole("main"), "Roast", "As it was created, with the edits made since, on tablets or here.");
   const whereItIs = page.getByRole("region", { name: "Where it is" });
@@ -125,21 +126,20 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   const roast = page.getByLabel("Roast", { exact: true });
   await expect(roast.getByRole("term")).toHaveText(["Batch Code", "Roast date", "Roast level", "Price", "Roasted weight", "Notes"]);
   await expect(field(roast, "Batch Code")).toHaveText("-");
-  await expect(field(roast, "Roast date")).toHaveText("2026-10-01");
+  // A day with its year, as the date is itself the value shown (#732).
+  await expect(field(roast, "Roast date")).toHaveText(roastDayWithYear("2026-10-01"));
   await expect(field(roast, "Roast level")).toHaveText("light");
   await expect(field(roast, "Roasted weight")).toHaveText("250 g");
   await expect(field(roast, "Price")).toHaveText("18.5 USD");
   await expect(field(roast, "Notes")).toHaveText("Lab roast");
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Created at")).toHaveText("Batch lab");
 
-  // Its Bean's page lists its batches.
+  // Its Bean's page lists its batches, each by the day it was roasted, the Bean being said by the page (#732; e2e/batch-names.spec.ts).
   await page.getByRole("link", { name: "Batch Guji", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji", level: 1 })).toBeVisible();
-  await expectTip(page.getByRole("main"), "Batches", "Its roasts, the latest first, and the Locations each is at.");
+  await expectTip(page.getByRole("main"), "Batches", /^Its roasts, the latest first, each with its Batch Code, the Locations it is at and its remaining weight at each\./);
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Batch cafe, Batch lab");
-  await expect(rows(page.getByRole("table", { name: "Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "Batch cafe (not tracked), Batch lab (180.5 g)"].join(""),
-  ]);
+  await expect(rows(page.getByRole("table", { name: "Batches" }))).toHaveText([[roastDay("2026-10-01"), "-", "Batch cafe not trackedBatch lab 180.5 g", "180.5 g"].join("")]);
 });
 
 test("the Profiles list shows each Profile and the Locations showing it, and a Profile's page shows what it is", async ({ page }) => {

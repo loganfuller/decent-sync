@@ -7,6 +7,17 @@ Conventions of the management interface (`web/`) that no single file states.
 - Add shadcn/ui components with `npx shadcn add`, which writes them to `web/src/components/ui/` (`web/components.json`).
 - A message of what came of something asked of a Machine, shown where it was asked (a Software Action's, a Settings Edit's), is a `StatusAlert` (`web/src/components/status-alert.tsx`): pending ones have no close button, a plain success goes by itself after 8 s unless hovered, focused or its tab is hidden, and the rest stay until dismissed.
 
+## Naming a Bean Batch
+
+- A page names a Bean Batch through `web/src/lib/batch-name.ts` and `web/src/components/batch-name.tsx` alone, never by joining its Bean and roast date itself (#732).
+- The forms are in a line (`BatchInLine`), in a table's cell or over any second line (`BatchCell`), where its Bean is already said (`BatchOfBean`), and in words (`batchWords`), for a dialog, an option of a select and an accessible name.
+- A date Decaid recorded as a day is written by `recordedDayText`, which reads the day from its text, so no time zone moves it; `recordedDayWithYear` where the date is itself the value shown.
+- The day is as the browser's locale writes one, "17 Nov" or "Nov 17", as `dayText` writes a weight line's.
+
+## Pure modules
+
+- A module in `web/src/lib/` imports another by a relative path (`./batch-name`): Vitest's `web` project resolves no `@/` alias at run time, and only types come through `@/lib/api`.
+
 ## Page width
 
 - Every page is at most 1152 px wide, and a Draft's alone grows to 1600 px, the header with it (`web/src/pages/Shell.tsx`).

@@ -726,7 +726,7 @@ Lost Edit names is kept, still refused, so history goes on naming it
     migration declares it). A create, an edit and a restore that would
     repeat one are refused with 409, the message naming the batch that
     holds it and its id, and the body giving it as `existing: { id, name,
-    batchCode }` (`refuseTakenCode` in `library-edits.service.ts`, which
+    batchCode, bean: { name }, roastDate }` (`refuseTakenCode` in `library-edits.service.ts`, which
     compares in SQL exactly as the index does). The check is made before
     the write; of two changes made at once, through any instance, the index
     refuses the one that commits second, which is answered the same way
@@ -3669,7 +3669,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `content` its content in the Library's terms (Taking in a tablet's
   recipes, above), `uses` the items it names, `{ bean, beanBatch, profile,
   grinder, basket, tools }`, each with what names it (a Bean's roaster and
-  name, a batch's `roastDate` and whether it is at the Recipe's Location
+  name, a batch's `roastDate`, its `batchCode`, null where it has none
+  (#732), and whether it is at the Recipe's Location
   now, `atLocation`, a Profile's title, a Grinder's model, a Basket's or
   Tool's name), null where it names none, and one the Library no longer has
   named by its id alone; and `batchFinished` whether it is in a slot and
@@ -3784,11 +3785,33 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `{ list, since }`, by the collection's name, such as `dye2Baskets`. 404
   for no such Machine.
 
+The management interface names a Bean Batch one way wherever it mentions
+one (#732): by its Bean and its Batch Code, with its roast date wherever
+there is a second line or a sentence, and in the code's place on a batch
+that has none. `web/src/lib/batch-name.ts` words each form and
+`web/src/components/batch-name.tsx` draws it, and no page builds a name of
+its own: in a line (`BatchInLine`), in a table's cell (`BatchCell`), where
+its Bean is already said (`BatchOfBean`), and in words (`batchWords`), for a
+dialog, an option of a select and a control's accessible name. A roast date
+is written as a day, read from its text so no time zone moves it, with its
+year when that is not this year, and always where the date is itself the
+value shown. A name is the link to the batch's page, but on that page, in a
+dialog and in an option of a select. The refusal of a Batch Code another
+batch holds gives that batch's Bean and roast date as `existing`, so the
+page names it too. A batch named by the server, as in a Machine's sharing
+status and to an assistant, is still "Guji, roasted 2026-10-01"
+(`batchName` in `server/src/library/kinds.ts`).
+
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at, its remaining weight
 at each and its total, the Grinders and the Location each belongs to, and the Profiles and
-where each is shown. Each Bean's page shows its content, where it is
-offered, its batches and its likely duplicates, each batch's page its roast,
+where each is shown. Each Bean's page leads with its batches (#732), in a
+card whose heading has New Batch and says how many of them are at a
+Location and what those hold in all (`batchesCountText`), each batch by the
+day it was roasted, which links to it, its Batch Code, the Locations it is
+at with its remaining weight at each, and its remaining weight in all; then
+its content, where it is
+offered and its likely duplicates. Each batch's page shows its roast,
 the Locations it is at with its remaining weight at each, a line saying
 what that count starts from and what Shots have used and Batch Moves have
 brought and taken since (`web/src/lib/remaining-weight.ts`), each with
@@ -3805,9 +3828,12 @@ from. It opens on its Recipes (`/library/recipes`,
 Location's, a table for each Location (`RecipesTable` in
 `web/src/components/recipes.tsx`, which a Location's Recipes card shares),
 in Recipe Slot order with those in no slot after, each with its Bean Batch,
-Profile, dose and yield, Grinder and setting, its Reference Shot's
+linked, with its Batch Code and "Batch finished here" beside its name where
+the batch is not at the Location now, over its roast day, or its Bean over
+"No batch" (`RecipeBatchCell`, #732),
+Profile, dose and yield, Grinder and setting, and its Reference Shot's
 duration, linked to that Shot, or "No reference", linked to its rated
-Shots, and what needs attention; Archived Recipes show once Show archived
+Shots; an Archived Recipe has "Archived" beside its name, and Archived Recipes show once Show archived
 is ticked, which the address keeps as `archived`. It reads each Location's
 list, and no route was added for it. Its New Recipe (`NewRecipeDialog` in
 `web/src/components/recipes.tsx`) asks for the Location first, of those the
@@ -3823,7 +3849,7 @@ value, by whom, and when
 the Library has no page of them. Each Location's page
 (`/locations/:id`) has its block of the Overview, its Recipes, and the Bean
 Batches there (`LocationBatchesCard` in
-`web/src/components/bean-batches.tsx`, #707): each not finished there or
+`web/src/components/location-batches.tsx`, #707): each not finished there or
 Archived, with its Batch Code, its Remaining Weight there or "Not tracked",
 what its count starts from, the coffee and Shots there since, what was
 moved in and away, and the Recipes there that name it, linked to the batch,
