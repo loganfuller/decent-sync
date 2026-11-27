@@ -5,6 +5,7 @@ import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-t
 import { chooseDate, farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { roastDay } from "./support/days.js";
+import { expectFits, textContrast } from "./support/layout.js";
 import { field, openMachineTab, rows } from "./support/locators.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -264,6 +265,18 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   });
   await page.reload();
   await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Batch finished hereRoasted ${roastDay("2026-11-17")}`);
+  // In the dark theme the code's chip and the day under it still read, and at a phone's width nothing is wider than the screen.
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveClass(colorScheme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/);
+    expect(await textContrast(row.getByLabel("Batch Code LR-0411", { exact: true })), `${colorScheme}: the code`).toBeGreaterThanOrEqual(4.5);
+    expect(await textContrast(row.getByText(`Roasted ${roastDay("2026-11-17")}`)), `${colorScheme}: the roast day`).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 393, height: 852 });
+  await expect(row).toBeVisible();
+  await expectFits(page, 393);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.unroute(`**/api/bean-batches/${later.id}`);
   // So does one whose Bean is Archived, though the batch itself is not and is still at the Lab.
   await send("put", `/api/beans/${brazil.bean.id}/archived`, { archived: true });
@@ -301,6 +314,19 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   await expect(changes.getByRole("link", { name: `Activity Fixture Brazil LR-0405, roasted ${roastDay("2026-10-03")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${brazil.id}`);
   await expect(changes.getByRole("link", { name: `Activity Fixture Brazil LR-0411, roasted ${roastDay("2026-11-17")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${later.id}`);
   await expect(activity).not.toContainText(/The previous one|The new one/);
+  // In the dark theme each side's chip still reads, and at a phone's width nothing is wider than the screen.
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveClass(colorScheme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/);
+    for (const batchCode of ["LR-0405", "LR-0411"]) {
+      expect(await textContrast(changes.getByLabel(`Batch Code ${batchCode}`, { exact: true })), `${colorScheme}: ${batchCode}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 393, height: 852 });
+  await expect(changes).toBeVisible();
+  await expectFits(page, 393);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   // A roast with no Batch Code is named by its roast date.
   const uncoded = await nextRoast("2026-11-20");
@@ -310,6 +336,22 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   await expect(changes.getByRole("listitem").filter({ hasText: /^Bean Batch:/ })).toHaveText(`Bean Batch: LR-0411 to roasted ${roastDay("2026-11-20")}`);
   await expect(changes.getByRole("link", { name: `Activity Fixture Brazil, roasted ${roastDay("2026-11-20")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${uncoded.id}`);
   await expect(activity).not.toContainText(/The previous one|The new one/);
+  // On the card, it is its Bean, linked, over its roast day and its weight at the Lab.
+  await openMachineTab(page, "Now");
+  await expect(row).toHaveText(new RegExp(String.raw`^Activity Fixture BrazilRoasted ${roastDay("2026-11-20")} · (.+ g|not tracked) at Lab$`));
+  await expect(row.getByRole("link", { name: `Activity Fixture Brazil, roasted ${roastDay("2026-11-20")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${uncoded.id}`);
+  // A Machine at no Location has the batch in a line alone, with no weight.
+  await page.route(`**/api/machines/${machineId}`, async (route) => {
+    const answer = await route.fetch();
+    const { machine } = (await answer.json()) as { machine: Record_ };
+    await route.fulfill({ response: answer, json: { machine: { ...machine, location: null } } });
+  });
+  await page.reload();
+  await expect(row).toHaveText(`Activity Fixture Brazil, roasted ${roastDay("2026-11-20")}`);
+  await expect(row.getByRole("link", { name: `Activity Fixture Brazil, roasted ${roastDay("2026-11-20")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${uncoded.id}`);
+  await page.unroute(`**/api/machines/${machineId}`);
+  await page.reload();
+  await openActivity(page);
 
   // The previous release's server names no batch (ADR-0025): the card has no Bean Batch row, and the change reads as it did.
   await page.route("**/api/machines/*/workflow-summary", async (route) => {

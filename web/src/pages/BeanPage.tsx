@@ -186,7 +186,6 @@ function BeanDetails({ id }: { id: string }) {
         </CardContent>
       </Card>
 
-
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>

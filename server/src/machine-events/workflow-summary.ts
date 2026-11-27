@@ -37,7 +37,6 @@ export interface WorkflowLinks {
   recipeName: string | null;
 }
 
-
 /**
  * The parts of a Workflow the management interface shows, and its Basket and
  * Recipe, with the Library's ids of what it names. The MCP endpoint gives it by

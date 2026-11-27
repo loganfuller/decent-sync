@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import { type Locator, type Page, expect } from "@playwright/test";
 
 // Where elements are on the page, measured against each other (#635).
 
@@ -39,4 +39,35 @@ export async function boxes<T extends Locator[]>(...elements: T): Promise<{ [K i
   } finally {
     await Promise.all(handles.map((handle) => handle.dispose()));
   }
+}
+
+/** That nothing on the page is wider than the screen, `width` CSS pixels wide, so the page doesn't scroll sideways. */
+export async function expectFits(page: Page, width: number) {
+  const measured = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
+  expect(measured, `${new URL(page.url()).pathname} fits the screen`).toEqual({ scrollWidth: width, clientWidth: width });
+}
+
+/** The contrast of an element's text against its own ground, by WCAG's formula, as the browser computed both. */
+export async function textContrast(element: Locator): Promise<number> {
+  return element.evaluate((node) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
+    const luminance = (colour: string, over?: string) => {
+      context.clearRect(0, 0, 1, 1);
+      for (const each of over === undefined ? [colour] : [over, colour]) {
+        context.fillStyle = each;
+        context.fillRect(0, 0, 1, 1);
+      }
+      const [red, green, blue] = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map((channel) => {
+        const value = channel / 255;
+        return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
+    };
+    // Its ground is its own, drawn over the page's, as a chip's may be see-through.
+    const page = getComputedStyle(document.body).backgroundColor;
+    const [text, ground] = [luminance(getComputedStyle(node).color, page), luminance(getComputedStyle(node).backgroundColor, page)];
+    return (Math.max(text, ground) + 0.05) / (Math.min(text, ground) + 0.05);
+  });
 }
