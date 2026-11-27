@@ -438,9 +438,9 @@ test("each page reads the previous release's server, as during a deploy: a batch
   await put(page, `/api/bean-batches/${id}/locations/${riverside.id}`, { atLocation: false });
 
   // The previous release answers a batch with no total, and each Location with no count of what its weight starts from, what was used or what was moved;
-  // it lists no Recipes, its history names no move, and it has no list of a Location's batches.
+  // it has no Batch Codes, lists no Recipes, its history names no move, and it has no list of a Location's batches.
   const older = ({ entered: _entered, used: _used, moved: _moved, ...here }: Record_) => here;
-  const stripped = ({ totalRemainingWeight: _total, recipes: _recipes, locations, ...batch }: Record_) => ({ ...batch, locations: (locations as Record_[]).map(older) });
+  const stripped = ({ totalRemainingWeight: _total, recipes: _recipes, batchCode: _code, locations, ...batch }: Record_) => ({ ...batch, locations: (locations as Record_[]).map(older) });
   await page.route(`**/api/bean-batches/${id}`, async (route) => {
     const answer = await route.fetch();
     await route.fulfill({ response: answer, json: { batch: stripped(((await answer.json()) as { batch: Record_ }).batch) } });
@@ -466,21 +466,26 @@ test("each page reads the previous release's server, as during a deploy: a batch
   await expect(batchLeft(page)).toHaveText([/^RiversideFinished \S/]);
   await expect(page.getByRole("region", { name: "Recipes", exact: true })).toHaveCount(0);
   await expect(page.getByRole("table", { name: "History" })).toBeVisible();
-  // The confirmation before Finish here says nothing of Recipes it was not told of.
+  // With no Batch Code sent, the title shows none and the Roast card a dash.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deploy Sidra, roasted 2026-11-18");
+  await expect(field(page.getByLabel("Roast", { exact: true }), "Batch Code")).toHaveText("-");
+  // The confirmation before Finish here names the batch without a Batch Code and says nothing of Recipes it was not told of.
   await whereItIs.getByRole("button", { name: "Finish it at Downtown" }).click();
   const asking = page.getByRole("alertdialog", { name: "Finish this batch at Downtown?" });
+  await expect(asking).toContainText("Deploy Sidra, roasted 2026-11-18. Downtown has 500 g of it.");
   await expect(asking.getByRole("listitem")).toHaveText(["Downtown stops listing the batch, and its tablets stop offering it.", "The 500 g there goes with it. No other Location's weight changes."]);
   await asking.getByRole("button", { name: "Cancel" }).click();
-  // Enter weight still says how far a weight typed is from the one it reads.
+  // Enter weight names the batch the same way, and still says how far a weight typed is from the one it reads.
   await whereItIs.getByRole("button", { name: "Enter its weight at Downtown" }).click();
   const entering = page.getByRole("dialog", { name: "Enter weight at Downtown" });
+  await expect(entering).toContainText("Deploy Sidra, roasted 2026-11-18. What is left of it at Downtown now, as weighed.");
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("50");
   await expect(entering.getByRole("status")).toHaveText("450 g less than the 500 g worked out.");
   await entering.getByRole("button", { name: "Cancel" }).click();
 
   // The list sums the weights too, and a Location's page goes without its Bean Batches card.
   await page.goto("/library/bean-batches");
-  await expect(rows(page.getByRole("table", { name: "Bean Batches" })).filter({ hasText: "Deploy Sidra" })).toHaveText("Deploy Sidra, roasted 2026-11-18LR-0600Lantern Coffee RoastersDowntown 500 g500 g");
+  await expect(rows(page.getByRole("table", { name: "Bean Batches" })).filter({ hasText: "Deploy Sidra" })).toHaveText("Deploy Sidra, roasted 2026-11-18-Lantern Coffee RoastersDowntown 500 g500 g");
   await page.goto(`/locations/${downtown.id}`);
   await expect(page.getByRole("region", { name: "Recipes", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Bean Batches", exact: true })).toHaveCount(0);

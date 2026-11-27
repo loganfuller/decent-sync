@@ -1121,7 +1121,7 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
                 <Link to={`/locations/${left.location.id}`} className="font-medium underline-offset-4 hover:underline">
                   {left.location.name}
                 </Link>
-                <span>{leftText(left, moves)}</span>
+                <span>{moves.read && leftText(left, moves.versions)}</span>
               </li>
             ))}
           </ul>
@@ -1163,25 +1163,27 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
 
 /**
  * The changes in a batch's history, read while it has left a Location, for
- * what took it from each (`leftText`): undefined until read, and where the
- * read fails, when each such Location reads "Finished". Read again with the
- * batch, as a change made here loads it again.
+ * what took it from each (`leftText`). Read again with the batch, as a change
+ * made here loads it again; until the read for this load lands, `read` is
+ * false, so a Location just left is not called "Finished" by an earlier read
+ * that lacks the move that took it. Where the read fails, `versions` is
+ * undefined, and each such Location reads "Finished".
  */
-function useLeaving(batch: BeanBatch): ItemVersion[] | undefined {
-  const [versions, setVersions] = useState<ItemVersion[]>();
+function useLeaving(batch: BeanBatch): { read: boolean; versions?: ItemVersion[] } {
+  const [read, setRead] = useState<{ batch: BeanBatch; versions?: ItemVersion[] }>();
   const left = batch.finished.length > 0;
   useEffect(() => {
     if (!left) return;
     let current = true;
     api<ItemHistory>("GET", `/bean-batches/${encodeURIComponent(batch.id)}/history`).then(
-      (history) => current && setVersions(history.versions),
-      () => current && setVersions(undefined),
+      (history) => current && setRead({ batch, versions: history.versions }),
+      () => current && setRead({ batch }),
     );
     return () => {
       current = false;
     };
   }, [batch, left]);
-  return left ? versions : undefined;
+  return read?.batch === batch ? { read: true, versions: read.versions } : { read: false };
 }
 
 /**
@@ -1412,9 +1414,9 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
   );
 }
 
-/** A batch as a dialog names it: its Bean and roast date, as lists name it, with its Batch Code where it has one. */
+/** A batch as a dialog names it: its Bean and roast date, as lists name it, with its Batch Code where it has one (the previous release sends none). */
 function batchLabel(batch: Pick<BeanBatchSummary, "bean" | "roastDate" | "batchCode">): string {
-  return batch.batchCode === null ? batchName(batch) : `${batchName(batch)} (${batch.batchCode})`;
+  return batch.batchCode == null ? batchName(batch) : `${batchName(batch)} (${batch.batchCode})`;
 }
 
 /**

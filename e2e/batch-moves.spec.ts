@@ -135,10 +135,21 @@ test("an Admin moves part of a batch's weight to another Location, then all of i
     "Downtown stops listing the batch, and its tablets stop offering it.",
     '2 Recipes at Downtown name it and will go on naming it. The one in a Recipe Slot will read "Batch finished here".',
   ]);
+  // The history is held back, as a slow answer would be: until it is read, the Location just left says nothing of what took it, rather than "Finished".
+  let release = () => {};
+  const historyHeld = new Promise<void>((resolve) => (release = resolve));
+  const historyOf = (url: URL) => url.pathname === `/api/bean-batches/${id}/history`;
+  await page.route(historyOf, async (route) => {
+    await historyHeld;
+    await route.continue();
+  });
   await all.getByRole("button", { name: "Move all to Riverside" }).click();
   await expect(all).toHaveCount(0);
   await expect(where.getByRole("listitem")).toHaveText([new RegExp(`^Riverside3348 g${BUTTONS}428 g entered .+ by you\\. Since: 2920 g moved from Downtown\\.$`)]);
   await expect(field(whereItIs, "Remaining in all")).toHaveText("3348 g");
+  await expect(batchLeft(page)).toHaveText(["Downtown"]);
+  // Released, the route lets every later read through.
+  release();
   // The Location it left says the move took it, and where to (#726).
   await expect(batchLeft(page)).toHaveText([/^DowntownMoved to Riverside \S/]);
   await expect(batchLeft(page).getByRole("link", { name: "Downtown" })).toHaveAttribute("href", `/locations/${downtown.id}`);

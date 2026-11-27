@@ -110,7 +110,7 @@ function BeanBatchDetails({ id }: { id: string }) {
         <div className="grid gap-1">
           <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
             {batchName(batch)}
-            {batch.batchCode !== null && (
+            {batch.batchCode != null && (
               <span aria-label={`Batch Code ${batch.batchCode}`} className="rounded-md border bg-muted px-2 py-0.5 font-mono text-sm font-medium">
                 {batch.batchCode}
               </span>
@@ -168,7 +168,7 @@ function BeanBatchDetails({ id }: { id: string }) {
               ) : (
                 <Fields label="Roast">
                   <Field term="Batch Code">
-                    {batch.batchCode === null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
+                    {batch.batchCode == null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
                   </Field>
                   <Field term="Roast date">
                     <OrNone>{roastDateText(batch.roastDate)}</OrNone>
