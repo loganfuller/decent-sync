@@ -36,14 +36,13 @@ export class BeanBatchesController {
 
   /**
    * Creates a batch of a Bean: `{ beanId, content, locations }`, the one
-   * Location it is created at `{ locationId, remainingWeight? }`. None or
-   * several are still taken in this release, from the previous release's
-   * page (`readNewBatch`).
+   * Location it is created at `{ locationId, remainingWeight? }`. 400 for
+   * none or several (`readNewBatch`).
    */
   @AllowStaff()
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
-    const { beanId, content, locations } = readNewBatch(body, { previousRelease: true });
+    const { beanId, content, locations } = readNewBatch(body);
     const id = await this.edits.createBatch(beanId, content, locations, managementEditor(session.account.id), session.scope);
     return { batch: await this.batches.get(id, session.scope) };
   }
