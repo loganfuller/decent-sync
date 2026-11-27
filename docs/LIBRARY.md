@@ -780,10 +780,10 @@ Lost Edit names is kept, still refused, so history goes on naming it
 - **Bean Batches.** A batch is created of a Bean, not Archived, at exactly
   one Location (`readNewBatch`), so its roasted weight is counted once, with
   the weight its count starts from there: the remaining weight given, else
-  its roasted `weight`, else none, which leaves it untracked. None or
-  several is refused, over the REST API as through the assistant tool. These are
+  its roasted `weight`, else none, which leaves it untracked. These are
   edits of that Location's state of it (`addBatchAt`,
-  `enterRemainingWeight`), under the Location's lock.
+  `enterRemainingWeight`), under the Location's lock. None or several is
+  refused, over the REST API as through the assistant tool.
   Adding it at a Location, finishing it there and entering its weight there
   are each such an edit; a weight is entered only where the batch is, or is
   added. A weight of zero entered where it is finishes it there, as one
