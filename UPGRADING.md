@@ -82,8 +82,9 @@ tab:
 
 - **It is a weight entered at the Machine's Location.** The batch's history
   names the Machine it was entered on and no account. It arrives with the
-  tablet's next report, within half a minute, or once the tablet reconnects
-  where the server could not be reached.
+  tablet's next report, every 30 seconds unless its plugin's poll interval
+  was changed, or once the tablet reconnects where the server could not be
+  reached.
 - **Nothing left finishes the batch there.** Where the weight entered leaves
   nothing, the Skin's button reads "Finish batch", and the batch is finished
   at that Location, as **Finish here** does.
@@ -91,8 +92,8 @@ tab:
   takes it off what the scale reads. It is the Skin's "Batch container
   weight" setting, 0 until set, which Decent Sync neither holds nor sets.
 - **A weight the tablet showed earlier may not be taken.** A weight entered
-  in the Skin that equals one the tablet's record held since the Location's
-  weight was last entered is not taken as entered, and the tablet goes back
+  in the Skin that equals one of the last sixteen the tablet's record held
+  since the Location's weight was last entered is not taken as entered, and the tablet goes back
   to showing the weight worked out. Enter it in the management interface
   instead.
 

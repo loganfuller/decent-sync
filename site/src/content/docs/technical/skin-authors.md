@@ -744,13 +744,13 @@ writes the Location's other tablets the weight, or archives their records.
   whole. A record read a moment ago may also hold a weight the server has
   since written over, after a Shot.
 - **Finish by archiving, never by writing zero.** A record that already
-  reads zero does not change when zero is written to it, so nothing is
-  reported. A zero the server wrote there after Shots is no weight entered,
-  and finishes nothing. An archive is a finish whatever the record reads.
+  reads zero keeps its weight when zero is written to it, so the server
+  finds no weight entered. A zero the server wrote there after Shots is no
+  weight entered either, and finishes nothing. An archive is a finish whatever the record reads.
 - **A weight the record held before may not be taken.** After each Shot and
   each move the server writes the record its Location's current weight, and
-  keeps the weights the record has held since the Location's count last
-  started, so as not to read its own write back as an entry. A weight
+  keeps the latest sixteen weights the record has held since the Location's
+  count last started, so as not to read its own write back as an entry. A weight
   written by a Skin that equals one of them is not taken as entered, and the
   server writes its own number back: a batch entered at 400 g and written
   382 g after a Shot, then entered at exactly 400 g again, reads 382 g
