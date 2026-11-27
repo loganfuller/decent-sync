@@ -1,4 +1,5 @@
-import type { LocationHistoryEntry, TrailEntry, WorkflowSummary } from "@/lib/api";
+import type { BatchLink, LocationHistoryEntry, TrailEntry, WorkflowSummary } from "@/lib/api";
+import { batchCodeOf, batchLineText, roastedText } from "./batch-name";
 
 // A Machine's activity (#476) as its page lists it: the pure parts, which
 // work out the day shown and how a time reads under it, and put a dial-in
@@ -112,10 +113,17 @@ export function madeBy({ cause, pluginWrite }: Pick<TrailEntry, "cause" | "plugi
   return cause === "other" ? "The tablet" : "Not recorded";
 }
 
-/** A value of a line of a trail entry: its text, and the page of the Library item it names, if any. */
+/**
+ * A value of a line of a trail entry: its text, and the page of the Library
+ * item it names, if any. One that names a Bean Batch the server named
+ * (#732) gives the batch too, which the page draws by the rule for one
+ * (components/batch-name.tsx): in a line, or, `brief`, between two batches
+ * of one Bean, by its Batch Code alone, or its roast date where it has none.
+ */
 export interface TrailValue {
   text: string;
   to?: string;
+  batch?: { batch: BatchLink; brief: boolean };
 }
 
 /** A line of a trail entry: a field that changed, from what to what, or for the Workflow in effect, a field it held. */
@@ -178,22 +186,48 @@ function named(link: (typeof LINKS)[number], name: FieldValue, id: FieldValue): 
   return { text: name === null && to !== undefined ? `Unnamed ${link.label}` : valueText(link.name, name), to };
 }
 
+/** The Library items a summary names that are Bean Batches. */
+const BATCH = LINKS.find((link) => link.id === "beanBatchId")!;
+
+/** A Bean Batch the server named, as a line's value: in a line, or `brief`, by its Batch Code alone, or its roast date where it has none. */
+function batchValue(batch: BatchLink, brief: boolean): TrailValue {
+  return { text: brief ? (batchCodeOf(batch) ?? roastedText(batch)) : batchLineText(batch), to: pageOf(BATCH, batch.id), batch: { batch, brief } };
+}
+
 /**
  * A trail entry's lines. For the Workflow in effect, each field it held, in
- * the page's order, the Library items it names linked. For any other, each
- * field that changed, in the order first changed, from what to what, a
- * field the page doesn't know by its name in the summary:
+ * the page's order, the Library items it names linked, and its Bean Batch in
+ * a line of its own, under its Bean and roaster as it recorded them. For
+ * any other, each field that changed, in the order first changed, from what
+ * to what, a field the page doesn't know by its name in the summary:
  *
  * - an item named anew, as a Profile switched, is one line, each side
  *   linked to its Library item where the Workflow named one;
- * - an item changed with its name unchanged, as the next batch of the same
- *   Bean, is one line naming its kind, each side linked, as "the previous
- *   one" and "the new one", for an entry gives only what changed.
+ * - a change of Bean Batch (#732) is one line named Bean Batch, whatever
+ *   the Workflow recorded of the coffee's name: the next roast of the same
+ *   Bean names each side by its Batch Code alone, or by "roasted 10 Nov"
+ *   where it has none, and a change of Bean names each side in a line; a
+ *   side that names no batch reads as the coffee's name the Workflow
+ *   recorded then, where that changed too, and otherwise "None";
+ * - any other item changed with its name unchanged, as a Grinder of the
+ *   same model, is one line naming its kind, each side linked, as "the
+ *   previous one" and "the new one", for an entry gives only what changed.
+ *   So is a change of Bean Batch whose batches the server didn't name, as
+ *   the previous release's doesn't during a deploy (ADR-0025).
  */
 export function trailLines(entry: Pick<TrailEntry, "workflow" | "changes">): TrailLine[] {
   if (entry.workflow) return summaryLines(entry.workflow);
   const changed = new Map(entry.changes.map((change) => [change.field, change]));
+  const batches = changed.get(BATCH.id)?.beanBatch;
   return entry.changes.flatMap(({ field, before, after }): TrailLine[] => {
+    if (batches && (field === BATCH.id || field === BATCH.name)) {
+      // One line for the two fields, in the place of whichever changed first.
+      if (field !== entry.changes.find((change) => change.field === BATCH.id || change.field === BATCH.name)!.field) return [];
+      const recorded = changed.get(BATCH.name);
+      const brief = batches.before !== null && batches.after !== null && batches.before.bean.id === batches.after.bean.id;
+      const side = (batch: BatchLink | null, name: FieldValue | undefined): TrailValue => (batch ? batchValue(batch, brief) : { text: name === undefined ? "None" : valueText(BATCH.name, name) });
+      return [{ label: BATCH.label, before: side(batches.before, recorded?.before), after: side(batches.after, recorded?.after) }];
+    }
     const link = LINKS.find((found) => found.name === field);
     if (link) {
       // Its id, where that changed too; where it didn't, the entry doesn't give it.
@@ -211,18 +245,31 @@ export function trailLines(entry: Pick<TrailEntry, "workflow" | "changes">): Tra
   });
 }
 
-/** A Workflow's summary as lines: each field the page names that it holds, the Library items it names linked. */
+/**
+ * A Workflow's summary as lines: each field the page names that it holds,
+ * the Library items it names linked. Its Bean Batch, where the server named
+ * it (#732), is a line of its own, the batch in a line, after its Bean and
+ * roaster, which are then as the Workflow recorded them, as its card on the
+ * Machine's page has them; where it didn't, as the previous release's
+ * doesn't during a deploy (ADR-0025), its Bean is the link to its batch.
+ */
 function summaryLines(summary: WorkflowSummary): TrailLine[] {
+  const batch = summary.beanBatch ?? null;
   const fields = new Map<string, FieldValue>();
-  for (const [name, value] of Object.entries(summary) as [string, FieldValue | Record<string, FieldValue>][]) {
-    if (value !== null && typeof value === "object") for (const [part, held] of Object.entries(value)) fields.set(`${name}.${part}`, held);
+  for (const [name, value] of Object.entries(summary) as [string, FieldValue | Record<string, unknown> | undefined][]) {
+    // The batch it names is no field of its own.
+    if (name === "beanBatch" || value === undefined) continue;
+    if (value !== null && typeof value === "object") for (const [part, held] of Object.entries(value)) fields.set(`${name}.${part}`, held as FieldValue);
     else fields.set(name, value);
   }
   return Object.entries(FIELDS).flatMap(([field, { label }]): TrailLine[] => {
     const value = fields.get(field) ?? null;
-    const link = LINKS.find((found) => found.name === field);
+    const found = LINKS.find((link) => link.name === field);
+    // Its batch has a line of its own, so its Bean is as the Workflow recorded it, and no link.
+    const link = batch && found === BATCH ? undefined : found;
     const id = link ? (fields.get(link.id) ?? null) : null;
-    if (value === null && id === null) return [];
-    return [{ label, after: link ? named(link, value, id) : { text: valueText(field, value) } }];
+    const line: TrailLine[] = value === null && id === null ? [] : [{ label, after: link ? named(link, value, id) : { text: valueText(field, value) } }];
+    // After its roaster, whether or not it recorded one.
+    return field === "roaster" && batch ? [...line, { label: BATCH.label, after: batchValue(batch, false) }] : line;
   });
 }

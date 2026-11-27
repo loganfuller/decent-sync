@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type EditSource, type ItemHistory as History, type ItemKind, type ItemVersion, type Location, type LostEdit } from "@/lib/api";
 import { moveText } from "@/lib/batch-moves";
+import { recordedDayWithYear } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
@@ -119,8 +120,8 @@ function valueText(field: string, value: unknown, names: ReadonlyMap<string, str
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") return field === "remainingWeight" ? `${value} g` : String(value);
-  // Decaid keeps a day as its local midnight, such as a roast date entered as a day.
-  if (typeof value === "string") return /^\d{4}-\d\d-\d\dT00:00:00\.000$/.test(value) ? value.slice(0, 10) : value;
+  // Decaid keeps a day as its local midnight, such as a roast date entered as a day: written as that day, with its year (#732).
+  if (typeof value === "string") return /^\d{4}-\d\d-\d\dT00:00:00\.000$/.test(value) ? (recordedDayWithYear(value) ?? value.slice(0, 10)) : value;
   if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) {
     return value.map((item) => (typeof item === "string" ? (names.get(item) ?? item) : item)).join(", ");
   }

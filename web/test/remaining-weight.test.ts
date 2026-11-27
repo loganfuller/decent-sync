@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BatchAtLocation, EditSource, ItemVersion } from "../src/lib/api";
-import { atLines, atText, barOf, dayText, differenceText, enteredBy, leftText, movedLine, startText, totalLine, totalText, weightLine, weightLineParts, weightText } from "../src/lib/remaining-weight";
+import { atLines, atText, barOf, batchesCountText, dayText, differenceText, enteredBy, leftText, movedLine, startText, totalLine, totalText, weightLine, weightLineParts, weightText } from "../src/lib/remaining-weight";
 
 // What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706), with what Batch Moves have brought and taken since its count started (#704),
 // and what a batch's page, the list of batches and the Enter weight dialog lead with (#726).
@@ -20,6 +20,19 @@ describe("a batch's Remaining Weight in words", () => {
     expect(weightText(981.5)).toBe("981.5 g");
     expect(weightText(0)).toBe("0 g");
     expect(weightText(null)).toBe("Not tracked");
+  });
+
+  it("counts a Bean's batches at a Location and what the Locations that track them hold in all (#732)", () => {
+    const batch = (changes: { archived?: boolean; locations?: BatchAtLocation[]; totalRemainingWeight?: number | null }) => ({ archived: false, locations: [here({})], totalRemainingWeight: 3420, ...changes });
+    expect(batchesCountText([batch({}), batch({ locations: [here({}), here({ remainingWeight: 1850 })], totalRemainingWeight: 5270 }), batch({ locations: [here({ remainingWeight: null })], totalRemainingWeight: null })])).toBe(
+      "3 at a Location, 8690 g in all",
+    );
+    // One at no Location, and one Archived, whatever it was at, are counted in neither.
+    expect(batchesCountText([batch({}), batch({ locations: [], totalRemainingWeight: null }), batch({ archived: true })])).toBe("1 at a Location, 3420 g in all");
+    expect(batchesCountText([batch({ locations: [here({ remainingWeight: null })], totalRemainingWeight: null })])).toBe("1 at a Location, none with a weight");
+    expect(batchesCountText([batch({ locations: [], totalRemainingWeight: null })])).toBe("None at a Location");
+    // The release before gives no total, so its weights are added up (ADR-0025).
+    expect(batchesCountText([{ archived: false, locations: [here({}), here({ remainingWeight: 100 })] }])).toBe("1 at a Location, 3520 g in all");
   });
 
   it("names each Location a batch is at with its weight there", () => {

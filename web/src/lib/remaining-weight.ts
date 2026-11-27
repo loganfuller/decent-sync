@@ -29,6 +29,24 @@ function sumOf(locations: BatchAtLocation[]): number | null {
   return weights.length === 0 ? null : weights.reduce((sum, weight) => sum + weight, 0);
 }
 
+/**
+ * A Bean's batches in the line beside its Batches card's title (#732): how
+ * many of them are at a Location, and the sum of their remaining weights
+ * over the Locations that track them, such as "4 at a Location, 17090 g in
+ * all", or "none with a weight" where no Location tracks one. An Archived
+ * batch is counted in neither, as no Location offers one.
+ */
+export function batchesCountText(batches: readonly { archived: boolean; locations: BatchAtLocation[]; totalRemainingWeight?: number | null }[]): string {
+  const here = batches.filter((batch) => !batch.archived && batch.locations.length > 0);
+  if (here.length === 0) return "None at a Location";
+  // The release before answers with no total, as it may during a deploy (ADR-0025): its weights are those entered.
+  const totals = here.flatMap((batch) => {
+    const total = batch.totalRemainingWeight === undefined ? sumOf(batch.locations) : batch.totalRemainingWeight;
+    return total === null ? [] : [total];
+  });
+  return `${here.length} at a Location, ${totals.length === 0 ? "none with a weight" : `${grams(totals.reduce((sum, total) => sum + total, 0))} in all`}`;
+}
+
 /** Where a batch is, by Location name, with its Remaining Weight at each. */
 export function atText(locations: BatchAtLocation[]): string {
   return locations.length === 0 ? "Nowhere" : locations.map((here) => `${here.location.name} (${weightText(here.remainingWeight).toLowerCase()})`).join(", ");

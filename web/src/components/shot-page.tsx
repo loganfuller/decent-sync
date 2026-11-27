@@ -300,7 +300,8 @@ function detailsOf(shot: Shot, samples: Sample<ShotCurve>[], recipe: Recipe | un
     ],
     ["Profile", <ShotProfile shot={shot} />],
     ["Bean", <OrNone>{beanText(shot)}</OrNone>],
-    // One its tablet named by an id the Library has no Bean Batch for reads as not linked, as one it named none of.
+    // Its batch, linked, with its Batch Code, over its roast day and the days from it to this Shot (#732). One its tablet named by an
+    // id the Library has no Bean Batch for reads as not linked, as one it named none of.
     ["Bean Batch", shot.beanBatch ? <ShotBatch shot={shot} /> : <span className="text-muted-foreground">Not linked</span>],
     [
       "Grinder",

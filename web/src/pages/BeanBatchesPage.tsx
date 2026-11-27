@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { BatchBadges, LibraryNav, batchName, totalText } from "@/components/bean-batches";
+import { BatchCell } from "@/components/batch-name";
+import { BatchBadges, LibraryNav, totalText } from "@/components/bean-batches";
 import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewBatchDialog } from "@/components/library-forms";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,9 +23,10 @@ function matches(batch: BeanBatchSummary, search: string): boolean {
 }
 
 /**
- * The Library's Bean Batches, each with its Batch Code, the Locations it is
- * at, a line each with its remaining weight there, and its remaining weight
- * in all, found by Bean, roaster or Batch Code. New Batch, the search and
+ * The Library's Bean Batches, each by its Bean over its roast day (#732),
+ * with its Batch Code in a column of its own, the Locations it is at, a line
+ * each with its remaining weight there, and its remaining weight in all,
+ * found by Bean, roaster or Batch Code. New Batch, the search and
  * its count of matches share one row (#726). Batches join the Library from
  * tablets, or are created here.
  */
@@ -122,10 +124,8 @@ export function BeanBatchesPage() {
             <TableBody>
               {shown.map((batch) => (
                 <TableRow key={batch.id} className="align-top">
-                  <TableCell className="font-medium">
-                    <Link to={`/library/bean-batches/${batch.id}`} className="underline-offset-4 hover:underline">
-                      {batchName(batch)}
-                    </Link>
+                  <TableCell className="whitespace-normal">
+                    <BatchCell batch={batch} id={batch.id} code={false} />
                   </TableCell>
                   <TableCell className="font-mono font-medium">{batch.batchCode ?? <span className="font-sans font-normal text-muted-foreground">-</span>}</TableCell>
                   <TableCell>{batch.bean.roaster ?? <span className="text-muted-foreground">-</span>}</TableCell>

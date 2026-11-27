@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { atText, batchName } from "@/components/bean-batches";
+import { BatchCode } from "@/components/batch-name";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { ItemHistoryCard } from "@/components/item-history";
 import { Field, Fields } from "@/components/fields";
@@ -12,9 +12,13 @@ import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Bean } from "@/lib/api";
+import { batchCodeOf, batchOfBeanText, recordedDayText } from "@/lib/batch-name";
+import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { atLines, batchesCountText, totalText } from "@/lib/remaining-weight";
 
 /** The content fields a Bean's page names, in Decaid's order, with how each is shown. */
 const CONTENT: [key: string, term: string][] = [
@@ -28,7 +32,15 @@ const CONTENT: [key: string, term: string][] = [
   ["notes", "Notes"],
 ];
 
-/** One Bean: what it is, where it is offered, its batches, and other Beans that may be the same coffee. */
+/**
+ * One Bean: its batches first (#732), then what it is and where it is
+ * offered, and other Beans that may be the same coffee. Its Batches card
+ * says beside its title how many of them are at a Location and what they
+ * hold in all, has New Batch in its heading, and lists each batch by the day
+ * it was roasted, which links to it, its Batch Code, the Locations it is at,
+ * a line each with its remaining weight there, and its remaining weight in
+ * all: the Bean is said once, by the page.
+ */
 export function BeanPage() {
   const { id = "" } = useParams();
   return <BeanDetails key={id} id={id} />;
@@ -96,11 +108,81 @@ function BeanDetails({ id }: { id: string }) {
       </div>
       {mayChange && (
         <div className="flex flex-wrap items-start gap-2">
-          {!bean.archived && <NewBatchDialog bean={bean} />}
           <ArchiveButton path={`/beans/${id}`} name={beanName(bean)} archived={bean.archived} onDone={changed} />
           <DeleteButton path={`/beans/${id}`} name={beanName(bean)} what="Its batches are deleted with it." back="/library/beans" />
         </div>
       )}
+
+      <Card role="region" aria-label="Batches" className="min-w-0">
+        <CardHeader>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <CardTitleWithInfo title="Batches">
+              <p>Its roasts, the latest first, each with its Batch Code, the Locations it is at and its remaining weight at each.</p>
+              <p>The line beside the title counts the batches at a Location, and adds up what the Locations that track them hold.</p>
+            </CardTitleWithInfo>
+            {bean.batches.length > 0 && <p className="text-sm text-muted-foreground tabular-nums">{batchesCountText(bean.batches)}</p>}
+          </div>
+          {mayChange && !bean.archived && (
+            <CardAction>
+              <NewBatchDialog bean={bean} />
+            </CardAction>
+          )}
+        </CardHeader>
+        <CardContent>
+          {bean.batches.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No batches yet.</p>
+          ) : (
+            <div className="min-w-0 rounded-lg border">
+              <Table aria-label="Batches">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Roasted</TableHead>
+                    <TableHead>Batch Code</TableHead>
+                    <TableHead>At</TableHead>
+                    <TableHead className="text-right">Remaining in all</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {bean.batches.map((batch) => {
+                    const code = batchCodeOf(batch);
+                    // An Archived batch is offered at no Location, whatever it was at.
+                    const total = batch.archived ? undefined : totalText(batch);
+                    return (
+                      <TableRow key={batch.id} className="align-top">
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            {/* Named in full for a screen reader, as its day alone leaves its code out. */}
+                            <Link to={`${LIBRARY_KINDS.beanBatch.pages}/${batch.id}`} aria-label={batchOfBeanText(batch)} className="font-medium underline-offset-4 hover:underline">
+                              {recordedDayText(batch.roastDate) ?? "No roast date"}
+                            </Link>
+                            {batch.archived && <Badge variant="secondary">Archived</Badge>}
+                          </div>
+                        </TableCell>
+                        <TableCell>{code === undefined ? <span className="text-muted-foreground">-</span> : <BatchCode code={code} plain />}</TableCell>
+                        <TableCell className="whitespace-normal">
+                          {batch.archived ? (
+                            <span className="text-muted-foreground">-</span>
+                          ) : batch.locations.length === 0 ? (
+                            <span className="text-muted-foreground">At no Location</span>
+                          ) : (
+                            atLines(batch.locations).map((here) => (
+                              <div key={here.id}>
+                                {here.name}
+                                {here.weight !== undefined && <span className="text-muted-foreground"> {here.weight}</span>}
+                              </div>
+                            ))
+                          )}
+                        </TableCell>
+                        <TableCell className={`text-right tabular-nums ${!batch.archived && batch.locations.some((here) => here.remainingWeight !== null) ? "" : "text-muted-foreground"}`}>{total ?? "-"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -172,40 +254,6 @@ function BeanDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitleWithInfo title="Batches">
-            <p>Its roasts, the latest first, and the Locations each is at.</p>
-          </CardTitleWithInfo>
-        </CardHeader>
-        <CardContent>
-          {bean.batches.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No batches yet.</p>
-          ) : (
-            <Table aria-label="Batches">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Batch</TableHead>
-                  <TableHead>At</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {bean.batches.map((batch) => (
-                  <TableRow key={batch.id}>
-                    <TableCell className="font-medium">
-                      <Link to={`/library/bean-batches/${batch.id}`} className="underline-offset-4 hover:underline">
-                        {batchName(batch)}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{atText(batch.locations)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
 
       {bean.likelyDuplicates.length > 0 && (
         <Card>

@@ -1,11 +1,13 @@
 import { StarIcon } from "lucide-react";
 import { Link } from "react-router";
-import { batchName } from "@/components/bean-batches";
+import { BatchCell } from "@/components/batch-name";
 import { grinderName } from "@/components/grinders";
 import { profilePath } from "@/components/profiles";
 import { OrNone, recordTime, round } from "@/components/records";
 import type { ListedShot } from "@/lib/api";
+import { roastedBeforeShot } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { dateIn } from "@/lib/machine-activity";
 import { MAX_STARS, ratingText, starsOf } from "@/lib/rating";
 
 // Pieces the Shots list and Shot page share; `records.tsx` has those Steam Records share too.
@@ -37,9 +39,18 @@ function LibraryLink({ to, children }: { to: string | null; children: string | u
   );
 }
 
-/** The Library's Bean Batch the Shot used. */
-export function ShotBatch({ shot }: { shot: Pick<ListedShot, "beanBatch"> }) {
-  return <LibraryLink to={shot.beanBatch && `/library/bean-batches/${shot.beanBatch.id}`}>{shot.beanBatch ? batchName(shot.beanBatch) : undefined}</LibraryLink>;
+/**
+ * The Library's Bean Batch the Shot used, on the Shot's page (#732): the
+ * batch, linked, with its Batch Code, over its roast day and how many days
+ * after it the Shot was pulled, by the Shot's day at its Location, such as
+ * "Roasted 17 Nov, 10 days before this Shot". The days are left out for a
+ * batch with no roast date, a Shot pulled before it, and one whose time
+ * isn't known.
+ */
+export function ShotBatch({ shot }: { shot: Pick<ListedShot, "beanBatch" | "pulledAt" | "location"> }) {
+  if (shot.beanBatch === null) return <LibraryLink to={null}>{undefined}</LibraryLink>;
+  const before = roastedBeforeShot(shot.beanBatch.roastDate, shot.pulledAt === null ? undefined : dateIn(shot.location?.timeZone, Date.parse(shot.pulledAt)));
+  return <BatchCell batch={shot.beanBatch} id={shot.beanBatch.id} also={before === undefined ? undefined : `, ${before}`} />;
 }
 
 /** The Library's Grinder the Shot used. */

@@ -1,10 +1,10 @@
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PageTitleWithInfo } from "@/components/info-tip";
 import { describeHardware } from "@/components/machines";
 import { LocationCredit, MachineCredit, OrNone, recordTime, secondsText } from "@/components/records";
 import { ANY, type ListFilter, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilterBar, type RecordList, useRecordFilters, useRecordList } from "@/components/record-lists";
-import { batchName } from "@/components/bean-batches";
+import { BatchInLine } from "@/components/batch-name";
 import { ReferenceMark } from "@/components/reference-shots";
 import { grinderName } from "@/components/grinders";
 import { ShotSummaryCard } from "@/components/shot-summary";
@@ -17,6 +17,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ListedShot, type ShotFilterOptions, type ShotPage } from "@/lib/api";
+import { batchWords } from "@/lib/batch-name";
 import { type Difference, RATINGS, dayGroups, durationDifference, ratingChoiceText, stopNote, timeOfDay, yieldDifference } from "@/lib/shot-list";
 import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
 import { bucketParam, trendBucket, trendNumber } from "@/lib/shot-trend";
@@ -217,8 +218,12 @@ function TimeLink({ shot, state }: { shot: ListedShot; state: ListState }) {
 /** A Shot's row of the table. */
 function ShotRow({ shot, state, located }: { shot: ListedShot; state: ListState; located: boolean }) {
   const stopped = stopNote(shot.spec, shot.stopReason);
-  // Its profile and its Bean, by its name, or its roaster where it recorded no name, and its Location, each where there is one.
-  const recorded = [shot.profileTitle?.trim() || undefined, shot.coffeeName?.trim() || shot.coffeeRoaster?.trim() || undefined].filter((part) => part !== undefined);
+  // Its profile, and its Bean Batch in a line, linked, where it is linked to one (#732), or else its Bean as it recorded it, by its
+  // name, or its roaster where it recorded no name, and its Location, each where there is one.
+  const recorded: ReactNode[] = [
+    shot.profileTitle?.trim() || undefined,
+    shot.beanBatch ? <BatchInLine batch={shot.beanBatch} id={shot.beanBatch.id} plain linkClassName="underline-offset-4 hover:underline" /> : shot.coffeeName?.trim() || shot.coffeeRoaster?.trim() || undefined,
+  ].filter((part) => part !== undefined);
   return (
     <TableRow className={shot.spec?.unfinished ? "text-muted-foreground" : undefined}>
       <TableCell>
@@ -234,7 +239,12 @@ function ShotRow({ shot, state, located }: { shot: ListedShot; state: ListState;
       <TableCell className="min-w-40 whitespace-normal">
         <div className="font-medium">{shot.recipe ? <ShotRecipe shot={shot} /> : <span className="font-normal text-muted-foreground">No Recipe</span>}</div>
         <div className="text-xs text-muted-foreground">
-          {recorded.join(" · ")}
+          {recorded.map((part, index) => (
+            <Fragment key={index}>
+              {index > 0 && " · "}
+              {part}
+            </Fragment>
+          ))}
           {located && recorded.length > 0 && " · "}
           {located && <LocationCredit record={shot} />}
         </div>
@@ -336,10 +346,18 @@ function beanChoice(roaster: string | null, name: string | null): string {
   return JSON.stringify([roaster, name]);
 }
 
+/** A Library item a filter offers: its id, its name as an option says it, in words, and, where its chip says it another way, as a batch in a line, that. */
+interface LinkOption {
+  id: string;
+  name: string;
+  chip?: ReactNode;
+}
+
 /** What a filter by a Library item is set to, as its chip says it: `none` for Shots linked to none, the item's name, or that no listed Shot is linked to it; nothing while the items load. */
-function linkValue(value: string | null, options: ({ id: string; name: string } | null)[] | undefined, none: string): string | undefined {
+function linkValue(value: string | null, options: (LinkOption | null)[] | undefined, none: string): ReactNode | undefined {
   if (value === NONE) return none;
-  return options && (options.find((option) => option?.id === value)?.name ?? "No Shots");
+  const chosen = options?.find((option) => option?.id === value);
+  return options && (chosen ? (chosen.chip ?? chosen.name) : "No Shots");
 }
 
 /**
@@ -398,7 +416,8 @@ function useShotFilters(list: RecordList<ShotPage>): { filters: ListFilter[]; er
     barista === null ? null : baristaKey(barista) === "" ? "" : (options?.baristas.find((name) => name !== null && baristaKey(name) === baristaKey(barista)) ?? barista);
   const profile = params.get("profileTitle");
   const rating = params.get("rating");
-  const batches = options?.beanBatches.map((batch) => batch && { id: batch.id, name: batchName(batch) });
+  // A batch as an option in words, and as its chip in a line (#732).
+  const batches = options?.beanBatches.map((batch): LinkOption | null => batch && { id: batch.id, name: batchWords(batch), chip: <BatchInLine batch={batch} /> });
   const grinders = options?.grinders.map((grinder) => grinder && { id: grinder.id, name: `${grinderName(grinder)}${grinder.location ? `, ${grinder.location.name}` : ""}` });
   const recipes = options?.recipes.map((recipe) => recipe && { id: recipe.id, name: `${recipe.name ?? "Unnamed Recipe"}${recipe.location ? `, ${recipe.location.name}` : ""}` });
   const baskets = options?.baskets.map((basket) => basket && { id: basket.id, name: basket.name ?? "Unnamed Basket" });
@@ -600,7 +619,7 @@ function LinkFilter({
   any: string;
   none: string;
   value: string | null;
-  options: ({ id: string; name: string } | null)[] | undefined;
+  options: (LinkOption | null)[] | undefined;
   onChange(value: string | null): void;
 }) {
   const items = options ?? [];
