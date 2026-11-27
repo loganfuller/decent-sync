@@ -25,6 +25,20 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### The REST API refuses a new Bean Batch at no Location or several
+
+`POST /api/bean-batches` now takes exactly one Location in `locations`, as the
+`create_bean_batch` assistant tool and the New Batch dialog have since 1.15.0
+([ADR-0037](docs/adr/0037-a-batchs-remaining-weight-is-per-location-and-worked-out-from-shots.md)).
+With none, or more than one, it answers 400 and creates nothing. 1.15.0 still
+took them, for the New Batch dialog of the release before it; its own dialog
+sends one, so no page is affected. There is nothing to do before or after
+deploying unless a script of yours creates batches over the REST API: have it
+name one Location, then move the batch to the others with
+`POST /api/bean-batches/:id/moves`.
+
 ## 1.15.0
 
 ### Check every tablet runs the 1.13.1 plugin or later before deploying

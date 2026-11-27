@@ -342,18 +342,19 @@ describe("A Bean Batch's Remaining Weight at a Location", { timeout: 120_000 }, 
     expect(cleared.beanBatch.locations).toMatchObject([{ remainingWeight: null, entered: null, used: null }]);
   });
 
-  it("creates a batch at exactly one Location through the assistant tool, refusing none and two as a bad request, and over REST still takes the previous release's none or two", async () => {
+  it("creates a batch at exactly one Location through the assistant tool, and over REST, refusing none and two as a bad request with one message", async () => {
     const both = [{ locationId: lab.location.id, remainingWeight: 500 }, { locationId: cafe.location.id }];
     for (const locations of [[], both]) expect(await toolError("create_bean_batch", { beanId: bean, weight: 6000, locations })).toContain("the one Location the batch is created at");
     expect(await toolError("create_bean_batch", { beanId: bean })).toContain("the one Location");
 
-    // The previous release's New Batch dialog names none or several (ADR-0025): each Location starts at the weight
-    // typed for it, or untracked, and the roasted weight starts no count, as it would be counted at each.
-    const several = await api.send<{ batch: BatchView }>("POST", "/bean-batches", { beanId: bean, content: { weight: 6000 }, locations: both }, 201);
-    expect(Object.fromEntries(several.batch.locations.map((here) => [here.location.id, here.remainingWeight]))).toEqual({ [lab.location.id]: 500, [cafe.location.id]: null });
-    expect(several.batch.totalRemainingWeight).toBe(500);
-    const nowhere = await api.send<{ batch: BatchView }>("POST", "/bean-batches", { beanId: bean, content: { weight: 6000 }, locations: [] }, 201);
-    expect(nowhere.batch).toMatchObject({ locations: [], totalRemainingWeight: null });
+    // The REST API refuses them as the tool does, with its message, and creates nothing.
+    const before = (await api.get<{ batches: unknown[] }>("/bean-batches")).batches.length;
+    for (const locations of [[], both]) {
+      const message = await restRefusal("POST", "/bean-batches", { beanId: bean, content: { weight: 6000 }, locations }, 400);
+      expect(message).toBe(await toolError("create_bean_batch", { beanId: bean, weight: 6000, locations }));
+    }
+    expect(await restRefusal("POST", "/bean-batches", { beanId: bean, content: { weight: 6000 } }, 400)).toBe(await toolError("create_bean_batch", { beanId: bean }));
+    expect((await api.get<{ batches: unknown[] }>("/bean-batches")).batches).toHaveLength(before);
   });
 
   it("starts a batch created with a roasted weight and no remaining weight at that weight at its Location, over REST and through the assistant tool, and leaves one given null untracked", async () => {

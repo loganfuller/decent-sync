@@ -780,11 +780,8 @@ Lost Edit names is kept, still refused, so history goes on naming it
 - **Bean Batches.** A batch is created of a Bean, not Archived, at exactly
   one Location (`readNewBatch`), so its roasted weight is counted once, with
   the weight its count starts from there: the remaining weight given, else
-  its roasted `weight`, else none, which leaves it untracked. For this
-  release only, the REST API still takes none or several, as the previous
-  release's New Batch dialog sends them (ADR-0025): each Location then starts
-  at the weight given for it, or untracked, never at the roasted weight
-  (until #716). These are
+  its roasted `weight`, else none, which leaves it untracked. None or
+  several is refused, over the REST API as through the assistant tool. These are
   edits of that Location's state of it (`addBatchAt`,
   `enterRemainingWeight`), under the Location's lock.
   Adding it at a Location, finishing it there and entering its weight there
@@ -3585,10 +3582,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   batch there, and returns `{ batch }` with 201; 400 for a remaining weight
   of zero, and 409 if its Bean is Archived. With no `remainingWeight` its
   count starts at its roasted `weight`, if it has one, and null leaves it
-  untracked. For this release it still takes no Location or several, as the
-  previous release's page sends them, each starting at the weight given for
-  it or untracked, never at the roasted weight; the next release refuses
-  them with 400 (#716). `PATCH /api/bean-batches/:id` and `PUT
+  untracked. 400 for no Location or several, with the message
+  `create_bean_batch` gives. `PATCH /api/bean-batches/:id` and `PUT
   /api/bean-batches/:id/archived` edit its details and Archive or restore it.
   `PUT /api/bean-batches/:id/locations/:locationId`, with `{ atLocation,
   remainingWeight }`, either or both, adds it at the Location (true) or
