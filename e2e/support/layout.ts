@@ -47,15 +47,16 @@ export async function expectFits(page: Page, width: number) {
   expect(measured, `${new URL(page.url()).pathname} fits the screen`).toEqual({ scrollWidth: width, clientWidth: width });
 }
 
-/** The contrast of an element's text against its own ground, by WCAG's formula, as the browser computed both. */
+/** The contrast of an element's text against what is behind it, by WCAG's formula, as the browser computed both. */
 export async function textContrast(element: Locator): Promise<number> {
   return element.evaluate((node) => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d", { willReadFrequently: true })!;
-    const luminance = (colour: string, over?: string) => {
+    /** The luminance of the colours given, each painted over the ones before it on white. */
+    const luminance = (layers: string[]) => {
       context.clearRect(0, 0, 1, 1);
-      for (const each of over === undefined ? [colour] : [over, colour]) {
+      for (const each of ["#fff", ...layers]) {
         context.fillStyle = each;
         context.fillRect(0, 0, 1, 1);
       }
@@ -65,9 +66,10 @@ export async function textContrast(element: Locator): Promise<number> {
       });
       return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
     };
-    // Its ground is its own, drawn over the page's, as a chip's may be see-through.
-    const page = getComputedStyle(document.body).backgroundColor;
-    const [text, ground] = [luminance(getComputedStyle(node).color, page), luminance(getComputedStyle(node).backgroundColor, page)];
+    // Its ground is every background behind it, the page's, a card's and its own, each drawn over the one under it, as a chip's may be see-through.
+    const grounds: string[] = [];
+    for (let at: Element | null = node; at; at = at.parentElement) grounds.unshift(getComputedStyle(at).backgroundColor);
+    const [text, ground] = [luminance([...grounds, getComputedStyle(node).color]), luminance(grounds)];
     return (Math.max(text, ground) + 0.05) / (Math.min(text, ground) + 0.05);
   });
 }

@@ -314,7 +314,7 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   await expect(changes.getByRole("link", { name: `Activity Fixture Brazil LR-0405, roasted ${roastDay("2026-10-03")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${brazil.id}`);
   await expect(changes.getByRole("link", { name: `Activity Fixture Brazil LR-0411, roasted ${roastDay("2026-11-17")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${later.id}`);
   await expect(activity).not.toContainText(/The previous one|The new one/);
-  // In the dark theme each side's chip still reads, and at a phone's width nothing is wider than the screen.
+  // In the dark theme each side's chip still reads, and at a phone's width the page doesn't scroll sideways: the trail scrolls in its own box.
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
     await expect(page.locator("html")).toHaveClass(colorScheme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/);
