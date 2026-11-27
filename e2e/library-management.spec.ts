@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { field } from "./support/locators.js";
+import { batchAt, batchLeft, batchLocations, field } from "./support/locators.js";
 
 // Creating and editing the Library's Beans and Bean Batches in the
 // management interface, and adding and finishing batches at Locations
@@ -30,7 +30,7 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await page.getByRole("button", { name: "New Batch" }).click();
   const newBatch = page.getByRole("dialog", { name: "New Batch of Uptown Gesha" });
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-10-03");
-  await newBatch.getByLabel("Weight (g)", { exact: true }).fill("1000");
+  await newBatch.getByLabel("Roasted weight (g)", { exact: true }).fill("1000");
   // It is created at one Location, chosen from a list: nothing ticks several.
   await expect(newBatch.getByRole("checkbox", { name: /Uptown|Downtown/ })).toHaveCount(0);
   await newBatch.getByLabel("Location", { exact: true }).click();
@@ -38,11 +38,10 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await newBatch.getByLabel("Remaining weight (g)", { exact: true }).fill("850");
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Uptown Gesha, roasted 2026-10-03", level: 1 })).toBeVisible();
-  await expect(field(page.getByLabel("Roast", { exact: true }), "Weight")).toHaveText("1000 g");
-  const where = page.getByRole("table", { name: "Locations" });
-  await expect(where.getByRole("row", { name: /^Uptown 850 g/ })).toBeVisible();
-  await expect(where.getByRole("row", { name: /^Uptown/ })).toContainText(/850 g entered .+ by you\. No Shots since\./);
-  await expect(where.getByRole("row", { name: /^Downtown/ })).toHaveCount(0);
+  await expect(field(page.getByLabel("Roast", { exact: true }), "Roasted weight")).toHaveText("1000 g");
+  await expect(batchAt(page, "Uptown")).toContainText("Uptown850 g");
+  await expect(batchAt(page, "Uptown")).toContainText(/850 g entered .+ by you\. No Shots since\./);
+  await expect(batchAt(page, "Downtown")).toHaveCount(0);
 
   // Its Bean, edited here.
   await page.getByRole("link", { name: "Uptown Gesha" }).click();
@@ -66,9 +65,9 @@ test("part of a lab batch is moved to a cafe, weighed there and finished there, 
 
   await page.goto("/library/bean-batches");
   await page.getByRole("link", { name: "Lab Sidra, roasted 2026-10-04" }).click();
-  const where = page.getByRole("table", { name: "Locations" });
+  const where = batchLocations(page);
   // Created with a roasted weight and no remaining weight, it starts at that weight at the lab.
-  await expect(where.getByRole("row", { name: /^Roastery lab 250 g/ })).toBeVisible();
+  await expect(batchAt(page, "Roastery lab")).toContainText("Roastery lab250 g");
   // It reaches the cafe by a move (#704): the page has no control that only adds it there.
   await expect(page.getByRole("form", { name: "Add it at a Location" })).toHaveCount(0);
   await where.getByRole("button", { name: "Move it from Roastery lab" }).click();
@@ -77,21 +76,23 @@ test("part of a lab batch is moved to a cafe, weighed there and finished there, 
   await page.getByRole("option", { name: "Belmont, which has none" }).click();
   await moving.getByLabel("Weight to move, in grams").fill("180");
   await moving.getByRole("button", { name: "Move 180 g to Belmont" }).click();
-  await expect(where.getByRole("row", { name: /^Belmont 180 g/ })).toBeVisible();
-  await expect(where.getByRole("row", { name: /^Roastery lab 70 g/ })).toBeVisible();
+  await expect(batchAt(page, "Belmont")).toContainText("Belmont180 g");
+  await expect(batchAt(page, "Roastery lab")).toContainText("Roastery lab70 g");
 
   await where.getByRole("button", { name: "Enter its weight at Belmont" }).click();
   const entering = page.getByRole("dialog", { name: "Enter weight at Belmont" });
   await entering.getByLabel("Remaining weight (g)", { exact: true }).fill("200");
   await entering.getByRole("button", { name: "Save" }).click();
-  await expect(where.getByRole("row", { name: /^Belmont 200 g/ })).toBeVisible();
-  await expect(field(page.getByRole("region", { name: "Where it is" }), "Total remaining")).toHaveText("270 g");
+  await expect(batchAt(page, "Belmont")).toContainText("Belmont200 g");
+  await expect(field(page.getByRole("region", { name: "Where it is" }), "Remaining in all")).toHaveText("270 g");
 
+  // Finish here asks first (#726), and finishes it once confirmed.
   await where.getByRole("button", { name: "Finish it at Belmont" }).click();
-  await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("Finished");
-  await expect(where.getByRole("row", { name: /^Belmont/ })).toHaveCount(0);
+  await page.getByRole("alertdialog", { name: "Finish this batch at Belmont?" }).getByRole("button", { name: "Finish at Belmont" }).click();
+  await expect(batchLeft(page)).toHaveText([/^BelmontFinished \S/]);
+  await expect(batchAt(page, "Belmont")).toHaveCount(0);
   // The lab still has it.
-  await expect(where.getByRole("row", { name: /^Roastery lab/ })).toBeVisible();
+  await expect(batchAt(page, "Roastery lab")).toBeVisible();
 });
 
 test("creating a Bean whose roaster and name the Library has is refused, with a link to that Bean", async ({ page }) => {

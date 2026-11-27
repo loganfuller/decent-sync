@@ -1,4 +1,4 @@
-import type { BatchAtLocation, EditSource } from "@/lib/api";
+import type { BatchAtLocation, BeanBatch, EditSource, ItemVersion } from "@/lib/api";
 
 // A Bean Batch's Remaining Weight at a Location as the management interface
 // words it: the weight, or "Not tracked", and the one line under it that says
@@ -34,6 +34,34 @@ export function atText(locations: BatchAtLocation[]): string {
   return locations.length === 0 ? "Nowhere" : locations.map((here) => `${here.location.name} (${weightText(here.remainingWeight).toLowerCase()})`).join(", ");
 }
 
+/**
+ * Where a batch is as the list of batches says it, a line for each Location:
+ * its name with its Remaining Weight there, "not tracked" where that
+ * Location has none and another has one, and the name alone where no
+ * Location tracks the batch.
+ */
+export function atLines(locations: BatchAtLocation[]): { id: string; name: string; weight?: string }[] {
+  const tracked = locations.some((here) => here.remainingWeight !== null);
+  return locations.map((here) => ({ id: here.location.id, name: here.location.name, ...(tracked ? { weight: weightText(here.remainingWeight).toLowerCase() } : {}) }));
+}
+
+/**
+ * The line under a batch's total on its page: how many Locations it is at,
+ * how many of them track it where not all do, and its roasted weight where
+ * it has one, such as "At 3 Locations, 2 with a weight, of 6000 g roasted."
+ * Undefined for a batch at no Location.
+ */
+export function totalLine(locations: BatchAtLocation[], roastedWeight: unknown): string | undefined {
+  if (locations.length === 0) return undefined;
+  const tracked = locations.filter((here) => here.remainingWeight !== null).length;
+  const parts = [
+    `At ${locations.length} ${locations.length === 1 ? "Location" : "Locations"}`,
+    ...(tracked === locations.length ? [] : [`${tracked === 0 ? "none" : tracked} with a weight`]),
+    ...(typeof roastedWeight === "number" && Number.isFinite(roastedWeight) && roastedWeight > 0 ? [`of ${grams(roastedWeight)} roasted`] : []),
+  ];
+  return `${parts.join(", ")}.`;
+}
+
 const DAY = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
 const DAY_AND_YEAR = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 
@@ -63,14 +91,79 @@ export function enteredBy(source: EditSource | null, readerId: string | undefine
  * Undefined where the server said none of it, as the release before does.
  */
 export function weightLine(here: BatchAtLocation, readerId: string | undefined, now: Date = new Date()): string | undefined {
+  const parts = weightLineParts(here, readerId, now);
+  return parts && `${parts.before}${parts.shots ?? ""}${parts.after}`;
+}
+
+/**
+ * That line in three parts, so the page can link its count of Shots, such as
+ * "38 Shots", to those Shots in the Shots list: what is written before the
+ * count, the count, absent where no Shot was pulled since, and what follows.
+ */
+export function weightLineParts(here: BatchAtLocation, readerId: string | undefined, now: Date = new Date()): { before: string; shots?: string; after: string } | undefined {
   if (here.entered === undefined || here.used === undefined) return undefined;
-  if (here.entered === null || here.used === null) return "No weight entered.";
+  if (here.entered === null || here.used === null) return { before: "No weight entered.", after: "" };
   const by = enteredBy(here.entered.by, readerId);
   const day = dayText(here.entered.at, now);
   const start = here.entered.arrivedFrom ? `${grams(here.entered.weight)} arrived from ${here.entered.arrivedFrom.name} ${day}.` : `${grams(here.entered.weight)} entered ${day}${by === undefined ? "" : ` ${by}`}.`;
   const { shots, weight } = here.used;
-  const since = [...(shots === 0 ? [] : [`${shots} ${shots === 1 ? "Shot" : "Shots"} used ${grams(weight)}`]), ...movedText(here.moved)];
-  return `${start} ${since.length === 0 ? "No Shots since." : `Since: ${since.join(", ")}.`}`;
+  const moved = movedText(here.moved);
+  if (shots === 0) return { before: `${start} ${moved.length === 0 ? "No Shots since." : `Since: ${moved.join(", ")}.`}`, after: "" };
+  return { before: `${start} Since: `, shots: `${shots} ${shots === 1 ? "Shot" : "Shots"}`, after: ` used ${[grams(weight), ...moved].join(", ")}.` };
+}
+
+/**
+ * What a Location's bar on a batch's page draws: what is left of what stayed
+ * there, its Remaining Weight over that weight plus what the Shots pulled
+ * there since its count started have used, from 0 to 1, with both weights in
+ * words for a screen reader. Coffee moved to another Location or received
+ * from one is not drawn as used, so the bar is full while no Shot has been
+ * pulled since, and empty at 0 g. Undefined, for no bar, where the batch is
+ * untracked there, or the server gave no count of what was used, as the
+ * release before does (ADR-0025).
+ */
+export function barOf(here: Pick<BatchAtLocation, "location" | "remainingWeight" | "used">): { fraction: number; label: string } | undefined {
+  if (here.remainingWeight === null || !here.used) return undefined;
+  const left = Math.max(0, here.remainingWeight);
+  const used = Math.max(0, here.used.weight);
+  return {
+    fraction: left === 0 ? 0 : left / (left + used),
+    label: `${grams(left)} left at ${here.location.name}, ${grams(used)} used by Shots there`,
+  };
+}
+
+/**
+ * How far a weight typed in the Enter weight dialog is from the one worked
+ * out for the Location, such as "140 g less than the 2920 g worked out.", so
+ * 292 typed for 2920 is noticed before it is saved. Undefined where the
+ * Location has no weight worked out, the weight typed is the same, to the
+ * tenth of a gram, or it is not a weight above zero: zero and an empty field
+ * have lines of their own.
+ */
+export function differenceText(typed: string, worked: number | null): string | undefined {
+  if (worked === null || typed.trim() === "") return undefined;
+  const weight = Number(typed);
+  if (!Number.isFinite(weight) || weight <= 0) return undefined;
+  const difference = Math.round((weight - worked) * 10) / 10;
+  if (difference === 0) return undefined;
+  return `${grams(Math.abs(difference))} ${difference < 0 ? "less" : "more"} than the ${grams(worked)} worked out.`;
+}
+
+/**
+ * What a batch's page says of a Location the batch has left, after the
+ * Location's name: "Moved to Riverside 26 Nov" where a Batch Move of all
+ * took it, which the batch's history says, and "Finished 26 Nov" otherwise,
+ * also where the history is not read yet or is the release before's, which
+ * names no move (ADR-0025). Of the changes that took the batch from the
+ * Location, a move of all from it or a finish there, the latest decides, so
+ * a batch moved away, brought back and then finished reads "Finished".
+ */
+export function leftText(left: BeanBatch["finished"][number], versions: ItemVersion[] | undefined, now: Date = new Date()): string {
+  const day = dayText(left.finishedAt, now);
+  const took = (versions ?? [])
+    .filter((version) => (version.move ? version.move.all && version.move.from?.id === left.location.id : version.location?.id === left.location.id && version.fields.atLocation === false))
+    .reduce<ItemVersion | undefined>((latest, version) => (latest === undefined || version.receivedAt > latest.receivedAt ? version : latest), undefined);
+  return took?.move ? `Moved to ${took.move.to?.name ?? "a Location since deleted"} ${day}` : `Finished ${day}`;
 }
 
 /** What Batch Moves have brought to a Location and taken from it since its count started, an amount for each other Location, and one for any whose Location has been deleted since. */

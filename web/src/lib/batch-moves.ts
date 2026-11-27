@@ -1,11 +1,12 @@
-import type { BatchAtLocation, BatchMoveView, Location } from "@/lib/api";
+import type { BatchAtLocation, BatchMoveView, BatchRecipe, Location } from "@/lib/api";
 import { grams } from "./remaining-weight";
 
 // A Batch Move as the management interface words it (ADR-0037): what the
 // move dialog says each Location will hold afterwards, what it sends, and
-// the one line a move is in a batch's history. The server makes the move and
-// works every weight out; what is here only says beforehand what it will do,
-// from the weights as the page last read them.
+// the one line a move is in a batch's history; and what the confirmation
+// before Finish here says finishing does, in the same lines. The server
+// makes the move and works every weight out; what is here only says
+// beforehand what it will do, from the weights as the page last read them.
 
 /** How much of a batch a move takes: all of it, part of its weight, or, of a batch with no weight where it is, some of it. */
 export type MoveHow = "all" | "part" | "some";
@@ -84,10 +85,37 @@ export function movePlan(
   if (!(amount > 0) || amount >= has) {
     return { ...none, problem: entered.trim() === "" ? undefined : `Enter a weight above 0 and below ${grams(has)}. To move everything, choose All of it.`, submit: `Move to ${to.name}` };
   }
-  return { amount, lines: [`${left} will have ${grams(has - amount)}.`, arrives(amount)], submit: `Move ${grams(amount)} to ${to.name}` };
+  return { amount, lines: [`${left} will have ${grams(has - amount)}.`, arrives(amount), "Tablets at both Locations show the new weights."], submit: `Move ${grams(amount)} to ${to.name}` };
 }
 
-/** What a move of all says of the Recipes at the Location left that name the batch: none where none does, or they were not read. */
+/**
+ * What finishing the batch at a Location does, as the confirmation before
+ * Finish here says it, in the lines a move of all uses: the Location stops
+ * listing it; the weight there goes with it, left out where it is untracked
+ * there; and the Recipes there that name it go on naming it, left out where
+ * none does or `recipes` was not read.
+ */
+export function finishLines(from: BatchAtLocation, recipes?: { naming: number; slotted: number }): string[] {
+  const left = from.location.name;
+  return [
+    `${left} stops listing the batch, and its tablets stop offering it.`,
+    ...(from.remainingWeight === null ? [] : [`The ${grams(from.remainingWeight)} there goes with it. No other Location's weight changes.`]),
+    ...recipesLines(left, recipes),
+  ];
+}
+
+/**
+ * How many of the Recipes that name a batch are at a Location, and how many
+ * of those are in a Recipe Slot, from the Recipes its page lists. Undefined
+ * where the server listed none, as the release before does (ADR-0025).
+ */
+export function recipesAt(recipes: BatchRecipe[] | undefined, locationId: string): { naming: number; slotted: number } | undefined {
+  if (recipes === undefined) return undefined;
+  const naming = recipes.filter((recipe) => recipe.location?.id === locationId);
+  return { naming: naming.length, slotted: naming.filter((recipe) => recipe.slot !== null).length };
+}
+
+/** What a move of all, or a finish, says of the Recipes at the Location left that name the batch: none where none does, or they were not read. */
 function recipesLines(left: string, recipes: { naming: number; slotted: number } | undefined): string[] {
   if (recipes === undefined || recipes.naming === 0) return [];
   const { naming, slotted } = recipes;
