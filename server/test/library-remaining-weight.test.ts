@@ -202,7 +202,7 @@ describe("A Bean Batch's Remaining Weight at a Location", { timeout: 120_000 }, 
 
     // The list, and the Bean's read, give the same.
     const { batches } = await api.get<{ batches: BatchView[] }>("/bean-batches");
-    const { content: _content, finished: _finished, recipes: _recipes, ...summary } = batch as BatchView & { recipes: unknown };
+    const { content: _content, finished: _finished, beanArchived: _beanArchived, recipes: _recipes, ...summary } = batch as BatchView & { beanArchived: unknown; recipes: unknown };
     expect(batches.find((listed) => listed.id === id)).toEqual(summary);
     const read = await api.get<{ bean: { batches: BatchView[] } }>(`/beans/${bean}`);
     expect(read.bean.batches.find((listed) => listed.id === id)).toEqual(summary);

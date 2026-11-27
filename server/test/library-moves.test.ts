@@ -239,7 +239,7 @@ describe("A Batch Move between Locations", { timeout: 120_000 }, () => {
 
     // The list, the Bean's read and the assistant tools give the same.
     const batch = await getBatch(id);
-    const { content: _content, finished: _finished, recipes: _recipes, ...summary } = batch as BatchView & { recipes: unknown };
+    const { content: _content, finished: _finished, beanArchived: _beanArchived, recipes: _recipes, ...summary } = batch as BatchView & { beanArchived: unknown; recipes: unknown };
     const { batches } = await api.get<{ batches: BatchView[] }>("/bean-batches");
     expect(batches.find((listed) => listed.id === id)).toEqual(summary);
     const read = await api.get<{ bean: { batches: BatchView[] } }>(`/beans/${bean}`);

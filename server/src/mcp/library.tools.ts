@@ -379,6 +379,7 @@ export const beanBatchItem = batchSummary.extend({
   finished: z
     .array(z.object({ location, remainingWeight: z.number().nullable().describe("The weight its count there last started from, in grams, which went with it: 0 where a Batch Move took all of it."), finishedAt: time("When it was finished there.") }))
     .describe("The Locations it was at and has been finished at since, by name."),
+  beanArchived: z.boolean().describe("Whether its Bean is Archived, which takes it out of every Location as its own archived does."),
   recipes: z
     .array(
       z.object({
@@ -780,6 +781,7 @@ function batchViewOf(batch: BeanBatchView): NonNullable<GetOutput["beanBatch"]> 
     ...batchOf(batch),
     content: batch.content,
     finished: batch.finished.map((here) => ({ location: locationOf(here.location), remainingWeight: here.remainingWeight, finishedAt: timeAt(here.finishedAt, here.location) })),
+    beanArchived: batch.beanArchived,
     recipes: batch.recipes.map((recipe) => ({ ...recipe, location: maybeLocation(recipe.location) })),
   };
 }

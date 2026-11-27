@@ -308,6 +308,17 @@ test("a Bean's page leads with its Batches card: New Batch in its heading, how m
   await expectFits(page, 393);
   await page.setViewportSize({ width: 1280, height: 720 });
 
+  // Its Bean Archived, its batches are at no Location, though each keeps its own state; restored, they are back where they were.
+  await put(page, `/api/beans/${guji}/archived`, { archived: true });
+  await page.reload();
+  await expect(batches.getByText("None at a Location")).toBeVisible();
+  await expect(row(`LR-0412 roasted ${roastDay("2026-11-17")}`)).toHaveText([roastDay("2026-11-17"), "LR-0412", "-", "-"]);
+  await expect(row(`Roasted ${roastDay("2026-11-10")}`)).toHaveText([roastDay("2026-11-10"), "-", "-", "-"]);
+  await put(page, `/api/beans/${guji}/archived`, { archived: false });
+  await page.reload();
+  await expect(batches.getByText("2 at a Location, 5090 g in all")).toBeVisible();
+  await expect(row(`LR-0412 roasted ${roastDay("2026-11-17")}`)).toHaveText([roastDay("2026-11-17"), "LR-0412", "Downtown 3240 gRiverside 1850 g", "5090 g"]);
+
   // A Bean with no batch says so, and still offers New Batch; an Archived one offers none.
   const bare = await bean(page, "Bare Bean");
   await page.goto(`/library/beans/${bare}`);

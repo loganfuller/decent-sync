@@ -250,6 +250,8 @@ describe("A Bean Batch's Recipes and a Location's Bean Batches", { timeout: 120_
     expect(await read()).toMatchObject({ archived: false, beanArchived: false });
     await api.send("PUT", `/beans/${own}/archived`, { archived: true });
     expect(await read()).toMatchObject({ archived: false, beanArchived: true });
+    // The tool gives it as the REST API does.
+    expect((await assistant.call<{ beanBatch: { archived: boolean; beanArchived: boolean } }>("get_library_item", { kind: "beanBatch", id })).beanBatch).toMatchObject({ archived: false, beanArchived: true });
   });
 
   it("lists a Location's batches with each one's Bean, roast date, Batch Code, weight there, what its count starts from, the Shots and moves since, and the Recipes there that name it, as list_location_batches does", async () => {

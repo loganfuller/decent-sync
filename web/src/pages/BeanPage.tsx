@@ -120,7 +120,8 @@ function BeanDetails({ id }: { id: string }) {
               <p>Its roasts, the latest first, each with its Batch Code, the Locations it is at and its remaining weight at each.</p>
               <p>The line beside the title counts the batches at a Location, and adds up what the Locations that track them hold.</p>
             </CardTitleWithInfo>
-            {bean.batches.length > 0 && <p className="text-sm text-muted-foreground tabular-nums">{batchesCountText(bean.batches)}</p>}
+            {/* An Archived Bean's batches are at no Location, whatever they were at. */}
+            {bean.batches.length > 0 && <p className="text-sm text-muted-foreground tabular-nums">{batchesCountText(bean.archived ? [] : bean.batches)}</p>}
           </div>
           {mayChange && !bean.archived && (
             <CardAction>
@@ -145,8 +146,9 @@ function BeanDetails({ id }: { id: string }) {
                 <TableBody>
                   {bean.batches.map((batch) => {
                     const code = batchCodeOf(batch);
-                    // An Archived batch is offered at no Location, whatever it was at.
-                    const total = batch.archived ? undefined : totalText(batch);
+                    // An Archived batch, or one of an Archived Bean, is offered at no Location, whatever it was at.
+                    const offered = !batch.archived && !bean.archived;
+                    const total = offered ? totalText(batch) : undefined;
                     return (
                       <TableRow key={batch.id} className="align-top">
                         <TableCell>
@@ -160,7 +162,7 @@ function BeanDetails({ id }: { id: string }) {
                         </TableCell>
                         <TableCell>{code === undefined ? <span className="text-muted-foreground">-</span> : <BatchCode code={code} plain />}</TableCell>
                         <TableCell className="whitespace-normal">
-                          {batch.archived ? (
+                          {!offered ? (
                             <span className="text-muted-foreground">-</span>
                           ) : batch.locations.length === 0 ? (
                             <span className="text-muted-foreground">At no Location</span>
@@ -173,7 +175,7 @@ function BeanDetails({ id }: { id: string }) {
                             ))
                           )}
                         </TableCell>
-                        <TableCell className={`text-right tabular-nums ${!batch.archived && batch.locations.some((here) => here.remainingWeight !== null) ? "" : "text-muted-foreground"}`}>{total ?? "-"}</TableCell>
+                        <TableCell className={`text-right tabular-nums ${offered && batch.locations.some((here) => here.remainingWeight !== null) ? "" : "text-muted-foreground"}`}>{total ?? "-"}</TableCell>
                       </TableRow>
                     );
                   })}
