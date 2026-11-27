@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { BatchAtLocation } from "../src/lib/api";
-import { destinationText, movePlan, moveText, sourceText } from "../src/lib/batch-moves";
+import type { BatchAtLocation, BatchRecipe } from "../src/lib/api";
+import { destinationText, finishLines, movePlan, moveText, recipesAt, sourceText } from "../src/lib/batch-moves";
 
 // What the management interface says of a Batch Move (#704): what the move
 // dialog says each Location will hold afterwards and what it sends, and the
-// one line a move is in a batch's history.
+// one line a move is in a batch's history; and what the confirmation before
+// Finish here says finishing does (#726).
 
 const downtown = { id: "l1", name: "Downtown", timeZone: "America/Chicago" };
 const riverside = { id: "l2", name: "Riverside", timeZone: "America/Chicago" };
@@ -14,6 +15,9 @@ const since = new Date(2026, 10, 25, 9).toISOString();
 function at(location: typeof downtown, remainingWeight: number | null): BatchAtLocation {
   return { location, remainingWeight, since };
 }
+
+/** What a move of part says of the tablets at both Locations (#726). */
+const tablets = "Tablets at both Locations show the new weights.";
 
 describe("a Batch Move in words", () => {
   it("names each Location the batch may be moved to with what it has of it", () => {
@@ -27,12 +31,18 @@ describe("a Batch Move in words", () => {
   it("says what each Location will hold after a move of part, and sends the amount", () => {
     expect(movePlan(at(downtown, 2920), riverside, at(riverside, 428), "part", "500")).toEqual({
       amount: 500,
-      lines: ["Downtown will have 2420 g.", "Riverside will have 928 g: the 428 g there now and these 500 g."],
+      lines: ["Downtown will have 2420 g.", "Riverside will have 928 g: the 428 g there now and these 500 g.", tablets],
       submit: "Move 500 g to Riverside",
     });
     // To a Location that has none, or has it with no weight, the amount arriving is what it has.
-    expect(movePlan(at(downtown, 2920), belmont, undefined, "part", "120.25").lines).toEqual(["Downtown will have 2799.7 g.", "Belmont will have 120.3 g."]);
-    expect(movePlan(at(downtown, 2920), riverside, at(riverside, null), "part", "20")).toMatchObject({ amount: 20, lines: ["Downtown will have 2900 g.", "Riverside will have 20 g."] });
+    expect(movePlan(at(downtown, 2920), belmont, undefined, "part", "120.25").lines).toEqual(["Downtown will have 2799.7 g.", "Belmont will have 120.3 g.", tablets]);
+    expect(movePlan(at(downtown, 2920), riverside, at(riverside, null), "part", "20")).toMatchObject({ amount: 20, lines: ["Downtown will have 2900 g.", "Riverside will have 20 g.", tablets] });
+  });
+
+  it("says that tablets show the new weights only of a move of part, which leaves both Locations with one (#726)", () => {
+    expect(movePlan(at(downtown, 2920), riverside, at(riverside, 428), "all", "").lines).not.toContain(tablets);
+    expect(movePlan(at(downtown, null), belmont, undefined, "some", "").lines).not.toContain(tablets);
+    expect(movePlan(at(downtown, null), belmont, undefined, "all", "").lines).not.toContain(tablets);
   });
 
   it("makes no move of part for an amount of zero, a negative one, or one equal to or above what is there, saying to choose all", () => {
@@ -109,5 +119,25 @@ describe("a Batch Move in words", () => {
     expect(moveText({ from: downtown, to: belmont, amount: null, all: true })).toBe("Moved all from Downtown to Belmont, with no weight entered");
     expect(moveText({ from: downtown, to: belmont, amount: null, all: false })).toBe("Moved some from Downtown to Belmont, with no weight entered");
     expect(moveText({ from: null, to: belmont, amount: 20.5, all: false })).toBe("Moved 20.5 g from a Location since deleted to Belmont");
+  });
+
+  it("says what finishing a batch at a Location does, in a move of all's lines, leaving out the weight where it is untracked and the Recipes where none names it (#726)", () => {
+    expect(finishLines(at(downtown, 2920), { naming: 2, slotted: 1 })).toEqual([
+      "Downtown stops listing the batch, and its tablets stop offering it.",
+      "The 2920 g there goes with it. No other Location's weight changes.",
+      '2 Recipes at Downtown name it and will go on naming it. The one in a Recipe Slot will read "Batch finished here".',
+    ]);
+    // Untracked there, no weight goes with it; with no Recipe naming it, or none read, nothing is said of them.
+    expect(finishLines(at(downtown, null), { naming: 0, slotted: 0 })).toEqual(["Downtown stops listing the batch, and its tablets stop offering it."]);
+    expect(finishLines(at(downtown, 0))).toEqual(["Downtown stops listing the batch, and its tablets stop offering it.", "The 0 g there goes with it. No other Location's weight changes."]);
+  });
+
+  it("counts the Recipes at a Location that name a batch, and those in a Recipe Slot, from the batch's own, and none where the release before listed none (#726)", () => {
+    const recipe = (location: typeof downtown | null, slot: number | null): BatchRecipe => ({ id: `${location?.id}-${slot}`, name: "Guji", location, slot, dose: 18, yield: 40, batchFinished: false });
+    const recipes = [recipe(downtown, 2), recipe(downtown, null), recipe(riverside, 5), recipe(null, 1)];
+    expect(recipesAt(recipes, downtown.id)).toEqual({ naming: 2, slotted: 1 });
+    expect(recipesAt(recipes, riverside.id)).toEqual({ naming: 1, slotted: 1 });
+    expect(recipesAt(recipes, belmont.id)).toEqual({ naming: 0, slotted: 0 });
+    expect(recipesAt(undefined, downtown.id)).toBeUndefined();
   });
 });

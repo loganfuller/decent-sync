@@ -1,7 +1,7 @@
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { machineRow, openCard, openMachineTab, rows } from "./support/locators.js";
+import { batchAt, machineRow, openCard, openMachineTab, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 import { expectTip } from "./support/tooltips.js";
@@ -130,7 +130,8 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       // The list's search, by Bean, roaster or Batch Code (#703), which a Viewer uses as anyone does.
       filters: [/^searchbox Find a batch$/],
     },
-    { path: `/library/bean-batches/${ids.batch}`, loaded: uptownRow, staffHave: "button Finish it at Uptown" },
+    // Uptown's block of its Where it is card, with what Staff working there do to it there.
+    { path: `/library/bean-batches/${ids.batch}`, loaded: (page) => batchAt(page, "Uptown"), staffHave: "button Finish it at Uptown" },
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },
     { path: "/library/profiles", loaded: (page) => rows(page.getByRole("table", { name: "Profiles" })).first() },

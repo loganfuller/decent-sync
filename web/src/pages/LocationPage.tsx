@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Link, useParams } from "react-router";
 import { useStaffLocationIds } from "@/auth";
-import { LocationBatchesCard } from "@/components/bean-batches";
+import { LocationBatchesCard } from "@/components/location-batches";
 import { LocationOverviewCard } from "@/components/overview";
 import { LocationRecipesCard } from "@/components/recipes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -13,7 +13,8 @@ import { usePolled } from "@/lib/use-polled";
  * One Location: its block of the Overview (#471, #543), whose status cards
  * are its Machines, each with the Recipe it has loaded, and its Recipes, in
  * its Recipe Slots and in none, and the Bean Batches there, each with its
- * Remaining Weight there (#707). Loaded every 5 s, so a change made on a
+ * Remaining Weight there (#707), which an Admin or Staff working there
+ * enters from its row (#726). Loaded every 5 s, so a change made on a
  * tablet shows; the Overview's numbers are read every 30 s.
  */
 export function LocationPage() {
@@ -94,7 +95,7 @@ function LocationDetails({ id }: { id: string }) {
       )}
       {location && <LocationOverviewCard location={location} machines={machines} />}
       {location && <LocationRecipesCard location={location} recipes={recipes} onChanged={reload} />}
-      {location && batches && <LocationBatchesCard locationId={location.id} batches={batches} />}
+      {location && batches && <LocationBatchesCard location={location} batches={batches} onChanged={reload} />}
     </section>
   );
 }

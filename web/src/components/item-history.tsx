@@ -201,6 +201,13 @@ export function ItemHistoryCard({ kind, id, names, closed = false, version = 0 }
   );
 }
 
+/**
+ * What a row changed keeps a width its values can be read in, so in a narrow
+ * card, as on a phone, the table scrolls sideways in its own box rather than
+ * breaking each value to a letter a line beside a long field name (#726).
+ */
+const CHANGED = "min-w-64 whitespace-normal";
+
 /** A row of an item's history: an accepted edit, or a Lost Edit, by when the server took it in or it lost. */
 type HistoryRow = { at: string; version: ItemVersion; lost?: undefined } | { at: string; lost: LostEdit; version?: undefined };
 
@@ -262,7 +269,7 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                     <TableCell className="whitespace-normal">
                       <SourceText source={lost.source} />
                     </TableCell>
-                    <TableCell className="whitespace-normal">
+                    <TableCell className={CHANGED}>
                       <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
                         <dt>{fieldLabel(lost.field, lost.location)}</dt>
                         <dd className="min-w-0 wrap-anywhere">
@@ -287,7 +294,7 @@ function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: 
                     <TableCell className="whitespace-normal">
                       <SourceText source={version.source} />
                     </TableCell>
-                    <TableCell className="whitespace-normal">
+                    <TableCell className={CHANGED}>
                       {version.copiedFrom && (
                         <p className="mb-1 text-sm">
                           Copied from{" "}

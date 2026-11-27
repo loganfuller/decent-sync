@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { BatchBadges, LibraryNav, atText, batchName, totalText } from "@/components/bean-batches";
+import { BatchBadges, LibraryNav, batchName, totalText } from "@/components/bean-batches";
 import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewBatchDialog } from "@/components/library-forms";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type BeanBatchSummary, type BeanSummary } from "@/lib/api";
+import { atLines } from "@/lib/remaining-weight";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 /** The words searched for, kept in the address. */
@@ -22,8 +23,10 @@ function matches(batch: BeanBatchSummary, search: string): boolean {
 
 /**
  * The Library's Bean Batches, each with its Batch Code, the Locations it is
- * at and its remaining weight at each, found by Bean, roaster or Batch Code.
- * Batches join the Library from tablets, or are created here.
+ * at, a line each with its remaining weight there, and its remaining weight
+ * in all, found by Bean, roaster or Batch Code. New Batch, the search and
+ * its count of matches share one row (#726). Batches join the Library from
+ * tablets, or are created here.
  */
 export function BeanBatchesPage() {
   const mayChange = useMayChange();
@@ -63,11 +66,6 @@ export function BeanBatchesPage() {
           </p>
         </PageTitleWithInfo>
         <LibraryNav />
-        {mayChange && (
-          <div className="mt-2">
-            <NewBatchDialog beans={beans} />
-          </div>
-        )}
       </div>
 
       {error && (
@@ -75,32 +73,38 @@ export function BeanBatchesPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {batches?.length === 0 && <p className="text-muted-foreground">No Bean Batches yet. They join the Library as tablets at a Location report them, or as they are created here.</p>}
-      {batches && batches.length > 0 && (
-        <div role="search" aria-label="Find a batch" className="flex flex-wrap items-end gap-3">
-          <div className="grid gap-2">
-            <Label htmlFor={`${id}-search`}>Find a batch</Label>
-            <Input
-              id={`${id}-search`}
-              className="w-72"
-              type="search"
-              placeholder="Bean, roaster or Batch Code"
-              value={search}
-              onChange={(event) => {
-                const next = new URLSearchParams(params);
-                if (event.target.value === "") next.delete(SEARCH);
-                else next.set(SEARCH, event.target.value);
-                setParams(next, { replace: true });
-              }}
-            />
-          </div>
-          {search.trim() !== "" && (
-            <p role="status" className="py-2 text-sm text-muted-foreground">
-              {shown.length} of {batches.length} {batches.length === 1 ? "batch" : "batches"}
-            </p>
+      {(mayChange || (batches && batches.length > 0)) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {mayChange && <NewBatchDialog beans={beans} />}
+          {batches && batches.length > 0 && (
+            <div role="search" aria-label="Find a batch" className="flex min-w-0 flex-wrap items-center gap-3">
+              {/* Named for a screen reader, with no label drawn above it: its placeholder says what it finds by. */}
+              <Label htmlFor={`${id}-search`} className="sr-only">
+                Find a batch
+              </Label>
+              <Input
+                id={`${id}-search`}
+                className="w-72 max-w-full"
+                type="search"
+                placeholder="Bean, roaster or Batch Code"
+                value={search}
+                onChange={(event) => {
+                  const next = new URLSearchParams(params);
+                  if (event.target.value === "") next.delete(SEARCH);
+                  else next.set(SEARCH, event.target.value);
+                  setParams(next, { replace: true });
+                }}
+              />
+              {search.trim() !== "" && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  {shown.length} of {batches.length} {batches.length === 1 ? "batch" : "batches"}
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}
+      {batches?.length === 0 && <p className="text-muted-foreground">No Bean Batches yet. They join the Library as tablets at a Location report them, or as they are created here.</p>}
       {batches && batches.length > 0 && shown.length === 0 && <p className="text-muted-foreground">No batch matches.</p>}
       {shown.length > 0 && (
         <div className="min-w-0 rounded-lg border">
@@ -111,14 +115,13 @@ export function BeanBatchesPage() {
                 <TableHead>Batch Code</TableHead>
                 <TableHead>Roaster</TableHead>
                 <TableHead>At</TableHead>
-                <TableHead>Remaining</TableHead>
-                <TableHead>Created at</TableHead>
+                <TableHead className="text-right">Remaining in all</TableHead>
                 <TableHead>Attention</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {shown.map((batch) => (
-                <TableRow key={batch.id}>
+                <TableRow key={batch.id} className="align-top">
                   <TableCell className="font-medium">
                     <Link to={`/library/bean-batches/${batch.id}`} className="underline-offset-4 hover:underline">
                       {batchName(batch)}
@@ -126,9 +129,17 @@ export function BeanBatchesPage() {
                   </TableCell>
                   <TableCell className="font-mono font-medium">{batch.batchCode ?? <span className="font-sans font-normal text-muted-foreground">-</span>}</TableCell>
                   <TableCell>{batch.bean.roaster ?? <span className="text-muted-foreground">-</span>}</TableCell>
-                  <TableCell className="whitespace-normal">{atText(batch.locations)}</TableCell>
-                  <TableCell>{totalText(batch) ?? <span className="text-muted-foreground">-</span>}</TableCell>
-                  <TableCell>{batch.createdLocation?.name ?? <span className="text-muted-foreground">-</span>}</TableCell>
+                  <TableCell className="whitespace-normal">
+                    {batch.locations.length === 0
+                      ? "Nowhere"
+                      : atLines(batch.locations).map((here) => (
+                          <div key={here.id}>
+                            {here.name}
+                            {here.weight !== undefined && <span className="text-muted-foreground"> {here.weight}</span>}
+                          </div>
+                        ))}
+                  </TableCell>
+                  <TableCell className={`text-right tabular-nums ${batch.locations.some((here) => here.remainingWeight !== null) ? "" : "text-muted-foreground"}`}>{totalText(batch) ?? "-"}</TableCell>
                   <TableCell>
                     <BatchBadges batch={batch} />
                   </TableCell>
