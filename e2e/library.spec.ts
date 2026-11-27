@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { batchLocations } from "./support/locators.js";
 import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
@@ -102,8 +103,9 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expect(page.getByRole("heading", { name: "Bean Batches", level: 1 })).toBeVisible();
   await expectTip(page.getByRole("main"), "Bean Batches", /^The Bean Batches in the Library\./);
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
-    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe (not tracked), Batch lab (180.5 g)", "180.5 g", "Batch lab", ""].join(""),
-    ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe (not tracked)", "Not tracked", "Batch cafe", ""].join(""),
+    // A line for each Location: "not tracked" beside one with no weight where another has one, and the name alone where none has (#726).
+    ["Batch Guji, roasted 2026-10-01", "-", "Roux Bakehouse", "Batch cafe not trackedBatch lab 180.5 g", "180.5 g", ""].join(""),
+    ["Batch Heirloom, no roast date", "-", "Sandbox Coffee Roasters", "Batch cafe", "Not tracked", ""].join(""),
   ]);
 
   await page.getByRole("link", { name: "Batch Guji, roasted 2026-10-01" }).click();
@@ -112,20 +114,20 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expectTip(page.getByRole("main"), "Roast", "As it was created, with the edits made since, on tablets or here.");
   const whereItIs = page.getByRole("region", { name: "Where it is" });
   await expect(whereItIs.getByRole("paragraph").filter({ hasText: /Batch Code|added there until/ })).toHaveCount(0);
-  await expect(field(whereItIs, "Total remaining")).toHaveText("180.5 g");
-  const locations = page.getByRole("table", { name: "Locations" });
-  // Each Location's weight, and under it one line: the weight entered, when and on which Machine, and the Shots since.
-  await expect(rows(locations).locator("td:nth-child(-n+2)")).toHaveText([
-    "Batch cafe",
-    "Not tracked",
-    "Batch lab",
-    /^180\.5 g180\.5 g entered .+ on Batch lab group\. No Shots since\.$/,
+  await expect(field(whereItIs, "Remaining in all")).toHaveText("180.5 g");
+  await expect(whereItIs).toContainText("At 2 Locations, 1 with a weight, of 250 g roasted.");
+  // Each Location's weight, its buttons, and one line: the weight entered, when and on which Machine, and the Shots since.
+  await expect(batchLocations(page).getByRole("listitem")).toHaveText([
+    "Batch cafeNot trackedMove to…Enter weightFinish here",
+    /^Batch lab180\.5 gMove to…Enter weightFinish here180\.5 g entered .+ on Batch lab group\. No Shots since\.$/,
   ]);
+  // The Roast card has its Batch Code and roast date always, and each other field only where it has a value (#726).
   const roast = page.getByLabel("Roast", { exact: true });
+  await expect(roast.getByRole("term")).toHaveText(["Batch Code", "Roast date", "Roast level", "Price", "Roasted weight", "Notes"]);
   await expect(field(roast, "Batch Code")).toHaveText("-");
-  await expect(field(roast, "Roasted")).toHaveText("2026-10-01");
+  await expect(field(roast, "Roast date")).toHaveText("2026-10-01");
   await expect(field(roast, "Roast level")).toHaveText("light");
-  await expect(field(roast, "Weight")).toHaveText("250 g");
+  await expect(field(roast, "Roasted weight")).toHaveText("250 g");
   await expect(field(roast, "Price")).toHaveText("18.5 USD");
   await expect(field(roast, "Notes")).toHaveText("Lab roast");
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Created at")).toHaveText("Batch lab");

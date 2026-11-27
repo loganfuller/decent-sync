@@ -2,7 +2,8 @@ import { expect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { field, rows } from "./support/locators.js";
+import { boxes } from "./support/layout.js";
+import { batchAt, batchLeft, batchLocations, field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -11,8 +12,10 @@ import { tabletAt } from "./support/tablets.js";
 // from the Shots pulled there since the weight was entered, with one line
 // saying so, and its total; Enter weight corrects it, finishes the batch
 // there with zero, saying so first, and clears it left empty; and the list
-// of batches shows each Location's weight and the total. The rules
-// themselves are server/test/library-remaining-weight.test.ts's.
+// of batches shows each Location's weight and the total. The dialog names
+// the batch, says how far a weight typed is from the one worked out, and
+// has Cancel beside its filled button (#726). The rules themselves are
+// server/test/library-remaining-weight.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 /** What the Machine's tablet holds over derivedDe1Pro()'s: no library. */
@@ -43,56 +46,74 @@ test("a batch's page shows its weight at each Location less the Shots pulled the
 
   await page.goto(`/library/bean-batches/${batch.id}`);
   const whereItIs = page.getByRole("region", { name: "Where it is" });
-  const where = whereItIs.getByRole("table", { name: "Locations" });
-  await expect(field(whereItIs, "Total remaining")).toHaveText("4141.5 g");
-  await expect(rows(where).locator("td:nth-child(-n+2)")).toHaveText([
-    "Downtown",
-    /^4141\.5 g4180 g entered .+ by you\. Since: 2 Shots used 38\.5 g\.$/,
-    "Riverside",
-    "Not tracked",
-  ]);
-  // Each Location has Move to… (#704), Enter weight and Finish here, and nothing that only clears a weight.
-  await expect(where.getByRole("button")).toHaveText(["Move to…", "Enter weight", "Finish here", "Move to…", "Enter weight", "Finish here"]);
+  const where = batchLocations(page);
+  await expect(field(whereItIs, "Remaining in all")).toHaveText("4141.5 g");
+  // Each Location's weight, its buttons, and under them one line: Move to… (#704), Enter weight and Finish here, and nothing that only clears a weight.
+  const buttons = "Move to…Enter weightFinish here";
+  await expect(where.getByRole("listitem")).toHaveText([new RegExp(`^Downtown4141\\.5 g${buttons}4180 g entered .+ by you\\. Since: 2 Shots used 38\\.5 g\\.$`), `RiversideNot tracked${buttons}`]);
   await expect(whereItIs.getByRole("spinbutton")).toHaveCount(0);
 
   // A weight entered at Riverside is its own, and the total is the sum.
   await where.getByRole("button", { name: "Enter its weight at Riverside" }).click();
   const atRiverside = page.getByRole("dialog", { name: "Enter weight at Riverside" });
+  // It names the batch as well as the Location (#726), as it opens from a Location's list of several batches too.
+  await expect(atRiverside).toContainText("House Espresso, roasted 2026-11-20 (PR-0470). What is left of it at Riverside now, as weighed.");
   // Opened on no weight, which would leave it as it is: not tracked.
   await expect(atRiverside.getByRole("status")).toHaveText("Left empty, the batch is not tracked at Riverside.");
   await atRiverside.getByLabel("Remaining weight (g)", { exact: true }).fill("500");
+  // With no weight worked out there, there is none for the weight typed to differ from.
   await expect(atRiverside.getByRole("status")).toHaveText("");
   await atRiverside.getByRole("button", { name: "Save" }).click();
-  await expect(where.getByRole("row", { name: /^Riverside 500 g/ })).toContainText(/500 g entered .+ by you\. No Shots since\./);
-  await expect(field(whereItIs, "Total remaining")).toHaveText("4641.5 g");
+  await expect(batchAt(page, "Riverside")).toHaveText(new RegExp(`^Riverside500 g${buttons}500 g entered .+ by you\\. No Shots since\\.$`));
+  await expect(field(whereItIs, "Remaining in all")).toHaveText("4641.5 g");
 
-  // The list names each Location with its weight there, and the total.
+  // The list has a line for each Location with its weight there, and the total.
   await page.goto("/library/bean-batches");
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
-    ["House Espresso, roasted 2026-11-20", "PR-0470", "Lantern Coffee Roasters", "Downtown (4141.5 g), Riverside (500 g)", "4641.5 g", "-", ""].join(""),
+    ["House Espresso, roasted 2026-11-20", "PR-0470", "Lantern Coffee Roasters", "Downtown 4141.5 gRiverside 500 g", "4641.5 g", ""].join(""),
   ]);
   await page.getByRole("link", { name: "House Espresso, roasted 2026-11-20" }).click();
 
+  // A weight that differs from the one worked out says by how much (#726), less or more, and stops nothing.
+  await where.getByRole("button", { name: "Enter its weight at Riverside" }).click();
+  const weight = atRiverside.getByLabel("Remaining weight (g)", { exact: true });
+  await expect(weight).toHaveValue("500");
+  await expect(atRiverside.getByRole("status")).toHaveText("");
+  await weight.fill("50");
+  await expect(atRiverside.getByRole("status")).toHaveText("450 g less than the 500 g worked out.");
+  await expect(atRiverside.getByRole("button", { name: "Save" })).toBeEnabled();
+  await weight.fill("560");
+  await expect(atRiverside.getByRole("status")).toHaveText("60 g more than the 500 g worked out.");
+  // Cancel and the filled button are at the right of its foot, Cancel first; cancelled, nothing is saved.
+  const [dialogBox, cancelBox, saveBox] = await boxes(atRiverside, atRiverside.getByRole("button", { name: "Cancel" }), atRiverside.getByRole("button", { name: "Save" }));
+  expect(cancelBox!.x).toBeGreaterThan(dialogBox!.x + dialogBox!.width / 2);
+  expect(saveBox!.x).toBeGreaterThan(cancelBox!.x + cancelBox!.width);
+  expect(Math.abs(saveBox!.y - cancelBox!.y)).toBeLessThan(1);
+  await atRiverside.getByRole("button", { name: "Cancel" }).click();
+  await expect(atRiverside).toHaveCount(0);
+  await expect(batchAt(page, "Riverside")).toContainText("500 g");
+
   // Left empty, Enter weight clears it: the batch reads "Not tracked" there, and is still there.
   await where.getByRole("button", { name: "Enter its weight at Riverside" }).click();
-  await expect(atRiverside.getByLabel("Remaining weight (g)", { exact: true })).toHaveValue("500");
-  await atRiverside.getByLabel("Remaining weight (g)", { exact: true }).fill("");
+  await weight.fill("");
   await expect(atRiverside.getByRole("status")).toHaveText("Left empty, the batch is not tracked at Riverside.");
   await atRiverside.getByRole("button", { name: "Save" }).click();
-  await expect(where.getByRole("row", { name: /^Riverside Not tracked/ })).toBeVisible();
-  await expect(field(whereItIs, "Total remaining")).toHaveText("4141.5 g");
+  await expect(batchAt(page, "Riverside")).toHaveText(`RiversideNot tracked${buttons}`);
+  await expect(field(whereItIs, "Remaining in all")).toHaveText("4141.5 g");
 
-  // Zero finishes the batch there, which the dialog says before it is saved.
+  // Zero finishes the batch there, which the dialog says before it is saved, in place of how far it is from the weight worked out.
   await where.getByRole("button", { name: "Enter its weight at Downtown" }).click();
   const atDowntown = page.getByRole("dialog", { name: "Enter weight at Downtown" });
   await expect(atDowntown.getByLabel("Remaining weight (g)", { exact: true })).toHaveValue("4141.5");
   await atDowntown.getByLabel("Remaining weight (g)", { exact: true }).fill("0");
   await expect(atDowntown.getByRole("status")).toHaveText("A weight of 0 finishes the batch at Downtown.");
-  // Nothing is finished until it is saved: the row is still there behind the dialog.
-  await expect(page.locator('table[aria-label="Locations"] tbody tr').filter({ hasText: "Downtown" })).toHaveCount(1);
+  // Nothing is finished until it is saved: the Location is still there behind the dialog.
+  await expect(page.locator('ul[aria-label="Locations"] > li').filter({ hasText: "Downtown" })).toHaveCount(1);
+  // Its button already reads Finish here, so it asks no second confirmation (#726).
   await atDowntown.getByRole("button", { name: "Finish here" }).click();
-  await expect(where.getByRole("row", { name: /^Downtown/ })).toHaveCount(0);
-  await expect(field(page.getByLabel("Finished", { exact: true }), "Downtown")).toContainText("Finished");
+  await expect(batchAt(page, "Downtown")).toHaveCount(0);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(batchLeft(page)).toHaveText([/^DowntownFinished \S/]);
   // Its history keeps it as a finish made by a weight of zero, in one entry.
   const history = page.getByRole("table", { name: "History" });
   await expect(rows(history).first()).toContainText("At DowntownFinished, by a weight of 0 g");
@@ -111,7 +132,7 @@ test("a new batch is created at one Location and starts at its roasted weight th
   await newBatch.getByLabel("Bean", { exact: true }).click();
   await page.getByRole("option", { name: /Kenya Nyeri AA/ }).click();
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-11-22");
-  await newBatch.getByLabel("Weight (g)", { exact: true }).fill("6000");
+  await newBatch.getByLabel("Roasted weight (g)", { exact: true }).fill("6000");
   // With no Location chosen, it is not created.
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(newBatch.getByRole("alert")).toHaveText("Choose the Location it is at");
@@ -125,8 +146,8 @@ test("a new batch is created at one Location and starts at its roasted weight th
   await newBatch.getByRole("button", { name: "Create" }).click();
 
   await expect(page.getByRole("heading", { name: "Kenya Nyeri AA, roasted 2026-11-22", level: 1 })).toBeVisible();
-  const whereItIs = page.getByRole("region", { name: "Where it is" });
-  await expect(rows(whereItIs.getByRole("table", { name: "Locations" })).locator("td:nth-child(-n+2)")).toHaveText(["Harbor", /^6000 g6000 g entered .+ by you\. No Shots since\.$/]);
+  await expect(batchLocations(page).getByRole("listitem")).toHaveText([/^Harbor6000 gMove to…Enter weightFinish here6000 g entered .+ by you\. No Shots since\.$/]);
+  await expect(page.getByRole("region", { name: "Where it is" })).toContainText("At 1 Location, of 6000 g roasted.");
 });
 
 /** A Shot pulled a minute from now on the Machine of that serial, its Workflow naming the batch by the tablet's id for it, with the measured or Workflow dose given alone. */

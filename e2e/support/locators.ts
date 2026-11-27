@@ -8,6 +8,21 @@ export function field(scope: Page | Locator, term: string): Locator {
   return scope.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }
 
+/** The blocks of a Bean Batch's Where it is card on its page, one for each Location the batch is at (#726). */
+export function batchLocations(page: Page): Locator {
+  return page.getByRole("region", { name: "Where it is" }).getByRole("list", { name: "Locations", exact: true });
+}
+
+/** A Location's block in a Bean Batch's Where it is card: its name, its weight there, its buttons, its bar and its line. */
+export function batchAt(page: Page, location: string): Locator {
+  return batchLocations(page).getByRole("listitem", { name: location, exact: true });
+}
+
+/** The lines of a Bean Batch's Where it is card for the Locations it has left, each a Location's name and what took the batch from it. */
+export function batchLeft(page: Page): Locator {
+  return page.getByRole("region", { name: "Where it is" }).getByRole("list", { name: "Locations it has left" }).getByRole("listitem");
+}
+
 /** Opens the account menu in the top bar, on a screen wide enough for it to show the account's name, and returns it. */
 export async function openAccountMenu(page: Page, accountName: string): Promise<Locator> {
   await page.getByRole("banner").getByRole("button", { name: accountName, exact: true }).click();

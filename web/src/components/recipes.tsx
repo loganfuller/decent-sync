@@ -200,7 +200,8 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
  * Archived, at any Location, with its Location, its Recipe Slot there or
  * "No slot", and its dose and yield, linked to its page. One at a Location
  * the batch was finished at or moved away from is still listed, marked
- * "Batch finished there": what a move or a finish affects.
+ * "Batch finished there" beside the Location's name: what a move or a
+ * finish affects.
  */
 export function BatchRecipesCard({ recipes }: { recipes: BatchRecipe[] }) {
   const { pages } = LIBRARY_KINDS.recipe;
@@ -224,7 +225,6 @@ export function BatchRecipesCard({ recipes }: { recipes: BatchRecipe[] }) {
                   <TableHead>Location</TableHead>
                   <TableHead>Recipe Slot</TableHead>
                   <TableHead>Dose and yield</TableHead>
-                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -234,13 +234,15 @@ export function BatchRecipesCard({ recipes }: { recipes: BatchRecipe[] }) {
                       <ItemLink to={`${pages}/${recipe.id}`}>{recipeName(recipe)}</ItemLink>
                     </TableCell>
                     <TableCell>
-                      {recipe.location ? <ItemLink to={`/locations/${recipe.location.id}`}>{recipe.location.name}</ItemLink> : <OrNone>{undefined}</OrNone>}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {recipe.location ? <ItemLink to={`/locations/${recipe.location.id}`}>{recipe.location.name}</ItemLink> : <OrNone>{undefined}</OrNone>}
+                        {recipe.batchFinished && <Badge variant="destructive">Batch finished there</Badge>}
+                      </div>
                     </TableCell>
                     <TableCell>{recipe.slot === null ? <span className="text-muted-foreground">No slot</span> : String(recipe.slot)}</TableCell>
                     <TableCell>
                       <OrNone>{dialText({ dose: recipe.dose, yield: recipe.yield })}</OrNone>
                     </TableCell>
-                    <TableCell>{recipe.batchFinished && <Badge variant="destructive">Batch finished there</Badge>}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
-import { rows } from "./support/locators.js";
+import { batchLeft, batchLocations, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -41,8 +41,9 @@ test("a batch a scan brought is one line of its history, a move of all naming th
   expect([answer.status, JSON.parse(answer.body)]).toEqual([200, { outcome: "moved", batchId: expect.any(String), beanId: expect.any(String) }]);
 
   await page.goto(`/library/bean-batches/${batch.id}`);
-  const whereItIs = page.getByRole("region", { name: "Where it is" });
-  await expect(rows(whereItIs.getByRole("table", { name: "Locations" })).locator("td").first()).toHaveText("Downtown");
+  await expect(batchLocations(page).getByRole("listitem")).toHaveText([/^Downtown2920 g/]);
+  // The scan moved all of it from the lab, which its line says (#726).
+  await expect(batchLeft(page)).toHaveText([/^Roastery LabMoved to Downtown \S/]);
   const history = rows(page.getByRole("table", { name: "History" }));
   // The latest change: made on the Machine, by the barista named there, where the batch's creation names an account.
   await expect(history.first().getByRole("cell").nth(1)).toHaveText("Bar Left, by Sam");

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { BatchAtLocation, EditSource } from "../src/lib/api";
-import { atText, dayText, enteredBy, movedLine, startText, totalText, weightLine, weightText } from "../src/lib/remaining-weight";
+import type { BatchAtLocation, EditSource, ItemVersion } from "../src/lib/api";
+import { atLines, atText, barOf, dayText, differenceText, enteredBy, leftText, movedLine, startText, totalLine, totalText, weightLine, weightLineParts, weightText } from "../src/lib/remaining-weight";
 
-// What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706), with what Batch Moves have brought and taken since its count started (#704).
+// What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706), with what Batch Moves have brought and taken since its count started (#704),
+// and what a batch's page, the list of batches and the Enter weight dialog lead with (#726).
 
 const location = { id: "l1", name: "Downtown", timeZone: "America/Chicago" };
 const sam: EditSource = { machine: null, tabletId: null, account: { id: "a1", name: "Sam" }, connectedApp: null };
@@ -100,5 +101,102 @@ describe("a batch's Remaining Weight in words", () => {
     expect(movedLine(null)).toBe("Nothing moved");
     expect(movedLine(undefined)).toBe("Nothing moved");
     expect(movedLine({ in: 200, from: [{ location: riverside, weight: 200 }], away: 500, to: [{ location: riverside, weight: 500 }] })).toBe("200 g moved from Riverside, 500 g moved to Riverside");
+  });
+
+  it("gives the list of batches a line for each Location, with its weight, the name alone where no Location tracks the batch, and \"not tracked\" beside one that does not where another does (#726)", () => {
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    expect(atLines([])).toEqual([]);
+    expect(atLines([here({}), here({ location: riverside, remainingWeight: 428 })])).toEqual([
+      { id: "l1", name: "Downtown", weight: "3420 g" },
+      { id: "l2", name: "Riverside", weight: "428 g" },
+    ]);
+    expect(atLines([here({ remainingWeight: null }), here({ location: riverside, remainingWeight: null })])).toEqual([
+      { id: "l1", name: "Downtown" },
+      { id: "l2", name: "Riverside" },
+    ]);
+    expect(atLines([here({}), here({ location: riverside, remainingWeight: null })])).toEqual([
+      { id: "l1", name: "Downtown", weight: "3420 g" },
+      { id: "l2", name: "Riverside", weight: "not tracked" },
+    ]);
+  });
+
+  it("says under a batch's total how many Locations it is at, how many track it where not all do, and its roasted weight where it has one (#726)", () => {
+    const three = [here({}), here({ remainingWeight: 428 }), here({ remainingWeight: 246 })];
+    expect(totalLine(three, 6000)).toBe("At 3 Locations, of 6000 g roasted.");
+    expect(totalLine(three, undefined)).toBe("At 3 Locations.");
+    expect(totalLine([here({})], 250.5)).toBe("At 1 Location, of 250.5 g roasted.");
+    expect(totalLine([here({}), here({}), here({ remainingWeight: null })], undefined)).toBe("At 3 Locations, 2 with a weight.");
+    expect(totalLine([here({}), here({ remainingWeight: null })], 6000)).toBe("At 2 Locations, 1 with a weight, of 6000 g roasted.");
+    expect(totalLine([here({ remainingWeight: null }), here({ remainingWeight: null })], 6000)).toBe("At 2 Locations, none with a weight, of 6000 g roasted.");
+    // A roasted weight that is no weight, as a tablet's record may hold, is left out, and a batch at no Location has no line.
+    for (const none of [0, -5, "6000", null, Number.NaN]) expect(totalLine([here({})], none)).toBe("At 1 Location.");
+    expect(totalLine([], 6000)).toBeUndefined();
+  });
+
+  it("gives the line in parts, so its count of Shots can be a link, and no count where no Shot was pulled since (#726)", () => {
+    const day = dayText(at, now);
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    expect(weightLineParts(here({ moved: { in: 0, from: [], away: 500, to: [{ location: riverside, weight: 500 }] } }), undefined, now)).toEqual({
+      before: `4180 g entered ${day} by Sam. Since: `,
+      shots: "38 Shots",
+      after: " used 760 g, 500 g moved to Riverside.",
+    });
+    expect(weightLineParts(here({ used: { shots: 1, weight: 18.5 } }), undefined, now)).toEqual({ before: `4180 g entered ${day} by Sam. Since: `, shots: "1 Shot", after: " used 18.5 g." });
+    expect(weightLineParts(here({ used: { shots: 0, weight: 0 } }), undefined, now)).toEqual({ before: `4180 g entered ${day} by Sam. No Shots since.`, after: "" });
+    expect(weightLineParts(here({ remainingWeight: null, entered: null, used: null }), undefined, now)).toEqual({ before: "No weight entered.", after: "" });
+    expect(weightLineParts({ location, remainingWeight: 250, since: at }, undefined, now)).toBeUndefined();
+  });
+
+  it("draws a Location's bar as what is left over that plus what Shots there have used: full with no Shot since, empty at 0 g, and unmoved by a Batch Move in or away (#726)", () => {
+    expect(barOf(here({ remainingWeight: 2920, used: { shots: 38, weight: 760 } }))).toEqual({ fraction: 2920 / 3680, label: "2920 g left at Downtown, 760 g used by Shots there" });
+    expect(barOf(here({ remainingWeight: 4180, used: { shots: 0, weight: 0 } }))?.fraction).toBe(1);
+    expect(barOf(here({ remainingWeight: 0, used: { shots: 34, weight: 600 } }))).toEqual({ fraction: 0, label: "0 g left at Downtown, 600 g used by Shots there" });
+    // A weight entered as 0 g that no Shot has used since is empty, not 0 over 0.
+    expect(barOf(here({ remainingWeight: 0, used: { shots: 0, weight: 0 } }))?.fraction).toBe(0);
+    // 500 g moved away leaves 3680 g less 760 g used less 500 g: the bar is of what stayed, 2420 g of 3180 g, and coffee received is not drawn as used either.
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    expect(barOf(here({ remainingWeight: 2420, used: { shots: 38, weight: 760 }, moved: { in: 0, from: [], away: 500, to: [{ location: riverside, weight: 500 }] } }))?.fraction).toBe(2420 / 3180);
+    expect(barOf(here({ remainingWeight: 4680, used: { shots: 0, weight: 0 }, moved: { in: 500, from: [{ location: riverside, weight: 500 }], away: 0, to: [] } }))?.fraction).toBe(1);
+  });
+
+  it("draws no bar where the batch is untracked, or the release before gave no count of what was used (#726)", () => {
+    expect(barOf(here({ remainingWeight: null, entered: null, used: null }))).toBeUndefined();
+    expect(barOf({ location, remainingWeight: 250 })).toBeUndefined();
+    expect(barOf({ location, remainingWeight: 250, used: null })).toBeUndefined();
+  });
+
+  it("says how far a weight typed is from the one worked out, and nothing for the same weight, none worked out, zero or an empty field (#726)", () => {
+    expect(differenceText("2780", 2920)).toBe("140 g less than the 2920 g worked out.");
+    expect(differenceText("292", 2920)).toBe("2628 g less than the 2920 g worked out.");
+    expect(differenceText("2980", 2920)).toBe("60 g more than the 2920 g worked out.");
+    expect(differenceText("4141.2", 4141.5)).toBe("0.3 g less than the 4141.5 g worked out.");
+    expect(differenceText(" 2920 ", 2920)).toBeUndefined();
+    expect(differenceText("2920.04", 2920)).toBeUndefined();
+    expect(differenceText("500", null)).toBeUndefined();
+    // Zero and an empty field have lines of their own, and what is no weight has none.
+    for (const typed of ["0", "", "  ", "-5", "many"]) expect(differenceText(typed, 2920), typed).toBeUndefined();
+    // A Location that reads 0 g still has a weight worked out.
+    expect(differenceText("250", 0)).toBe("250 g more than the 0 g worked out.");
+  });
+
+  it("says of a Location a batch has left that a Batch Move of all took it, naming where to, or that it was finished there, with the day (#726)", () => {
+    const day = dayText(at, now);
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    const left = { location, remainingWeight: 0, finishedAt: at };
+    const version = (receivedAt: string, changes: Partial<ItemVersion>): ItemVersion => ({ id: receivedAt, fields: {}, location: null, source: sam, editedAt: receivedAt, receivedAt, copiedFrom: null, move: null, ...changes });
+    const movedAll = version("2026-11-25T15:00:00.000Z", { move: { from: location, to: riverside, amount: 2420, all: true } });
+    const movedPart = version("2026-11-25T14:00:00.000Z", { move: { from: location, to: riverside, amount: 500, all: false } });
+    const finished = version("2026-11-25T13:00:00.000Z", { location, fields: { atLocation: false } });
+    expect(leftText(left, [movedAll, movedPart], now)).toBe(`Moved to Riverside ${day}`);
+    expect(leftText(left, [finished, movedPart], now)).toBe(`Finished ${day}`);
+    // The latest of the changes that took it from the Location decides, in whatever order the history lists them.
+    expect(leftText(left, [finished, movedAll], now)).toBe(`Moved to Riverside ${day}`);
+    expect(leftText(left, [version("2026-11-25T16:00:00.000Z", { location, fields: { atLocation: false, remainingWeight: 0 } }), movedAll], now)).toBe(`Finished ${day}`);
+    // A move of all from another Location, or to this one, did not take it from here, and neither did being added here.
+    expect(leftText(left, [version("2026-11-25T17:00:00.000Z", { move: { from: riverside, to: location, amount: 100, all: true } }), version("2026-11-25T18:00:00.000Z", { location, fields: { atLocation: true } })], now)).toBe(`Finished ${day}`);
+    expect(leftText(left, [version("2026-11-25T15:00:00.000Z", { move: { from: location, to: null, amount: null, all: true } })], now)).toBe(`Moved to a Location since deleted ${day}`);
+    // Not read yet, or the release before's, which names no move: it reads as finished.
+    expect(leftText(left, undefined, now)).toBe(`Finished ${day}`);
+    expect(leftText(left, [{ ...movedAll, move: undefined }], now)).toBe(`Finished ${day}`);
   });
 });

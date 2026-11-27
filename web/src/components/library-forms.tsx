@@ -1,25 +1,36 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { useAuth, useIsAdmin, useStaffLocationIds } from "@/auth";
+import { ChevronDownIcon } from "lucide-react";
+import { useAuth, useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import { batchName } from "@/components/bean-batches";
-import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
-import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
+import { ConfirmButton, ConfirmDialog, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, api, type BeanBatch, type BeanSummary, type Location, type Recipe } from "@/lib/api";
-import { type MoveHow, destinationText, movePlan, sourceText } from "@/lib/batch-moves";
+import { ApiError, api, type BatchAtLocation, type BeanBatch, type BeanBatchSummary, type BeanSummary, type ItemHistory, type ItemVersion, type Location, type Recipe } from "@/lib/api";
+import { type MoveHow, destinationText, finishLines, movePlan, recipesAt, sourceText } from "@/lib/batch-moves";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
-import { totalText, weightLine, weightText } from "@/lib/remaining-weight";
+import { barOf, differenceText, leftText, totalLine, totalText, weightLineParts, weightText } from "@/lib/remaining-weight";
 
 // Creating and editing the Library's Beans, Bean Batches, Grinders, Baskets
 // and Tools, Archiving and restoring them and Profiles, moving batches
@@ -87,7 +98,8 @@ export const BATCH_FIELDS: FormField[] = [
   { field: "qualityScore", label: "Quality score", kind: "number" },
   { field: "price", label: "Price", kind: "number" },
   { field: "currency", label: "Currency", kind: "text" },
-  { field: "weight", label: "Weight (g)", kind: "number" },
+  // Named for what it is, so it is never read as what is left.
+  { field: "weight", label: "Roasted weight (g)", kind: "number" },
   { field: "buyDate", label: "Bought", kind: "day" },
   { field: "openDate", label: "Opened", kind: "day" },
   { field: "bestBeforeDate", label: "Best before", kind: "day" },
@@ -491,13 +503,23 @@ export function ArchiveButton({
         <ConfirmButton
           label="Archive"
           title={`Archive ${name}?`}
-          description={`It is offered nowhere from now on, and ${effect}, but kept, so past Shots still name it. It can be restored.`}
+          description={archiveText(effect)}
           confirmLabel="Archive"
           onConfirm={() => void change()}
         />
       )}
     </div>
   );
+}
+
+/** What the confirmation before Archiving an item says it does. */
+function archiveText(effect = "archived on every tablet that holds it"): string {
+  return `It is offered nowhere from now on, and ${effect}, but kept, so past Shots still name it. It can be restored.`;
+}
+
+/** What the confirmation before deleting an item says it does. */
+function deleteText(what?: string, deletable = "an item no Shot names"): string {
+  return `${what === undefined ? "" : `${what} `}It is deleted from every tablet that holds it, now or once it connects, and cannot be restored. Only ${deletable} can be deleted; Archive any other.`;
 }
 
 /**
@@ -537,10 +559,95 @@ export function DeleteButton({
         label="Delete"
         variant="destructive"
         title={`Delete ${name}?`}
-        description={`${what === undefined ? "" : `${what} `}It is deleted from every tablet that holds it, now or once it connects, and cannot be restored. Only ${deletable} can be deleted; Archive any other.`}
+        description={deleteText(what, deletable)}
         confirmLabel="Delete"
         onConfirm={() => void remove()}
       />
+    </div>
+  );
+}
+
+/**
+ * Archive, or Restore, and Delete in a More menu beside an item's name, as a
+ * Recipe's page has them (#726): each with the confirmation and the limits
+ * on who may use it that `ArchiveButton` and `DeleteButton` have. Archive is
+ * for an Admin or Staff and Delete for an Admin, so a Viewer has no menu.
+ */
+export function ArchiveDeleteMenu({ path, name, archived, back, onDone }: { path: string; name: string; archived: boolean; back: string; onDone(): Promise<void> | void }) {
+  const mayChange = useMayChange();
+  const isAdmin = useIsAdmin();
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState<"archive" | "delete">();
+  const [error, setError] = useState<ReactNode>();
+  // A confirmation opened from the menu has no trigger of its own, and the menu's items are gone as it closes: the keyboard's focus goes back to More.
+  const more = useRef<HTMLButtonElement>(null);
+  const onCloseAutoFocus = (event: Event) => {
+    event.preventDefault();
+    more.current?.focus();
+  };
+  const dialog = (which: "archive" | "delete") => ({ open: confirming === which, onOpenChange: (next: boolean) => !next && setConfirming(undefined), onCloseAutoFocus });
+
+  async function archive(next: boolean) {
+    setError(undefined);
+    try {
+      await api("PUT", `${path}/archived`, { archived: next });
+      await onDone();
+    } catch (caught) {
+      setError(codeTaken(caught) ?? failure(caught, next ? "It could not be Archived" : "It could not be restored"));
+    }
+  }
+  async function remove() {
+    setError(undefined);
+    try {
+      await api("DELETE", path);
+      void navigate(back);
+    } catch (caught) {
+      setError(failure(caught, "It could not be deleted"));
+    }
+  }
+
+  if (!mayChange) return null;
+  return (
+    <div className="grid justify-items-start gap-2 sm:justify-items-end">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button ref={more} variant="outline">
+            More
+            <ChevronDownIcon data-icon="inline-end" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          {archived ? (
+            <DropdownMenuItem onSelect={() => void archive(false)}>Restore</DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onSelect={() => {
+                setError(undefined);
+                setConfirming("archive");
+              }}
+            >
+              Archive
+            </DropdownMenuItem>
+          )}
+          {isAdmin && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  setError(undefined);
+                  setConfirming("delete");
+                }}
+              >
+                Delete
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error && <FormError error={error} />}
+      <ConfirmDialog {...dialog("archive")} title={`Archive ${name}?`} description={archiveText()} confirmLabel="Archive" onConfirm={() => void archive(true)} />
+      <ConfirmDialog {...dialog("delete")} variant="destructive" title={`Delete ${name}?`} description={deleteText()} confirmLabel="Delete" onConfirm={() => void remove()} />
     </div>
   );
 }
@@ -897,15 +1004,18 @@ export function NewGrinderDialog() {
 }
 
 /**
- * Where a batch is: its total over the Locations that track it, and each
- * Location it is at with its remaining weight there and one line saying
+ * Where a batch is, leading with what a person comes for (#726): its total
+ * over the Locations that track it, as the largest text on its page, with
+ * how many Locations it is at; then a block for each Location, its weight
+ * there, a bar of what is left of what stayed there, and one line saying
  * what that count starts from and what Shots have used and moves have
- * brought and taken since (ADR-0037), and the Locations it was finished at.
- * An Admin, or Staff working there, enters its weight at a Location or
- * finishes it there, and moves it to another Location, all of it or part
- * of its weight: the one way the page puts a batch at a second Location.
- * Staff working elsewhere move it from a Location to one of their own. A
- * batch at no Location is offered one to add it at.
+ * brought and taken since (ADR-0037), its Shots linked to the Shots list;
+ * then a line for each Location it has left. An Admin, or Staff working
+ * there, enters its weight at a Location or finishes it there, after a
+ * confirmation, and moves it to another Location, all of it or part of its
+ * weight: the one way the page puts a batch at a second Location. Staff
+ * working elsewhere move it from a Location to one of their own. A batch at
+ * no Location is offered one to add it at.
  */
 export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onChanged(): Promise<void> | void }) {
   const mayChangeAt = useMayChangeAt();
@@ -918,6 +1028,7 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
   const id = useId();
   const addable = batch.locations.length > 0 ? [] : (locations ?? []).filter((location) => mayChangeAt(location.id));
   const total = totalText(batch);
+  const moves = useLeaving(batch);
   /** The Locations the account may move the batch to from one: any other for an Admin or Staff working there, else those Staff work at. */
   const movableTo = (from: Location) => (locations ?? []).filter((location) => location.id !== from.id && (mayChangeAt(from.id) || mayChangeAt(location.id)));
 
@@ -949,66 +1060,71 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
           <p className="text-sm text-muted-foreground">It is at no Location.</p>
         ) : (
           <>
-            <Fields label="Total">
-              <Field term="Total remaining">{total}</Field>
-            </Fields>
-            <Table aria-label="Locations">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Remaining weight</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {batch.locations.map((here) => {
-                  const { location } = here;
-                  const line = weightLine(here, readerId);
-                  const to = batch.archived ? [] : movableTo(location);
-                  return (
-                    <TableRow key={location.id}>
-                      <TableCell className="font-medium">{location.name}</TableCell>
-                      <TableCell className="whitespace-normal">
-                        <div className={here.remainingWeight === null ? "text-muted-foreground" : "font-medium"}>{weightText(here.remainingWeight)}</div>
-                        {line !== undefined && here.entered !== null && <p className="text-sm text-muted-foreground">{line}</p>}
-                      </TableCell>
-                      <TableCell>
-                        {(to.length > 0 || mayChangeAt(location.id)) && (
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            {to.length > 0 && <MoveBatchDialog batch={batch} from={here} to={to} onMoved={onChanged} />}
-                            {mayChangeAt(location.id) && (
-                              <>
-                                <EnterWeightDialog batchId={batch.id} here={here} onChanged={onChanged} />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={busy}
-                                  aria-label={`Finish it at ${location.name}`}
-                                  onClick={() => void place(location, { atLocation: false })}
-                                >
-                                  Finish here
-                                </Button>
-                              </>
-                            )}
-                          </div>
+            <dl aria-label="Total" className="grid gap-0.5">
+              <dt className="text-sm text-muted-foreground">Remaining in all</dt>
+              <dd className={`text-4xl leading-tight font-bold tracking-tight tabular-nums ${batch.locations.some((here) => here.remainingWeight !== null) ? "" : "text-muted-foreground"}`}>{total}</dd>
+              <dd className="text-muted-foreground">{totalLine(batch.locations, batch.content.weight)}</dd>
+            </dl>
+            <ul aria-label="Locations" className="grid">
+              {batch.locations.map((here) => {
+                const { location } = here;
+                const line = here.entered === null ? undefined : weightLineParts(here, readerId);
+                const bar = barOf(here);
+                const to = batch.archived ? [] : movableTo(location);
+                return (
+                  <li key={location.id} aria-label={location.name} className="grid gap-3 border-t py-4 last:pb-0">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div className="grid gap-0.5">
+                        <Link to={`/locations/${location.id}`} className="text-lg font-semibold underline-offset-4 hover:underline">
+                          {location.name}
+                        </Link>
+                        <span className={`text-2xl tracking-tight tabular-nums ${here.remainingWeight === null ? "font-medium text-muted-foreground" : "font-bold"}`}>{weightText(here.remainingWeight)}</span>
+                      </div>
+                      {(to.length > 0 || mayChangeAt(location.id)) && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {to.length > 0 && <MoveBatchDialog batch={batch} from={here} to={to} onMoved={onChanged} />}
+                          {mayChangeAt(location.id) && (
+                            <>
+                              <EnterWeightDialog batch={batch} location={location} remainingWeight={here.remainingWeight} ariaLabel={`Enter its weight at ${location.name}`} onChanged={onChanged} />
+                              <FinishHereDialog batch={batch} here={here} disabled={busy} onConfirm={() => void place(location, { atLocation: false })} />
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {bar && (
+                      <div role="img" aria-label={bar.label} className="h-2 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-foreground" style={{ width: `${bar.fraction * 100}%` }} />
+                      </div>
+                    )}
+                    {line && (
+                      <p className="text-sm text-muted-foreground">
+                        {line.before}
+                        {line.shots !== undefined && (
+                          <Link to={`/shots?${new URLSearchParams({ beanBatchId: batch.id, locationId: location.id })}`} className="underline underline-offset-4">
+                            {line.shots}
+                          </Link>
                         )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        {line.after}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </>
         )}
         {batch.finished.length > 0 && (
-          <Fields label="Finished">
-            {batch.finished.map((here) => (
-              <Field key={here.location.id} term={here.location.name}>
-                Finished {formatTime(here.finishedAt)}
-              </Field>
+          <ul aria-label="Locations it has left" className="grid gap-1 border-t pt-4 text-sm text-muted-foreground">
+            {batch.finished.map((left) => (
+              <li key={left.location.id} className="flex flex-wrap items-baseline gap-x-3">
+                <Link to={`/locations/${left.location.id}`} className="font-medium underline-offset-4 hover:underline">
+                  {left.location.name}
+                </Link>
+                <span>{leftText(left, moves)}</span>
+              </li>
             ))}
-          </Fields>
+          </ul>
         )}
         {!batch.archived && addable.length > 0 && (
           <form
@@ -1046,6 +1162,69 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
 }
 
 /**
+ * The changes in a batch's history, read while it has left a Location, for
+ * what took it from each (`leftText`): undefined until read, and where the
+ * read fails, when each such Location reads "Finished". Read again with the
+ * batch, as a change made here loads it again.
+ */
+function useLeaving(batch: BeanBatch): ItemVersion[] | undefined {
+  const [versions, setVersions] = useState<ItemVersion[]>();
+  const left = batch.finished.length > 0;
+  useEffect(() => {
+    if (!left) return;
+    let current = true;
+    api<ItemHistory>("GET", `/bean-batches/${encodeURIComponent(batch.id)}/history`).then(
+      (history) => current && setVersions(history.versions),
+      () => current && setVersions(undefined),
+    );
+    return () => {
+      current = false;
+    };
+  }, [batch, left]);
+  return left ? versions : undefined;
+}
+
+/**
+ * Finish here, which asks first (#726): finishing drops the Location's
+ * weight, archives the batch on its tablets, and is undone only by a move
+ * from another Location. The confirmation names the batch, with its Batch
+ * Code, and what the Location has of it, then says what finishing does in
+ * the lines the move dialog uses for a move of all (`finishLines`), and
+ * points to Move to… for sending what is left elsewhere. Cancelling changes
+ * nothing.
+ */
+function FinishHereDialog({ batch, here, disabled, onConfirm }: { batch: BeanBatch; here: BatchAtLocation; disabled: boolean; onConfirm(): void }) {
+  const { name } = here.location;
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="outline" disabled={disabled} aria-label={`Finish it at ${name}`}>
+          Finish here
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Finish this batch at {name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {batchLabel(batch)}. {sourceText(here)}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <ul aria-label="What finishing does" className="grid list-disc gap-1.5 rounded-md bg-muted py-3 pr-4 pl-8 text-sm">
+          {finishLines(here, recipesAt(batch.recipes, here.location.id)).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <p className="text-sm text-muted-foreground">To send what is left to another Location, cancel and use Move to… instead.</p>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Finish at {name}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
  * Moves a batch from the Location the dialog was opened at to another, one
  * of those the account may move it to (`to`), a Batch Move (ADR-0037): all
  * of it, which finishes it at the Location it leaves, or part of its weight,
@@ -1064,6 +1243,14 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const id = useId();
+  // Part of it, once chosen, takes the keyboard's focus to its weight, which is what is typed next.
+  const weightInput = useRef<HTMLInputElement>(null);
+  const focusWeight = useRef(false);
+  useEffect(() => {
+    if (how !== "part" || !focusWeight.current) return;
+    focusWeight.current = false;
+    weightInput.current?.focus();
+  }, [how]);
   const left = from.location;
   const joined = to.find((candidate) => candidate.id === target);
   const plan = movePlan(from, joined, batch.locations.find((here) => here.location.id === target), how, weight, recipes);
@@ -1109,7 +1296,8 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
         setOpen(next);
         // Opened afresh each time, on the batch as the page reads it now.
         if (next) {
-          setTarget("");
+          // With one Location the account may move it to, that one is chosen.
+          setTarget(to.length === 1 ? to[0]!.id : "");
           setHow(tracked ? "part" : "some");
           setWeight("");
           setError(undefined);
@@ -1117,7 +1305,7 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" aria-label={`Move it from ${left.name}`}>
+        <Button variant="outline" aria-label={`Move it from ${left.name}`}>
           Move to…
         </Button>
       </DialogTrigger>
@@ -1147,7 +1335,16 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
           </div>
           <div className="grid gap-2">
             <Label id={`${id}-how`}>How much</Label>
-            <RadioGroup aria-labelledby={`${id}-how`} value={how} onValueChange={(value) => setHow(value === "all" ? "all" : tracked ? "part" : "some")} className="grid gap-3">
+            <RadioGroup
+              aria-labelledby={`${id}-how`}
+              value={how}
+              onValueChange={(value) => {
+                const next = value === "all" ? "all" : tracked ? "part" : "some";
+                focusWeight.current = next === "part";
+                setHow(next);
+              }}
+              className="grid gap-3"
+            >
               <div className="flex items-center gap-2">
                 <RadioGroupItem id={`${id}-all`} value="all" />
                 <Label htmlFor={`${id}-all`} className="font-normal">
@@ -1165,6 +1362,7 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
                   {how === "part" && (
                     <div className="flex items-center gap-2">
                       <Input
+                        ref={weightInput}
                         aria-label="Weight to move, in grams"
                         className="w-28"
                         type="number"
@@ -1215,18 +1413,40 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
 }
 
 /** A batch as a dialog names it: its Bean and roast date, as lists name it, with its Batch Code where it has one. */
-function batchLabel(batch: BeanBatch): string {
+function batchLabel(batch: Pick<BeanBatchSummary, "bean" | "roastDate" | "batchCode">): string {
   return batch.batchCode === null ? batchName(batch) : `${batchName(batch)} (${batch.batchCode})`;
 }
 
 /**
  * Enters a batch's weight at a Location, which its count there starts from
- * again. A weight of zero finishes the batch there, which the dialog says
- * before it is saved; left empty, it clears the weight, and the batch is not
- * tracked there. There is no other control that clears one.
+ * again, from the batch's page or from the Location's list of batches (#726),
+ * so it names the batch as well as the Location. A weight of zero finishes
+ * the batch there, which the dialog says before it is saved, and asks no
+ * second confirmation; left empty, it clears the weight, and the batch is
+ * not tracked there. There is no other control that clears one. A weight
+ * that differs from the one worked out says by how much (`differenceText`),
+ * so a mistyped one is noticed, and is saved all the same. The button that
+ * opens it is the filled one unless `variant` says otherwise.
  */
-function EnterWeightDialog({ batchId, here, onChanged }: { batchId: string; here: BeanBatch["locations"][number]; onChanged(): Promise<void> | void }) {
-  const { location } = here;
+export function EnterWeightDialog({
+  batch,
+  location,
+  remainingWeight,
+  ariaLabel,
+  variant = "default",
+  size,
+  onChanged,
+}: {
+  batch: Pick<BeanBatchSummary, "id" | "bean" | "roastDate" | "batchCode">;
+  location: Location;
+  /** Its Remaining Weight there as the page reads it, worked out by the server; null where it is untracked. */
+  remainingWeight: number | null;
+  /** A fuller name for the button, naming the Location or the batch its row is of. */
+  ariaLabel: string;
+  variant?: "default" | "outline";
+  size?: "sm";
+  onChanged(): Promise<void> | void;
+}) {
   const [open, setOpen] = useState(false);
   const [weight, setWeight] = useState("");
   const [error, setError] = useState<string>();
@@ -1234,13 +1454,14 @@ function EnterWeightDialog({ batchId, here, onChanged }: { batchId: string; here
   const id = useId();
   const entered = weight.trim();
   const finishes = entered !== "" && Number(entered) === 0;
+  const says = finishes ? `A weight of 0 finishes the batch at ${location.name}.` : entered === "" ? `Left empty, the batch is not tracked at ${location.name}.` : (differenceText(entered, remainingWeight) ?? "");
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError(undefined);
     try {
-      await api("PUT", `/bean-batches/${batchId}/locations/${location.id}`, { remainingWeight: entered === "" ? null : Number(entered) });
+      await api("PUT", `/bean-batches/${batch.id}/locations/${location.id}`, { remainingWeight: entered === "" ? null : Number(entered) });
       setOpen(false);
       await onChanged();
     } catch (caught) {
@@ -1257,20 +1478,22 @@ function EnterWeightDialog({ batchId, here, onChanged }: { batchId: string; here
         setOpen(next);
         // Opened on the weight as it reads now, to be corrected.
         if (next) {
-          setWeight(here.remainingWeight === null ? "" : String(here.remainingWeight));
+          setWeight(remainingWeight === null ? "" : String(remainingWeight));
           setError(undefined);
         }
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" aria-label={`Enter its weight at ${location.name}`}>
+        <Button variant={variant} size={size} aria-label={ariaLabel}>
           Enter weight
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Enter weight at {location.name}</DialogTitle>
-          <DialogDescription>What is left of the batch there now, as weighed.</DialogDescription>
+          <DialogDescription>
+            {batchLabel(batch)}. What is left of it at {location.name} now, as weighed.
+          </DialogDescription>
         </DialogHeader>
         <form aria-label={`Enter weight at ${location.name}`} className="grid gap-4" onSubmit={save}>
           {error && <FormError error={error} />}
@@ -1278,14 +1501,17 @@ function EnterWeightDialog({ batchId, here, onChanged }: { batchId: string; here
             <Label htmlFor={`${id}-weight`}>Remaining weight (g)</Label>
             <Input id={`${id}-weight`} type="number" min={0} step="any" value={weight} onChange={(event) => setWeight(event.target.value)} />
           </div>
-          <p role="status" className="min-h-5 text-sm text-muted-foreground">
-            {finishes ? `A weight of 0 finishes the batch at ${location.name}.` : entered === "" ? `Left empty, the batch is not tracked at ${location.name}.` : ""}
+          <p role="status" className={says === "" ? "min-h-11" : "min-h-11 rounded-md bg-muted px-4 py-3 text-sm"}>
+            {says}
           </p>
-          <div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={saving}>
               {finishes ? "Finish here" : "Save"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

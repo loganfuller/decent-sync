@@ -1,5 +1,6 @@
 import { type Page, expect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
+import { boxes } from "./support/layout.js";
 import { field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 
@@ -61,16 +62,28 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   // The list has a column of them, and its search finds a batch by its code, its Bean or its roaster.
   await page.getByRole("link", { name: "← Bean Batches" }).click();
   const list = page.getByRole("table", { name: "Bean Batches" });
-  await expect(list.getByRole("columnheader")).toHaveText(["Batch", "Batch Code", "Roaster", "At", "Remaining", "Created at", "Attention"]);
+  await expect(list.getByRole("columnheader")).toHaveText(["Batch", "Batch Code", "Roaster", "At", "Remaining in all", "Attention"]);
   await expect(rows(list)).toHaveText([
-    ["Brazil Cerrado, roasted 2026-11-12", "LR-0409", "Lantern Coffee Roasters", "Stockroom (not tracked)", "Not tracked", "-", ""].join(""),
-    ["Ethiopia Guji Natural, roasted 2026-11-18", "LR-0413", "Lantern Coffee Roasters", "Downtown (not tracked)", "Not tracked", "-", ""].join(""),
-    ["Ethiopia Guji Natural, roasted 2026-11-01", "-", "Lantern Coffee Roasters", "Stockroom (not tracked)", "Not tracked", "-", ""].join(""),
+    ["Brazil Cerrado, roasted 2026-11-12", "LR-0409", "Lantern Coffee Roasters", "Stockroom", "Not tracked", ""].join(""),
+    ["Ethiopia Guji Natural, roasted 2026-11-18", "LR-0413", "Lantern Coffee Roasters", "Downtown", "Not tracked", ""].join(""),
+    ["Ethiopia Guji Natural, roasted 2026-11-01", "-", "Lantern Coffee Roasters", "Stockroom", "Not tracked", ""].join(""),
   ]);
+  // The total is aligned right, its heading over it.
+  await expect(list.getByRole("columnheader", { name: "Remaining in all" })).toHaveCSS("text-align", "right");
+  await expect(rows(list).first().getByRole("cell").nth(4)).toHaveCSS("text-align", "right");
   const search = page.getByRole("search", { name: "Find a batch" });
+  // The search is named for a screen reader, with no label drawn above it, and shares a row with New Batch (#726).
+  await expect(page.getByText("Find a batch", { exact: true })).toHaveCSS("position", "absolute");
+  const [newBatchBox, searchBox] = await boxes(page.getByRole("button", { name: "New Batch" }), search.getByRole("searchbox", { name: "Find a batch" }));
+  expect(Math.abs(newBatchBox!.y + newBatchBox!.height / 2 - (searchBox!.y + searchBox!.height / 2))).toBeLessThan(2);
+  expect(searchBox!.x).toBeGreaterThan(newBatchBox!.x + newBatchBox!.width);
   await search.getByLabel("Find a batch").fill("lr-041");
   await expect(rows(list)).toHaveText([/^Ethiopia Guji Natural, roasted 2026-11-18LR-0413/]);
   await expect(search.getByRole("status")).toHaveText("1 of 3 batches");
+  // The count of matches is on that row too.
+  const [countBox, foundBox] = await boxes(search.getByRole("status"), search.getByRole("searchbox", { name: "Find a batch" }));
+  expect(countBox!.x).toBeGreaterThan(foundBox!.x + foundBox!.width);
+  expect(Math.abs(countBox!.y + countBox!.height / 2 - (foundBox!.y + foundBox!.height / 2))).toBeLessThan(2);
   // Kept in the address, so the list found is a link.
   await expect(page).toHaveURL(/[?&]q=lr-041$/);
   await search.getByLabel("Find a batch").fill("guji lantern");
@@ -119,11 +132,14 @@ test("a Batch Code another batch holds is refused with a link to that batch, cre
   await expect(field(page.getByLabel("Roast", { exact: true }), "Batch Code")).toHaveText("LR-0500");
 
   // Archived, its code is free: another batch takes it, and it is not restored while that batch holds it.
-  await page.getByRole("button", { name: "Archive" }).click();
+  // Archive and Restore are under More, beside the batch's name (#726).
+  await page.getByRole("main").getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Archive" }).click();
-  await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Archived");
   const taker = await createBatch(page, bean, { batchCode: "lr-0500", roastDate: "2026-11-21" });
-  await page.getByRole("button", { name: "Restore" }).click();
+  await page.getByRole("main").getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Restore", exact: true }).click();
   const refusal = page.getByRole("alert").filter({ hasText: "Another batch holds the Batch Code lr-0500" });
   await expect(refusal).toBeVisible();
   await refusal.getByRole("link", { name: "Colombia Huila, roasted 2026-11-21" }).click();
