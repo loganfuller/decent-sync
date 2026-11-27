@@ -4,7 +4,8 @@ import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } fr
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { chooseDate, farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { openMachineTab, rows } from "./support/locators.js";
+import { roastDay } from "./support/days.js";
+import { field, openMachineTab, rows } from "./support/locators.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
@@ -99,7 +100,11 @@ test("a Machine's page lists today's dial-in trail: a Recipe loaded and its grin
   await expect(loaded!).toHaveText([TODAY_AT_THE_LAB, "Recipe loaded", /Recipe: None to Fixture Brazil Espresso/, "Fixture Brazil Espresso", "The tablet"]);
   const brought = loaded!.nth(2).getByRole("listitem");
   await expect(brought.filter({ hasText: /^Recipe:/ }).getByRole("link", { name: "Fixture Brazil Espresso" })).toHaveAttribute("href", `/library/recipes/${recipeId}`);
-  await expect(brought.filter({ hasText: /^Bean Batch:/ })).toHaveText("DEBUG");
+  // Its batch, one line named Bean Batch (#732): where the Workflow named a coffee of no batch, that coffee as it recorded it, to the
+  // Library's batch, in a line, which has no Batch Code, so by its roast date.
+  await expect(brought.filter({ hasText: /^Bean Batch:/ })).toHaveText(`Bean Batch: Fixture Brazil to Activity Fixture Brazil, roasted ${roastDay("2026-10-03")}`);
+  await expect(brought.filter({ hasText: /^Bean Batch:/ }).getByRole("link", { name: "Activity Fixture Brazil" })).toHaveAttribute("href", /^\/library\/bean-batches\//);
+  await expect(brought.filter({ hasText: /^Bean:/ })).toHaveCount(0);
   // The Workflow in effect names no Recipe, and its Profile, Grinder and Basket are the Library's.
   await expect(inEffect!.nth(1)).toHaveText("Workflow in effect");
   const held = inEffect!.nth(2).getByRole("listitem");
@@ -205,6 +210,97 @@ test("a trail that shrinks to end before the page shown, as a change undone with
   await afterDetailsPolls(page, () => expect(rows(trail)).toHaveCount(20, { timeout: CHECK_MS }));
   await expect(rows(trail).first().getByRole("cell").nth(2)).toHaveText("Grind setting: 4.6 to 4.7");
   await expect(activity.getByRole("button", { name: "Newer" })).toHaveCount(0);
+});
+
+test("the Workflow card names its Bean Batch with its weight at the Machine's Location, and a change to the next roast of the same Bean names both batches by their Batch Codes alone, never as the previous one and the new one", async ({
+  page,
+}) => {
+  const read = async <T>(path: string) => (await (await page.request.get(path)).json()) as T;
+  const send = async (method: "patch" | "put", path: string, data: unknown) => expect((await page.request[method](path, { data })).status(), path).toBe(200);
+  type Batch = { id: string; bean: { id: string; name: string | null }; roastDate: string | null };
+  const summary = async () => (await read<{ workflow: { workflow: { beanBatchId: string | null; beanBatch: Batch | null } } }>(`/api/machines/${machineId}/workflow-summary`)).workflow.workflow;
+  const lab = (await read<{ machine: { location: { id: string } } }>(`/api/machines/${machineId}`)).machine.location;
+  /** The next roast of the Brazil, added on the tablet, once the Library has it: its id there, and the tablet's own. */
+  const nextRoast = async (roastDate: string) => {
+    const context = (await read<{ workflow: { workflow: { context: Record_ } } }>(`/api/machines/${machineId}/workflow`)).workflow.workflow.context;
+    const held = tablet.batches().find((record) => record.id === context.beanBatchId)!;
+    const added = await tablet.addBatch(held.beanId, { roastDate, weight: 1000 });
+    const joined = async () => (await read<{ batches: Batch[] }>("/api/bean-batches")).batches.find((batch) => batch.bean.id === brazil.bean.id && batch.roastDate?.startsWith(roastDate))?.id;
+    await expect.poll(joined).toBeTruthy();
+    return { id: (await joined())!, local: added.id };
+  };
+  /** Has the barista pick a batch, a while after everything the tests before changed, by the plugin's clock. */
+  const pick = async (batch: { id: string; local: unknown }, aheadMinutes: number) => {
+    tablet.setPluginClockOffset(aheadMinutes * 60_000);
+    await tablet.changeSettings({ context: { beanBatchId: batch.local } });
+    await expect.poll(async () => (await summary()).beanBatchId).toBe(batch.id);
+  };
+
+  // The Brazil's batch the Workflow names is given its Batch Code, and the next roast, picked on the tablet, its own, with a weight at the Lab.
+  const brazil = (await summary()).beanBatch!;
+  await send("patch", `/api/bean-batches/${brazil.id}`, { content: { batchCode: "LR-0405" } });
+  const later = await nextRoast("2026-11-17");
+  await send("patch", `/api/bean-batches/${later.id}`, { content: { batchCode: "LR-0411" } });
+  await send("put", `/api/bean-batches/${later.id}/locations/${lab.id}`, { atLocation: true, remainingWeight: 3240 });
+  await pick(later, 30);
+
+  // The Workflow card: a Bean Batch row under its roaster, the batch linked, with its code, over its roast day and its weight at the Lab.
+  await page.goto(`/machines/${machineId}`);
+  const workflow = page.getByRole("region", { name: "Workflow" });
+  const row = field(workflow, "Bean Batch");
+  await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Roasted ${roastDay("2026-11-17")} · 3240 g at Lab`);
+  await expect(row.getByRole("link", { name: "Activity Fixture Brazil", exact: true })).toHaveAttribute("href", `/library/bean-batches/${later.id}`);
+  await expect(row.getByLabel("Batch Code LR-0411")).toHaveCSS("font-family", /mono/i);
+  const terms = await workflow.getByRole("term").allTextContents();
+  expect(terms.indexOf("Bean Batch")).toBe(terms.indexOf("Roaster") + 1);
+  // With no weight entered at the Lab, it says so, and never zero.
+  await send("put", `/api/bean-batches/${later.id}/locations/${lab.id}`, { remainingWeight: null });
+  await page.reload();
+  await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Roasted ${roastDay("2026-11-17")} · not tracked at Lab`);
+  // A batch that is not at the Lab now reads Batch finished here in place of the weight.
+  await page.route(`**/api/bean-batches/${later.id}`, async (route) => {
+    const answer = await route.fetch();
+    await route.fulfill({ response: answer, json: { batch: { ...((await answer.json()) as { batch: Record_ }).batch, locations: [] } } });
+  });
+  await page.reload();
+  await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Batch finished hereRoasted ${roastDay("2026-11-17")}`);
+  await page.unroute(`**/api/bean-batches/${later.id}`);
+
+  // Its Activity: the next roast of the same Bean, each side by its code alone, linked, and named in full for a screen reader.
+  const activity = await openActivity(page);
+  const changes = rows(activity.getByRole("table", { name: "Dial-in trail" })).first().getByRole("cell").nth(2);
+  await expect(changes.getByRole("listitem").filter({ hasText: /^Bean Batch:/ })).toHaveText("Bean Batch: LR-0405 to LR-0411");
+  await expect(changes.getByRole("link", { name: `Activity Fixture Brazil LR-0405, roasted ${roastDay("2026-10-03")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${brazil.id}`);
+  await expect(changes.getByRole("link", { name: `Activity Fixture Brazil LR-0411, roasted ${roastDay("2026-11-17")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${later.id}`);
+  await expect(activity).not.toContainText(/The previous one|The new one/);
+
+  // A roast with no Batch Code is named by its roast date.
+  const uncoded = await nextRoast("2026-11-20");
+  await pick(uncoded, 31);
+  await page.reload();
+  await openActivity(page);
+  await expect(changes.getByRole("listitem").filter({ hasText: /^Bean Batch:/ })).toHaveText(`Bean Batch: LR-0411 to roasted ${roastDay("2026-11-20")}`);
+  await expect(changes.getByRole("link", { name: `Activity Fixture Brazil, roasted ${roastDay("2026-11-20")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${uncoded.id}`);
+  await expect(activity).not.toContainText(/The previous one|The new one/);
+
+  // The previous release's server names no batch (ADR-0025): the card has no Bean Batch row, and the change reads as it did.
+  await page.route("**/api/machines/*/workflow-summary", async (route) => {
+    const answer = await route.fetch();
+    const { workflow: event } = (await answer.json()) as { workflow: Record_ & { workflow: Record_ } };
+    const { beanBatch: _batch, ...older } = event.workflow;
+    await route.fulfill({ response: answer, json: { workflow: { ...event, workflow: older } } });
+  });
+  await page.route("**/api/machines/*/activity*", async (route) => {
+    const answer = await route.fetch();
+    const read = (await answer.json()) as Record_ & { workflowChanges?: { entries: (Record_ & { changes: Record_[] })[] } };
+    const entries = read.workflowChanges?.entries.map((entry) => ({ ...entry, changes: entry.changes.map(({ beanBatch: _batch, ...change }) => change) }));
+    await route.fulfill({ response: answer, json: { ...read, ...(read.workflowChanges && { workflowChanges: { ...read.workflowChanges, entries } }) } });
+  });
+  await page.reload();
+  await expect(changes.getByRole("listitem").filter({ hasText: /^Bean Batch:/ })).toHaveText("Bean Batch: The previous one to The new one");
+  await openMachineTab(page, "Now");
+  await expect(field(workflow, "Roaster")).toBeVisible();
+  await expect(workflow.getByRole("term").filter({ hasText: /^Bean Batch$/ })).toHaveCount(0);
 });
 
 /** Opens the Machine's Activity tab, and returns its On one day card once its list has loaded. */

@@ -249,9 +249,10 @@ test("README and site images", async ({ page }) => {
   // The Library, as an Admin enters it.
   const bean = async (name: string, extra: Record<string, unknown> = {}) =>
     (await post<{ bean: { id: string } }>(page, "/api/beans", { content: { roaster: ROASTER, name, ...extra } })).bean.id;
-  // Created at its first Location, as a batch is at one, and added at each other with its weight there.
-  const batch = async (beanId: string, roastDate: string, weight: number, [[locationId, remainingWeight], ...added]: [[string, number], ...[string, number][]]) => {
-    const { id } = (await post<{ batch: { id: string } }>(page, "/api/bean-batches", { beanId, content: { roastDate, weight, roastLevel: "Medium" }, locations: [{ locationId, remainingWeight }] })).batch;
+  // Created at its first Location, as a batch is at one, and added at each other with its weight there. Each has its Batch Code, as on
+  // its label, which every page names it by (#732).
+  const batch = async (beanId: string, batchCode: string, roastDate: string, weight: number, [[locationId, remainingWeight], ...added]: [[string, number], ...[string, number][]]) => {
+    const { id } = (await post<{ batch: { id: string } }>(page, "/api/bean-batches", { beanId, content: { roastDate, batchCode, weight, roastLevel: "Medium" }, locations: [{ locationId, remainingWeight }] })).batch;
     for (const [addedAt, weightThere] of added) {
       expect((await page.request.put(`/api/bean-batches/${id}/locations/${addedAt}`, { data: { atLocation: true, remainingWeight: weightThere } })).status()).toBe(200);
     }
@@ -263,13 +264,13 @@ test("README and site images", async ({ page }) => {
   const huila = await bean("Colombia Huila", { country: "Colombia", region: "Huila", processing: "Washed" });
   const cerrado = await bean("Brazil Cerrado", { country: "Brazil", region: "Cerrado", processing: "Natural" });
   const decaf = await bean("Decaf Colombia", { country: "Colombia", decaf: true, decafProcess: "Sugarcane" });
-  const houseNow = await batch(house, daysBefore(5), 5000, [[downtown.id, 3240], [riverside.id, 1850]]);
-  await batch(house, daysBefore(12), 5000, [[downtown.id, 410]]);
-  const gujiNow = await batch(guji, daysBefore(4), 2000, [[lab.id, 1460], [downtown.id, 920]]);
-  await batch(kenya, daysBefore(8), 2000, [[riverside.id, 1120], [lab.id, 650]]);
-  await batch(huila, daysBefore(3), 2500, [[lab.id, 2380]]);
-  await batch(cerrado, daysBefore(10), 2000, [[riverside.id, 720]]);
-  const decafNow = await batch(decaf, daysBefore(9), 2000, [[downtown.id, 600], [riverside.id, 450]]);
+  const houseNow = await batch(house, "LR-0411", daysBefore(5), 5000, [[downtown.id, 3240], [riverside.id, 1850]]);
+  await batch(house, "LR-0405", daysBefore(12), 5000, [[downtown.id, 410]]);
+  const gujiNow = await batch(guji, "LR-0412", daysBefore(4), 2000, [[lab.id, 1460], [downtown.id, 920]]);
+  await batch(kenya, "LR-0408", daysBefore(8), 2000, [[riverside.id, 1120], [lab.id, 650]]);
+  await batch(huila, "LR-0413", daysBefore(3), 2500, [[lab.id, 2380]]);
+  await batch(cerrado, "LR-0406", daysBefore(10), 2000, [[riverside.id, 720]]);
+  const decafNow = await batch(decaf, "LR-0407", daysBefore(9), 2000, [[downtown.id, 600], [riverside.id, 450]]);
 
   const grinder = async (locationId: string, model: string) => (await post<{ grinder: { id: string } }>(page, "/api/grinders", { locationId, content: { model } })).grinder.id;
   const e65 = await grinder(downtown.id, E65);
