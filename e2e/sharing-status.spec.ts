@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { roastDay } from "./support/days.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
@@ -32,7 +33,7 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   await tablet.waitForLog(/^Connected to /);
 
   await offer(page, uptown.id, "Refused Blend");
-  await offer(page, uptown.id, "House Blend");
+  await offer(page, uptown.id, "House Blend", "HB-1005");
   await expect.poll(() => tablet.beans().map((record) => record.name)).toEqual(["House Blend"]);
 
   // The page's clock runs as usual until the test moves it on.
@@ -40,7 +41,9 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   await page.goto(`/machines/${machine.id}?tab=setup`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
+  // The batch last written, named as every page names one (#732): its Bean and Batch Code, then its roast day.
   await expect(sharing.getByText(/^Bean Batch .* written, /)).toBeVisible();
+  await expect(sharing.getByRole("link", { name: `Bean Batch House Blend HB-1005, roasted ${roastDay("2026-10-05")}`, exact: true })).toBeVisible();
   const refused = sharing.getByRole("table", { name: "Changes its tablet refused" });
   const row = refused.getByRole("row", { name: /Refused Blend/ });
   await expect(row.getByRole("link", { name: "Bean Roux Refused Blend" })).toBeVisible();
@@ -90,10 +93,10 @@ test("a Machine's page shows a DYE2 list its tablet holds in a shape not recogni
 });
 
 /** Offers a new Bean at the Location with a batch there, through the REST API. */
-async function offer(page: Page, locationId: string, name: string): Promise<void> {
+async function offer(page: Page, locationId: string, name: string, batchCode?: string): Promise<void> {
   const created = await page.request.post("/api/beans", { data: { content: { roaster: "Roux", name } } });
   expect(created.status()).toBe(201);
   const { bean } = (await created.json()) as { bean: { id: string } };
-  const batch = await page.request.post("/api/bean-batches", { data: { beanId: bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId }] } });
+  const batch = await page.request.post("/api/bean-batches", { data: { beanId: bean.id, content: { roastDate: "2026-10-05", ...(batchCode && { batchCode }) }, locations: [{ locationId }] } });
   expect(batch.status()).toBe(201);
 }

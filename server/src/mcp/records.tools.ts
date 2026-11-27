@@ -40,6 +40,9 @@ const celsius = (what: string) => z.number().nullable().describe(`${what}, in °
 /** What a Shot's rating is, wherever a tool gives it. */
 const RATING = `Its rating, from 0 to ${MAX_SHOT_RATING}, where 0 or none is unrated, as rated on its tablet or edited since (edit_shot).`;
 
+/** A Bean Batch's Batch Code, wherever a tool names a batch a Shot used. */
+const batchCode = z.string().nullable().describe("Its Batch Code, the roaster's own identifier for it, as on its label; null where it has none.");
+
 const shotBasics = z.object({
   id,
   pulledAt: z.string().nullable().describe("When it was pulled; null when unknown."),
@@ -52,9 +55,9 @@ const shotBasics = z.object({
   profileTitle: z.string().nullable().describe("Its profile's title, as the Shot recorded it."),
   bean: z.object({ roaster: z.string().nullable(), name: z.string().nullable() }).describe("Its Bean, as the Shot recorded it."),
   beanBatch: z
-    .object({ id, bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }), roastDate: z.string().nullable() })
+    .object({ id, bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }), roastDate: z.string().nullable(), batchCode })
     .nullable()
-    .describe("The Library's Bean Batch it used."),
+    .describe("The Library's Bean Batch it used, by its Bean, its roast date and its Batch Code."),
   grinder: z.object({ id, model: z.string().nullable() }).nullable().describe("The Library's Grinder it used."),
   basket: z.object({ id, name: z.string().nullable() }).nullable().describe("The Library's Basket it used."),
   targetDose: z.number().nullable().describe("In grams."),
@@ -170,7 +173,7 @@ const shotRow = z.object({
   locationInferred: z.literal(true).optional().describe("Only when true: its Location comes from the Location History of a Machine it is credited to by inference."),
   recipe: z.object({ id, name: text }).optional().describe("The Recipe its Machine had loaded as it was pulled, by the Library's name."),
   profile: libraryItem({ title: text }, "The Profile it was pulled with"),
-  beanBatch: libraryItem({ roaster: text, name: text, roastDate: text }, "The Bean Batch it used, by its Bean's roaster and name, and the Library's roast date"),
+  beanBatch: libraryItem({ roaster: text, name: text, roastDate: text, batchCode: text }, "The Bean Batch it used, by its Bean's roaster and name, and the Library's roast date and Batch Code"),
   grinder: libraryItem({ model: text }, "The Grinder it used"),
   grinderSetting: text.describe("As its Workflow recorded it."),
   basket: libraryItem({ name: text }, "The Basket it used"),
@@ -283,7 +286,7 @@ const timeZoneNote = "Times are ISO 8601, with the offset of the record's Locati
 
 /** What a Shot's numbers mean, for the descriptions of the tools that read Shots. */
 const SHOT_UNITS =
-  `Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is its rating, 0 to ${MAX_SHOT_RATING}. A Shot's bean is as it recorded it, and beanBatch, grinder, basket, profile and recipe the Library's it is linked to. machineInferred: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred: its Location comes from that Machine's Location History.`;
+  `Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is its rating, 0 to ${MAX_SHOT_RATING}. A Shot's bean is as it recorded it, and beanBatch, with batchCode, grinder, basket, profile and recipe the Library's it is linked to. machineInferred: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred: its Location comes from that Machine's Location History.`;
 
 /** Where a Shot's edits stand with its tablet, for the descriptions of the tools that give a Shot whole. */
 const EDIT_STANDING =
@@ -353,7 +356,7 @@ const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with mor
 const getShotBudget: Budget = { rest: "Asked for without curves, it has more of its text and of its edits." };
 
 /** What a find_shots row's fields mean, for its description. */
-const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to ${FIRST_DRIP}, left out where it never read 1 g. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated, and notes its note, each as set on its tablet or edited since; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. referenceOf, given only where there are any, names the Recipes it is the Reference Shot of. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, roastDate and batchCode), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to ${FIRST_DRIP}, left out where it never read 1 g. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated, and notes its note, each as set on its tablet or edited since; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. referenceOf, given only where there are any, names the Recipes it is the Reference Shot of. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
 
 /** How find_shots' filters find Shots, for the descriptions of the tools that take them. */
 const SHOT_FILTERS =
@@ -404,7 +407,7 @@ const summaryGroupBy = z
     ),
     recipe: groupedBy(z.object({ id, name: recorded, location: namedLocation.nullable() }), "The Recipe the Shots were pulled with loaded, and the Location it belongs to."),
     bean: groupedBy(z.object({ roaster: recorded, name: recorded }), "The Bean's roaster and name, as the Shots recorded them."),
-    beanBatch: groupedBy(z.object({ id, bean: z.object({ id, roaster: recorded, name: recorded }), roastDate: recorded }), "The Library's Bean Batch the Shots used."),
+    beanBatch: groupedBy(z.object({ id, bean: z.object({ id, roaster: recorded, name: recorded }), roastDate: recorded, batchCode }), "The Library's Bean Batch the Shots used, by its Bean, its roast date and its Batch Code."),
     profile: groupedBy(z.string(), "The profile's title, as the Shots recorded it."),
     grinder: groupedBy(z.object({ id, model: recorded, location: namedLocation.nullable() }), "The Library's Grinder the Shots used, and the Location it belongs to."),
     basket: groupedBy(z.object({ id, name: recorded }), "The Library's Basket the Shots used."),
@@ -509,7 +512,7 @@ const summariseShotsOutput = z.object({
 const summariseShotsBudget: Budget = { rest: "Asked for fewer groups at a time, it has more of each name." };
 
 /** What summarise_shots' groups are, for its description. */
-const SHOT_GROUPS = `Without groupBy, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping, null for its group of none: a Library item, Machine or Location by id, a recipe's and grinder's location the one it belongs to, and bean, profile and barista as the Shots recorded them. By machine, Shots waiting for an Admin to name their Machine are a group apart: machine null, with pendingMachine, that hardware. find_shots finds a group's Shots with the same filters and the group's: its id as the filter of its kind, such as recipeId, none for the group of none, or, with match exact, its bean as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none; match being one for every text filter, summarise with no text filter or with match exact to open those. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, its group of none last.`;
+const SHOT_GROUPS = `Without groupBy, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping, null for its group of none: a Library item, Machine or Location by id, a beanBatch with batchCode, a recipe's and grinder's location its own, and bean, profile and barista as the Shots recorded them. By machine, Shots waiting for an Admin to name their Machine are a group apart: machine null, with pendingMachine, that hardware. find_shots finds a group's Shots with the same filters and the group's: its id as the filter of its kind, such as recipeId, none for the group of none, or, with match exact, its bean as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none; match being one for every text filter, summarise with no text filter or with match exact to open those. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, its group of none last.`;
 
 /** What summarise_shots' buckets are, and how a day and a week are counted, for its description. */
 const SHOT_BUCKETS =
@@ -537,8 +540,8 @@ const shotValuesOutput = z.object({
   baristas: valuesPage(z.string().nullable(), `The Baristas Shots recorded, each once, by the most recent spelling of the name; null, last, for Shots that recorded none or a blank name.`),
   profileTitles: valuesPage(z.string().nullable(), `The profile titles Shots recorded; ${recordedNone}.`),
   beanBatches: valuesPage(
-    z.object({ id, bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }), roastDate: z.string().nullable() }).nullable(),
-    `The Library's Bean Batches Shots are linked to, by their Bean's roaster and name and their roast date, as the Bean Batches list orders them; ${linkedNone}.`,
+    z.object({ id, bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }), roastDate: z.string().nullable(), batchCode }).nullable(),
+    `The Library's Bean Batches Shots are linked to, by their Bean's roaster and name, their roast date and their Batch Code, as the Bean Batches list orders them; ${linkedNone}.`,
   ),
   grinders: valuesPage(z.object({ id, model: z.string().nullable(), location: atLocation }).nullable(), `The Library's Grinders Shots are linked to, by model, then Location; ${linkedNone}.`),
   recipes: valuesPage(
@@ -626,7 +629,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it went, and its curves when asked for. ${SHOT_UNITS} ${EDIT_STANDING} grinderModel, basketName and grinderSetting are as it recorded them, as bean is. tds (total dissolved solids) and extractionYield are in %. ${STOPPED_BRIEFLY} ${SHOT_SPEC} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, the pump's flow in ml/s, the scale's weight in grams and weightFlow in g/s, the rate coffee lands in the cup, and temperature in °C, at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says, and of every curve where curves isn't given. Ask for a few seconds, as around the stop, to see every reading. ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it went, and its curves when asked for. ${SHOT_UNITS} ${EDIT_STANDING} grinderModel, basketName and grinderSetting are as recorded, as bean is. tds (total dissolved solids) and extractionYield are in %. ${STOPPED_BRIEFLY} ${SHOT_SPEC} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, the pump's flow in ml/s, the scale's weight in grams and weightFlow in g/s, the rate coffee lands in the cup, and temperature in °C, at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says, and of every curve where curves isn't given. Ask for a few seconds, as around the stop, to see every reading. ${timeZoneNote}`,
     inputSchema: getShotInput,
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
@@ -714,7 +717,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "list_shot_values",
     title: "List what Shots recorded",
-    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, each one alone with its match exact, a Barista given once, by the most recent spelling of the name, whatever its case and the spaces around it, as barista finds every such spelling, and the Library's Bean Batches, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
+    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, each one alone with its match exact, a Barista given once, by the most recent spelling of the name, whatever its case and the spaces around it, as barista finds every such spelling, and the Library's Bean Batches, each with batchCode, its Batch Code, null where it has none, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
     inputSchema: shotValuesInput,
     outputSchema: shotValuesOutput,
     annotations: { readOnlyHint: true },
@@ -735,7 +738,7 @@ export class RecordsTools {
       beans: paged("beans", options.beans, (bean) => ({ roaster: bean.coffeeRoaster, name: bean.coffeeName })),
       baristas: paged("baristas", options.baristas, (barista) => barista),
       profileTitles: paged("profileTitles", options.profiles, (title) => title),
-      beanBatches: paged("beanBatches", options.beanBatches, (batch) => batch && { id: batch.id, bean: batch.bean, roastDate: dayOf(batch.roastDate) }),
+      beanBatches: paged("beanBatches", options.beanBatches, (batch) => batch && { id: batch.id, bean: batch.bean, roastDate: dayOf(batch.roastDate), batchCode: batch.batchCode }),
       grinders: paged("grinders", options.grinders, (grinder) => grinder && { id: grinder.id, model: grinder.model, location: located(grinder.location) }),
       recipes: paged("recipes", options.recipes, (recipe) => recipe && { id: recipe.id, name: recipe.name, location: located(recipe.location) }),
       baskets: paged("baskets", options.baskets, (basket) => basket),
@@ -815,7 +818,7 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     ...(shot.locationInferred && { locationInferred: true as const }),
     recipe: shot.recipe && present({ id: shot.recipe.id, name: shorten(shot.recipe.name, ROW_NAME) }),
     profile: item(shot.profile?.id, { title: shot.profile ? shot.profile.title : shot.profileTitle }),
-    beanBatch: item(batch?.id, batch ? { roaster: batch.bean.roaster, name: batch.bean.name, roastDate: dayOf(batch.roastDate) } : { roaster: shot.coffeeRoaster, name: shot.coffeeName }),
+    beanBatch: item(batch?.id, batch ? { roaster: batch.bean.roaster, name: batch.bean.name, roastDate: dayOf(batch.roastDate), batchCode: batch.batchCode } : { roaster: shot.coffeeRoaster, name: shot.coffeeName }),
     grinder: item(shot.grinder?.id, { model: shot.grinder ? shot.grinder.model : shot.grinderModel }),
     grinderSetting: shot.grinderSetting,
     basket: item(shot.basket?.id, { name: shot.basket ? shot.basket.name : shot.basketName }),

@@ -22,6 +22,7 @@ interface ItemView {
   kind: string;
   id: string;
   name: string | null;
+  batch?: unknown;
 }
 
 interface ChangeView {
@@ -94,6 +95,27 @@ describe("Each Machine's sharing status", () => {
   /** Refuses the plugin's creates of beans named as given, as Decaid refuses a bean it cannot cast. */
   const refusingBeans = (...names: string[]) => (request: { method: string; route: string; body: unknown }) =>
     request.method === "POST" && request.route === "/beans" && names.includes(String((request.body as Record_).name)) ? CAST_REFUSAL : undefined;
+
+  it("names a Bean Batch it wrote by its Bean, Batch Code and roast date, with the batch's parts for the page to name it by (#732)", async () => {
+    const cafe = await api.createLocation("Batch-naming cafe", "UTC");
+    const named = await api.createMachine("Batch-naming group", cafe.id);
+    const tablet = load(named, "26101");
+    await online(named);
+    const { bean } = await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Named Guji" } }, 201);
+    const { batch } = await api.send<{ batch: { id: string } }>(
+      "POST",
+      "/bean-batches",
+      { beanId: bean.id, content: { roastDate: "2026-11-17", batchCode: "NG-0411" }, locations: [{ locationId: cafe.id }] },
+      201,
+    );
+    await expect.poll(() => tablet.batches().map(globalIdOf)).toEqual([batch.id]);
+    await expect.poll(async () => (await statusOf(named)).lastApplied?.item).toEqual({
+      kind: "beanBatch",
+      id: batch.id,
+      name: "Named Guji NG-0411, roasted 2026-11-17",
+      batch: { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Named Guji" }, roastDate: "2026-11-17T00:00:00.000", batchCode: "NG-0411" },
+    });
+  });
 
   it("goes on writing past a Bean the tablet refuses, shows the refusal with Decaid's answer, and writes it again once the Bean is edited", async () => {
     const cafe = await api.createLocation("Refusing cafe", "UTC");

@@ -735,7 +735,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         });
         expect(first.result.groups[0]!.by).toEqual({
           recipe: { id: made.recipes![0]!, name: "Harbor espresso 00", location: { id: harbor.id, name: "Harbor" } },
-          beanBatch: { id: made.beanBatches![0]!, bean: { id: made.beans![0]!, roaster: "Roux Bakehouse", name: "Ethiopia Guji Hambela lot 00" }, roastDate: "2026-10-28" },
+          beanBatch: { id: made.beanBatches![0]!, bean: { id: made.beans![0]!, roaster: "Roux Bakehouse", name: "Ethiopia Guji Hambela lot 00" }, roastDate: "2026-10-28", batchCode: null },
         });
         const last = await assistant.callWithinBudget<Page & { groups: SummaryGroup[] }>("summarise_shots", { ...day, groupBy, limit: 50, offset: FITS });
         expect(last.result).toEqual(toolSummary(await rest(FITS, 50)));

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMayChange } from "@/auth";
-import { BatchBadges, batchName, roastDateText } from "@/components/bean-batches";
+import { BatchCode } from "@/components/batch-name";
+import { BatchBadges } from "@/components/bean-batches";
 import { ItemHistoryCard } from "@/components/item-history";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BatchRecipesCard } from "@/components/recipes";
 import { ApiError, api, type BeanBatch } from "@/lib/api";
+import { batchCodeOf, batchTitle, batchWords, recordedDayWithYear } from "@/lib/batch-name";
 
 /**
  * The content fields a batch's Roast card names, in Decaid's order, after its
@@ -40,6 +42,9 @@ const CONTENT: [key: string, term: string, show: (value: unknown, content: Recor
  * its remaining weight in all and at each Location, the Recipes that name it
  * and its history on the left; its roast, its Shots and its place in the
  * Library on the right. One column below `lg`, the left column's cards first.
+ * It titles itself by its Bean and roast day, with the chip of its Batch
+ * Code, and writes each date of its Roast card as a day with its year
+ * (#732).
  */
 export function BeanBatchPage() {
   const { id = "" } = useParams();
@@ -109,12 +114,8 @@ function BeanBatchDetails({ id }: { id: string }) {
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="grid gap-1">
           <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
-            {batchName(batch)}
-            {batch.batchCode != null && (
-              <span aria-label={`Batch Code ${batch.batchCode}`} className="rounded-md border bg-muted px-2 py-0.5 font-mono text-sm font-medium">
-                {batch.batchCode}
-              </span>
-            )}
+            {batchTitle(batch)}
+            {batchCodeOf(batch) !== undefined && <BatchCode code={batchCodeOf(batch)!} className="px-2 py-0.5 text-sm" />}
             <BatchBadges batch={batch} />
           </h1>
           <p className="text-muted-foreground">
@@ -124,7 +125,7 @@ function BeanBatchDetails({ id }: { id: string }) {
             {batch.bean.roaster && `, by ${batch.bean.roaster}`}
           </p>
         </div>
-        <ArchiveDeleteMenu path={`/bean-batches/${id}`} name={batchName(batch)} archived={batch.archived} back="/library/bean-batches" onDone={changed} />
+        <ArchiveDeleteMenu path={`/bean-batches/${id}`} name={batchWords(batch)} archived={batch.archived} back="/library/bean-batches" onDone={changed} />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
@@ -171,7 +172,7 @@ function BeanBatchDetails({ id }: { id: string }) {
                     {batch.batchCode == null ? <OrNone>{undefined}</OrNone> : <span className="font-mono font-medium">{batch.batchCode}</span>}
                   </Field>
                   <Field term="Roast date">
-                    <OrNone>{roastDateText(batch.roastDate)}</OrNone>
+                    <OrNone>{recordedDayWithYear(batch.roastDate)}</OrNone>
                   </Field>
                   {roast.map(({ key, term, shown }) => (
                     <Field key={key} term={term}>
@@ -214,7 +215,7 @@ function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** A date Decaid recorded, as its day. */
+/** A date Decaid recorded, as its day, with its year, as it is itself the value shown. */
 function day(value: unknown): string | undefined {
-  return typeof value === "string" ? roastDateText(value) : undefined;
+  return typeof value === "string" ? recordedDayWithYear(value) : undefined;
 }

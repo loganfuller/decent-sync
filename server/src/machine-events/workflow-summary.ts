@@ -1,5 +1,6 @@
 import { profileOf, profileTextOf } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import type { BatchLink } from "../library/batch-links.js";
 import { profileOfSql } from "../shots/links.js";
 
 // A Workflow summarised, as the REST API's summary route and an assistant
@@ -20,7 +21,10 @@ import { profileOfSql } from "../shots/links.js";
 // it kept, and so is every one of an event stored before #434, which keeps
 // no links. It names its Profile by the profile itself, which is found as a
 // Shot's is (`profileOfSql`). It records no Recipe's name, so the Recipe's
-// is the Library's.
+// is the Library's. The Bean Batch it names is given too as the Library holds
+// it now (#732), its Bean, roast date and Batch Code, beside the coffee's name
+// as the Workflow recorded it, so the management interface and an assistant
+// name the batch as its own page does.
 
 /** The Library items a Workflow names, as its summary gives them: each one's id, null for none, and the Recipe's name. */
 export interface WorkflowLinks {
@@ -47,6 +51,8 @@ export interface WorkflowSummary {
   bean: string | null;
   roaster: string | null;
   beanBatchId: string | null;
+  /** The Library's Bean Batch `beanBatchId` names, as the Library holds it now (batch-links.ts); null where `beanBatchId` is. */
+  beanBatch: BatchLink | null;
   grinder: string | null;
   burrs: string | null;
   grindSetting: string | null;
@@ -61,8 +67,13 @@ export interface WorkflowSummary {
   flush: { temperature: number | null; duration: number | null } | null;
 }
 
-/** The parts of a Workflow, as Decaid sent it, that the management interface shows, and its Basket and Recipe, with the Library items it names. */
-export function workflowSummary(workflow: Record<string, unknown>, links: WorkflowLinks): WorkflowSummary {
+/**
+ * The parts of a Workflow, as Decaid sent it, that the management interface
+ * shows, and its Basket and Recipe, with the Library items it names.
+ * `beanBatch` is the Library's Bean Batch `links.beanBatchId` names
+ * (`batchLinksOf`), null for none.
+ */
+export function workflowSummary(workflow: Record<string, unknown>, links: WorkflowLinks, beanBatch: BatchLink | null): WorkflowSummary {
   const profile = profileOf(workflow.profile);
   const context = record(workflow.context);
   const extras = record(context?.extras);
@@ -80,6 +91,7 @@ export function workflowSummary(workflow: Record<string, unknown>, links: Workfl
     bean: text(context?.coffeeName),
     roaster: text(context?.coffeeRoaster),
     beanBatchId: links.beanBatchId,
+    beanBatch: links.beanBatchId === null ? null : beanBatch,
     grinder: text(context?.grinderModel),
     burrs: text(context?.grinderBurrs),
     grindSetting: text(context?.grinderSetting),

@@ -1,5 +1,5 @@
 import { profileOf } from "@decent-sync/protocol";
-import { type FormEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import {
@@ -19,6 +19,7 @@ import {
   useLocations,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
+import { BatchCell, BatchInLine } from "@/components/batch-name";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { LiveViewCard } from "@/components/live-view";
@@ -33,6 +34,7 @@ import { SettingsHistoryCard } from "@/components/settings-history";
 import { SoftwareTab } from "@/components/tablet-software";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,9 +43,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   ApiError,
   api,
+  type BatchLink,
+  type BeanBatch,
   type Collection,
   type CollectionSummary,
   type IssuedToken,
+  type Location,
   type LocationHistoryEntry,
   type Machine,
   type PairedDevices,
@@ -52,7 +57,9 @@ import {
   type Takeover,
   type TakeoverConnection,
   type WorkflowEvent,
+  type WorkflowSummaryEvent,
 } from "@/lib/api";
+import { grams } from "@/lib/remaining-weight";
 import { useKeptScroll } from "@/lib/use-kept-scroll";
 import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
 import { cn } from "@/lib/utils";
@@ -319,15 +326,64 @@ function Reading({ error }: { error: string | undefined }) {
 }
 
 /**
+ * The Bean Batch a Machine's Workflow names, as its card shows it (#732):
+ * the Library's batch, and where it stands at the Machine's Location now,
+ * its Remaining Weight there, null where the Location doesn't track it, or
+ * that it is not there (`finished`), finished there, moved away, or
+ * Archived, it or its Bean. `here` is undefined for a Machine at no
+ * Location, or where the batch couldn't be read.
+ */
+interface WorkflowBatch {
+  batch: BatchLink;
+  here?: { remainingWeight: number | null } | "finished";
+}
+
+/**
+ * The batch the Machine's current Workflow names, read beside it: from the
+ * Workflow's summary, which names it by the Library's Bean, roast date and
+ * Batch Code, where that summarises the same Workflow, and the batch's own
+ * read, for its Remaining Weight at the Machine's Location. Undefined where
+ * the Workflow names no batch the Library holds, the previous release's
+ * server answers, which names none (ADR-0025), the summary is of another
+ * Workflow, or the summary's read fails: the card then has no Bean Batch
+ * row, and the Workflow is shown all the same. Where the batch's own read
+ * fails, the batch is named without its weight.
+ */
+async function workflowBatch(path: string, workflow: WorkflowEvent | null, location: Location | null): Promise<WorkflowBatch | undefined> {
+  if (workflow === null) return undefined;
+  try {
+    const { workflow: summary } = await api<{ workflow: WorkflowSummaryEvent | null }>("GET", `${path}/workflow-summary`);
+    const batch = summary?.id === workflow.id ? summary.workflow.beanBatch : undefined;
+    if (!batch) return undefined;
+    if (location === null) return { batch };
+    try {
+      const { batch: read } = await api<{ batch: BeanBatch }>("GET", `/bean-batches/${encodeURIComponent(batch.id)}`);
+      const here = read.archived || read.beanArchived === true ? undefined : read.locations.find((at) => at.location.id === location.id);
+      return { batch, here: here ? { remainingWeight: here.remainingWeight } : "finished" };
+    } catch {
+      return { batch };
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Now: the Machine's Live View; its Workflow, as its tablet last reported
- * it, loaded every 30 s, with the Loaded Recipe it was loaded from; and its
- * Shots by Recipe.
+ * it, loaded every 30 s, with the Bean Batch it names and the Loaded Recipe
+ * it was loaded from; and its Shots by Recipe.
  */
 function NowTab({ machine, askedAt, changed }: { machine: Machine; askedAt: number; changed: number }) {
   const path = `/machines/${encodeURIComponent(machine.id)}`;
-  const load = useCallback(async () => (await api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`)).workflow, [path]);
-  const { data: workflow, error, reload } = usePolled(load, DETAILS_POLL_MS);
+  const { location } = machine;
+  const load = useCallback(async () => {
+    const { workflow } = await api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`);
+    return { workflow, batch: await workflowBatch(path, workflow, location) };
+    // Its Location read again only as it moves.
+  }, [path, location?.id]);
+  const { data, error, reload } = usePolled(load, DETAILS_POLL_MS);
   useReloadOn(changed, reload);
+  const workflow = data?.workflow;
   // Read once per Workflow read, so the Live View's samples are not read again on every render.
   const profile = useMemo(() => profileOf(workflow?.workflow.profile), [workflow]);
   return (
@@ -335,7 +391,7 @@ function NowTab({ machine, askedAt, changed }: { machine: Machine; askedAt: numb
       <LiveViewCard machine={machine} askedAt={askedAt} profile={profile} />
       {/* Shown once loaded: the Live View does not wait for it. A read that fails says so, over the Workflow read before it. */}
       {(error || workflow === undefined) && <Reading error={error} />}
-      {workflow !== undefined && <MachineWorkflow machine={machine} current={workflow} />}
+      {workflow !== undefined && <MachineWorkflow machine={machine} current={workflow} batch={data?.batch} />}
       <MachineShotsCard machine={machine} />
     </>
   );
@@ -648,15 +704,37 @@ function TakeoverAlert({ takeover }: { takeover: Takeover }) {
   );
 }
 
+/** The rows of the Workflow card that come after its Bean and roaster, which its Bean Batch row goes above. */
+const AFTER_THE_BEAN = ["Grinder", "Burrs", "Grind setting", "Barista", "Steam", "Hot water", "Rinse"];
+
+/**
+ * The Workflow card's Bean Batch row (#732): the batch, linked, with its
+ * Batch Code, over its roast day and its Remaining Weight at the Machine's
+ * Location, such as "Roasted 17 Nov · 3240 g at Downtown", or "not tracked
+ * at Downtown"; "Batch finished here" beside its name, in place of the
+ * weight, for a batch that is not at that Location now, as the cafe Skin
+ * marks it; and the batch in a line alone for a Machine at no Location.
+ */
+function WorkflowBatchRow({ machine, batch: { batch, here } }: { machine: Machine; batch: WorkflowBatch }) {
+  const { location } = machine;
+  if (location === null) return <BatchInLine batch={batch} id={batch.id} />;
+  if (here === "finished") return <BatchCell batch={batch} id={batch.id} beside={<Badge variant="destructive">Batch finished here</Badge>} />;
+  return <BatchCell batch={batch} id={batch.id} also={here && ` · ${here.remainingWeight === null ? "not tracked" : grams(here.remainingWeight)} at ${location.name}`} />;
+}
+
 /**
  * What the Machine is set up to do next, from the Workflow its tablet last
- * reported, and the Loaded Recipe it was loaded from, the Recipe its tablet
+ * reported, with the Library's Bean Batch it names, under its roaster, and
+ * the Loaded Recipe it was loaded from, the Recipe its tablet
  * last applied (ADR-0022), with its Recipe Slot and since when, as the
  * Machine's status gives it. The Recipes it had loaded before are listed by
  * day on its Activity tab.
  */
-function MachineWorkflow({ machine, current }: { machine: Machine; current: WorkflowEvent | null }) {
-  const fields = current ? workflowFields(current.workflow) : [];
+function MachineWorkflow({ machine, current, batch }: { machine: Machine; current: WorkflowEvent | null; batch: WorkflowBatch | undefined }) {
+  const recorded: [string, ReactNode][] = current ? workflowFields(current.workflow) : [];
+  const after = recorded.findIndex(([term]) => AFTER_THE_BEAN.includes(term));
+  const row: [string, ReactNode][] = current && batch ? [["Bean Batch", <WorkflowBatchRow machine={machine} batch={batch} />]] : [];
+  const fields = after === -1 ? [...recorded, ...row] : [...recorded.slice(0, after), ...row, ...recorded.slice(after)];
   const loaded = machine.loadedRecipe;
   return (
     <Card role="region" aria-label="Workflow">

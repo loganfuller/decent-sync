@@ -3,7 +3,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
-import { batchName } from "@/components/bean-batches";
+import { BatchCell, BatchInLine } from "@/components/batch-name";
 import { ItemHistoryCard, attributePairs } from "@/components/item-history";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
@@ -39,6 +39,7 @@ import {
   type ProfileSummary,
   type Recipe,
 } from "@/lib/api";
+import { type NamedBatch, batchWords } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { ratedShotsPath } from "@/lib/shot-list";
 
@@ -69,7 +70,7 @@ function recipeName(recipe: Pick<Recipe, "name">): string {
   return recipe.name ?? "Unnamed Recipe";
 }
 
-/** What may need someone's attention about a Recipe. */
+/** What may need someone's attention about a Recipe, beside its name on its own page. */
 function RecipeBadges({ recipe }: { recipe: Recipe }) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -130,11 +131,39 @@ function grindText(recipe: Recipe): string | undefined {
   return setting === undefined ? grinder : `${grinder} at ${setting}`;
 }
 
-/** A Recipe's Bean Batch, as lists name a batch. */
-export function usedBatchText(recipe: Recipe): string | undefined {
+/** A Recipe's Bean Batch as what names one (`NamedBatch`): its Bean's name is its Recipe's Bean's. Undefined for a Recipe that names no batch. */
+function usedBatch(recipe: Recipe): (NamedBatch & { id: string }) | undefined {
   const { beanBatch, bean } = recipe.uses;
-  if (beanBatch) return batchName({ bean: { id: bean?.id ?? "", roaster: bean?.roaster ?? null, name: bean?.name ?? null }, roastDate: beanBatch.roastDate });
+  return beanBatch ? { id: beanBatch.id, bean: { name: bean?.name ?? null }, roastDate: beanBatch.roastDate, batchCode: beanBatch.batchCode } : undefined;
+}
+
+/** A Recipe's Bean Batch in words, or, for one naming a Bean with no batch, that Bean and that it has none. */
+function usedBatchText(recipe: Recipe): string | undefined {
+  const batch = usedBatch(recipe);
+  if (batch) return batchWords(batch);
+  const { bean } = recipe.uses;
   return bean ? `${bean.name ?? "Unnamed Bean"}, no batch` : undefined;
+}
+
+/**
+ * A Recipe's Bean Batch in a list of Recipes (#732): the batch, linked, with
+ * its Batch Code and "Batch finished here" beside its name, over its roast
+ * day; for a Recipe naming a Bean with no batch, that Bean, linked, over "No
+ * batch".
+ */
+function RecipeBatchCell({ recipe }: { recipe: Recipe }) {
+  const batch = usedBatch(recipe);
+  if (batch) return <BatchCell batch={batch} id={batch.id} beside={recipe.batchFinished && <Badge variant="destructive">Batch finished here</Badge>} />;
+  const { bean } = recipe.uses;
+  if (!bean) return <OrNone>{undefined}</OrNone>;
+  return (
+    <>
+      <div className="font-medium">
+        <ItemLink to={`${LIBRARY_KINDS.bean.pages}/${bean.id}`}>{bean.name ?? "Unnamed Bean"}</ItemLink>
+      </div>
+      <div className="text-sm text-muted-foreground">No batch</div>
+    </>
+  );
 }
 
 /** A link to an item's page, named as given. */
@@ -280,8 +309,9 @@ function ReferenceCell({ recipe }: { recipe: Recipe }) {
 /**
  * A table of Recipes, as a Location's Recipes card and the Library's
  * Recipes tab list them: each with its Recipe Slot, where `slots`, its name
- * linked to its page, its Bean Batch, Profile, dose and yield, Grinder and
- * setting, its Reference Shot's duration, and what needs attention.
+ * linked to its page, with "Archived" beside it, its Bean Batch
+ * (`RecipeBatchCell`), which says where its batch is finished, Profile, dose
+ * and yield, Grinder and setting, and its Reference Shot's duration.
  */
 export function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recipe[]; slots: boolean }) {
   const { pages } = LIBRARY_KINDS.recipe;
@@ -297,22 +327,24 @@ export function RecipesTable({ label, recipes, slots }: { label: string; recipes
             <TableHead>Dose and yield</TableHead>
             <TableHead>Grinder</TableHead>
             <TableHead>Reference Shot</TableHead>
-            <TableHead>Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {recipes.map((recipe) => (
-            <TableRow key={recipe.id}>
+            <TableRow key={recipe.id} className="align-top">
               {slots && (
                 <TableCell className="font-medium">
                   <OrNone>{recipe.slot === null ? undefined : String(recipe.slot)}</OrNone>
                 </TableCell>
               )}
               <TableCell className="font-medium">
-                <ItemLink to={`${pages}/${recipe.id}`}>{recipeName(recipe)}</ItemLink>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <ItemLink to={`${pages}/${recipe.id}`}>{recipeName(recipe)}</ItemLink>
+                  {recipe.archived && <Badge variant="secondary">Archived</Badge>}
+                </div>
               </TableCell>
               <TableCell className="whitespace-normal">
-                <OrNone>{usedBatchText(recipe)}</OrNone>
+                <RecipeBatchCell recipe={recipe} />
               </TableCell>
               <TableCell className="whitespace-normal">
                 <OrNone>{recipe.uses.profile ? profileTitle(recipe.uses.profile) : undefined}</OrNone>
@@ -325,9 +357,6 @@ export function RecipesTable({ label, recipes, slots }: { label: string; recipes
               </TableCell>
               <TableCell>
                 <ReferenceCell recipe={recipe} />
-              </TableCell>
-              <TableCell>
-                <RecipeBadges recipe={recipe} />
               </TableCell>
             </TableRow>
           ))}
@@ -371,12 +400,12 @@ function useChoices(): { choices: Choices | undefined; error: string | undefined
   return { choices, error };
 }
 
-/** The names of the items a Recipe may name, by id, for its history. */
+/** The names of the items a Recipe may name, by id, for its history, a batch in words. */
 function namesOf(choices: Choices | undefined): ReadonlyMap<string, string> {
   if (!choices) return new Map();
   return new Map<string, string>([
     ...choices.beans.map((bean) => [bean.id, bean.name ?? "Unnamed Bean"] as [string, string]),
-    ...choices.batches.map((batch) => [batch.id, batchName(batch)] as [string, string]),
+    ...choices.batches.map((batch) => [batch.id, batchWords(batch)] as [string, string]),
     ...choices.profiles.map((profile) => [profile.id, profileTitle(profile)] as [string, string]),
     ...choices.grinders.map((grinder) => [grinder.id, grinderName(grinder)] as [string, string]),
     ...choices.baskets.map((basket) => [basket.id, basket.name ?? "Unnamed Basket"] as [string, string]),
@@ -837,7 +866,7 @@ function RecipeForm({
   const offered: string[] = [];
   if (values.beanBatchId !== initial.beanBatchId) {
     const batch = batches.find((candidate) => candidate.id === values.beanBatchId);
-    if (batch && !batchHere(batch)) offered.push(`adds the Bean Batch ${batchName(batch)} at ${location.name}`);
+    if (batch && !batchHere(batch)) offered.push(`adds the Bean Batch ${batchWords(batch)} at ${location.name}`);
   }
   if (values.profileId !== initial.profileId) {
     const profile = profiles.find((candidate) => candidate.id === values.profileId);
@@ -943,10 +972,10 @@ function RecipeForm({
               {values.beanBatchId !== NONE && !batches.some((batch) => batch.id === values.beanBatchId) && (
                 <SelectItem value={values.beanBatchId}>{recipe ? (usedBatchText(recipe) ?? "Its batch now") : "Its batch now"}</SelectItem>
               )}
-              <ChoiceGroup label={`At ${location.name}`} items={batches.filter(batchHere).map((batch) => [batch.id, batchName(batch)])} />
+              <ChoiceGroup label={`At ${location.name}`} items={batches.filter(batchHere).map((batch) => [batch.id, batchWords(batch)])} />
               <ChoiceGroup
                 label={`Elsewhere: saving adds it at ${location.name}`}
-                items={batches.filter((batch) => !batchHere(batch)).map((batch) => [batch.id, `${batchName(batch)} (adds it here)`])}
+                items={batches.filter((batch) => !batchHere(batch)).map((batch) => [batch.id, `${batchWords(batch)} (adds it here)`])}
               />
             </SelectContent>
           </Select>
@@ -1326,7 +1355,7 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
   const keptText =
     beanOnly && target
       ? beanBatchThere
-        ? `${batchName(beanBatchThere)} (this Recipe's Bean's latest batch at ${target.name})`
+        ? `${batchWords(beanBatchThere)} (this Recipe's Bean's latest batch at ${target.name})`
         : `${beanOnly.name ?? "Unnamed Bean"}, no batch (this Recipe's Bean, with none at ${target.name})`
       : `${usedBatchText(recipe) ?? "Its batch"} (this Recipe's)`;
 
@@ -1335,7 +1364,7 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
   if (target && choices) {
     const shownThere = (item: { shownAt: { location: { id: string } }[] } | undefined) => item?.shownAt.some((at) => at.location.id === locationId) ?? true;
     const ownBatch = choices.batches.find((batch) => batch.id === recipe.uses.beanBatch?.id);
-    if (batchId === KEEP && ownBatch && !atTarget(ownBatch)) offered.push(`adds the Bean Batch ${batchName(ownBatch)} at ${target.name}`);
+    if (batchId === KEEP && ownBatch && !atTarget(ownBatch)) offered.push(`adds the Bean Batch ${batchWords(ownBatch)} at ${target.name}`);
     const bean = choices.beans.find((candidate) => candidate.id === beanOnly?.id);
     if (batchId === KEEP && bean && !beanBatchThere && !bean.offeredAt.some((at) => at.id === locationId)) {
       offered.push(`offers the Bean ${bean.name ?? "Unnamed Bean"} at ${target.name}`);
@@ -1480,7 +1509,7 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
                       <SelectItem value={KEEP}>{keptText}</SelectItem>
                     ) : null}
                     <SelectItem value={NONE}>None</SelectItem>
-                    <ChoiceGroup label={`At ${target.name}`} items={batches.map((batch) => [batch.id, batchName(batch)])} />
+                    <ChoiceGroup label={`At ${target.name}`} items={batches.map((batch) => [batch.id, batchWords(batch)])} />
                   </SelectContent>
                 </Select>
               </div>
@@ -1805,12 +1834,14 @@ interface ShownField {
 function RecipeFieldsCard({ recipe }: { recipe: Recipe }) {
   const [all, setAll] = useState(false);
   const { content, uses } = recipe;
+  const batch = usedBatch(recipe);
   const toolAttributes = typeof content.toolAttributes === "object" && content.toolAttributes !== null ? (content.toolAttributes as Record<string, unknown>) : {};
   const fields: ShownField[] = [
     { term: "Beverage", value: typeof content.beverage === "string" && content.beverage !== "" ? content.beverage : undefined },
     {
       term: "Bean Batch",
-      value: uses.beanBatch ? <ItemLink to={`${LIBRARY_KINDS.beanBatch.pages}/${uses.beanBatch.id}`}>{usedBatchText(recipe)!}</ItemLink> : usedBatchText(recipe),
+      // Its batch in a line, linked, with its roast date after its code; a Bean with no batch in words.
+      value: batch ? <BatchInLine batch={batch} id={batch.id} roasted linkClassName="underline-offset-4 hover:underline" /> : usedBatchText(recipe),
     },
     { term: "Profile", value: uses.profile ? <ItemLink to={profilePath(uses.profile.id)}>{profileTitle(uses.profile)}</ItemLink> : undefined },
     { term: "Dose", value: numberText(content.dose, " g") },

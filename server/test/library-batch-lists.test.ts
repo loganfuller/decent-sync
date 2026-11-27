@@ -243,6 +243,17 @@ describe("A Bean Batch's Recipes and a Location's Bean Batches", { timeout: 120_
     expect(await flags()).toEqual({ named: [true, true], read: [true, true] });
   });
 
+  it("says on a batch's read whether its Bean is Archived, which its own archived flag doesn't (#732)", async () => {
+    const own = await beanNamed("Read, then retired");
+    const id = await batchAt(lab, { remainingWeight: 400 }, {}, own);
+    const read = async () => (await api.get<{ batch: { archived: boolean; beanArchived: boolean } }>(`/bean-batches/${id}`)).batch;
+    expect(await read()).toMatchObject({ archived: false, beanArchived: false });
+    await api.send("PUT", `/beans/${own}/archived`, { archived: true });
+    expect(await read()).toMatchObject({ archived: false, beanArchived: true });
+    // The tool gives it as the REST API does.
+    expect((await assistant.call<{ beanBatch: { archived: boolean; beanArchived: boolean } }>("get_library_item", { kind: "beanBatch", id })).beanBatch).toMatchObject({ archived: false, beanArchived: true });
+  });
+
   it("lists a Location's batches with each one's Bean, roast date, Batch Code, weight there, what its count starts from, the Shots and moves since, and the Recipes there that name it, as list_location_batches does", async () => {
     const id = await batchAt(lab, { remainingWeight: 1000 }, { roastDate: "2026-11-18", batchCode: "LR-70701" });
     const slotted = await recipeAt(lab, "Here in a slot", id, 7);

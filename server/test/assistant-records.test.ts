@@ -48,7 +48,7 @@ interface RestShot {
   profileTitle: string | null;
   coffeeRoaster: string | null;
   coffeeName: string | null;
-  beanBatch: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null } | null;
+  beanBatch: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null; batchCode: string | null } | null;
   grinder: { id: string; model: string | null } | null;
   grinderModel: string | null;
   grinderSetting: string | null;
@@ -178,7 +178,9 @@ function shotRow(shot: RestShot): Fields {
     profile: item(shot.profile?.id, { title: recorded(shot.profile ? shot.profile.title : shot.profileTitle) }),
     beanBatch: item(
       batch?.id,
-      batch ? { roaster: recorded(batch.bean.roaster), name: recorded(batch.bean.name), roastDate: batch.roastDate?.slice(0, 10) ?? null } : { roaster: recorded(shot.coffeeRoaster), name: recorded(shot.coffeeName) },
+      batch
+        ? { roaster: recorded(batch.bean.roaster), name: recorded(batch.bean.name), roastDate: batch.roastDate?.slice(0, 10) ?? null, batchCode: batch.batchCode }
+        : { roaster: recorded(shot.coffeeRoaster), name: recorded(shot.coffeeName) },
     ),
     grinder: item(shot.grinder?.id, { model: recorded(shot.grinder ? shot.grinder.model : shot.grinderModel) }),
     grinderSetting: shot.grinderSetting,
@@ -495,7 +497,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     const tablet = syncingTablet(machine, server, { api: emptyLibrary("40803") });
     await api.waitForOnline(machine);
     const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Assistant Guji" } }, 201)).bean;
-    const batch = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }] }, 201)).batch;
+    const batch = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01", batchCode: "AG-1001" }, locations: [{ locationId: lab.id }] }, 201)).batch;
     const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: lab.id, content: { model: "Assistant EK43" } }, 201)).grinder;
     const held = (records: Fields[], id: string) => records.find((record) => globalIdOf(record) === id);
     await expect.poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
@@ -525,7 +527,8 @@ describe("reading Shots and Steam Records through an assistant", () => {
     }
     const linked = await assistant.call<Fields>("get_shot", { id: "assistant-linked" });
     expect(linked).toMatchObject({
-      beanBatch: { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Assistant Guji" } },
+      // Its batch by its Bean, its roast date as Decaid recorded it, and its Batch Code (#732).
+      beanBatch: { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Assistant Guji" }, roastDate: "2026-10-01T00:00:00.000", batchCode: "AG-1001" },
       grinder: { id: grinder.id, model: "Assistant EK43" },
       profile: { id: profileId, title: "Assistant bloom" },
     });
@@ -534,7 +537,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     const { shots } = await assistant.call<{ shots: Fields[] }>("find_shots", { beanBatchId: batch.id });
     expect(shots).toEqual([
       expect.objectContaining({
-        beanBatch: { id: batch.id, roaster: "Roux", name: "Assistant Guji", roastDate: "2026-10-01" },
+        beanBatch: { id: batch.id, roaster: "Roux", name: "Assistant Guji", roastDate: "2026-10-01", batchCode: "AG-1001" },
         grinder: { id: grinder.id, model: "Assistant EK43" },
         profile: { id: profileId, title: "Assistant bloom" },
         basket: { id: null, name: "Decent 18g Ridgeless" },
@@ -1002,7 +1005,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
   it("lists what Shots recorded and the Library items they are linked to, as the REST API does, a page of each list at a time", async () => {
     type Named = { id: string; name: string | null; location?: (LocationView & { timeZone?: string }) | null };
-    type Batch = { id: string; bean: Fields; roastDate: string | null };
+    type Batch = { id: string; bean: Fields; roastDate: string | null; batchCode: string | null };
     interface Options {
       beans: { coffeeRoaster: string | null; coffeeName: string | null }[];
       baristas: (string | null)[];
@@ -1032,7 +1035,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // and a Grinder of the Library's, at their Location; none to a Recipe or Basket.
     expect(expected.beans).toContainEqual({ roaster: null, name: null });
     expect(expected.baristas).toEqual(expect.arrayContaining(["Ann", "Cat", null]));
-    expect(expected.beanBatches).toEqual([{ id: expect.any(String), bean: { id: expect.any(String), roaster: "Roux", name: "Assistant Guji" }, roastDate: "2026-10-01" }, null]);
+    expect(expected.beanBatches).toEqual([{ id: expect.any(String), bean: { id: expect.any(String), roaster: "Roux", name: "Assistant Guji" }, roastDate: "2026-10-01", batchCode: "AG-1001" }, null]);
     expect(expected.grinders).toEqual([{ id: expect.any(String), model: "Assistant EK43", location: { id: expect.any(String), name: "Linked lab" } }, null]);
     expect([expected.recipes, expected.baskets]).toEqual([[null], [null]]);
 

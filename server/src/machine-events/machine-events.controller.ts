@@ -20,8 +20,9 @@ export class MachineEventsController {
   /**
    * The Machine's current Workflow summarised, as an assistant reads it: the
    * parts the management interface shows, and its Basket and Recipe, with the
-   * Library's ids of what it names (workflow-summary.ts); or null until its
-   * tablet reports one.
+   * Library's ids of what it names (workflow-summary.ts), and the Bean Batch
+   * among them as the Library holds it now, which a Machine's page names it
+   * by (#732); or null until its tablet reports one.
    */
   @Get(":id/workflow-summary")
   async workflowSummary(@Param("id") id: string): Promise<{ workflow: WorkflowSummaryView | null }> {

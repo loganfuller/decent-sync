@@ -3,6 +3,7 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { boxes } from "./support/layout.js";
 import { field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { roastDay } from "./support/days.js";
 
 // A Bean Batch's Batch Code in the management interface (ticket #703): given
 // as a batch is created, shown beside the batch's title, in its Roast card
@@ -43,7 +44,7 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   await newBatch.getByLabel("Location", { exact: true }).click();
   await page.getByRole("option", { name: "Downtown" }).click();
   await newBatch.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("heading", { name: "Ethiopia Guji Natural, roasted 2026-11-18", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Ethiopia Guji Natural, roasted ${roastDay("2026-11-18")}`, level: 1 })).toBeVisible();
   // Beside the title, and first in the Roast card.
   await expect(page.getByRole("heading", { level: 1 }).getByLabel("Batch Code LR-0412")).toHaveText("LR-0412");
   const roast = page.getByLabel("Roast", { exact: true });
@@ -59,14 +60,14 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   await expect(page.getByRole("heading", { level: 1 }).getByLabel("Batch Code LR-0413")).toBeVisible();
   await expect(page.getByRole("table", { name: "History" })).toContainText("Batch Code");
 
-  // The list has a column of them, and its search finds a batch by its code, its Bean or its roaster.
+  // The list has a column of them, so its Batch cell is the Bean over its roast day (#732), and its search finds a batch by its code, its Bean or its roaster.
   await page.getByRole("link", { name: "← Bean Batches" }).click();
   const list = page.getByRole("table", { name: "Bean Batches" });
   await expect(list.getByRole("columnheader")).toHaveText(["Batch", "Batch Code", "Roaster", "At", "Remaining in all", "Attention"]);
   await expect(rows(list)).toHaveText([
-    ["Brazil Cerrado, roasted 2026-11-12", "LR-0409", "Lantern Coffee Roasters", "Stockroom", "Not tracked", ""].join(""),
-    ["Ethiopia Guji Natural, roasted 2026-11-18", "LR-0413", "Lantern Coffee Roasters", "Downtown", "Not tracked", ""].join(""),
-    ["Ethiopia Guji Natural, roasted 2026-11-01", "-", "Lantern Coffee Roasters", "Stockroom", "Not tracked", ""].join(""),
+    [`Brazil CerradoRoasted ${roastDay("2026-11-12")}`, "LR-0409", "Lantern Coffee Roasters", "Stockroom", "Not tracked", ""].join(""),
+    [`Ethiopia Guji NaturalRoasted ${roastDay("2026-11-18")}`, "LR-0413", "Lantern Coffee Roasters", "Downtown", "Not tracked", ""].join(""),
+    [`Ethiopia Guji NaturalRoasted ${roastDay("2026-11-01")}`, "-", "Lantern Coffee Roasters", "Stockroom", "Not tracked", ""].join(""),
   ]);
   // The total is aligned right, its heading over it.
   await expect(list.getByRole("columnheader", { name: "Remaining in all" })).toHaveCSS("text-align", "right");
@@ -78,7 +79,7 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   expect(Math.abs(newBatchBox!.y + newBatchBox!.height / 2 - (searchBox!.y + searchBox!.height / 2))).toBeLessThan(2);
   expect(searchBox!.x).toBeGreaterThan(newBatchBox!.x + newBatchBox!.width);
   await search.getByLabel("Find a batch").fill("lr-041");
-  await expect(rows(list)).toHaveText([/^Ethiopia Guji Natural, roasted 2026-11-18LR-0413/]);
+  await expect(rows(list)).toHaveText([new RegExp(String.raw`^Ethiopia Guji NaturalRoasted ${roastDay("2026-11-18")}LR-0413`)]);
   await expect(search.getByRole("status")).toHaveText("1 of 3 batches");
   // The count of matches is on that row too.
   const [countBox, foundBox] = await boxes(search.getByRole("status"), search.getByRole("searchbox", { name: "Find a batch" }));
@@ -93,7 +94,8 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
 
   // Cleared, the batch has none.
   await search.getByLabel("Find a batch").fill("LR-0413");
-  await list.getByRole("link", { name: "Ethiopia Guji Natural, roasted 2026-11-18" }).click();
+  // Its Bean is the link, over the day it was roasted (#732).
+  await list.getByRole("link", { name: `Ethiopia Guji Natural LR-0413, roasted ${roastDay("2026-11-18")}`, exact: true }).click();
   await page.getByRole("button", { name: "Edit the roast" }).click();
   await form.getByLabel("Batch Code", { exact: true }).fill("");
   await form.getByRole("button", { name: "Save" }).click();
@@ -114,12 +116,12 @@ test("a Batch Code another batch holds is refused with a link to that batch, cre
   await newBatch.getByLabel("Location", { exact: true }).click();
   await page.getByRole("option", { name: "Stockroom" }).click();
   await newBatch.getByRole("button", { name: "Create" }).click();
-  await expect(newBatch.getByRole("alert")).toHaveText("Another batch holds the Batch Code LR-0412: Colombia Huila, roasted 2026-11-18. A code is one batch's until that batch is Archived.");
+  await expect(newBatch.getByRole("alert")).toHaveText(`Another batch holds the Batch Code LR-0412: Colombia Huila, roasted ${roastDay("2026-11-18")}. A code is one batch's until that batch is Archived.`);
   // Another code is taken, and the dialog's refusal goes.
   await newBatch.getByLabel("Batch Code", { exact: true }).fill("LR-0501");
   await newBatch.getByLabel("Roast date", { exact: true }).fill("2026-11-20");
   await newBatch.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("heading", { name: "Colombia Huila, roasted 2026-11-20", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Colombia Huila, roasted ${roastDay("2026-11-20")}`, level: 1 })).toBeVisible();
 
   // Where the roast is edited.
   await page.goto(`/library/bean-batches/${other}`);
@@ -142,7 +144,7 @@ test("a Batch Code another batch holds is refused with a link to that batch, cre
   await page.getByRole("menuitem", { name: "Restore", exact: true }).click();
   const refusal = page.getByRole("alert").filter({ hasText: "Another batch holds the Batch Code lr-0500" });
   await expect(refusal).toBeVisible();
-  await refusal.getByRole("link", { name: "Colombia Huila, roasted 2026-11-21" }).click();
+  await refusal.getByRole("link", { name: `Colombia Huila, roasted ${roastDay("2026-11-21")}` }).click();
   await expect(page).toHaveURL(new RegExp(`/library/bean-batches/${taker}$`));
   await expect(page.getByRole("heading", { level: 1 }).getByLabel("Batch Code lr-0500")).toBeVisible();
 });

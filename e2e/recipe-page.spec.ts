@@ -1,6 +1,7 @@
 import { type BrowserContextOptions, expect, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
-import { type JudgedShots, seedJudgedShots } from "./support/judged-shots.js";
+import { roastDay } from "./support/days.js";
+import { type JudgedShots, date, seedJudgedShots } from "./support/judged-shots.js";
 import { boxes } from "./support/layout.js";
 import { openCard, recipeActions, rows } from "./support/locators.js";
 import { signInAsAdmin } from "./support/seed.js";
@@ -163,9 +164,11 @@ test("the Library opens on every Location's Recipes, in Recipe Slot order with t
   await expect(page.getByRole("region", { name: "Recipes at Depot" })).toContainText("No Recipes here yet.");
   await expect(rows(page.getByRole("table", { name: "Recipes at Harbor" }))).toHaveText([/^1Harbor House.*No reference$/]);
   const atLab = page.getByRole("table", { name: "Recipes at Lab" });
-  await expect(atLab.getByRole("columnheader")).toHaveText(["Slot", "Recipe", "Bean Batch", "Profile", "Dose and yield", "Grinder", "Reference Shot", "Status"]);
-  // The Decaf, in slot 1, with no Reference Shot, and the House, in slot 2, with its Reference Shot's duration.
-  await expect(rows(atLab)).toHaveText([/^1Decaf-+No reference$/, /^2HouseGuji, roasted \d{4}-\d\d-\d\d-+23\.5 s$/]);
+  // No Status column (#732): what needs attention is said beside what it is about.
+  await expect(atLab.getByRole("columnheader")).toHaveText(["Slot", "Recipe", "Bean Batch", "Profile", "Dose and yield", "Grinder", "Reference Shot"]);
+  // The Decaf, in slot 1, with no Reference Shot, and the House, in slot 2, with its batch, linked, over its roast day, and its Reference Shot's duration.
+  await expect(rows(atLab)).toHaveText([/^1Decaf-+No reference$/, new RegExp(String.raw`^2HouseGujiRoasted ${roastDay(date(-12))}-+23\.5 s$`)]);
+  await expect(atLab.getByRole("link", { name: `Guji, roasted ${roastDay(date(-12))}`, exact: true })).toHaveAttribute("href", /^\/library\/bean-batches\//);
   await expect(atLab.getByRole("link", { name: "House" })).toHaveAttribute("href", `/library/recipes/${recipes.house}`);
   await expect(atLab.getByRole("link", { name: "23.5 s" })).toHaveAttribute("href", "/shots/left-house-1");
   await expect(atLab.getByRole("link", { name: "No reference" })).toHaveAttribute("href", `/shots?recipeId=${recipes.decaf}&rating=rated`);
@@ -176,7 +179,8 @@ test("the Library opens on every Location's Recipes, in Recipe Slot order with t
   await expect(page.getByText("Show archived (1)")).toBeVisible();
   await archived.click();
   await expect(page).toHaveURL(/\/library\/recipes\?archived=1$/);
-  await expect(rows(atLab)).toHaveText([/^1Decaf/, /^2House/, /^-Guest-+No referenceArchived$/]);
+  // Archived is said beside its name.
+  await expect(rows(atLab)).toHaveText([/^1Decaf/, /^2House/, /^-GuestArchived-+No reference$/]);
   await page.reload();
   await expect(archived).toBeChecked();
   await expect(rows(atLab)).toHaveCount(3);
@@ -187,7 +191,7 @@ test("the Library opens on every Location's Recipes, in Recipe Slot order with t
   // The Lab's own page lists them with the same column.
   await page.goto(`/locations/${lab.id}`);
   const slots = page.getByRole("region", { name: "Recipes" }).getByRole("table", { name: "Recipe Slots" });
-  await expect(slots.getByRole("columnheader")).toHaveText(["Slot", "Recipe", "Bean Batch", "Profile", "Dose and yield", "Grinder", "Reference Shot", "Status"]);
+  await expect(slots.getByRole("columnheader")).toHaveText(["Slot", "Recipe", "Bean Batch", "Profile", "Dose and yield", "Grinder", "Reference Shot"]);
   await expect(rows(slots)).toHaveText([/^1Decaf-+No reference$/, /^2House.*23\.5 s$/]);
   await expect(slots.getByRole("link", { name: "23.5 s" })).toHaveAttribute("href", "/shots/left-house-1");
 

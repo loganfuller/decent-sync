@@ -2,7 +2,6 @@ import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } fr
 import { Link, useNavigate } from "react-router";
 import { ChevronDownIcon } from "lucide-react";
 import { useAuth, useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
-import { batchName } from "@/components/bean-batches";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, ConfirmDialog, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -29,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api, type BatchAtLocation, type BeanBatch, type BeanBatchSummary, type BeanSummary, type ItemHistory, type ItemVersion, type Location, type Recipe } from "@/lib/api";
 import { type MoveHow, destinationText, finishLines, movePlan, recipesAt, sourceText } from "@/lib/batch-moves";
+import { batchTitle, batchWords } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { barOf, differenceText, leftText, totalLine, totalText, weightLineParts, weightText } from "@/lib/remaining-weight";
 
@@ -360,20 +360,28 @@ export function failure(caught: unknown, otherwise: string): string {
 
 /**
  * A refusal of a Batch Code another batch that is not Archived holds, from
- * what the server answered, with a link to that batch; undefined for any
- * other refusal.
+ * what the server answered, with a link to that batch, named as its page
+ * titles it, the code being said already (#732), or as the server named it
+ * where it gave no Bean, as the previous release's doesn't (ADR-0025);
+ * undefined for any other refusal.
  */
 export function codeTaken(caught: unknown, onFollow?: () => void): ReactNode | undefined {
   if (!(caught instanceof ApiError) || caught.status !== 409) return undefined;
   const existing = (caught.data as { existing?: unknown } | undefined)?.existing;
   if (typeof existing !== "object" || existing === null) return undefined;
-  const { id, name, batchCode } = existing as { id?: unknown; name?: unknown; batchCode?: unknown };
+  const { id, name, batchCode, bean, roastDate } = existing as { id?: unknown; name?: unknown; batchCode?: unknown; bean?: { name?: unknown } | null; roastDate?: unknown };
   if (typeof id !== "string" || typeof batchCode !== "string") return undefined;
+  const title =
+    typeof bean === "object" && bean !== null
+      ? batchTitle({ bean: { name: typeof bean.name === "string" ? bean.name : null }, roastDate: typeof roastDate === "string" ? roastDate : null })
+      : typeof name === "string"
+        ? name
+        : "an unnamed batch";
   return (
     <>
       Another batch holds the Batch Code {batchCode}:{" "}
       <Link to={`/library/bean-batches/${id}`} className="underline underline-offset-4" onClick={onFollow}>
-        {typeof name === "string" ? name : "an unnamed batch"}
+        {title}
       </Link>
       . A code is one batch's until that batch is Archived.
     </>
@@ -1212,7 +1220,7 @@ function FinishHereDialog({ batch, here, disabled, onConfirm }: { batch: BeanBat
         <AlertDialogHeader>
           <AlertDialogTitle>Finish this batch at {name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            {batchLabel(batch)}. {sourceText(here)}
+            {batchWords(batch)}. {sourceText(here)}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ul aria-label="What finishing does" className="grid list-disc gap-1.5 rounded-md bg-muted py-3 pr-4 pl-8 text-sm">
@@ -1319,7 +1327,7 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
         <DialogHeader>
           <DialogTitle>Move this batch</DialogTitle>
           <DialogDescription>
-            {batchLabel(batch)}. {sourceText(from)}
+            {batchWords(batch)}. {sourceText(from)}
           </DialogDescription>
         </DialogHeader>
         <form aria-label="Move this batch" className="grid gap-4" onSubmit={move}>
@@ -1418,11 +1426,6 @@ function MoveBatchDialog({ batch, from, to, onMoved }: { batch: BeanBatch; from:
   );
 }
 
-/** A batch as a dialog names it: its Bean and roast date, as lists name it, with its Batch Code where it has one (the previous release sends none). */
-function batchLabel(batch: Pick<BeanBatchSummary, "bean" | "roastDate" | "batchCode">): string {
-  return batch.batchCode == null ? batchName(batch) : `${batchName(batch)} (${batch.batchCode})`;
-}
-
 /**
  * Enters a batch's weight at a Location, which its count there starts from
  * again, from the batch's page or from the Location's list of batches (#726),
@@ -1498,7 +1501,7 @@ export function EnterWeightDialog({
         <DialogHeader>
           <DialogTitle>Enter weight at {location.name}</DialogTitle>
           <DialogDescription>
-            {batchLabel(batch)}. What is left of it at {location.name} now, as weighed.
+            {batchWords(batch)}. What is left of it at {location.name} now, as weighed.
           </DialogDescription>
         </DialogHeader>
         <form aria-label={`Enter weight at ${location.name}`} className="grid gap-4" onSubmit={save}>

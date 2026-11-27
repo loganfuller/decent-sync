@@ -321,6 +321,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(id, kind).toEqual(expect.any(String));
       expect((await assistant.call<Record<string, { id: string }>>("get_library_item", { kind, id }))[kind]!.id, kind).toBe(id);
     }
+    // Its Bean Batch as the Library holds it, by its Bean, roast date and Batch Code (#732), as get_library_item reads it.
+    const { beanBatch } = await assistant.call<{ beanBatch: { id: string; bean: Record_; roastDate: string | null; batchCode: string | null } }>("get_library_item", { kind: "beanBatch", id: summary.beanBatchId });
+    expect(summary.beanBatch).toEqual({ id: beanBatch.id, bean: beanBatch.bean, roastDate: beanBatch.roastDate, batchCode: beanBatch.batchCode });
     // The Recipe by the Library's name, which the Workflow doesn't record; the rest by the names the Workflow recorded.
     expect(summary.recipe).toBe((await assistant.call<{ recipe: { name: string } }>("get_library_item", { kind: "recipe", id: ethiopia })).recipe.name);
     const sent = (await api.get<{ workflow: { workflow: Record_ & { context: Record_ & { extras: Record_ }; profile: Record_ } } }>(`${path}/workflow`)).workflow.workflow;
@@ -556,6 +559,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         bean: sent.context.coffeeName,
         roaster: sent.context.coffeeRoaster,
         beanBatchId: null,
+        beanBatch: null,
         grinder: sent.context.grinderModel,
         burrs: null,
         grindSetting: sent.context.grinderSetting,
@@ -582,6 +586,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         dose: 19,
         bean: sent.context.coffeeName,
         beanBatchId: null,
+        beanBatch: null,
         grinder: sent.context.grinderModel,
         grinderId: null,
         basket: sent.context.extras.basketName,
@@ -1068,5 +1073,24 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expect(unseen(long.machine)).toEqual(unseen((await assistant.call<{ machine: Record_ }>("get_machine", { machineId: bar.machine.id })).machine));
     const refused = await assistant.client.callTool({ name: "get_machine", arguments: { machineId: bar.machine.id, at: "2026-11-08T09:00:00" } });
     expect(refused).toMatchObject({ isError: true });
+  });
+
+  it("names a Bean Batch its tablet was last written as the REST API does, by its Bean, Batch Code and roast date, with the batch's parts (#732)", async () => {
+    const { bean } = await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Assistant Named Guji" } }, 201);
+    const { batch } = await api.send<{ batch: { id: string } }>(
+      "POST",
+      "/bean-batches",
+      { beanId: bean.id, content: { roastDate: "2026-11-17", batchCode: "AN-0411" }, locations: [{ locationId: lab.id }] },
+      201,
+    );
+    const applied = async () => (await assistant.call<{ sharingStatus: { lastApplied: { item: Record_ | null } | null } }>("get_machine", { machineId: bar.machine.id })).sharingStatus.lastApplied?.item;
+    await expect.poll(applied, { timeout: 15_000 }).toEqual({
+      kind: "beanBatch",
+      id: batch.id,
+      name: "Assistant Named Guji AN-0411, roasted 2026-11-17",
+      batch: { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Assistant Named Guji" }, roastDate: "2026-11-17T00:00:00.000", batchCode: "AN-0411" },
+    });
+    const rest = await api.get<{ status: { lastApplied: { item: Record_ | null } | null } }>(`/machines/${bar.machine.id}/sharing-status`);
+    expect(rest.status.lastApplied?.item).toEqual(await applied());
   });
 });

@@ -74,13 +74,14 @@ test("Shots from every Location are listed newest first, at their Location's tim
 
   // It was pulled with no Recipe loaded, 0.1 g under its target of 36 g, which is within spec.
   const labRow = row(page, "Feb 10, 2026, 6:30 AM MST");
-  await expect(labRow.getByRole("cell")).toHaveText(["6:30 AM", "Lab 1", "No RecipeLondonium · Ethiopia Guji · Lab", "7.5", "18 g", "35.9 g−0.1 g", "23.5 s", "-", "Ann"]);
+  // Under its Recipe, its profile, its Bean Batch, by the Library's Bean and, as it has no Batch Code, its roast date (#732), and its Location.
+  await expect(labRow.getByRole("cell")).toHaveText(["6:30 AM", "Lab 1", /^No RecipeLondonium · Ethiopia Generic 100g Sample, roasted Sep 25(, \d{4})? · Lab$/, "7.5", "18 g", "35.9 g−0.1 g", "23.5 s", "-", "Ann"]);
   // An inferred Machine credit, and the Location it brings, are marked.
   const inferred = row(page, "Feb 11, 2026, 9:00 AM CST");
   await expect(inferred.getByRole("cell").nth(1)).toHaveText("Uptown 1Inferred");
-  await expect(inferred.getByRole("cell").nth(2)).toHaveText("No RecipeBlooming · Ethiopia Guji · UptownInferred");
+  await expect(inferred.getByRole("cell").nth(2)).toHaveText(/^No RecipeBlooming · Ethiopia Generic 100g Sample, roasted Sep 25(, \d{4})? · UptownInferred$/);
   await expect(row(page, "Feb 10, 2026, 6:30 AM CST").getByText("Inferred")).toHaveCount(0);
-  // Without a Location, times are in UTC, and say so.
+  // Without a Location, times are in UTC, and say so. Linked to no batch, it gives its Bean as it recorded it, as before.
   await expect(row(page, "Feb 10, 2026, 6:30 AM UTC").getByRole("cell").nth(2)).toHaveText("No RecipeLondonium · Ethiopia Generic 100g Sample · No Location, times in UTC");
   await expect(row(page, "Jan 20, 2026, 3:00 PM UTC").getByRole("cell").nth(1)).toHaveText("Bengle serial 10029Pending Machine");
 });

@@ -20,13 +20,13 @@ type Record_ = Record<string, unknown>;
 interface ShotView {
   id: string;
   machine: { id: string } | null;
-  beanBatch: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null } | null;
+  beanBatch: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null; batchCode: string | null } | null;
   grinder: { id: string; model: string | null } | null;
   profile: { id: string; title: string | null } | null;
 }
 
 interface FilterOptions {
-  beanBatches: ({ id: string } | null)[];
+  beanBatches: ({ id: string; batchCode: string | null } | null)[];
   grinders: ({ id: string; model: string | null; location: LocationView | null } | null)[];
 }
 
@@ -147,7 +147,7 @@ describe("Shots linked to the Library", () => {
 
     expect(await viewShot("linked-lab-shot")).toMatchObject({
       machine: { id: labMachine.machine.id },
-      beanBatch: { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Linked Guji" }, roastDate: "2026-10-01T00:00:00.000" },
+      beanBatch: { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Linked Guji" }, roastDate: "2026-10-01T00:00:00.000", batchCode: null },
       grinder: { id: labGrinder.id, model: "Linked lab EK43" },
       profile: { id: profileId, title: "Linked bloom" },
     });
@@ -166,6 +166,17 @@ describe("Shots linked to the Library", () => {
 
     const options = await api.get<FilterOptions>("/shots/filters");
     expect(options.beanBatches).toContainEqual(expect.objectContaining({ id: batch.id }));
+
+    // A Shot's batch carries its Batch Code, null until it has one: read by itself, in the list, and among the batches the filter offers (#732).
+    const named = { id: batch.id, bean: { id: bean.id, roaster: "Roux", name: "Linked Guji" }, roastDate: "2026-10-01T00:00:00.000" };
+    const batchInList = async () => (await api.get<{ shots: ShotView[] }>(`/shots?beanBatchId=${batch.id}&limit=100`)).shots.map((shot) => shot.beanBatch);
+    const offered = async () => (await api.get<FilterOptions>("/shots/filters")).beanBatches.find((one) => one?.id === batch.id);
+    expect(await batchInList()).toEqual([1, 2, 3].map(() => ({ ...named, batchCode: null })));
+    expect(await offered()).toEqual({ ...named, batchCode: null });
+    await api.send("PATCH", `/bean-batches/${batch.id}`, { content: { batchCode: "LR-1001" } });
+    expect((await viewShot("linked-lab-shot")).beanBatch).toEqual({ ...named, batchCode: "LR-1001" });
+    expect(await batchInList()).toEqual([1, 2, 3].map(() => ({ ...named, batchCode: "LR-1001" })));
+    expect(await offered()).toEqual({ ...named, batchCode: "LR-1001" });
     expect(options.grinders).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: labGrinder.id, model: "Linked lab EK43", location: lab }),

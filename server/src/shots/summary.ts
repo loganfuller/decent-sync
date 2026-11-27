@@ -167,7 +167,7 @@ export interface GroupedBy {
   /** The roaster and name the Shots recorded, either of which may be missing. */
   bean?: { roaster: string | null; name: string | null } | null;
   /** The Library's Bean Batch the Shots are linked to, as the list names one. */
-  beanBatch?: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null } | null;
+  beanBatch?: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null; batchCode: string | null } | null;
   /** The profile title the Shots recorded. */
   profile?: string | null;
   /** The Library's Grinder the Shots are linked to, with the Location it belongs to. */
@@ -733,7 +733,7 @@ function groupingSql(grouping: Grouping, listed: Prisma.Sql): GroupingSql {
         by: { bean: Prisma.sql`CASE WHEN g.coffee_roaster IS NOT NULL OR g.coffee_name IS NOT NULL THEN json_build_object('roaster', g.coffee_roaster, 'name', g.coffee_name) END` },
         order: Prisma.sql`g.coffee_roaster IS NULL AND g.coffee_name IS NULL, lower(g.coffee_roaster), lower(g.coffee_name), g.coffee_roaster, g.coffee_name`,
       };
-    // Named by its Bean and roast date, and ordered as the Bean Batches list is: by its Bean's name, then roaster, then
+    // Named by its Bean, roast date and Batch Code, and ordered as the Bean Batches list is: by its Bean's name, then roaster, then
     // the latest roast date first.
     case "beanBatch":
       return {
@@ -743,7 +743,8 @@ function groupingSql(grouping: Grouping, listed: Prisma.Sql): GroupingSql {
           beanBatch: Prisma.sql`CASE WHEN g.batch_id IS NOT NULL THEN json_build_object(
             'id', g.batch_id,
             'bean', json_build_object('id', by_bean.id, 'roaster', by_bean.content ->> 'roaster', 'name', by_bean.content ->> 'name'),
-            'roastDate', by_batch.content ->> 'roastDate') END`,
+            'roastDate', by_batch.content ->> 'roastDate',
+            'batchCode', by_batch.content ->> 'batchCode') END`,
         },
         order: Prisma.sql`g.batch_id IS NULL, lower(by_bean.content ->> 'name'), lower(by_bean.content ->> 'roaster'), by_batch.content ->> 'roastDate' DESC NULLS LAST, g.batch_id`,
       };

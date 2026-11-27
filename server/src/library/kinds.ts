@@ -976,12 +976,20 @@ function beanName(content: unknown): string | null {
   return joined([text(bean.roaster), text(bean.name)]);
 }
 
-/** A batch as the Bean Batches list names it: its Bean, and the day a barista picked as its roast date. */
+/**
+ * A batch as the server names it in text (#732), as a page names it in
+ * words: its Bean and its Batch Code, then the day a barista picked as its
+ * roast date, as "Guji LR-0411, roasted 2026-10-01", or "Guji, roasted
+ * 2026-10-01" for a batch with no code. The day is ISO's, as the server
+ * writes for no reader's locale. Null where it has none of the three.
+ */
 export function batchName(content: unknown, beanContent: unknown): string | null {
   const bean = text(fields(beanContent).name);
+  const batchCode = text(fields(content).batchCode);
   const roastDate = text(fields(content).roastDate);
   const roasted = roastDate !== null && /^\d{4}-\d\d-\d\d/.test(roastDate) ? `roasted ${roastDate.slice(0, 10)}` : null;
-  return bean === null && roasted === null ? null : `${bean ?? "Unnamed Bean"}, ${roasted ?? "no roast date"}`;
+  if (bean === null && batchCode === null && roasted === null) return null;
+  return `${bean ?? "Unnamed Bean"}${batchCode === null ? "" : ` ${batchCode}`}, ${roasted ?? "no roast date"}`;
 }
 
 function fields(value: unknown): Record<string, unknown> {

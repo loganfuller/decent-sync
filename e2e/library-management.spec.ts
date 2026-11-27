@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { batchAt, batchLeft, batchLocations, field } from "./support/locators.js";
+import { roastDay } from "./support/days.js";
 
 // Creating and editing the Library's Beans and Bean Batches in the
 // management interface, and adding and finishing batches at Locations
@@ -37,7 +38,7 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await page.getByRole("option", { name: "Uptown" }).click();
   await newBatch.getByLabel("Remaining weight (g)", { exact: true }).fill("850");
   await newBatch.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("heading", { name: "Uptown Gesha, roasted 2026-10-03", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Uptown Gesha, roasted ${roastDay("2026-10-03")}`, level: 1 })).toBeVisible();
   await expect(field(page.getByLabel("Roast", { exact: true }), "Roasted weight")).toHaveText("1000 g");
   await expect(batchAt(page, "Uptown")).toContainText("Uptown850 g");
   await expect(batchAt(page, "Uptown")).toContainText(/850 g entered .+ by you\. No Shots since\./);
@@ -64,7 +65,7 @@ test("part of a lab batch is moved to a cafe, weighed there and finished there, 
   expect(createdBatch.status()).toBe(201);
 
   await page.goto("/library/bean-batches");
-  await page.getByRole("link", { name: "Lab Sidra, roasted 2026-10-04" }).click();
+  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: `Lab Sidra, roasted ${roastDay("2026-10-04")}`, exact: true }).click();
   const where = batchLocations(page);
   // Created with a roasted weight and no remaining weight, it starts at that weight at the lab.
   await expect(batchAt(page, "Roastery lab")).toContainText("Roastery lab250 g");

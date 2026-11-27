@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { type ShotDelivery, type ShotIndex, type SimulationShot, isRecordId, profileOf, shotSamples, simulationShotOf } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
+import { type BatchLink, batchLink, viewBatchLink } from "../library/batch-links.js";
 import { announceWeights, countedShot } from "../library/remaining-weight.js";
 import { viewLocation } from "../locations/locations.service.js";
 import { creditHardware, creditReporter } from "../machines/credit.js";
@@ -397,7 +398,6 @@ const listed = Prisma.sql`s.has_full_record AND (s.machine_id IS NOT NULL OR (p.
 const listedJoins = Prisma.sql`LEFT JOIN pending_machines p ON p.id = s.pending_machine_id LEFT JOIN locations l ON l.id = s.location_id`;
 /** The rest of a query of every listed Shot, from its `FROM` on, to narrow with `AND`. */
 const listedFrom = Prisma.sql`FROM shots s ${listedJoins} WHERE ${listed}`;
-const batchLink = { id: true, content: true, bean: { select: { id: true, content: true } } } as const satisfies Prisma.BeanBatchSelect;
 const grinderLink = { id: true, content: true } as const satisfies Prisma.GrinderSelect;
 const basketLink = { id: true, content: true } as const satisfies Prisma.BasketSelect;
 const recipeLink = { id: true, content: true } as const satisfies Prisma.RecipeSelect;
@@ -421,12 +421,8 @@ const readOmitted = { versionAt: true, hasFullRecord: true, curvesRevision: true
 /** A list leaves out the record too, and the flow at the stop. */
 const listOmitted = { ...readOmitted, record: true, flowAtStop: true } as const;
 
-/** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
-export interface BatchLink {
-  id: string;
-  bean: { id: string; roaster: string | null; name: string | null };
-  roastDate: string | null;
-}
+/** A Library Bean Batch a Shot is linked to: its Bean, roast date and Batch Code (batch-links.ts). */
+export type { BatchLink };
 
 /** A Library Grinder a Shot is linked to, by its model. */
 export interface GrinderLink {
@@ -449,11 +445,6 @@ export interface NamedLink {
 /** A Recipe a Shot is the Reference Shot of (ADR-0029), by its name, and the Location it belongs to, if that still exists. */
 export interface ReferenceOf extends NamedLink {
   location: { id: string; name: string; timeZone: string } | null;
-}
-
-function viewBatchLink(batch: Prisma.BeanBatchGetPayload<{ select: typeof batchLink }>): BatchLink {
-  const bean = object(batch.bean.content);
-  return { id: batch.id, bean: { id: batch.bean.id, roaster: string(bean.roaster), name: string(bean.name) }, roastDate: string(object(batch.content).roastDate) };
 }
 
 function viewGrinderLink(grinder: Prisma.GrinderGetPayload<{ select: typeof grinderLink }>): GrinderLink {

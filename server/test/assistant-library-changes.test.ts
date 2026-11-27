@@ -318,7 +318,7 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, batchCode: "AK-0470" })).toBe(
       await restRefusal(api, "PATCH", `/bean-batches/${made.batch}`, { content: { batchCode: "AK-0470" } }, 409),
     );
-    expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, batchCode: "AK-0470" })).toContain(`Assistant Kenya, roasted 2026-11-10 (id ${coded})`);
+    expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, batchCode: "AK-0470" })).toContain(`Assistant Kenya AK-0470, roasted 2026-11-10 (id ${coded})`);
 
     const changed = await assistant.call<{ beanBatch: Record_ }>("edit_bean_batch", { id: coded, batchCode: "AK-0471" });
     expect(changed.beanBatch).toMatchObject({ batchCode: "AK-0471" });

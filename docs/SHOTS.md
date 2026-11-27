@@ -434,7 +434,8 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   inferred Machine. Correcting the Machine's Location History changes these,
   never the stored record. Each row names the Library items it is linked to
   (Links to the Library, above), each null when none: `beanBatch` (`{ id,
-  bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`),
+  bean: { id, roaster, name }, roastDate, batchCode }`, its Batch Code null
+  where it has none, #732), `grinder` (`{ id, model }`),
   `profile` (`{ id, title }`), `recipe` (`{ id, name }`) and `basket` (`{
   id, name }`). A Shot that is a Recipe's Reference Shot (ADR-0029, `LIBRARY.md`)
   names those Recipes, Archived or not, by name, in `referenceOf` (`[{ id,
@@ -528,7 +529,7 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   each Barista once, by its most recent spelling (Shot Summaries, Baristas,
   below), and null for a blank name too;
   and the Library's Bean Batches (`{ id, bean: { id, roaster, name },
-  roastDate }`, as the Bean Batches list orders them), Grinders (`{ id,
+  roastDate, batchCode }`, as the Bean Batches list orders them), Grinders (`{ id,
   model, location }`, by model, then Location), Recipes (`{ id, name,
   location }`, by name, then Location) and Baskets (`{ id, name }`, by name)
   listed Shots are linked to, with null last for Shots linked to none. The
@@ -1234,7 +1235,7 @@ Machines and each Shot within spec or out of spec against three margins
   | `machine` | The Machine it is credited to, or the Pending Machine holding it | `machine: { id, name }` with `pendingMachine: null`, or `machine: null` with `pendingMachine: { id, model, serial }` | `machineId`, or `pendingMachineId` |
   | `recipe` | The Recipe it was pulled with (`shotRecipeSql`) | `recipe: { id, name, location }` | `recipeId`, `none` |
   | `bean` | The roaster and name it recorded, together | `bean: { roaster, name }`, either null where it recorded none | `coffeeRoaster` and `coffeeName`, each empty for none |
-  | `beanBatch` | The Library's Bean Batch it is linked to | `beanBatch: { id, bean: { id, roaster, name }, roastDate }` | `beanBatchId`, `none` |
+  | `beanBatch` | The Library's Bean Batch it is linked to | `beanBatch: { id, bean: { id, roaster, name }, roastDate, batchCode }` | `beanBatchId`, `none` |
   | `profile` | The profile title it recorded | `profile`, the title | `profileTitle`, empty |
   | `grinder` | The Library's Grinder it is linked to | `grinder: { id, model, location }` | `grinderId`, `none` |
   | `basket` | The Library's Basket it is linked to | `basket: { id, name }` | `basketId`, `none` |
@@ -1758,8 +1759,10 @@ px a Shot is a row of a table:
   or a Cleaning or calibration badge where the server says it is one
   (`spec.unfinished`, `spec.cleaningOrCalibration`);
 - its Machine, and its Recipe, linked, or "No Recipe", over a muted second
-  line of its profile's title, its Bean's name, and, where the list isn't
-  filtered to one Location, its Location;
+  line of its profile's title, its Bean Batch in a line, linked, by its
+  Bean and its Batch Code, or its roast date where it has none (#732), or,
+  for a Shot linked to no batch, its Bean's name as it recorded it, and,
+  where the list isn't filtered to one Location, its Location;
 - its grind setting, as recorded, and its dose;
 - its yield, with its difference from its own target beside it, and its
   duration, with its difference from its Recipe's Reference Shot's, each as
@@ -2150,7 +2153,11 @@ each, closed until opened.
   Grinder with its grind setting, its Basket and its Barista. Each Library
   item it is linked to links to its page, by its name now, with the name
   the Shot recorded beside it where that is another, as after the item was
-  renamed ("recorded as"); a Grinder or Basket the Library
+  renamed ("recorded as"). Its Bean Batch is named by its Bean and Batch
+  Code, over its roast day and the days from it to the Shot's day at its
+  Location, such as "Roasted 17 Nov, 10 days before this Shot"
+  (`roastedBeforeShot` in `web/src/lib/batch-name.ts`, #732), the days left
+  out for a batch with no roast date or a Shot pulled before it. A Grinder or Basket the Library
   has none for reads as the Shot recorded its name, and a Bean Batch its
   tablet named by an id the Library has none for reads as "Not linked",
   with no id. Then, each only where recorded: its Grinder's burrs, the

@@ -1,10 +1,11 @@
 import { Link } from "react-router";
-import { batchName, roastDateText } from "@/components/bean-batches";
+import { BatchCell } from "@/components/batch-name";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { EnterWeightDialog, useMayChangeAt } from "@/components/library-forms";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { BatchHere, Location } from "@/lib/api";
+import { batchWords } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { grams, movedLine, startText, weightText } from "@/lib/remaining-weight";
 import { shotsText } from "@/lib/shot-summary";
@@ -83,16 +84,12 @@ export function LocationBatchesCard({ location, batches, onChanged }: { location
 }
 
 function BatchHereRow({ location, batch, mayEnter, onChanged }: { location: Location; batch: BatchHere; mayEnter: boolean; onChanged(): Promise<void> | void }) {
-  const roasted = roastDateText(batch.roastDate);
   const shots = `/shots?${new URLSearchParams({ beanBatchId: batch.id, locationId: location.id })}`;
   const link = "underline underline-offset-4";
   return (
     <TableRow className="align-top">
       <TableCell className="whitespace-normal">
-        <Link to={`${LIBRARY_KINDS.beanBatch.pages}/${batch.id}`} className="font-medium underline-offset-4 hover:underline">
-          {batch.bean.name ?? "Unnamed Bean"}
-        </Link>
-        <div className="text-sm text-muted-foreground">{roasted === undefined ? "No roast date" : `Roasted ${roasted}`}</div>
+        <BatchCell batch={batch} id={batch.id} code={false} />
       </TableCell>
       <TableCell>{batch.batchCode === null ? <span className="text-muted-foreground">-</span> : <span className="font-mono font-medium">{batch.batchCode}</span>}</TableCell>
       <TableCell className="text-right">
@@ -142,7 +139,7 @@ function BatchHereRow({ location, batch, mayEnter, onChanged }: { location: Loca
             batch={batch}
             location={location}
             remainingWeight={batch.remainingWeight}
-            ariaLabel={`Enter the weight of ${batchName(batch)}`}
+            ariaLabel={`Enter the weight of ${batchWords(batch)}`}
             variant="outline"
             size="sm"
             onChanged={onChanged}

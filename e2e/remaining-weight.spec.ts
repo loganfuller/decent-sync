@@ -6,6 +6,7 @@ import { boxes } from "./support/layout.js";
 import { batchAt, batchLeft, batchLocations, field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
+import { roastDay } from "./support/days.js";
 
 // A Bean Batch's Remaining Weight in the management interface (ticket #706,
 // ADR-0037): a batch's page shows its weight at each Location, worked out
@@ -57,7 +58,7 @@ test("a batch's page shows its weight at each Location less the Shots pulled the
   await where.getByRole("button", { name: "Enter its weight at Riverside" }).click();
   const atRiverside = page.getByRole("dialog", { name: "Enter weight at Riverside" });
   // It names the batch as well as the Location (#726), as it opens from a Location's list of several batches too.
-  await expect(atRiverside).toContainText("House Espresso, roasted 2026-11-20 (PR-0470). What is left of it at Riverside now, as weighed.");
+  await expect(atRiverside).toContainText(`House Espresso PR-0470, roasted ${roastDay("2026-11-20")}. What is left of it at Riverside now, as weighed.`);
   // Opened on no weight, which would leave it as it is: not tracked.
   await expect(atRiverside.getByRole("status")).toHaveText("Left empty, the batch is not tracked at Riverside.");
   await atRiverside.getByLabel("Remaining weight (g)", { exact: true }).fill("500");
@@ -70,9 +71,9 @@ test("a batch's page shows its weight at each Location less the Shots pulled the
   // The list has a line for each Location with its weight there, and the total.
   await page.goto("/library/bean-batches");
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
-    ["House Espresso, roasted 2026-11-20", "PR-0470", "Lantern Coffee Roasters", "Downtown 4141.5 gRiverside 500 g", "4641.5 g", ""].join(""),
+    [`House EspressoRoasted ${roastDay("2026-11-20")}`, "PR-0470", "Lantern Coffee Roasters", "Downtown 4141.5 gRiverside 500 g", "4641.5 g", ""].join(""),
   ]);
-  await page.getByRole("link", { name: "House Espresso, roasted 2026-11-20" }).click();
+  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: `House Espresso PR-0470, roasted ${roastDay("2026-11-20")}`, exact: true }).click();
 
   // A weight that differs from the one worked out says by how much (#726), less or more, and stops nothing.
   await where.getByRole("button", { name: "Enter its weight at Riverside" }).click();
@@ -145,7 +146,7 @@ test("a new batch is created at one Location and starts at its roasted weight th
   await newBatch.getByLabel("Remaining weight (g)", { exact: true }).fill("");
   await newBatch.getByRole("button", { name: "Create" }).click();
 
-  await expect(page.getByRole("heading", { name: "Kenya Nyeri AA, roasted 2026-11-22", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Kenya Nyeri AA, roasted ${roastDay("2026-11-22")}`, level: 1 })).toBeVisible();
   await expect(batchLocations(page).getByRole("listitem")).toHaveText([/^Harbor6000 gMove to…Enter weightFinish here6000 g entered .+ by you\. No Shots since\.$/]);
   await expect(page.getByRole("region", { name: "Where it is" })).toContainText("At 1 Location, of 6000 g roasted.");
 });

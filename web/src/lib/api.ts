@@ -221,7 +221,13 @@ export interface TabletChange {
    */
   kind: ItemKind | "workflow" | "loadedRecipe" | "draft";
   /** The item, named as its page names it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
-  item: { kind: ItemKind | "workflow" | "loadedRecipe" | "draft"; id: string; name: string | null } | null;
+  item: {
+    kind: ItemKind | "workflow" | "loadedRecipe" | "draft";
+    id: string;
+    name: string | null;
+    /** For a Bean Batch, what it is named by: its Bean, roast date and Batch Code. Absent from the release before (ADR-0025), whose `name` is "Guji, roasted 2026-10-01". */
+    batch?: BatchLink;
+  } | null;
   /** Decaid's id for the tablet's record; null for a create, a Workflow or a Loaded Recipe. */
   localId: string | null;
 }
@@ -834,11 +840,17 @@ export interface ShotSpec {
   stopped: StopKind | null;
 }
 
-/** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
+/**
+ * A Library Bean Batch as what points at it names it, a Shot, a filter or a
+ * Machine's Workflow: its Bean, its roast date as Decaid recorded it, and its
+ * Batch Code.
+ */
 export interface BatchLink {
   id: string;
   bean: { id: string; roaster: string | null; name: string | null };
   roastDate: string | null;
+  /** Its Batch Code; null where it has none. Absent from the previous release's answer during a deploy (ADR-0025). */
+  batchCode?: string | null;
 }
 
 /** A Library Grinder a Shot is linked to. */
@@ -1117,6 +1129,12 @@ export interface WorkflowSummary {
   bean: string | null;
   roaster: string | null;
   beanBatchId: string | null;
+  /**
+   * The Library's Bean Batch `beanBatchId` names, as the Library holds it
+   * now; null where it names none. Absent from the previous release's answer
+   * during a deploy (ADR-0025).
+   */
+  beanBatch?: BatchLink | null;
   grinder: string | null;
   burrs: string | null;
   grindSetting: string | null;
@@ -1131,6 +1149,13 @@ export interface WorkflowSummary {
   flush: { temperature: number | null; duration: number | null } | null;
 }
 
+/** A Machine's current Workflow summarised (`GET /api/machines/:id/workflow-summary`), with the id of the Workflow event it summarises. */
+export interface WorkflowSummaryEvent {
+  id: string;
+  observedAt: string;
+  workflow: WorkflowSummary;
+}
+
 /** A Recipe as a dial-in trail names it. */
 export interface TrailRecipe {
   id: string;
@@ -1142,6 +1167,12 @@ export interface TrailFieldChange {
   field: string;
   before: string | number | null;
   after: string | number | null;
+  /**
+   * For `beanBatchId` alone, the Library's Bean Batch each side names, as
+   * the Library holds it now; null for a side that names none. Absent from
+   * the previous release's answer during a deploy (ADR-0025).
+   */
+  beanBatch?: { before: BatchLink | null; after: BatchLink | null };
 }
 
 /**
@@ -1347,6 +1378,8 @@ export interface BeanBatch extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, with when and the weight its count there last started from: zero where a Batch Move took all of it. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
+  /** Whether its Bean is Archived, which takes it out of every Location as its own `archived` does. Absent from the release before (ADR-0025). */
+  beanArchived?: boolean;
   /** The Recipes, not Archived, that name it, at any Location, by Location, slot and name. Absent from the release before (ADR-0025). */
   recipes?: BatchRecipe[];
 }
@@ -1676,8 +1709,8 @@ export interface Recipe {
   /** The items its content names, with what names each; an item the Library no longer has is named by its id alone. */
   uses: {
     bean: { id: string; roaster: string | null; name: string | null } | null;
-    /** Its batch, and whether it is at the Recipe's Location now. */
-    beanBatch: { id: string; roastDate: string | null; atLocation: boolean } | null;
+    /** Its batch, with its Batch Code, null where it has none and absent from the previous release's answer during a deploy (ADR-0025), and whether it is at the Recipe's Location now. */
+    beanBatch: { id: string; roastDate: string | null; batchCode?: string | null; atLocation: boolean } | null;
     profile: { id: string; title: string | null } | null;
     grinder: { id: string; model: string | null } | null;
     basket: { id: string; name: string | null } | null;

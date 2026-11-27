@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { PLUGIN_WORKFLOW_WRITES, type MachineStateDelivery, type PluginWorkflowWrite, type WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
+import { type BatchLink, batchLinksOf } from "../library/batch-links.js";
 import { followedWorkflowReported } from "../library/draft-following.js";
 import { INTAKE_TRANSACTION, lockTablet, sharingLocation } from "../library/intake.js";
 import { takeInWorkflow } from "../library/joining.js";
@@ -101,9 +102,10 @@ export interface WorkflowEventView {
   workflow: Prisma.JsonObject;
 }
 
-/** A Workflow recorded for a Machine, with the Library items it names (workflow-summary.ts). */
+/** A Workflow recorded for a Machine, with the Library items it names (workflow-summary.ts), and the Bean Batch among them as the Library holds it now, null for none. */
 export interface LinkedWorkflowEventView extends WorkflowEventView {
   links: WorkflowLinks;
+  beanBatch: BatchLink | null;
 }
 
 /** A Workflow recorded for a Machine, summarised, as the REST API's summary route returns it. */
@@ -213,13 +215,15 @@ export class MachineEventsService {
     return latest ? viewWorkflowEvent(latest) : null;
   }
 
-  /** The Machine's current Workflow, as `currentWorkflow` gives it, with the Library items it names (`workflowLinksSql`). */
+  /** The Machine's current Workflow, as `currentWorkflow` gives it, with the Library items it names (`workflowLinksSql`), and the Bean Batch among them as the Library holds it now (`batchLinksOf`). */
   async currentLinkedWorkflow(machineId: string): Promise<LinkedWorkflowEventView | null> {
     await this.requireMachine(machineId);
     const [latest] = await this.prisma.$queryRaw<LinkedRow[]>`
       SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite", ${workflowLinksSql("latest")}
       FROM workflow_events AS latest WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 1`;
-    return latest ? viewLinkedWorkflowEvent(latest) : null;
+    if (!latest) return null;
+    const batches = await batchLinksOf(this.prisma, [latest.beanBatchId]);
+    return viewLinkedWorkflowEvent(latest, (latest.beanBatchId !== null && batches.get(latest.beanBatchId)) || null);
   }
 
   /** The Machine's Loaded Recipes, latest first: its current one, if it has one, then those it had before. */
@@ -289,7 +293,8 @@ export class MachineEventsService {
    * a summary reads, and from the loads and unloads of its Loaded Recipes in
    * it, grouped whole before the page is taken, so its total counts the
    * trail's entries, of the cause asked for, the first always given. Each
-   * Profile is found once, however many changes name it, and each Workflow
+   * Profile is found once, however many changes name it, and each Bean
+   * Batch, as the Library holds it now (`batchLinksOf`), and each Workflow
    * read in two passes, one for its Profile and one for its summary, each
    * reading its parts at once (`jsonb_to_record`), as materializing them
    * would spill a long range to disk: 25,000 changes, a year of a busy
@@ -327,10 +332,12 @@ export class MachineEventsService {
     ]);
     // In time order, then by stored id, sorted here rather than by PostgreSQL, which would spill a long range's to disk.
     rows.sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const batches = await batchLinksOf(this.prisma, rows.map((row) => row.beanBatchId));
     const [baseline, ...changes] = rows.map((row): TrailChange => {
       const { id, observedAt, workflow, profileId, beanBatchId, grinderId, basketId, recipeId, recipeName } = row;
       const { cause, pluginWrite } = causeOf(row);
-      return { id, observedAt, cause, pluginWrite, summary: workflowSummary(workflow as Record<string, unknown>, { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName }) };
+      const links = { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName };
+      return { id, observedAt, cause, pluginWrite, summary: workflowSummary(workflow as Record<string, unknown>, links, (beanBatchId !== null && batches.get(beanBatchId)) || null) };
     });
     if (!baseline) return { entries: [], total: 0 };
     // The trail begins as the range does, or with the first Workflow in it where none was in effect then.
@@ -344,7 +351,7 @@ export class MachineEventsService {
       ...(within(entry.unloadedAt) ? [{ kind: "unloaded" as const, id: BigInt(entry.id), at: new Date(entry.unloadedAt!), recipe: recipeOf(entry) }] : []),
     ]);
     const inEffect = loads.find((entry) => Date.parse(entry.loadedAt) <= start && (entry.unloadedAt === null || Date.parse(entry.unloadedAt) > start));
-    const trail = dialInTrail({ baseline, changes, recipeEvents, loadedAtStart: inEffect ? recipeOf(inEffect) : null })
+    const trail = dialInTrail({ baseline, changes, recipeEvents, loadedAtStart: inEffect ? recipeOf(inEffect) : null, batches })
       .reverse()
       .filter((entry) => cause === undefined || entry.kind === "inEffect" || entry.cause === cause);
     return { entries: trail.slice(page.offset, page.offset + page.limit), total: trail.length };
@@ -454,13 +461,13 @@ function pluginWriteOf(write: string | null): PluginWorkflowWrite | null {
 /** A Workflow event as read with the Library items it names (`workflowLinksSql`). */
 type LinkedRow = ViewedWorkflowEvent & WorkflowLinks;
 
-function viewLinkedWorkflowEvent({ profileId, beanBatchId, grinderId, basketId, recipeId, recipeName, ...event }: LinkedRow): LinkedWorkflowEventView {
-  return { ...viewWorkflowEvent(event), links: { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName } };
+function viewLinkedWorkflowEvent({ profileId, beanBatchId, grinderId, basketId, recipeId, recipeName, ...event }: LinkedRow, beanBatch: BatchLink | null): LinkedWorkflowEventView {
+  return { ...viewWorkflowEvent(event), links: { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName }, beanBatch };
 }
 
 /** A Workflow event summarised, as the REST API's summary route returns it. */
-export function summarised({ workflow, links, ...event }: LinkedWorkflowEventView): WorkflowSummaryView {
-  return { ...event, workflow: workflowSummary(workflow, links) };
+export function summarised({ workflow, links, beanBatch, ...event }: LinkedWorkflowEventView): WorkflowSummaryView {
+  return { ...event, workflow: workflowSummary(workflow, links, beanBatch) };
 }
 
 function viewMachineStateEvent(event: Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">): MachineStateEventView {

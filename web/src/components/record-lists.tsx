@@ -203,7 +203,8 @@ interface Machines {
 export interface ListFilter {
   label: string;
   names: readonly string[];
-  value?: string;
+  /** What it is set to, as its chip says it; undefined while that is not known. */
+  value?: ReactNode;
   control?: ReactNode;
 }
 

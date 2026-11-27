@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type CaptureOnlyReason, type ItemKind, type Machine, type SharingStatus, type TabletChange } from "@/lib/api";
+import { batchWords } from "@/lib/batch-name";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { usePolled } from "@/lib/use-polled";
 
@@ -273,7 +274,8 @@ function ChangeDescription({ change }: { change: TabletChange }) {
     const { item: named } = change;
     item = (
       <ItemLink path={itemPath(named.kind as ItemKind, named.id)}>
-        {named.name === null ? `Unnamed ${kind}` : `${kind} ${named.name}`}
+        {/* A Bean Batch in words, as every page names one (#732); the release before sends only its own name. */}
+        {named.batch ? `${kind} ${batchWords(named.batch)}` : named.name === null ? `Unnamed ${kind}` : `${kind} ${named.name}`}
       </ItemLink>
     );
   } else {

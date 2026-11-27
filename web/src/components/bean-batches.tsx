@@ -33,17 +33,6 @@ export function LibraryNav() {
   );
 }
 
-/** A roast date as Decaid recorded it, as its day: the date a barista picked, whatever time zone it was written in. */
-export function roastDateText(roastDate: string | null): string | undefined {
-  return roastDate !== null && /^\d{4}-\d\d-\d\d/.test(roastDate) ? roastDate.slice(0, 10) : undefined;
-}
-
-/** A batch as lists name it: its Bean and the day it was roasted. */
-export function batchName(batch: Pick<BeanBatchSummary, "bean" | "roastDate">): string {
-  const roasted = roastDateText(batch.roastDate);
-  return `${batch.bean.name ?? "Unnamed Bean"}, ${roasted === undefined ? "no roast date" : `roasted ${roasted}`}`;
-}
-
 export { atText, totalText, weightText } from "@/lib/remaining-weight";
 
 /** What may need someone's attention about a batch. */

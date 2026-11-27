@@ -946,7 +946,12 @@ that takes their hardware over. Staff read them as Admins do.
   card shows, its Basket, and the Recipe its context names
   (`context.extras.dye.recipeId`), by the Library's name, with the Library's
   ids of the Profile, Bean Batch, Grinder, Basket and Recipe it names
-  (`profileId`, `beanBatchId`, `grinderId`, `basketId`, `recipeId`). The
+  (`profileId`, `beanBatchId`, `grinderId`, `basketId`, `recipeId`). It
+  gives the Bean Batch too as the Library holds it now (#732), `beanBatch:
+  { id, bean: { id, roaster, name }, roastDate, batchCode }`
+  (`server/src/library/batch-links.ts`), null where `beanBatchId` is, so a
+  page or an assistant names the batch as its own page does, whatever the
+  Workflow recorded of the coffee's name. The
   Profile is found from the profile, as a Shot's is; the rest are the links
   the event keeps (Server, above), each null for an item never resolved, with
   the name the Workflow recorded kept, and for an event stored before #434.
@@ -1014,7 +1019,11 @@ entries, each with its time, who made its first change (`cause`,
 
 Every entry but the first gives each field of the summary that changed,
 before its first change and after its last, a part's as `steam.duration`,
-and `lastObservedAt`, the last change it took after it began. A load or
+and `lastObservedAt`, the last change it took after it began. A change of
+`beanBatchId` gives `beanBatch` too (#732), `{ before, after }`, the
+Library's batch each side names, as the summary's `beanBatch` gives one,
+null for a side that names none. The batch is no field of the summary
+itself, so one given a Batch Code in the Library changes no Workflow. A load or
 unload no change came within 5 s of, as when its Machine joins a Location
 with its Workflow unchanged, is of cause `unknown`. Other changes of one
 cause, the plugin's write included, one within 5 s of the one before it,
@@ -1084,7 +1093,15 @@ and `to`: the dial-in trail, the Loaded Recipes
 or the Machine States, one list at a time, 20 to a page, loaded every 30 s.
 A trail entry shows what it is, each field that changed, from what to what,
 the Recipe loaded then and who made it, the Library items it names linked
-to their pages; the Workflow in effect is listed whole. A time is shown on
+to their pages; the Workflow in effect is listed whole. A change of Bean
+Batch is one line named Bean Batch (#732, `trailLines` in
+`web/src/lib/machine-activity.ts`): the next roast of the same Bean names
+each side by its Batch Code alone, or by its roast date where it has none,
+a change of Bean names each side in a line, and the Workflow in effect
+names its batch in a line of its own, under its Bean and roaster. Where the
+server names no batch on a change, as the previous release's doesn't during
+a deploy (ADR-0025), the line reads as it did, "The previous one" to "The
+new one". A time is shown on
 the wall clock of the Location the Machine was at then, with the zone's
 abbreviation, and with its date where that isn't the day chosen; a zone the
 browser doesn't know reads as UTC (`web/src/lib/machine-activity.ts`).
@@ -1180,7 +1197,16 @@ brew temperature read from its profile's first step as Streamline's Brew tile
 reads it (`web/src/components/workflow.tsx`, tested in
 `web/test/workflow.test.ts`), loaded every 30 s rather than every 5 s as the
 state is, with its Loaded Recipe, as its status gives it, named in the same
-card with its Recipe Slot and since when. Those it had
+card with its Recipe Slot and since when. Under its roaster the card has a
+Bean Batch row (#732, `workflowBatch` and `WorkflowBatchRow` in
+`web/src/pages/MachinePage.tsx`): the Library's batch the Workflow names,
+read from the summary route where that summarises the same Workflow event,
+linked, with its Batch Code, over its roast day and its Remaining Weight at
+the Machine's Location, read from the batch itself, or "not tracked" there;
+"Batch finished here" in place of the weight for a batch that is not at
+that Location now; the batch in a line alone for a Machine at no Location;
+and no row for a Workflow naming no batch the Library holds, or while the
+previous release's server answers (ADR-0025). Those it had
 loaded are listed by day on its Activity tab (A Machine's activity, above).
 Each Location's page lists its Machines and the Recipe each has loaded.
 

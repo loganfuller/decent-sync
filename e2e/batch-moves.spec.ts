@@ -4,6 +4,7 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { batchAt, batchLeft, batchLocations, field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
+import { roastDay } from "./support/days.js";
 
 // Moving a Bean Batch between Locations in the management interface (ticket
 // #704, ADR-0037): each Location in a batch's Where it is has Move to…,
@@ -87,7 +88,7 @@ test("an Admin moves part of a batch's weight to another Location, then all of i
   // Part of it: the dialog names the batch and what Downtown has, each Location with what it has, and what each will hold.
   await whereItIs.getByRole("button", { name: "Move it from Downtown" }).click();
   const dialog = page.getByRole("dialog", { name: "Move this batch" });
-  await expect(dialog).toContainText("Ethiopia Guji Natural, roasted 2026-11-18 (LR-0412). Downtown has 2920 g of it.");
+  await expect(dialog).toContainText(`Ethiopia Guji Natural LR-0412, roasted ${roastDay("2026-11-18")}. Downtown has 2920 g of it.`);
   // With two Locations to move it to, none is chosen for the account.
   await expect(dialog.getByLabel("Move from Downtown to")).toHaveText("Choose a Location");
   await dialog.getByLabel("Move from Downtown to").click();
@@ -211,7 +212,7 @@ test("a batch with no weight where it is moves as all of it or some of it, with 
   const whereItIs = page.getByRole("region", { name: "Where it is" });
   const where = batchLocations(page);
   const dialog = await openMove(page, "Downtown", /^Belmont, which has none/);
-  await expect(dialog).toContainText("House Espresso, roasted 2026-11-18 (LR-0405). It is at Downtown, with no weight entered there.");
+  await expect(dialog).toContainText(`House Espresso LR-0405, roasted ${roastDay("2026-11-18")}. It is at Downtown, with no weight entered there.`);
   // All of it or Some of it, and no weight to type.
   await expect(dialog.getByRole("radio")).toHaveCount(2);
   await expect(dialog.getByRole("radio", { name: "All of it" })).not.toBeChecked();

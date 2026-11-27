@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TrailEntry, WorkflowSummary } from "../src/lib/api";
+import type { BatchLink, TrailEntry, WorkflowSummary } from "../src/lib/api";
+import { batchLineText, roastedText } from "../src/lib/batch-name";
 import { dateIn, madeBy, timeZoneAt, trailLines, whenText } from "../src/lib/machine-activity";
 
 // How a Machine's activity reads on its page (#476).
@@ -33,6 +34,20 @@ const summary = (held: Partial<WorkflowSummary> = {}): WorkflowSummary => ({
 
 /** A changed entry's lines. */
 const lines = (...changes: TrailEntry["changes"]) => trailLines({ workflow: null, changes });
+
+/** A Bean Batch as the server names one (#732). */
+const batchOf = (id: string, bean: { id: string; name: string | null }, roastDate: string | null, batchCode: string | null): BatchLink => ({ id, bean: { ...bean, roaster: "Lantern" }, roastDate, batchCode });
+const HOUSE = { id: "bean-house", name: "House Espresso" };
+const DECAF = { id: "bean-decaf", name: "Decaf Colombia" };
+const earlier = batchOf("b1", HOUSE, "2026-11-10T00:00:00.000", "LR-0405");
+const later = batchOf("b2", HOUSE, "2026-11-17T00:00:00.000", "LR-0411");
+const uncoded = batchOf("b3", HOUSE, "2026-11-03T00:00:00.000", null);
+const decaf = batchOf("b4", DECAF, "2026-11-13T00:00:00.000", null);
+/** A change of the batch a Workflow names, with the batch the server names on each side. */
+const batchChange = (before: BatchLink | null, after: BatchLink | null) => ({ field: "beanBatchId", before: before?.id ?? null, after: after?.id ?? null, beanBatch: { before, after } });
+/** A batch as a line's value: in a line, or brief, by its code alone or its roast date. */
+const inLine = (batch: BatchLink) => ({ text: batchLineText(batch), to: `/library/bean-batches/${batch.id}`, batch: { batch, brief: false } });
+const brief = (batch: BatchLink) => ({ text: batch.batchCode ?? roastedText(batch), to: `/library/bean-batches/${batch.id}`, batch: { batch, brief: true } });
 
 describe("a Machine's activity as its page shows it", () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -125,15 +140,54 @@ describe("a Machine's activity as its page shows it", () => {
     expect(lines(change("basket", "18 g", "20 g"))).toEqual([{ label: "Basket", before: { text: "18 g", to: undefined }, after: { text: "20 g", to: undefined } }]);
   });
 
-  it("gives an item changed under an unchanged name as its kind, each side linked", () => {
-    // The next batch of the same Bean, and a batch where the Workflow named none.
+  it("gives an item changed under an unchanged name as its kind, each side linked, as it does a Bean Batch the previous release's server leaves unnamed (ADR-0025)", () => {
+    // A Grinder of the same model, and a Basket where the Workflow named none.
+    expect(lines(change("grinderId", "g1", "g2"))).toEqual([
+      { label: "Grinder", before: { text: "The previous one", to: "/library/grinders/g1" }, after: { text: "The new one", to: "/library/grinders/g2" } },
+    ]);
+    expect(lines(change("basketId", null, "k2"), change("dose", 18, 19))).toEqual([
+      { label: "Basket", before: { text: "None" }, after: { text: "The new one", to: "/library/baskets/k2" } },
+      { label: "Dose", before: { text: "18 g" }, after: { text: "19 g" } },
+    ]);
+    // The previous release's server names no batch on a change of one, so the page reads as it did.
     expect(lines(change("beanBatchId", "b1", "b2"))).toEqual([
       { label: "Bean Batch", before: { text: "The previous one", to: "/library/bean-batches/b1" }, after: { text: "The new one", to: "/library/bean-batches/b2" } },
     ]);
-    expect(lines(change("beanBatchId", null, "b2"), change("dose", 18, 19))).toEqual([
-      { label: "Bean Batch", before: { text: "None" }, after: { text: "The new one", to: "/library/bean-batches/b2" } },
-      { label: "Dose", before: { text: "18 g" }, after: { text: "19 g" } },
+    expect(lines(change("bean", "Decaf Colombia", "House Espresso"), change("beanBatchId", "b4", "b1"))).toEqual([
+      { label: "Bean", before: { text: "Decaf Colombia", to: "/library/bean-batches/b4" }, after: { text: "House Espresso", to: "/library/bean-batches/b1" } },
     ]);
+  });
+
+  it("names both batches of a change to the next roast of the same Bean by their Batch Codes alone, or by a roast date where a batch has none (#732)", () => {
+    expect(lines(batchChange(earlier, later), change("grindSetting", "2.2", "2.4"))).toEqual([
+      { label: "Bean Batch", before: brief(earlier), after: brief(later) },
+      { label: "Grind setting", before: { text: "2.2" }, after: { text: "2.4" } },
+    ]);
+    expect(lines(batchChange(earlier, later))[0]).toMatchObject({ before: { text: "LR-0405" }, after: { text: "LR-0411" } });
+    // One with no code, by its roast date.
+    expect(lines(batchChange(uncoded, later))).toEqual([{ label: "Bean Batch", before: brief(uncoded), after: brief(later) }]);
+    expect(lines(batchChange(uncoded, later))[0]!.before!.text).toBe(roastedText(uncoded));
+    // Never as the previous one and the new one.
+    expect(JSON.stringify(lines(batchChange(earlier, later)))).not.toMatch(/The previous one|The new one/);
+  });
+
+  it("names each batch of a change of Bean in a line, on one line named Bean Batch, whichever of its name and its batch changed first", () => {
+    const expected = [{ label: "Bean Batch", before: inLine(decaf), after: inLine(earlier) }, { label: "Dose", before: { text: "18 g" }, after: { text: "20 g" } }];
+    expect(lines(change("bean", "Decaf Colombia", "House Espresso"), batchChange(decaf, earlier), change("dose", 18, 20))).toEqual(expected);
+    expect(lines(batchChange(decaf, earlier), change("bean", "Decaf Colombia", "House Espresso"), change("dose", 18, 20))).toEqual(expected);
+    expect(expected[0]!.before).toMatchObject({ text: `Decaf Colombia, ${roastedText(decaf)}` });
+    expect(expected[0]!.after).toMatchObject({ text: "House Espresso LR-0405" });
+    // Two Beans of one name, as the Workflow recorded them, are two Beans: each side in a line.
+    const namesake = batchOf("b5", { id: "bean-other", name: "House Espresso" }, "2026-11-20T00:00:00.000", "XX-1");
+    expect(lines(batchChange(earlier, namesake))).toEqual([{ label: "Bean Batch", before: inLine(earlier), after: inLine(namesake) }]);
+  });
+
+  it("gives a side of a change of Bean Batch that names no batch as the coffee the Workflow recorded then, or as none", () => {
+    // A batch picked where the Workflow named a coffee of no batch, and where it named none; and a batch cleared.
+    expect(lines(change("bean", "Guest Kenya", "House Espresso"), batchChange(null, later))).toEqual([{ label: "Bean Batch", before: { text: "Guest Kenya" }, after: inLine(later) }]);
+    expect(lines(change("bean", null, "House Espresso"), batchChange(null, later))).toEqual([{ label: "Bean Batch", before: { text: "None" }, after: inLine(later) }]);
+    expect(lines(batchChange(null, later))).toEqual([{ label: "Bean Batch", before: { text: "None" }, after: inLine(later) }]);
+    expect(lines(batchChange(later, null))).toEqual([{ label: "Bean Batch", before: inLine(later), after: { text: "None" } }]);
   });
 
   it("gives the Workflow in effect as the fields it holds, in the page's order, the Library items it names linked", () => {
@@ -170,5 +224,18 @@ describe("a Machine's activity as its page shows it", () => {
       { label: "Flush time", after: { text: "5 s" } },
     ]);
     expect(trailLines({ workflow: summary(), changes: [] })).toEqual([]);
+  });
+
+  it("gives the Workflow in effect its Bean Batch in a line of its own, under its Bean and roaster as it recorded them, where the server names the batch (#732)", () => {
+    const named = trailLines({ workflow: summary({ bean: "House Espresso", roaster: "Lantern", beanBatchId: later.id, beanBatch: later, grinder: "EK43" }), changes: [] });
+    expect(named).toEqual([
+      { label: "Bean", after: { text: "House Espresso" } },
+      { label: "Roaster", after: { text: "Lantern" } },
+      { label: "Bean Batch", after: inLine(later) },
+      { label: "Grinder", after: { text: "EK43", to: undefined } },
+    ]);
+    // A Workflow that recorded no coffee's name or roaster still names its batch, and one naming none has no such line.
+    expect(trailLines({ workflow: summary({ beanBatchId: decaf.id, beanBatch: decaf }), changes: [] })).toEqual([{ label: "Bean Batch", after: inLine(decaf) }]);
+    expect(trailLines({ workflow: summary({ bean: "Guest Kenya", beanBatch: null }), changes: [] })).toEqual([{ label: "Bean", after: { text: "Guest Kenya", to: undefined } }]);
   });
 });

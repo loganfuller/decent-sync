@@ -524,8 +524,9 @@ const BATCH_CODE_INDEX = "bean_batches_batch_code_key";
  * Refuses a Batch Code another batch that is not Archived holds, compared
  * ignoring case and the spaces around it, exactly as BATCH_CODE_INDEX
  * compares them, so the two never disagree: 409, with a message naming that
- * batch and its id, and the batch as `existing`, so the management
- * interface links to it. `except` is the batch taking the code, which may
+ * batch and its id, and the batch as `existing`, with its Bean's name and
+ * its roast date (#732), so the management interface links to it and names
+ * it as it names any batch. `except` is the batch taking the code, which may
  * hold it already. Nothing for a value that is no code, as one being
  * cleared.
  */
@@ -544,9 +545,22 @@ async function refuseTakenCode(db: Pick<Prisma.TransactionClient, "$queryRaw">, 
   throw new ConflictException({
     statusCode: 409,
     error: "Conflict",
-    message: `Another Bean Batch that is not Archived holds the Batch Code ${batchCode}: ${name} (id ${holder.id})`,
-    existing: { id: holder.id, name, batchCode },
+    // Its name gives its code, as the holder spells it.
+    message: `Another Bean Batch that is not Archived holds this Batch Code: ${name} (id ${holder.id})`,
+    existing: { id: holder.id, name, batchCode, bean: { name: nameOf(holder.beanContent) }, roastDate: roastDateOf(holder.content) },
   });
+}
+
+/** A Bean's name, from its content; null for none. */
+function nameOf(beanContent: unknown): string | null {
+  const name = (beanContent as { name?: unknown } | null)?.name;
+  return typeof name === "string" && name !== "" ? name : null;
+}
+
+/** A batch's roast date as Decaid recorded it, from its content; null for none. */
+function roastDateOf(content: unknown): string | null {
+  const roastDate = (content as { roastDate?: unknown } | null)?.roastDate;
+  return typeof roastDate === "string" ? roastDate : null;
 }
 
 /** Whether a change failed on BATCH_CODE_INDEX: Prisma's unique violation (P2002) from its own writes, or PostgreSQL's (23505) from a raw one, naming the index. */

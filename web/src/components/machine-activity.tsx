@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
+import { BatchInLine, BatchOfBean } from "@/components/batch-name";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { LoadedRecipeLink } from "@/components/loaded-recipes";
 import { DayField } from "@/components/machine-use";
@@ -195,11 +196,18 @@ function Trail({ entries, when }: { entries: TrailEntry[]; when: When }) {
   );
 }
 
-/** A value of a trail entry's line, linked to the Library item it names, if any. */
+/** How a link in a trail entry's line is drawn. */
+const LINK = "underline underline-offset-4";
+
+/** A value of a trail entry's line, linked to the Library item it names, if any: a Bean Batch as the management interface names one (#732). */
 function Value({ value }: { value: TrailValue }) {
+  if (value.batch) {
+    const { batch, brief } = value.batch;
+    return brief ? <BatchOfBean batch={batch} id={batch.id} brief linkClassName={LINK} /> : <BatchInLine batch={batch} id={batch.id} linkClassName={LINK} />;
+  }
   if (value.to === undefined) return value.text;
   return (
-    <Link to={value.to} className="underline underline-offset-4">
+    <Link to={value.to} className={LINK}>
       {value.text}
     </Link>
   );

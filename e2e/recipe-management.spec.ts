@@ -7,6 +7,7 @@ import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectSlot, field, openCard, recipeAction, recipeActions, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
+import { roastDay } from "./support/days.js";
 
 // Recipes in the management interface (ticket #143): each Location's Recipe
 // Slots and its Recipes in no slot, a Recipe created and edited with the
@@ -59,7 +60,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await form.getByLabel("Name", { exact: true }).fill("Lab Guji");
     await form.getByLabel("Beverage").fill("Espresso");
     await form.getByLabel("Bean Batch").click();
-    await samsPage.getByRole("option", { name: "Guji, roasted 2026-10-01 (adds it here)" }).click();
+    await samsPage.getByRole("option", { name: `Guji, roasted ${roastDay("2026-10-01")} (adds it here)` }).click();
     await form.getByLabel("Profile").click();
     await samsPage.getByRole("option", { name: "Uptown Bloom (shows it here)" }).click();
     await form.getByLabel("Dose (g)").fill("18");
@@ -78,7 +79,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await samsPage.getByRole("option", { name: "3", exact: true }).click();
     // The form says what saving offers at the lab.
     const also = form.getByRole("status", { name: "Saving also" });
-    await expect(also).toContainText("adds the Bean Batch Guji, roasted 2026-10-01 at Roastery lab");
+    await expect(also).toContainText(`adds the Bean Batch Guji, roasted ${roastDay("2026-10-01")} at Roastery lab`);
     await expect(also).toContainText("shows the Profile Uptown Bloom at Roastery lab");
     await form.getByRole("button", { name: "Create" }).click();
 
@@ -92,7 +93,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     );
     const details = samsPage.getByRole("region", { name: "Recipe", exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
-    await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
+    await expect(field(details, "Bean Batch")).toHaveText(`Guji, roasted ${roastDay("2026-10-01")}`);
     await expect(field(details, "Grind setting")).toHaveText("1.1.0");
     await expect(field(details, "Feed rate")).toHaveText("MF");
     await expect(details.locator("dt", { hasText: "Shown on the dashboard" })).toHaveCount(0);
@@ -341,7 +342,7 @@ test("a Recipe whose Bean Batch is finished at its Location is flagged", async (
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" })).filter({ hasText: "Finished Kenya Espresso" })).toContainText("Batch finished here");
   await page.getByRole("link", { name: "Finished Kenya Espresso" }).click();
   await expect(page.getByRole("heading", { name: "Finished Kenya Espresso", level: 1 })).toContainText("Batch finished here");
-  await expect(page.getByText("Its Bean Batch, Finished Kenya, roasted 2026-10-01, is no longer at Finished lab: pick the next roast.")).toBeVisible();
+  await expect(page.getByText(`Its Bean Batch, Finished Kenya, roasted ${roastDay("2026-10-01")}, is no longer at Finished lab: pick the next roast.`)).toBeVisible();
   void recipe;
 });
 
@@ -595,10 +596,10 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await form.getByLabel("Slot", { exact: true }).click();
   await page.getByRole("option", { name: "1", exact: true }).click();
   await expect(form.getByRole("list", { name: "About this slot" })).toContainText("Slot 1 holds Copy Uptown House, which is taken out of its slot and kept at Copy Uptown.");
-  await expect(form.getByLabel("Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01 (this Recipe's)");
+  await expect(form.getByLabel("Bean Batch")).toHaveText(`Copy Guji, roasted ${roastDay("2026-10-01")} (this Recipe's)`);
   // The form says what copying adds and shows at Uptown before saving.
   const also = form.getByRole("status", { name: "Copying also" });
-  await expect(also).toContainText("adds the Bean Batch Copy Guji, roasted 2026-10-01 at Copy Uptown");
+  await expect(also).toContainText(`adds the Bean Batch Copy Guji, roasted ${roastDay("2026-10-01")} at Copy Uptown`);
   await expect(also).toContainText("shows the Profile Copy Bloom at Copy Uptown");
   await expect(also).toContainText("shows the Basket Copy 20g at Copy Uptown");
   await form.getByRole("button", { name: "Copy" }).click();
@@ -610,7 +611,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Grinder")).toHaveText("Copy Mazzer");
   await expect(field(details, "Grind setting")).toHaveText("2.5");
-  await expect(field(details, "Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01");
+  await expect(field(details, "Bean Batch")).toHaveText(`Copy Guji, roasted ${roastDay("2026-10-01")}`);
   const history = rows((await openCard(page, "History")).getByRole("table", { name: "History" }));
   await expect(history.last()).toContainText("Copied from Copy Lab Guji at Copy lab");
   await expect(history.last().getByRole("link", { name: "Copy Lab Guji" })).toHaveAttribute("href", `/library/recipes/${original.id}`);
