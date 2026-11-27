@@ -239,7 +239,11 @@ const recipe = z.object({
   uses: z
     .object({
       bean: named({ roaster: z.string().nullable(), name: z.string().nullable() }),
-      beanBatch: named({ roastDate: z.string().nullable(), atLocation: z.boolean().describe("Whether it is at the Recipe's Location now, neither it nor its Bean Archived.") }),
+      beanBatch: named({
+        roastDate: z.string().nullable(),
+        batchCode: batchSummary.shape.batchCode,
+        atLocation: z.boolean().describe("Whether it is at the Recipe's Location now, neither it nor its Bean Archived."),
+      }),
       profile: named({ title: z.string().nullable() }),
       grinder: named({ model: z.string().nullable() }),
       basket: named({ name: z.string().nullable() }),
@@ -507,7 +511,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "find_library_items",
     title: "Find Library items",
-    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived, and a Bean Batch by its Batch Code: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot. list_location_batches lists one Location's Bean Batches with the Recipes there that name each. ${ITEMS} ${PAGED} ${TIMES}`,
+    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived, and a Bean Batch by its Batch Code: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot, and its Bean Batch (uses.beanBatch) by its roast date and batchCode, its Batch Code, null where it has none. list_location_batches lists one Location's Bean Batches with the Recipes there that name each. ${ITEMS} ${PAGED} ${TIMES}`,
     inputSchema: findInput,
     outputSchema: findOutput,
     annotations: { readOnlyHint: true },
@@ -568,7 +572,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "get_library_item",
     title: "Get a Library item",
-    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history, such as what changed on a Recipe today and who changed it. A Bean Batch comes with the Recipes that name it (recipes), at any Location, each with its Location and Recipe Slot: what a Batch Move or a finish affects. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; a Lost Edit among them (lost) gives the value of a field that did not apply and the edit it lost to (lostTo). historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history. ${PAGED} ${TIMES}`,
+    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history, such as what changed on a Recipe today and who changed it. A Bean Batch comes with the Recipes that name it (recipes), at any Location, each with its Location and Recipe Slot: what a Batch Move or a finish affects. A Recipe names its Bean Batch (uses.beanBatch) by its roast date and batchCode, its Batch Code, null where it has none, beside its Bean (uses.bean). ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; a Lost Edit among them (lost) gives the value of a field that did not apply and the edit it lost to (lostTo). historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history. ${PAGED} ${TIMES}`,
     inputSchema: getInput,
     outputSchema: getOutput,
     annotations: { readOnlyHint: true },
@@ -855,7 +859,7 @@ function recipeOf(found: RecipeView): z.infer<typeof recipe> {
     content: found.content,
     uses: {
       bean: bean && { id: bean.id, roaster: bean.roaster, name: bean.name },
-      beanBatch: beanBatch && { id: beanBatch.id, roastDate: beanBatch.roastDate, atLocation: beanBatch.atLocation },
+      beanBatch: beanBatch && { id: beanBatch.id, roastDate: beanBatch.roastDate, batchCode: beanBatch.batchCode, atLocation: beanBatch.atLocation },
       profile: profile && { id: profile.id, title: profile.title },
       grinder: grinder && { id: grinder.id, model: grinder.model },
       basket: basket && { id: basket.id, name: basket.name },

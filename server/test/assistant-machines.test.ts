@@ -321,6 +321,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(id, kind).toEqual(expect.any(String));
       expect((await assistant.call<Record<string, { id: string }>>("get_library_item", { kind, id }))[kind]!.id, kind).toBe(id);
     }
+    // Its Bean Batch as the Library holds it, by its Bean, roast date and Batch Code (#732), as get_library_item reads it.
+    const { beanBatch } = await assistant.call<{ beanBatch: { id: string; bean: Record_; roastDate: string | null; batchCode: string | null } }>("get_library_item", { kind: "beanBatch", id: summary.beanBatchId });
+    expect(summary.beanBatch).toEqual({ id: beanBatch.id, bean: beanBatch.bean, roastDate: beanBatch.roastDate, batchCode: beanBatch.batchCode });
     // The Recipe by the Library's name, which the Workflow doesn't record; the rest by the names the Workflow recorded.
     expect(summary.recipe).toBe((await assistant.call<{ recipe: { name: string } }>("get_library_item", { kind: "recipe", id: ethiopia })).recipe.name);
     const sent = (await api.get<{ workflow: { workflow: Record_ & { context: Record_ & { extras: Record_ }; profile: Record_ } } }>(`${path}/workflow`)).workflow.workflow;
@@ -556,6 +559,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         bean: sent.context.coffeeName,
         roaster: sent.context.coffeeRoaster,
         beanBatchId: null,
+        beanBatch: null,
         grinder: sent.context.grinderModel,
         burrs: null,
         grindSetting: sent.context.grinderSetting,
@@ -582,6 +586,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         dose: 19,
         bean: sent.context.coffeeName,
         beanBatchId: null,
+        beanBatch: null,
         grinder: sent.context.grinderModel,
         grinderId: null,
         basket: sent.context.extras.basketName,

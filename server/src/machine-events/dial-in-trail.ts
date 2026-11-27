@@ -1,4 +1,5 @@
 import type { PluginWorkflowWrite } from "@decent-sync/protocol";
+import type { BatchLink } from "../library/batch-links.js";
 import type { WorkflowSummary } from "./workflow-summary.js";
 
 // A Machine's Workflow changes over a time range as a dial-in trail (#436),
@@ -36,6 +37,11 @@ import type { WorkflowSummary } from "./workflow-summary.js";
 //   load write may be stored so too, as well as the plugin's load writes;
 // - an entry left with no field changed is dropped, but for a load or unload,
 //   which is a change in itself.
+//
+// A change of the Bean Batch a Workflow names (`beanBatchId`) gives, beside
+// the two ids, the Library's batch each names, as the Library holds it now
+// (#732): the Workflow in effect has it in its summary. It is no field of
+// its own, so a batch renamed in the Library is no change of the Workflow.
 //
 // The trail's oldest entry is the Workflow in effect as the range began,
 // whole: the latest observed at or before its start, or the first observed
@@ -80,6 +86,12 @@ export interface FieldChange {
   field: string;
   before: string | number | null;
   after: string | number | null;
+  /**
+   * For `beanBatchId` alone, the Library's Bean Batch each side names, as the
+   * Library holds it now (batch-links.ts): null for a side that names none,
+   * or one the Library holds no batch for.
+   */
+  beanBatch?: { before: BatchLink | null; after: BatchLink | null };
 }
 
 /** What the trail's entries are. */
@@ -115,10 +127,12 @@ export interface TrailInput {
   recipeEvents: readonly RecipeEvent[];
   /** The Machine's Loaded Recipe as the trail begins, then, or null. */
   loadedAtStart: TrailRecipe | null;
+  /** The Library's Bean Batches the changes name, by id (`batchLinksOf`); none where none is given. */
+  batches?: ReadonlyMap<string, BatchLink>;
 }
 
 /** The dial-in trail, oldest first. */
-export function dialInTrail({ baseline, changes, recipeEvents, loadedAtStart }: TrailInput): TrailEntry[] {
+export function dialInTrail({ baseline, changes, recipeEvents, loadedAtStart, batches = new Map() }: TrailInput): TrailEntry[] {
   type Item = { at: number; order: 0 | 1; id: bigint; event?: RecipeEvent; change?: TrailChange };
   const timeline: Item[] = [
     ...recipeEvents.map((event): Item => ({ at: event.at.getTime(), order: 0, id: event.id, event })),
@@ -173,7 +187,7 @@ export function dialInTrail({ baseline, changes, recipeEvents, loadedAtStart }: 
     group.take(taken, state, after);
     state = after;
   }
-  return groups.flatMap((group) => group.entry() ?? []);
+  return groups.flatMap((group) => group.entry(batches) ?? []);
 }
 
 /** A change's cause, with the plugin's write, as changes of one cause merge. */
@@ -218,8 +232,11 @@ class Group {
   }
 
   /** Its entry, or null for one that changed nothing in the end but a load or unload, which is a change in itself. */
-  entry(): TrailEntry | null {
-    const changes = [...this.fields].filter(([, { before, after }]) => before !== after).map(([field, values]) => ({ field, ...values }));
+  entry(batches: ReadonlyMap<string, BatchLink>): TrailEntry | null {
+    const batch = (id: FieldValue) => (typeof id === "string" ? (batches.get(id) ?? null) : null);
+    const changes = [...this.fields]
+      .filter(([, { before, after }]) => before !== after)
+      .map(([field, values]): FieldChange => ({ field, ...values, ...(field === "beanBatchId" && { beanBatch: { before: batch(values.before), after: batch(values.after) } }) }));
     if (changes.length === 0 && (this.kind === "changed" || this.kind === "recipeUpdated")) return null;
     return {
       kind: this.kind,
@@ -238,10 +255,16 @@ class Group {
 type FieldValue = string | number | null;
 type Fields = Map<string, FieldValue>;
 
-/** A summary's fields, a part's by its name and the part's, as `steam.duration`; a part the Workflow has none of as its fields all null. */
+/**
+ * A summary's fields, a part's by its name and the part's, as
+ * `steam.duration`; a part the Workflow has none of as its fields all null.
+ * The Library's batch it names (`beanBatch`) is none of them: `beanBatchId`
+ * is the field that changes.
+ */
 function fieldsOf(summary: WorkflowSummary): Fields {
   const fields: Fields = new Map();
   for (const [name, value] of Object.entries(summary) as [keyof WorkflowSummary, unknown][]) {
+    if (name === "beanBatch") continue;
     if (value !== null && typeof value === "object") {
       for (const [part, held] of Object.entries(value)) fields.set(`${name}.${part}`, held as FieldValue);
     } else if (PARTS[name]) {

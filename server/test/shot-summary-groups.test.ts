@@ -61,7 +61,7 @@ interface By {
   pendingMachine?: { id: string; model: string; serial: string } | null;
   recipe?: (Named & { location: Named | null }) | null;
   bean?: { roaster: string | null; name: string | null } | null;
-  beanBatch?: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null } | null;
+  beanBatch?: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null; batchCode: string | null } | null;
   profile?: string | null;
   grinder?: { id: string; model: string | null; location: Named | null } | null;
   basket?: Named | null;
@@ -288,17 +288,19 @@ describe("Shot Summaries by group", () => {
     const guji = await made("/beans", { content: { roaster: "Roux", name: "Guji" } });
     const brazil = await made("/beans", { content: { roaster: "Roux", name: "Brazil" } });
     // Created at the lab, as a batch is at one Location, and added at the harbor.
-    const atBoth = async (beanId: string, roastDate: string) => {
-      const id = await made("/bean-batches", { beanId, content: { roastDate }, locations: [{ locationId: lab.id }] });
+    const atBoth = async (beanId: string, roastDate: string, batchCode: string | null) => {
+      const id = await made("/bean-batches", { beanId, content: { roastDate, ...(batchCode !== null && { batchCode }) }, locations: [{ locationId: lab.id }] });
       await api.send("PUT", `/bean-batches/${id}/locations/${harbor.id}`, { atLocation: true });
       return id;
     };
-    const batch = async (beanId: string, bean: string, roastDate: string) => ({
-      id: await atBoth(beanId, roastDate),
+    // A group by Bean Batch names it with its Batch Code, null where it has none (#732).
+    const batch = async (beanId: string, bean: string, roastDate: string, batchCode: string | null = null) => ({
+      id: await atBoth(beanId, roastDate, batchCode),
       bean: { id: beanId, roaster: "Roux", name: bean },
       roastDate: expect.stringMatching(new RegExp(`^${roastDate}`)) as unknown as string,
+      batchCode,
     });
-    batches = { gujiEarlier: await batch(guji, "Guji", "2026-02-10"), gujiLater: await batch(guji, "Guji", "2026-02-20"), brazil: await batch(brazil, "Brazil", "2026-02-01") };
+    batches = { gujiEarlier: await batch(guji, "Guji", "2026-02-10"), gujiLater: await batch(guji, "Guji", "2026-02-20", "LR-0220"), brazil: await batch(brazil, "Brazil", "2026-02-01") };
     const at = (location: LocationView) => ({ id: location.id, name: location.name });
     const grinder = async (location: LocationView, model: string) => ({ id: await made("/grinders", { locationId: location.id, content: { model } }), model, location: at(location) });
     grinders = { lab: await grinder(lab, "EK43"), harbor: await grinder(harbor, "ek43") };

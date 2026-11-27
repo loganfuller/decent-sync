@@ -23,7 +23,7 @@ import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { LAST_SHOT, LAST_SHOT_BRIEFLY, shotSpec } from "./spec.js";
 import { timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
-import { WORKFLOW_SUMMARY, workflowSummaryOutput } from "./workflow-summary.js";
+import { WORKFLOW_SUMMARY, workflowBatch, workflowSummaryOutput } from "./workflow-summary.js";
 
 const time = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.");
 const tabletTime = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none, by the tablet's clock.");
@@ -127,7 +127,7 @@ const PLUGIN_CHANGE = "A plugin change may also hold a change someone else made 
 
 /** What get_machine_activity's dial-in trail is, and how it folds and merges Workflow changes (dial-in-trail.ts). */
 const DIAL_IN_TRAIL =
-  "The dial-in trail is one list of its Recipes loaded and unloaded and what changed between them, by kind: inEffect, its last (oldest) entry, the Workflow in effect as the range began, whole (workflow); loaded, a Recipe loaded, with replaced, one unloaded as it loaded; unloaded; recipeUpdated, Decent Sync writing in an edit of the Loaded Recipe made elsewhere, whose own history says who made it; changed, any other. Each gives who made its first change, and loadedRecipe, the Recipe loaded, unloaded or updated, else the one loaded then; each but inEffect gives changes, each field of the summary that changed, before and after, a part's as steam.duration. A load or unload folds in the first change within 5 s after it, which made it, and in those 5 s Decent Sync's load writes, or for an unload changes of that one's cause; one with no change within 5 s, as on a Location join, is of cause unknown, a later change its own entry. Other changes of one cause and pluginWrite within 5 s of each other merge, a group spanning at most 30 s and never a load or unload; unknown ones, from before Decent Sync recorded who made them, fold and merge with each other by time alone. lastObservedAt is the last change an entry took after it began. An entry left with no field changed is dropped, except a load or unload. total counts the entries; cause keeps those of one cause, and inEffect, each before then as the changes left out left it.";
+  "The dial-in trail is one list of its Recipes loaded and unloaded and what changed between them, by kind: inEffect, its last (oldest) entry, the Workflow in effect as the range began, whole (workflow); loaded, a Recipe loaded, with replaced, one unloaded as it loaded; unloaded; recipeUpdated, Decent Sync writing in an edit of the Loaded Recipe made elsewhere, whose own history says who made it; changed, any other. Each gives who made its first change, and loadedRecipe, the Recipe loaded, unloaded or updated, else the one loaded then; each but inEffect gives changes, each field of the summary that changed, before and after, a part's as steam.duration, and a change of beanBatchId, as to the next roast of a Bean, with beanBatch too: the batch each side names, before and after, as the summary's beanBatch gives one. A load or unload folds in the first change within 5 s after it, which made it, and in those 5 s Decent Sync's load writes, or for an unload changes of that one's cause; one with no change within 5 s, as on a Location join, is of cause unknown, a later change its own entry. Other changes of one cause and pluginWrite within 5 s of each other merge, a group spanning at most 30 s and never a load or unload; unknown ones, from before Decent Sync recorded who made them, fold and merge with each other by time alone. lastObservedAt is the last change an entry took after it began. An entry left with no field changed is dropped, except a load or unload. total counts the entries; cause keeps those of one cause, and inEffect, each before then as the changes left out left it.";
 
 /** Who made a Workflow change, as get_machine and get_machine_activity give it (WORKFLOW_CAUSE). */
 const workflowCause = {
@@ -217,7 +217,17 @@ const trailEntry = z.object({
   replaced: trailRecipe.optional().describe("For loaded, the Recipe unloaded as it loaded."),
   workflow: workflowSummaryOutput.optional().describe("For inEffect, the Workflow summarised whole."),
   changes: z
-    .array(z.object({ field: z.string(), before: z.union([z.string(), z.number(), z.null()]), after: z.union([z.string(), z.number(), z.null()]) }))
+    .array(
+      z.object({
+        field: z.string(),
+        before: z.union([z.string(), z.number(), z.null()]),
+        after: z.union([z.string(), z.number(), z.null()]),
+        beanBatch: z
+          .object({ before: workflowBatch.nullable(), after: workflowBatch.nullable() })
+          .optional()
+          .describe("For beanBatchId alone: the Bean Batch each side names, as the Library holds it now, null for a side that names none."),
+      }),
+    )
     .optional()
     .describe("For any other, each field of the summary that changed, before and after, a part's as steam.duration."),
 });
@@ -504,7 +514,7 @@ export class MachinesTools {
         receivedAt: zone(workflow.receivedAt),
         cause: workflow.cause,
         pluginWrite: workflow.pluginWrite,
-        workflow: workflowSummary(workflow.workflow, workflow.links),
+        workflow: workflowSummary(workflow.workflow, workflow.links, workflow.beanBatch),
         ...(raw && { raw: workflow.workflow }),
       },
       machineSettings: { machineSettings: machineSettings!, advancedSettings: advancedSettings!, machineCalibration: machineCalibration!, sensorCalibration: sensorCalibration! },

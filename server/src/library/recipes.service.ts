@@ -98,8 +98,8 @@ export interface ReferenceShotView {
  */
 export interface RecipeUses {
   bean: { id: string; roaster: string | null; name: string | null } | null;
-  /** Its Bean Batch, with its roast date as Decaid recorded it, and whether it is at the Recipe's Location now, not Archived. */
-  beanBatch: { id: string; roastDate: string | null; atLocation: boolean } | null;
+  /** Its Bean Batch, with its roast date as Decaid recorded it, its Batch Code, null where it has none, and whether it is at the Recipe's Location now, not Archived. */
+  beanBatch: { id: string; roastDate: string | null; batchCode: string | null; atLocation: boolean } | null;
   profile: { id: string; title: string | null } | null;
   grinder: { id: string; model: string | null } | null;
   basket: { id: string; name: string | null } | null;
@@ -238,7 +238,7 @@ export class RecipesService {
     const profiles = [...new Set(contents.flatMap((content) => (typeof content.profileId === "string" ? [content.profileId] : [])))];
     const named = await this.prisma.$queryRaw<{ kind: string; id: string; first: string | null; second: string | null }[]>`
       SELECT 'bean' AS kind, id::text AS id, content ->> 'roaster' AS first, content ->> 'name' AS second FROM beans WHERE id = ANY(${ids("beanId")}::uuid[])
-      UNION ALL SELECT 'beanBatch', id::text, content ->> 'roastDate', NULL FROM bean_batches WHERE id = ANY(${ids("beanBatchId")}::uuid[])
+      UNION ALL SELECT 'beanBatch', id::text, content ->> 'roastDate', content ->> 'batchCode' FROM bean_batches WHERE id = ANY(${ids("beanBatchId")}::uuid[])
       UNION ALL SELECT 'profile', id, content -> 'profile' ->> 'title', NULL FROM profiles WHERE id = ANY(${profiles}::text[])
       UNION ALL SELECT 'grinder', id::text, content ->> 'model', NULL FROM grinders WHERE id = ANY(${ids("grinderId")}::uuid[])
       UNION ALL SELECT 'basket', id::text, content ->> 'name', NULL FROM baskets WHERE id = ANY(${ids("basketId")}::uuid[])
@@ -319,6 +319,7 @@ function view(row: RecipeRow, location: LocationView | null, { names, at }: Name
   const beanBatch = named("beanBatch", "beanBatchId", (itemId, found) => ({
     id: itemId,
     roastDate: found?.first ?? null,
+    batchCode: found?.second ?? null,
     atLocation: row.locationId !== null && at.has(`${itemId.toLowerCase()}@${row.locationId}`),
   }));
   const uses: RecipeUses = {

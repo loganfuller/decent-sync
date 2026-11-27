@@ -15,6 +15,14 @@ const libraryId = (kind: string, name: string) =>
     .nullable()
     .describe(`The Library's id of the ${name} it names, which get_library_item finds as ${kind}; null where the Library holds none for it, or it names none.`);
 
+/** A Bean Batch a Workflow, or a change of one, names, as the Library holds it now (library/batch-links.ts). */
+export const workflowBatch = z.object({
+  id: z.string(),
+  bean: z.object({ id: z.string(), roaster: z.string().nullable(), name: z.string().nullable() }).describe("The Bean it is a roast of, by the Library's names."),
+  roastDate: z.string().nullable().describe("As Decaid recorded it."),
+  batchCode: z.string().nullable().describe("Its Batch Code, the roaster's own identifier for it, as on its label; null where it has none."),
+});
+
 export const workflowSummaryOutput = z
   .object({
     profile: z.string().nullable().describe("The Profile's title, as the Workflow names it."),
@@ -25,6 +33,7 @@ export const workflowSummaryOutput = z
     bean: z.string().nullable().describe("The coffee's name, as the Workflow names it."),
     roaster: z.string().nullable(),
     beanBatchId: libraryId("beanBatch", "Bean Batch"),
+    beanBatch: workflowBatch.nullable().describe("The Bean Batch beanBatchId names, as the Library holds it now; null where beanBatchId is."),
     grinder: z.string().nullable().describe("The Grinder's model, as the Workflow names it."),
     burrs: z.string().nullable(),
     grindSetting: z.string().nullable(),
@@ -42,4 +51,4 @@ export const workflowSummaryOutput = z
 
 /** The summary's meanings, for the description of each tool that gives one. */
 export const WORKFLOW_SUMMARY =
-  "Its summary holds the parts the management interface shows, by the Workflow's names: profile, the Profile's title; brewTemperature °C, its first step's; dose and yield g; grinder, its model; recipe, the one its context names, by the Library's name; steam (°C, s, ml/s), hotWater (°C, ml) and flush (°C, s). profileId, beanBatchId, grinderId, basketId and recipeId are the Library's ids of what it names, for get_library_item as profile, beanBatch, grinder, basket and recipe: null where the Library holds none, as for a batch not yet in it, or a change received before Decent Sync linked them.";
+  "Its summary holds what the management interface shows, by the Workflow's names: profile, the Profile's title; brewTemperature °C, its first step's; dose and yield g; grinder, its model; recipe, the one its context names, by the Library's name; steam (°C, s, ml/s), hotWater (°C, ml) and flush (°C, s). profileId, beanBatchId, grinderId, basketId and recipeId are the Library's ids of what it names, for get_library_item as profile, beanBatch, grinder, basket and recipe: null where the Library holds none, as a batch not yet in it, or a change before Decent Sync linked them. beanBatch is that batch, with batchCode.";

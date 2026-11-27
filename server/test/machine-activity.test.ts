@@ -37,7 +37,15 @@ interface TrailEntry {
   loadedRecipe: Recipe | null;
   replaced: Recipe | null;
   workflow: Record_ | null;
-  changes: { field: string; before: unknown; after: unknown }[];
+  changes: { field: string; before: unknown; after: unknown; beanBatch?: { before: Batch | null; after: Batch | null } }[];
+}
+
+/** A Bean Batch as a Workflow, or a change of one, names it (#732). */
+interface Batch {
+  id: string;
+  bean: { id: string; roaster: string | null; name: string | null };
+  roastDate: string | null;
+  batchCode: string | null;
 }
 
 interface LoadedRecipe {
@@ -175,6 +183,7 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
   /** The Recipe the bar loaded, and a moment before it did. */
   let ethiopia: string;
   let beforeLoad: string;
+  let barTablet: SimulatedTablet;
   const tablets = new LoadedTablets();
 
   runAsSteps();
@@ -206,7 +215,7 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
   it("has the Lab's Machine, the one that moved and the one added report their days, and the bar load a Recipe and have its grind changed", async () => {
     const labTablet = tablets.syncing(lab1, server, { api: emptyLibrary(LAB_SERIAL) });
     const moverTablet = tablets.syncing(mover, server, { api: emptyLibrary(MOVER_SERIAL) });
-    const barTablet = tablets.syncing(bar, server, { api: recordedDye2MainTablet(BAR_SERIAL, "Activity"), dye2: new SimulatedDye2() });
+    barTablet = tablets.syncing(bar, server, { api: recordedDye2MainTablet(BAR_SERIAL, "Activity"), dye2: new SimulatedDye2() });
     const newcomerTablet = tablets.syncing(newcomer, server, { api: emptyLibrary(NEWCOMER_SERIAL) });
     await api.waitForOnline(lab1, mover, bar, newcomer);
     // Each has joined its Location, and nothing of that is left under way to be timed with what follows.
@@ -502,5 +511,58 @@ describe("a Machine's activity", { timeout: 120_000 }, () => {
       }
     }
     expect((await api.call("GET", path(lab1), undefined, {})).status).toBe(401);
+  });
+
+  it("names the Bean Batch a Workflow points at, and each side of a change of it, by its Bean, roast date and Batch Code as the Library holds them now, as the tool does (#732)", async () => {
+    type Summary = Record_ & { beanBatchId: string | null; beanBatch: Batch | null };
+    const summary = async () => (await api.get<{ workflow: { workflow: Summary } }>(`/machines/${bar.machine.id}/workflow-summary`)).workflow.workflow;
+    const libraryBatch = async (id: string): Promise<Batch> => {
+      const { batch } = await api.get<{ batch: Batch }>(`/bean-batches/${id}`);
+      return { id: batch.id, bean: batch.bean, roastDate: batch.roastDate, batchCode: batch.batchCode };
+    };
+    // The batch the Ethiopia's Recipe left the bar's Workflow naming, which has no Batch Code.
+    const first = await summary();
+    expect(first.beanBatchId).toEqual(expect.any(String));
+    const earlier = await libraryBatch(first.beanBatchId!);
+    expect(earlier).toMatchObject({ bean: { name: expect.any(String) }, roastDate: expect.any(String), batchCode: null });
+    expect(first.beanBatch).toEqual(earlier);
+
+    // The next roast of its Bean, added on the tablet, joins the Library, and is given its Batch Code there.
+    const context = (await api.get<{ workflow: { workflow: { context: Record_ } } }>(`/machines/${bar.machine.id}/workflow`)).workflow.workflow.context;
+    const held = barTablet.batches().find((record) => record.id === context.beanBatchId)!;
+    const added = await barTablet.addBatch(held.beanId, { roastDate: "2026-11-17", weight: 1000 });
+    const joined = async () => (await api.get<{ batches: Batch[] }>("/bean-batches")).batches.find((batch) => batch.bean.id === earlier.bean.id && batch.roastDate?.startsWith("2026-11-17"));
+    await expect.poll(joined, { timeout: 15_000 }).toBeTruthy();
+    const nextId = (await joined())!.id;
+    await api.send("PATCH", `/bean-batches/${nextId}`, { content: { batchCode: "LR-0411" } });
+    const later = await libraryBatch(nextId);
+    expect(later).toMatchObject({ bean: earlier.bean, batchCode: "LR-0411" });
+    await quiesced(api, { tablets: { barTablet }, machines: { bar } });
+
+    // The barista picks it: the Bean's name is as it was, so the batch's id alone changes.
+    const beforeChange = new Date().toISOString();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await barTablet.changeSettings({ context: { beanBatchId: added.id } });
+    await expect.poll(async () => (await summary()).beanBatchId, { timeout: 15_000 }).toBe(nextId);
+    await quiesced(api, { tablets: { barTablet }, machines: { bar } });
+    expect((await summary()).beanBatch).toEqual(later);
+
+    const rest = await read(bar, { from: beforeChange, kind: "workflowChanges" });
+    const entries = rest.workflowChanges!.entries;
+    const changed = entries.flatMap((entry) => entry.changes).filter((change) => change.field === "beanBatchId");
+    expect(changed).toEqual([{ field: "beanBatchId", before: earlier.id, after: later.id, beanBatch: { before: earlier, after: later } }]);
+    // No other field's change carries one, and the Workflow in effect before it names its batch in its summary.
+    expect(entries.flatMap((entry) => entry.changes).filter((change) => change.field !== "beanBatchId" && "beanBatch" in change)).toEqual([]);
+    expect(entries.at(-1)).toMatchObject({ kind: "inEffect", workflow: { beanBatchId: earlier.id, beanBatch: earlier } });
+
+    // The tool gives the same, and get_machine the batch its Workflow names now.
+    expect(instants(await tool(bar, { from: beforeChange, kinds: ["workflowChanges"] }))).toEqual(instants(asTool(rest)));
+    const machine = await assistant.call<{ workflow: { workflow: Summary } }>("get_machine", { machineId: bar.machine.id });
+    expect(machine.workflow.workflow.beanBatch).toEqual(later);
+
+    // A batch renamed in the Library is named as it is now, on the change already made.
+    await api.send("PATCH", `/bean-batches/${nextId}`, { content: { batchCode: "LR-0412" } });
+    const reread = (await read(bar, { from: beforeChange, kind: "workflowChanges" })).workflowChanges!.entries.flatMap((entry) => entry.changes).find((change) => change.field === "beanBatchId");
+    expect(reread?.beanBatch?.after).toEqual({ ...later, batchCode: "LR-0412" });
   });
 });

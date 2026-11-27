@@ -203,7 +203,7 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     /** Creates an item, and resolves with its id. */
     const send = async (path: string, body: Record_) => Object.values(await api.send<Record<string, { id: string }>>("POST", path, body, 201))[0]!.id;
     const bean = await send("/beans", { content: { roaster: "Roux", name: "Harbor Kenya" } });
-    const batch = await send("/bean-batches", { beanId: bean, content: { roastDate: "2026-10-20" }, locations: [{ locationId: harbor.id, remainingWeight: 900 }] });
+    const batch = await send("/bean-batches", { beanId: bean, content: { roastDate: "2026-10-20", batchCode: "HB-1020" }, locations: [{ locationId: harbor.id, remainingWeight: 900 }] });
     const grinder = await send("/grinders", { locationId: harbor.id, content: { model: "Harbor EK43" } });
     const basket = await send("/baskets", { locationId: harbor.id, content: { name: "Harbor 15g" } });
     const tool = await send("/tools", { locationId: harbor.id, content: { name: "Harbor WDT", custom: [{ key: "Needles", value: "8" }] } });
@@ -288,7 +288,8 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     ]);
     expect(recipes.findIndex((recipe) => (recipe.location as LocationView).id === uptown.id)).toBe(2);
     expect(await byName("recipe", "Harbor Espresso")).toMatchObject({
-      uses: { beanBatch: { id: made.batch, atLocation: true }, profile: { title: "Adaptive v3" }, grinder: { id: made.grinder, model: "Harbor EK43" }, tools: [{ id: made.tool, name: "Harbor WDT" }] },
+      // Its batch by its roast date and its Batch Code (#732).
+      uses: { beanBatch: { id: made.batch, roastDate: "2026-10-20T00:00:00.000", batchCode: "HB-1020", atLocation: true }, profile: { title: "Adaptive v3" }, grinder: { id: made.grinder, model: "Harbor EK43" }, tools: [{ id: made.tool, name: "Harbor WDT" }] },
       content: { dose: 18.5, yield: 42 },
     });
   });

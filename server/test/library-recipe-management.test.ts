@@ -35,7 +35,7 @@ interface RecipeView {
   content: Record_;
   uses: {
     bean: { id: string; name: string | null } | null;
-    beanBatch: { id: string; atLocation: boolean } | null;
+    beanBatch: { id: string; roastDate: string | null; batchCode: string | null; atLocation: boolean } | null;
     profile: { id: string; title: string | null } | null;
     grinder: { id: string; model: string | null } | null;
     basket: { id: string; name: string | null } | null;
@@ -143,6 +143,29 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   const answered = (tablet: SimulatedTablet, id: string) =>
     tablet.acknowledgedSome((frame: { type?: unknown; globalId?: unknown }) => frame.type === "written" && frame.globalId === id);
 
+
+  it("gives a Recipe's Bean Batch its Batch Code, read by itself and in its Location's list, null for a batch with none, and as the batch holds it now (#732)", async () => {
+    const here = await api.createLocation("Coded recipes", "America/Chicago");
+    const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Coded Guji" } }, 201)).bean;
+    const batchOf = async (content: Record_) =>
+      (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content, locations: [{ locationId: here.id }] }, 201)).batch;
+    const coded = await batchOf({ roastDate: "2026-11-17", batchCode: "LR-0411" });
+    const plain = await batchOf({ roastDate: "2026-11-10" });
+    const withCode = await create(here, 1, { name: "Coded Espresso", beanBatchId: coded.id });
+    const without = await create(here, 2, { name: "Plain Espresso", beanBatchId: plain.id });
+    expect(withCode.uses.beanBatch).toEqual({ id: coded.id, roastDate: "2026-11-17T00:00:00.000", batchCode: "LR-0411", atLocation: true });
+    expect(without.uses.beanBatch).toEqual({ id: plain.id, roastDate: "2026-11-10T00:00:00.000", batchCode: null, atLocation: true });
+    expect((await recipesAt(here)).map((listed) => [listed.name, listed.uses.beanBatch?.batchCode])).toEqual([
+      ["Coded Espresso", "LR-0411"],
+      ["Plain Espresso", null],
+    ]);
+    // A code given since is the Recipe's batch's too, with nothing of the Recipe changed.
+    await api.send("PATCH", `/bean-batches/${plain.id}`, { content: { batchCode: "LR-0405" } });
+    expect((await recipe(without.id)).uses.beanBatch).toMatchObject({ id: plain.id, batchCode: "LR-0405" });
+    expect((await recipesAt(here)).map((listed) => listed.uses.beanBatch?.batchCode)).toEqual(["LR-0411", "LR-0405"]);
+    // A Recipe naming a Bean alone has no batch to name.
+    expect((await create(here, null, { name: "Bean only", beanId: bean.id })).uses).toMatchObject({ bean: { id: bean.id }, beanBatch: null });
+  });
 
   it("creates a Recipe in slot 3 using items not offered at its Location, offers them there, and writes it to that Location's tablets only, under one new record id", async () => {
     const lab = await locationWith("Created recipe lab", 45001, [server, other]);

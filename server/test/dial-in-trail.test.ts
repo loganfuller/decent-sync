@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "../src/machine-events/dial-in-trail.js";
 import type { WorkflowSummary } from "../src/machine-events/workflow-summary.js";
+import type { BatchLink } from "../src/library/batch-links.js";
 
 // A Machine's dial-in trail (#436), through the pure function the
 // get_machine_activity tool's Workflow changes are made by: how a Recipe's
@@ -25,6 +26,7 @@ const SUMMARY: WorkflowSummary = {
   bean: "Ethiopia Guji",
   roaster: "Roux",
   beanBatchId: null,
+  beanBatch: null,
   grinder: "EG-1",
   burrs: null,
   grindSetting: "8.8",
@@ -240,6 +242,39 @@ describe("dialInTrail", () => {
     expect(shown(dialInTrail({ baseline: baseline(), changes: made, recipeEvents: [], loadedAtStart: null })).map((entry) => entry.changes)).toEqual([
       { "steam.temperature": [150, null], "steam.duration": [30, null], "steam.flow": [1.5, null] },
       { "steam.temperature": [null, 150], "steam.duration": [null, 30], "steam.flow": [null, 1.5] },
+    ]);
+  });
+
+  it("gives each side of a change of Bean Batch the batch the Library holds for it, null for a side naming none or one it holds no batch for, and the batch as no field of its own (#732)", () => {
+    const guji = { id: "0199b000-0000-7000-8000-000000000001", roaster: "Roux", name: "Ethiopia Guji" };
+    const earlier: BatchLink = { id: "0199c000-0000-7000-8000-000000000001", bean: guji, roastDate: "2026-11-10T00:00:00.000", batchCode: null };
+    const later: BatchLink = { id: "0199c000-0000-7000-8000-000000000002", bean: guji, roastDate: "2026-11-17T00:00:00.000", batchCode: "LR-0411" };
+    const gone = "0199c000-0000-7000-8000-000000000003";
+    const batches = new Map([earlier, later].map((batch) => [batch.id, batch]));
+    const naming = (batch: BatchLink | null): Partial<WorkflowSummary> => ({ beanBatchId: batch?.id ?? null, beanBatch: batch });
+    const made = changes(
+      // The first batch named, where none was; the next roast of the same Bean, its name unchanged; one the Library holds no batch for; none again.
+      [0, OTHER, naming(earlier)],
+      [60, OTHER, naming(later)],
+      [120, OTHER, { beanBatchId: gone, beanBatch: null }],
+      [180, OTHER, naming(null)],
+      // A batch's code changed in the Library changes the summary's batch alone, which is no change of the Workflow.
+      [240, OTHER, { beanBatch: { ...later, batchCode: "LR-0500" } }],
+    );
+    const trail = dialInTrail({ baseline: baseline(), changes: made, recipeEvents: [], loadedAtStart: null, batches });
+    expect(trail.slice(1).map((entry) => entry.changes)).toEqual([
+      [{ field: "beanBatchId", before: null, after: earlier.id, beanBatch: { before: null, after: earlier } }],
+      [{ field: "beanBatchId", before: earlier.id, after: later.id, beanBatch: { before: earlier, after: later } }],
+      [{ field: "beanBatchId", before: later.id, after: gone, beanBatch: { before: later, after: null } }],
+      [{ field: "beanBatchId", before: gone, after: null, beanBatch: { before: null, after: null } }],
+    ]);
+    // Any other field's change gives none, and the Workflow in effect has its batch in its summary.
+    const dosed = dialInTrail({ baseline: baseline({ ...SUMMARY, ...naming(later) }), changes: changes([0, OTHER, { ...naming(later), dose: 19 }]), recipeEvents: [], loadedAtStart: null, batches });
+    expect(dosed[0]!.workflow).toMatchObject({ beanBatchId: later.id, beanBatch: later });
+    expect(dosed[1]!.changes).toEqual([{ field: "dose", before: 18, after: 19 }]);
+    // Without the batches given, each side is null.
+    expect(dialInTrail({ baseline: baseline(), changes: changes([0, OTHER, naming(earlier)]), recipeEvents: [], loadedAtStart: null })[1]!.changes).toEqual([
+      { field: "beanBatchId", before: null, after: earlier.id, beanBatch: { before: null, after: null } },
     ]);
   });
 });
