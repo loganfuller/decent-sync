@@ -33,11 +33,14 @@ export function BatchCode({ code, plain = false, className }: { code: string; pl
   );
 }
 
-/** A batch's Bean, the link to the batch's page where `id` is given. */
-function BeanOfBatch({ bean, id, linkClassName = LINK }: { bean: string; id?: string; linkClassName?: string }) {
+/**
+ * A batch's Bean, the link to the batch's page where `id` is given, the link
+ * named in words, as its text alone doesn't tell two roasts of a Bean apart.
+ */
+function BeanOfBatch({ batch, bean, id, linkClassName = LINK }: { batch: NamedBatch; bean: string; id?: string; linkClassName?: string }) {
   if (id === undefined) return <>{bean}</>;
   return (
-    <Link to={batchPath(id)} className={linkClassName}>
+    <Link to={batchPath(id)} aria-label={batchWords(batch)} className={linkClassName}>
       {bean}
     </Link>
   );
@@ -67,7 +70,7 @@ export function BatchInLine({
   const { bean, code, after } = batchLine(batch);
   return (
     <span>
-      <BeanOfBatch bean={bean} id={id} linkClassName={linkClassName} />
+      <BeanOfBatch batch={batch} bean={bean} id={id} linkClassName={linkClassName} />
       {code === undefined ? (
         after
       ) : (
@@ -94,7 +97,7 @@ export function BatchCell({ batch, id, code = true, beside, also }: { batch: Nam
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <BeanOfBatch bean={bean} id={id} />
+        <BeanOfBatch batch={batch} bean={bean} id={id} />
         {batchCode !== undefined && <BatchCode code={batchCode} />}
         {beside}
       </div>

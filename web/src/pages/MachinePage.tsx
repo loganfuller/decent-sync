@@ -329,9 +329,9 @@ function Reading({ error }: { error: string | undefined }) {
  * The Bean Batch a Machine's Workflow names, as its card shows it (#732):
  * the Library's batch, and where it stands at the Machine's Location now,
  * its Remaining Weight there, null where the Location doesn't track it, or
- * that it is not there (`finished`), finished there, moved away or
- * Archived. `here` is undefined for a Machine at no Location, or where the
- * batch couldn't be read.
+ * that it is not there (`finished`), finished there, moved away, or
+ * Archived, it or its Bean. `here` is undefined for a Machine at no
+ * Location, or where the batch couldn't be read.
  */
 interface WorkflowBatch {
   batch: BatchLink;
@@ -344,8 +344,10 @@ interface WorkflowBatch {
  * Batch Code, where that summarises the same Workflow, and the batch's own
  * read, for its Remaining Weight at the Machine's Location. Undefined where
  * the Workflow names no batch the Library holds, the previous release's
- * server answers, which names none (ADR-0025), or either read fails: the
- * card then has no Bean Batch row, and the Workflow is shown all the same.
+ * server answers, which names none (ADR-0025), the summary is of another
+ * Workflow, or the summary's read fails: the card then has no Bean Batch
+ * row, and the Workflow is shown all the same. Where the batch's own read
+ * fails, the batch is named without its weight.
  */
 async function workflowBatch(path: string, workflow: WorkflowEvent | null, location: Location | null): Promise<WorkflowBatch | undefined> {
   if (workflow === null) return undefined;
@@ -356,7 +358,7 @@ async function workflowBatch(path: string, workflow: WorkflowEvent | null, locat
     if (location === null) return { batch };
     try {
       const { batch: read } = await api<{ batch: BeanBatch }>("GET", `/bean-batches/${encodeURIComponent(batch.id)}`);
-      const here = read.archived ? undefined : read.locations.find((at) => at.location.id === location.id);
+      const here = read.archived || read.beanArchived === true ? undefined : read.locations.find((at) => at.location.id === location.id);
       return { batch, here: here ? { remainingWeight: here.remainingWeight } : "finished" };
     } catch {
       return { batch };

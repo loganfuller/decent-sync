@@ -123,7 +123,7 @@ test("Recipes lists name each Recipe's batch by its Bean and Batch Code over its
   const batchCell = (table: Locator, name: string) => rows(table).filter({ has: page.getByRole("link", { name, exact: true }) }).getByRole("cell").nth(2);
   // With a Batch Code: its Bean, the link to the batch, and its code in a chip, over the day it was roasted.
   await expect(batchCell(slots, "House")).toHaveText(`House EspressoLR-0411Roasted ${roastDay("2026-11-17")}`);
-  await expect(batchCell(slots, "House").getByRole("link", { name: "House Espresso", exact: true })).toHaveAttribute("href", batchPage(coded));
+  await expect(batchCell(slots, "House").getByRole("link", { name: `House Espresso LR-0411, roasted ${roastDay("2026-11-17")}`, exact: true })).toHaveAttribute("href", batchPage(coded));
   await expect(code(batchCell(slots, "House"), "LR-0411")).toHaveText("LR-0411");
   await expect(code(batchCell(slots, "House"), "LR-0411")).toHaveCSS("font-family", /mono/i);
   // With none: its Bean over its roast day, which stands in for the code.
@@ -190,7 +190,7 @@ test("a Recipe's card, its finished alert, its form, its copy dialog and its His
   await page.goto(`/library/recipes/${recipes.coded}`);
   const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Bean Batch")).toHaveText(`House Espresso LR-0411 roasted ${roastDay("2026-11-17")}`);
-  await expect(field(details, "Bean Batch").getByRole("link", { name: "House Espresso", exact: true })).toHaveAttribute("href", batchPage(coded));
+  await expect(field(details, "Bean Batch").getByRole("link", { name: `House Espresso LR-0411, roasted ${roastDay("2026-11-17")}`, exact: true })).toHaveAttribute("href", batchPage(coded));
   await expect(code(field(details, "Bean Batch"), "LR-0411")).toBeVisible();
   // One with no code has its roast date in the code's place, and one with no roast date says so.
   await page.goto(`/library/recipes/${recipes.plain}`);

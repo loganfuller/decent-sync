@@ -75,6 +75,8 @@ export interface BeanBatchView extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, by name, with when and the weight its count there last started from, which went with it: zero where a Batch Move took all of it. */
   finished: { location: LocationView; remainingWeight: number | null; finishedAt: string }[];
+  /** Whether its Bean is Archived, which takes it out of every Location as its own `archived` does (#732). */
+  beanArchived: boolean;
   /**
    * The Recipes, not Archived, whose content names it, at any Location,
    * whether or not it is there now: by their Location's name, then in slot
@@ -251,7 +253,7 @@ export class BeanBatchesService {
           };
         })
         .sort((a, b) => compareText(a.location?.name ?? null, b.location?.name ?? null) || compareSlots(a.slot, b.slot) || compareText(a.name, b.name) || a.id.localeCompare(b.id));
-      return { ...view, content: object(batch.content), finished, recipes };
+      return { ...view, content: object(batch.content), finished, beanArchived: batch.bean.archived, recipes };
     });
   }
 

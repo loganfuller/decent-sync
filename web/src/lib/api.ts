@@ -1372,6 +1372,8 @@ export interface BeanBatch extends BeanBatchSummary {
   content: Record<string, unknown>;
   /** The Locations it was at and has been finished at since, with when and the weight its count there last started from: zero where a Batch Move took all of it. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
+  /** Whether its Bean is Archived, which takes it out of every Location as its own `archived` does. Absent from the release before (ADR-0025). */
+  beanArchived?: boolean;
   /** The Recipes, not Archived, that name it, at any Location, by Location, slot and name. Absent from the release before (ADR-0025). */
   recipes?: BatchRecipe[];
 }

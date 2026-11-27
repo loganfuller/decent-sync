@@ -249,7 +249,7 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   const workflow = page.getByRole("region", { name: "Workflow" });
   const row = field(workflow, "Bean Batch");
   await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Roasted ${roastDay("2026-11-17")} · 3240 g at Lab`);
-  await expect(row.getByRole("link", { name: "Activity Fixture Brazil", exact: true })).toHaveAttribute("href", `/library/bean-batches/${later.id}`);
+  await expect(row.getByRole("link", { name: `Activity Fixture Brazil LR-0411, roasted ${roastDay("2026-11-17")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${later.id}`);
   await expect(row.getByLabel("Batch Code LR-0411")).toHaveCSS("font-family", /mono/i);
   const terms = await workflow.getByRole("term").allTextContents();
   expect(terms.indexOf("Bean Batch")).toBe(terms.indexOf("Roaster") + 1);
@@ -265,6 +265,34 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   await page.reload();
   await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Batch finished hereRoasted ${roastDay("2026-11-17")}`);
   await page.unroute(`**/api/bean-batches/${later.id}`);
+  // So does one whose Bean is Archived, though the batch itself is not and is still at the Lab.
+  await send("put", `/api/beans/${brazil.bean.id}/archived`, { archived: true });
+  await page.reload();
+  await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Batch finished hereRoasted ${roastDay("2026-11-17")}`);
+  await send("put", `/api/beans/${brazil.bean.id}/archived`, { archived: false });
+  await page.reload();
+  await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Roasted ${roastDay("2026-11-17")} · not tracked at Lab`);
+  // Where the batch's own read fails, the batch is named without its weight.
+  await page.route(`**/api/bean-batches/${later.id}`, (route) => route.fulfill({ status: 500, json: { message: "Down" } }));
+  await page.reload();
+  await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Roasted ${roastDay("2026-11-17")}`);
+  await page.unroute(`**/api/bean-batches/${later.id}`);
+  // Where the summary is of another Workflow, or its read fails, the card has no Bean Batch row, and shows the Workflow all the same.
+  const noRow = async () => {
+    await page.reload();
+    await expect(field(workflow, "Roaster")).toBeVisible();
+    await expect(workflow.getByRole("term").filter({ hasText: /^Bean Batch$/ })).toHaveCount(0);
+  };
+  await page.route("**/api/machines/*/workflow-summary", async (route) => {
+    const answer = await route.fetch();
+    const { workflow: event } = (await answer.json()) as { workflow: Record_ };
+    await route.fulfill({ response: answer, json: { workflow: { ...event, id: "00000000-0000-4000-8000-000000000000" } } });
+  });
+  await noRow();
+  await page.unroute("**/api/machines/*/workflow-summary");
+  await page.route("**/api/machines/*/workflow-summary", (route) => route.fulfill({ status: 500, json: { message: "Down" } }));
+  await noRow();
+  await page.unroute("**/api/machines/*/workflow-summary");
 
   // Its Activity: the next roast of the same Bean, each side by its code alone, linked, and named in full for a screen reader.
   const activity = await openActivity(page);

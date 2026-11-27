@@ -113,7 +113,7 @@ test("a batch's page lists the Recipes that name it at any Location, and a Locat
   await row.getByRole("link", { name: "Guji Espresso", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/library/recipes/${espresso}$`));
   await page.goBack();
-  await row.getByRole("link", { name: "Ethiopia Guji Natural", exact: true }).click();
+  await row.getByRole("link", { name: `Ethiopia Guji Natural LR-0412, roasted ${roastDay("2026-11-18")}`, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/library/bean-batches/${guji}$`));
 
   // Moved away from Riverside entirely, the batch is no longer in its list, and its Recipe there is still on the batch's page, marked.

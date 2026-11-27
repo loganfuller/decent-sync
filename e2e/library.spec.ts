@@ -109,7 +109,7 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
     ["Batch HeirloomNo roast date", "-", "Sandbox Coffee Roasters", "Batch cafe", "Not tracked", ""].join(""),
   ]);
 
-  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: "Batch Guji", exact: true }).click();
+  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: `Batch Guji, roasted ${roastDay("2026-10-01")}`, exact: true }).click();
   await expect(page.getByRole("heading", { name: `Batch Guji, roasted ${roastDay("2026-10-01")}`, level: 1 })).toBeVisible();
   // The page explains neither weights nor Batch Codes in a paragraph (#706): the Library's guide page does.
   await expectTip(page.getByRole("main"), "Roast", "As it was created, with the edits made since, on tablets or here.");

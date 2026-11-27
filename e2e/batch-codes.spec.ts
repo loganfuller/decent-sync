@@ -95,7 +95,7 @@ test("a batch is given a Batch Code as it is created, shown on its page and in t
   // Cleared, the batch has none.
   await search.getByLabel("Find a batch").fill("LR-0413");
   // Its Bean is the link, over the day it was roasted (#732).
-  await list.getByRole("link", { name: "Ethiopia Guji Natural", exact: true }).click();
+  await list.getByRole("link", { name: `Ethiopia Guji Natural LR-0413, roasted ${roastDay("2026-11-18")}`, exact: true }).click();
   await page.getByRole("button", { name: "Edit the roast" }).click();
   await form.getByLabel("Batch Code", { exact: true }).fill("");
   await form.getByRole("button", { name: "Save" }).click();

@@ -3401,7 +3401,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   sum over the Locations that track it, null where none does.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
   `content` and `finished`, the Locations it was at and has been finished at
-  since, each `{ location, remainingWeight, finishedAt }`, and its `recipes`
+  since, each `{ location, remainingWeight, finishedAt }`, `beanArchived`
+  (#732), whether its Bean is Archived, which takes it out of every Location
+  as its own `archived` does, and its `recipes`
   (#707), the Recipes, not Archived, whose content names it, at any Location,
   by their Location's name, then in slot order, then by name, each `{ id,
   name, location, slot, dose, yield, batchFinished }`: `batchFinished`

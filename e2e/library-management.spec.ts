@@ -65,7 +65,7 @@ test("part of a lab batch is moved to a cafe, weighed there and finished there, 
   expect(createdBatch.status()).toBe(201);
 
   await page.goto("/library/bean-batches");
-  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: "Lab Sidra", exact: true }).click();
+  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: `Lab Sidra, roasted ${roastDay("2026-10-04")}`, exact: true }).click();
   const where = batchLocations(page);
   // Created with a roasted weight and no remaining weight, it starts at that weight at the lab.
   await expect(batchAt(page, "Roastery lab")).toContainText("Roastery lab250 g");

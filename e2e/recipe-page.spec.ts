@@ -168,7 +168,7 @@ test("the Library opens on every Location's Recipes, in Recipe Slot order with t
   await expect(atLab.getByRole("columnheader")).toHaveText(["Slot", "Recipe", "Bean Batch", "Profile", "Dose and yield", "Grinder", "Reference Shot"]);
   // The Decaf, in slot 1, with no Reference Shot, and the House, in slot 2, with its batch, linked, over its roast day, and its Reference Shot's duration.
   await expect(rows(atLab)).toHaveText([/^1Decaf-+No reference$/, new RegExp(String.raw`^2HouseGujiRoasted ${roastDay(date(-12))}-+23\.5 s$`)]);
-  await expect(atLab.getByRole("link", { name: "Guji", exact: true })).toHaveAttribute("href", /^\/library\/bean-batches\//);
+  await expect(atLab.getByRole("link", { name: `Guji, roasted ${roastDay(date(-12))}`, exact: true })).toHaveAttribute("href", /^\/library\/bean-batches\//);
   await expect(atLab.getByRole("link", { name: "House" })).toHaveAttribute("href", `/library/recipes/${recipes.house}`);
   await expect(atLab.getByRole("link", { name: "23.5 s" })).toHaveAttribute("href", "/shots/left-house-1");
   await expect(atLab.getByRole("link", { name: "No reference" })).toHaveAttribute("href", `/shots?recipeId=${recipes.decaf}&rating=rated`);

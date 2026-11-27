@@ -112,7 +112,7 @@ test("a batch's page counts its Shots from both Locations and opens them in the 
   await expect(field(details, "Grinder")).toHaveText("Lab EK43 (recorded as DF64 v2) at 8");
   // Its Bean Batch, which has no Batch Code: its Bean, linked, over its roast day and how long after it the Shot was pulled (#732).
   await expect(field(details, "Bean Batch")).toHaveText(new RegExp(String.raw`^Linked SidraRoasted ${roastDay("2026-10-04")}(, (\d+ days? before this Shot|the day of this Shot))?$`));
-  await details.getByRole("link", { name: "Linked Sidra", exact: true }).click();
+  await details.getByRole("link", { name: `Linked Sidra, roasted ${roastDay("2026-10-04")}`, exact: true }).click();
   await expect(page.getByRole("heading", { name: `Linked Sidra, roasted ${roastDay("2026-10-04")}`, level: 1 })).toBeVisible();
 });
 
@@ -127,7 +127,7 @@ test("the Shots list, its Bean Batch filter and a Shot's page name a Shot's batc
   // pulled before their Machines came to one, have none of.
   await page.goto("/shots");
   await expect(under("lab-linked")).toHaveText(new RegExp(String.raw` · Linked Sidra, roasted ${roastDay("2026-10-04")} · No Location, times in UTC$`));
-  await expect(under("lab-linked").getByRole("link", { name: "Linked Sidra", exact: true })).toHaveAttribute("href", `/library/bean-batches/${batchId}`);
+  await expect(under("lab-linked").getByRole("link", { name: `Linked Sidra, roasted ${roastDay("2026-10-04")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${batchId}`);
   // A Shot linked to no batch gives its Bean as it recorded it, with no link and no roast date.
   const recorded = String(((shotFixture().workflow as Record_).context as Record_).coffeeName);
   await expect(under("lab-unlinked")).toHaveText(new RegExp(String.raw` · ${recorded} · No Location, times in UTC$`));
@@ -163,7 +163,7 @@ test("the Shots list, its Bean Batch filter and a Shot's page name a Shot's batc
   const details = await openCard(page, "Details");
   const batch = field(details, "Bean Batch");
   await expect(batch).toHaveText(new RegExp(String.raw`^Linked SidraLS-1004Roasted ${roastDay("2026-10-04")}(, (\d+ days? before this Shot|the day of this Shot))?$`));
-  await expect(batch.getByRole("link", { name: "Linked Sidra", exact: true })).toHaveAttribute("href", `/library/bean-batches/${batchId}`);
+  await expect(batch.getByRole("link", { name: `Linked Sidra LS-1004, roasted ${roastDay("2026-10-04")}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${batchId}`);
   await expect(batch.getByLabel("Batch Code LS-1004", { exact: true })).toHaveCSS("border-top-width", "1px");
   // The days are from the roast date to the Shot's day, at its Location, or in UTC for one with none: a batch roasted ten days before it
   // says so, and one roasted after it says nothing.

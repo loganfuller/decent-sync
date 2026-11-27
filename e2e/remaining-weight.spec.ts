@@ -73,7 +73,7 @@ test("a batch's page shows its weight at each Location less the Shots pulled the
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
     [`House EspressoRoasted ${roastDay("2026-11-20")}`, "PR-0470", "Lantern Coffee Roasters", "Downtown 4141.5 gRiverside 500 g", "4641.5 g", ""].join(""),
   ]);
-  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: "House Espresso", exact: true }).click();
+  await page.getByRole("table", { name: "Bean Batches" }).getByRole("link", { name: `House Espresso PR-0470, roasted ${roastDay("2026-11-20")}`, exact: true }).click();
 
   // A weight that differs from the one worked out says by how much (#726), less or more, and stops nothing.
   await where.getByRole("button", { name: "Enter its weight at Riverside" }).click();
