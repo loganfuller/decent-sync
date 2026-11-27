@@ -1028,7 +1028,7 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
   const id = useId();
   const addable = batch.locations.length > 0 ? [] : (locations ?? []).filter((location) => mayChangeAt(location.id));
   const total = totalText(batch);
-  const moves = useLeaving(batch);
+  const leaving = useLeaving(batch);
   /** The Locations the account may move the batch to from one: any other for an Admin or Staff working there, else those Staff work at. */
   const movableTo = (from: Location) => (locations ?? []).filter((location) => location.id !== from.id && (mayChangeAt(from.id) || mayChangeAt(location.id)));
 
@@ -1121,7 +1121,7 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
                 <Link to={`/locations/${left.location.id}`} className="font-medium underline-offset-4 hover:underline">
                   {left.location.name}
                 </Link>
-                <span>{moves.read && leftText(left, moves.versions)}</span>
+                <span>{leaving(left)}</span>
               </li>
             ))}
           </ul>
@@ -1162,14 +1162,15 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
 }
 
 /**
- * The changes in a batch's history, read while it has left a Location, for
- * what took it from each (`leftText`). Read again with the batch, as a change
- * made here loads it again; until the read for this load lands, `read` is
- * false, so a Location just left is not called "Finished" by an earlier read
- * that lacks the move that took it. Where the read fails, `versions` is
- * undefined, and each such Location reads "Finished".
+ * What took the batch from each Location it has left (`leftText`), from its
+ * history, read while it has left one. Read again with the batch, as a change
+ * made here loads it again. Until the read for this load lands, a Location's
+ * line keeps the last read's text where that read was for a load the batch
+ * had already left it in, at the same time, and is blank where it was not, so
+ * a Location just left is not called "Finished" by a read that lacks the move
+ * that took it. Where a read fails, each such Location reads "Finished".
  */
-function useLeaving(batch: BeanBatch): { read: boolean; versions?: ItemVersion[] } {
+function useLeaving(batch: BeanBatch): (left: BeanBatch["finished"][number]) => string | undefined {
   const [read, setRead] = useState<{ batch: BeanBatch; versions?: ItemVersion[] }>();
   const left = batch.finished.length > 0;
   useEffect(() => {
@@ -1183,7 +1184,10 @@ function useLeaving(batch: BeanBatch): { read: boolean; versions?: ItemVersion[]
       current = false;
     };
   }, [batch, left]);
-  return read?.batch === batch ? { read: true, versions: read.versions } : { read: false };
+  return (here) => {
+    const known = read && (read.batch === batch || read.batch.finished.some((earlier) => earlier.location.id === here.location.id && earlier.finishedAt === here.finishedAt));
+    return known ? leftText(here, read.versions) : undefined;
+  };
 }
 
 /**

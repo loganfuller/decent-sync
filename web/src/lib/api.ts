@@ -1329,8 +1329,8 @@ export interface BeanBatchSummary {
   bean: { id: string; roaster: string | null; name: string | null };
   /** Its roast date as Decaid recorded it, such as 2026-10-01T00:00:00.000. */
   roastDate: string | null;
-  /** Its Batch Code, the roaster's own identifier for it; null where it has none. */
-  batchCode: string | null;
+  /** Its Batch Code, the roaster's own identifier for it; null where it has none. Absent from the release before (ADR-0025). */
+  batchCode?: string | null;
   archived: boolean;
   /** The Locations it is at, by name, with its remaining weight at each. */
   locations: BatchAtLocation[];
