@@ -545,7 +545,8 @@ async function refuseTakenCode(db: Pick<Prisma.TransactionClient, "$queryRaw">, 
   throw new ConflictException({
     statusCode: 409,
     error: "Conflict",
-    message: `Another Bean Batch that is not Archived holds the Batch Code ${batchCode}: ${name} (id ${holder.id})`,
+    // Its name gives its code, as the holder spells it.
+    message: `Another Bean Batch that is not Archived holds this Batch Code: ${name} (id ${holder.id})`,
     existing: { id: holder.id, name, batchCode, bean: { name: nameOf(holder.beanContent) }, roastDate: roastDateOf(holder.content) },
   });
 }

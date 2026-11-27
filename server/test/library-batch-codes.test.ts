@@ -118,7 +118,7 @@ describe("A Bean Batch's Batch Code", () => {
 
     const created = await conflict(await newBatch(bean, { batchCode: " lr-0412  " }));
     expect(created.existing).toEqual(named);
-    expect(created.message).toBe(`Another Bean Batch that is not Archived holds the Batch Code LR-0412: Refused Huila LR-0412, roasted 2026-11-12 (id ${holder.id})`);
+    expect(created.message).toBe(`Another Bean Batch that is not Archived holds this Batch Code: Refused Huila LR-0412, roasted 2026-11-12 (id ${holder.id})`);
 
     const second = await createBatch(bean, { batchCode: "LR-0413" });
     expect((await conflict(await edit(second.id, { batchCode: "Lr-0412", notes: "Relabelled" }))).existing).toEqual(named);
