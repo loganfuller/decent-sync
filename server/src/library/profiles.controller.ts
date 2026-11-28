@@ -32,6 +32,8 @@ import { type ProfileSummary, type ProfileVersionsView, type ProfileView, Profil
  */
 @Controller("api/profiles")
 export class ProfilesController {
+  private readonly logger = new Logger("ProfilesController");
+
   constructor(
     private readonly profiles: ProfilesService,
     private readonly history: HistoryService,
@@ -152,7 +154,7 @@ export class ProfilesController {
     const { versionId } = await this.profiles.addressed(readProfileId(id));
     await hardDelete(this.prisma, "profile", versionId);
     // The Profile it leaves is put right now where it can be; the delete is done either way, and the job's next look tries again.
-    await this.placing.run().catch((error: unknown) => new Logger("ProfilesController").warn(`Deleted ${versionId}, but could not yet put its Profile right: ${String(error)}`));
+    await this.placing.run().catch((error: unknown) => this.logger.warn(`Deleted ${versionId}, but could not yet put its Profile right: ${String(error)}`));
   }
 
   /** Its history (ADR-0020, ADR-0033): its versions, the latest taken in first, and its Lost Edits, the latest lost first, or those of the field its query names. */

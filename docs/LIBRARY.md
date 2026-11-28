@@ -3612,6 +3612,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `POST /api/drafts` starts one and returns `{ draft, held }` with 201, from
   `{ profileId, as }`, `as` `version` (Edit) or `separate` (Duplicate); `{
   shape }`, a starting shape's key; or `{ file }`, a profile file's content.
+  `profileId` is the Profile's own id or any version's Decaid id: Edit starts
+  from the Profile's current version, and Duplicate copies the version named.
   `held` lists each value of a file held to the ranges, `{ step, path, from,
   to }`. 400 for none or more than one of them, an unknown shape or a file
   Decaid would not read; 404 for no such Profile; 409 for Edit of a bundled

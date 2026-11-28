@@ -197,7 +197,8 @@ export class DraftsService {
     let shape: string | null = null;
     let publishesAs: DraftPublishesAs = "separate";
     if (start.kind === "profile") {
-      const item = await this.profiles.get(start.profileId);
+      // Edit is of the Profile, by any of its ids, so starts from its current version (ADR-0038); Duplicate copies the version named.
+      const item = await this.profiles.get(start.publishesAs === "version" ? (await this.profiles.addressed(start.profileId)).currentVersionId : start.profileId);
       if (!item.profile) throw new ConflictException(`Profile ${item.id}'s profile can't be read as Decaid reads one, so no Draft can start from it`);
       if (start.publishesAs === "version" && item.bundled)
         throw new ConflictException(`"${item.title ?? item.id}" is one of Decaid's bundled Profiles, which only Duplicate starts a Draft from, as a separate Profile`);

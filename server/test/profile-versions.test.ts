@@ -288,6 +288,12 @@ describe("A Profile, its versions, the Recipes on it and the model it is simulat
     expect((await read(profileId)).title).toBe("Versions Bloom");
     // Another Profile's it does not.
     expect((await api.call("PATCH", path(profileId), { content: { title: "Versions Orphan" } })).status).toBe(409);
+    // Edit by an earlier version's id starts from the current version; Duplicate copies the version named.
+    const editing = (await api.send<{ draft: { id: string; startedFrom: { id: string } | null } }>("POST", "/drafts", { profileId: ids.first, as: "version" }, 201)).draft;
+    expect(editing.startedFrom?.id).toBe(ids.third);
+    const copying = (await api.send<{ draft: { id: string; startedFrom: { id: string } | null } }>("POST", "/drafts", { profileId: ids.first, as: "separate" }, 201)).draft;
+    expect(copying.startedFrom?.id).toBe(ids.first);
+    for (const draft of [editing, copying]) await api.send("DELETE", `/drafts/${draft.id}`, undefined, 204);
     // The assistant's tools act on the current version by an earlier one's id, and answer with what they changed.
     const offered = await assistant.callWithinBudget<{ profile: { id: string } }>("set_location_offering", { kind: "profile", id: ids.first, locationId: cafe.id, offered: true });
     expect(offered.result.profile.id).toBe(ids.third);

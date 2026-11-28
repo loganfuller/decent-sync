@@ -210,11 +210,17 @@ export class ProfilesService {
 
   /** Decaid's ids of every version of the Profile the id addresses (`addressed`): the row alone until it is placed. */
   async versionIds(id: string): Promise<string[]> {
-    const { versionId, profileId } = await this.addressed(id);
+    const { versionId, profileId, currentVersionId } = await this.addressed(id);
     if (profileId === null) return [versionId];
-    // The latest, where a Profile has more than the most read.
-    const latest = await this.prisma.profile.findMany({ where: { libraryProfileId: profileId }, select: { id: true }, orderBy: { versionNumber: "desc" }, take: MAX_PROFILE_VERSIONS });
-    return latest.map((row) => row.id).reverse();
+    // Where a Profile has more than the most read, the latest, and its current one, which a return can leave earlier.
+    const latest = await this.prisma.profile.findMany({
+      where: { libraryProfileId: profileId, id: { not: currentVersionId } },
+      select: { id: true, versionNumber: true },
+      orderBy: { versionNumber: "desc" },
+      take: MAX_PROFILE_VERSIONS - 1,
+    });
+    const current = await this.prisma.profile.findUnique({ where: { id: currentVersionId }, select: { id: true, versionNumber: true } });
+    return [...latest, ...(current ? [current] : [])].sort((a, b) => (a.versionNumber ?? 0) - (b.versionNumber ?? 0)).map((row) => row.id);
   }
 
   /**
