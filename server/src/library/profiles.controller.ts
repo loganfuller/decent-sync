@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -12,7 +12,8 @@ import { LibraryEditsService } from "./library-edits.service.js";
 import { type ProfileSimulation, ProfileSimulationService, readSimulationAsk } from "./profile-simulation.service.js";
 import { type PublishedView, PublishingService, readReturnAsk } from "./publishing.service.js";
 import { type RecipeOnProfileView, RecipesService } from "./recipes.service.js";
-import { type ProfileSummary, type ProfileVersionView, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
+import { ProfilePlacing } from "./profile-placing.js";
+import { type ProfileSummary, type ProfileVersionsView, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
 
 /**
  * The Library's Profiles, and the Locations showing each. Staff read them,
@@ -21,6 +22,13 @@ import { type ProfileSummary, type ProfileVersionView, type ProfileView, Profile
  * Admin hard-deletes one. Their steps change only on tablets so far: Decaid
  * computes a Profile's id from what the machine executes (ADR-0032). Each
  * can be simulated on a puck (#577), which Viewers may too.
+ *
+ * Every `:id` is a Profile's own id or Decaid's id of one of its Profile
+ * Versions (ADR-0038, `ProfilesService.addressed`). A Profile's own id
+ * reads its current version. Its title, author and notes, where it is shown
+ * and whether it is Archived are the Profile's, so those routes act on its
+ * current version whichever of its versions is named; the rest read the
+ * version named.
  */
 @Controller("api/profiles")
 export class ProfilesController {
@@ -32,8 +40,10 @@ export class ProfilesController {
     private readonly simulation: ProfileSimulationService,
     private readonly recipes: RecipesService,
     private readonly publishing: PublishingService,
+    private readonly placing: ProfilePlacing,
   ) {}
 
+  /** One row for each Profile (`ProfilesService.list`), with its own id beside its current version's Decaid id. */
   @AllowStaff()
   @Get()
   async list(): Promise<{ profiles: ProfileSummary[] }> {
@@ -47,23 +57,22 @@ export class ProfilesController {
   }
 
   /**
-   * Its Profile Versions (ADR-0032), the chain of `parentId` links through
-   * it, forks and all, the latest saved first, each with who saved it and
-   * how many Shots are on it (`ProfilesService.versions`).
+   * The Profile's Profile Versions (ADR-0038), the latest to join first,
+   * each with its number, whether it is current, who saved it and how many
+   * Shots are on it, and the Machines whose Workflow holds an earlier
+   * version with no Recipe loaded (`ProfilesService.versions`).
    */
   @AllowStaff()
   @Get(":id/versions")
-  async profileVersions(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: ProfileVersionView[] }> {
-    return { versions: await this.profiles.versions(readProfileId(id), scope) };
+  async profileVersions(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<ProfileVersionsView> {
+    return this.profiles.versions(readProfileId(id), scope);
   }
 
-  /** The Recipes, not Archived, that name it, each with the Machines that have it loaded now. 404 for no such Profile. */
+  /** The Recipes, not Archived, that name any of the Profile's versions, each with the Machines that have it loaded now. 404 for no such Profile. */
   @AllowStaff()
   @Get(":id/recipes")
   async namingRecipes(@Param("id") id: string): Promise<{ recipes: RecipeOnProfileView[] }> {
-    const profileId = readProfileId(id);
-    if (!(await this.prisma.profile.count({ where: { id: profileId } }))) throw new NotFoundException("No such Profile");
-    return { recipes: await this.recipes.namingProfile(profileId) };
+    return { recipes: await this.recipes.namingProfile(await this.profiles.versionIds(readProfileId(id))) };
   }
 
   /**
@@ -87,9 +96,9 @@ export class ProfilesController {
   @AllowStaff()
   @Patch(":id")
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ profile: ProfileView }> {
-    const profileId = readProfileId(id);
-    await this.edits.editProfile(profileId, readContentEdit("profile", body), managementEditor(session.account.id));
-    return { profile: await this.profiles.get(profileId) };
+    const { currentVersionId } = await this.profiles.addressed(readProfileId(id));
+    await this.edits.editProfile(currentVersionId, readContentEdit("profile", body), managementEditor(session.account.id));
+    return { profile: await this.profiles.get(currentVersionId) };
   }
 
   /**
@@ -97,6 +106,7 @@ export class ProfilesController {
    * (`PublishingService.returnTo`): `{ from, locations, recipes? }`, shown
    * at the Locations, the Recipes naming `from` moved to it, and `from`
    * hidden there but where a Recipe not moved names it. Creates nothing.
+   * Both are named by Decaid's id.
    */
   @AllowStaff()
   @Post(":id/return")
@@ -115,31 +125,40 @@ export class ProfilesController {
     @Body() body: unknown,
     @CurrentSession() session: SignedIn,
   ): Promise<{ profile: ProfileView }> {
-    const profileId = readProfileId(id);
-    await this.edits.showProfile(profileId, readLocationId(locationId).toLowerCase(), readShown(body), managementEditor(session.account.id), session.scope);
-    return { profile: await this.profiles.get(profileId) };
+    const { currentVersionId } = await this.profiles.addressed(readProfileId(id));
+    await this.edits.showProfile(currentVersionId, readLocationId(locationId).toLowerCase(), readShown(body), managementEditor(session.account.id), session.scope);
+    return { profile: await this.profiles.get(currentVersionId) };
   }
 
   /** Archives it or restores it: `{ archived }`. */
   @AllowStaff()
   @Put(":id/archived")
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ profile: ProfileView }> {
-    const profileId = readProfileId(id);
-    await this.edits.archiveProfile(profileId, readArchived(body), managementEditor(session.account.id));
-    return { profile: await this.profiles.get(profileId) };
+    const { currentVersionId } = await this.profiles.addressed(readProfileId(id));
+    await this.edits.archiveProfile(currentVersionId, readArchived(body), managementEditor(session.account.id));
+    return { profile: await this.profiles.get(currentVersionId) };
   }
 
-  /** Deletes it from the Library and every tablet that holds it, unless a Shot names it or it is bundled with Decaid. Admins only. */
+  /**
+   * Deletes the version named, a Profile's own id naming its current one,
+   * from the Library and every tablet that holds it, unless a Shot names it
+   * or it is bundled with Decaid. A Profile left with other versions then
+   * has the latest of them as its current one, and one left with none is
+   * gone. Admins only.
+   */
   @Delete(":id")
   @HttpCode(204)
   async remove(@Param("id") id: string): Promise<void> {
-    await hardDelete(this.prisma, "profile", readProfileId(id));
+    const { versionId } = await this.profiles.addressed(readProfileId(id));
+    await hardDelete(this.prisma, "profile", versionId);
+    await this.placing.run();
   }
 
   /** Its history (ADR-0020, ADR-0033): its versions, the latest taken in first, and its Lost Edits, the latest lost first, or those of the field its query names. */
   @AllowStaff()
   @Get(":id/history")
   async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<HistoryView> {
-    return this.history.history({ kind: "profile", id: readProfileId(id) }, scope, readHistoryField(query));
+    const { versionId } = await this.profiles.addressed(readProfileId(id));
+    return this.history.history({ kind: "profile", id: versionId }, scope, readHistoryField(query));
   }
 }

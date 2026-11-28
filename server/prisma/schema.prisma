@@ -45,18 +45,18 @@ model Account {
   /// ends its sessions and refuses its sign-ins; null while it is active.
   deactivatedAt DateTime?   @map("deactivated_at") @db.Timestamptz(3)
 
-  sessions      Session[]
+  sessions        Session[]
   /// The Locations a Staff member works at. An Admin sees every Location and has none.
-  locations     StaffLocation[]
+  locations       StaffLocation[]
   /// The password reset link issued for it, if any.
-  passwordReset PasswordReset?
-  itemVersions  ItemVersion[]
-  lostEdits     LostEdit[]
-  settingsEdits SettingsEdit[]
+  passwordReset   PasswordReset?
+  itemVersions    ItemVersion[]
+  lostEdits       LostEdit[]
+  settingsEdits   SettingsEdit[]
   softwareActions SoftwareAction[]
-  shotEdits     ShotEdit[]
-  connectedApps ConnectedApp[]
-  drafts        Draft[]
+  shotEdits       ShotEdit[]
+  connectedApps   ConnectedApp[]
+  drafts          Draft[]
 
   @@map("accounts")
 }
@@ -287,17 +287,17 @@ model SignInWindow {
 
 /// A physical site where machines are used, such as a roastery lab or a cafe.
 model Location {
-  id        String   @id @default(uuid(7)) @db.Uuid
+  id          String   @id @default(uuid(7)) @db.Uuid
   /// Stored trimmed; unique so choosers can name a Location unambiguously.
-  name      String   @unique
+  name        String   @unique
   /// An IANA time zone, spelled as PostgreSQL knows it, so date filters can
   /// use it with AT TIME ZONE. See server/src/locations/time-zones.ts.
-  timeZone  String   @map("time_zone")
+  timeZone    String   @map("time_zone")
   /// Whether Drafts may be tried here (ADR-0032, ticket #581), which an
   /// Admin turns on: only its Machines can follow a Draft.
-  triesDrafts Boolean @default(false) @map("tries_drafts")
-  createdAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  triesDrafts Boolean  @default(false) @map("tries_drafts")
+  createdAt   DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   assignments     LocationAssignment[]
   shots           Shot[]
@@ -345,52 +345,52 @@ enum MachineIdentification {
 /// machine entry. Its identity is its model and serial (ADR-0004), bound when
 /// a connection with its token first reports real ones, or entered by an Admin.
 model Machine {
-  id                  String                @id @default(uuid(7)) @db.Uuid
+  id                 String                @id @default(uuid(7)) @db.Uuid
   /// Stored trimmed; unique so lists and choosers name a Machine unambiguously.
-  name                String                @unique
+  name               String                @unique
   /// The hardware its token is bound to; null until bound.
-  model               String?
-  serial              String?
-  identification      MachineIdentification @default(HARDWARE_NOT_REPORTED)
+  model              String?
+  serial             String?
+  identification     MachineIdentification @default(HARDWARE_NOT_REPORTED)
   /// The hardware the latest `hello` that reported any did, as reported:
   /// for a mismatch, the other hardware; for an Unidentified Machine, its "0".
-  reportedModel       String?               @map("reported_model")
-  reportedSerial      String?               @map("reported_serial")
-  firmware            String?
+  reportedModel      String?               @map("reported_model")
+  reportedSerial     String?               @map("reported_serial")
+  firmware           String?
   /// The connection id, plugin and Decaid versions of the latest accepted
   /// `hello`, and the address its connection came from (`clientAddress`).
-  connectionId        String?               @map("connection_id")
-  pluginVersion       String?               @map("plugin_version")
-  decaidVersion       String?               @map("decaid_version")
+  connectionId       String?               @map("connection_id")
+  pluginVersion      String?               @map("plugin_version")
+  decaidVersion      String?               @map("decaid_version")
   /// The wire revision of the plugin that `hello` came from (ADR-0025), so
   /// any instance can say whether it can follow a Draft (ticket #581); null
   /// until a release that records it accepts one.
-  wireRevision        Int?                  @map("wire_revision")
-  remoteAddress       String?               @map("remote_address")
+  wireRevision       Int?                  @map("wire_revision")
+  remoteAddress      String?               @map("remote_address")
   /// Whether it takes part in the Library at its Location: on unless an
   /// Admin turned sharing off, making it a Capture-only Machine, whose
   /// records are captured but whose tablet is written nothing and whose
   /// Library changes are not taken in.
-  sharing             Boolean               @default(true)
+  sharing            Boolean               @default(true)
   /// When an Admin last turned sharing back on, by PostgreSQL's clock; null
   /// if never. Each of its tablet's reports records it (`tablet_reports`),
   /// so the first report since is part of joining its Location (ADR-0008).
-  sharingSince        DateTime?             @map("sharing_since") @db.Timestamptz(3)
+  sharingSince       DateTime?             @map("sharing_since") @db.Timestamptz(3)
   /// Why a connection with its token was last refused, until one is accepted.
-  refusalReason       String?               @map("refusal_reason")
-  refusedAt           DateTime?             @map("refused_at") @db.Timestamptz(3)
+  refusalReason      String?               @map("refusal_reason")
+  refusedAt          DateTime?             @map("refused_at") @db.Timestamptz(3)
   /// When a plugin connected with its token was last heard from.
-  lastSeenAt          DateTime?             @map("last_seen_at") @db.Timestamptz(3)
+  lastSeenAt         DateTime?             @map("last_seen_at") @db.Timestamptz(3)
   /// The connection that holds the Machine, on whichever server instance:
   /// written when a hello is accepted, cleared when that connection closes.
   /// Online while set and heard from recently, so a crashed instance's
   /// connections go offline by themselves.
-  connectedSessionId  String?               @map("connected_session_id") @db.Uuid
+  connectedSessionId String?               @map("connected_session_id") @db.Uuid
   /// The tablet that connection comes from, set and cleared with it, so the
   /// next accepted `hello` can tell another tablet from this one reconnecting.
-  connectedTabletId   String?               @map("connected_tablet_id") @db.Uuid
-  createdAt           DateTime              @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  connectedTabletId  String?               @map("connected_tablet_id") @db.Uuid
+  createdAt          DateTime              @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   shots              Shot[]
   steamRecords       SteamRecord[]
@@ -601,35 +601,35 @@ model DismissedHardware {
 /// A Decaid Shot, unique across reporting tablets. An edit may arrive before
 /// its full record: it is durable here, but hidden until the full record arrives.
 model Shot {
-  id               String            @id
-  hasFullRecord    Boolean           @default(false) @map("has_full_record")
-  record           Json              @db.JsonB
-  versionAt        DateTime          @map("version_at") @db.Timestamptz(6)
-  machineId        String?           @map("machine_id") @db.Uuid
-  machine          Machine?          @relation(fields: [machineId], references: [id])
-  pendingMachineId String?           @map("pending_machine_id") @db.Uuid
-  pendingMachine   PendingMachine?   @relation(fields: [pendingMachineId], references: [id])
-  machineInferred  Boolean           @default(false) @map("machine_inferred")
+  id                String            @id
+  hasFullRecord     Boolean           @default(false) @map("has_full_record")
+  record            Json              @db.JsonB
+  versionAt         DateTime          @map("version_at") @db.Timestamptz(6)
+  machineId         String?           @map("machine_id") @db.Uuid
+  machine           Machine?          @relation(fields: [machineId], references: [id])
+  pendingMachineId  String?           @map("pending_machine_id") @db.Uuid
+  pendingMachine    PendingMachine?   @relation(fields: [pendingMachineId], references: [id])
+  machineInferred   Boolean           @default(false) @map("machine_inferred")
   /// Where its Machine was when it was pulled, by the Machine's Location
   /// History; null when unknown. Re-derived whenever that history changes.
-  locationId       String?           @map("location_id") @db.Uuid
-  location         Location?         @relation(fields: [locationId], references: [id])
-  pulledAt         DateTime?         @map("pulled_at") @db.Timestamptz(3)
+  locationId        String?           @map("location_id") @db.Uuid
+  location          Location?         @relation(fields: [locationId], references: [id])
+  pulledAt          DateTime?         @map("pulled_at") @db.Timestamptz(3)
   /// The batch and Grinder its Workflow names, by their ids on the tablet
   /// that pulled it: an item whose record has such an id on any tablet is
   /// named by the Shot, and is never hard-deleted.
-  beanBatchId      String?           @map("bean_batch_id")
-  grinderId        String?           @map("grinder_id")
+  beanBatchId       String?           @map("bean_batch_id")
+  grinderId         String?           @map("grinder_id")
   /// The burrs fitted to that Grinder as the Shot was pulled, as Decaid
   /// v0.9.0 and later copy them from its record onto a Shot they pull, so a
   /// later change of burrs leaves the Shot's alone; an imported Shot keeps
   /// those it carries. Null where it records none.
-  grinderBurrs     String?           @map("grinder_burrs")
+  grinderBurrs      String?           @map("grinder_burrs")
   /// The tablet that reported the metadata stored, whose ids `beanBatchId`
   /// and `grinderId` are; null for a Shot stored before Shots kept it, until
   /// a tablet's index lists it, as only a tablet holding it does.
-  tabletId         String?           @map("tablet_id") @db.Uuid
-  tablet           Tablet?           @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  tabletId          String?           @map("tablet_id") @db.Uuid
+  tablet            Tablet?           @relation(fields: [tabletId], references: [id], onDelete: SetNull)
   /// The rating, 0 for none, and the note, empty for none, that tablet
   /// holds, as far as the server knows: as it last reported them, or was
   /// last written them (ticket #513). An edit made through the server
@@ -638,89 +638,89 @@ model Shot {
   /// is read against these to tell the fields it changed
   /// (`settleShotEdits` in server/src/shots/shot-edits.ts). Set as an edit
   /// is made while no other awaits; null for a Shot never edited so.
-  heldRating       Float?            @map("held_rating")
-  heldNote         String?           @map("held_note")
+  heldRating        Float?            @map("held_rating")
+  heldNote          String?           @map("held_note")
   /// The version of the Shot (`versionAt`) those were last set at. This
   /// release sets it with every version it stores of such a Shot, so one
   /// that differs was stored by the previous release, which decides
   /// nothing (ADR-0025): the stored version is then decided before it is
   /// relied on (`settleStoredVersion`).
-  heldVersionAt    DateTime?         @map("held_version_at") @db.Timestamptz(6)
+  heldVersionAt     DateTime?         @map("held_version_at") @db.Timestamptz(6)
   /// The Library's Bean Batch and Grinder those ids resolve to through that
   /// tablet's map, once it holds them, kept when the tablet's record leaves
   /// it (server/src/shots/links.ts). A Shot linked to an item names it.
-  libraryBatchId   String?           @map("library_batch_id") @db.Uuid
-  libraryBatch     BeanBatch?        @relation(fields: [libraryBatchId], references: [id], onDelete: SetNull)
-  libraryGrinderId String?           @map("library_grinder_id") @db.Uuid
-  libraryGrinder   Grinder?          @relation(fields: [libraryGrinderId], references: [id], onDelete: SetNull)
+  libraryBatchId    String?           @map("library_batch_id") @db.Uuid
+  libraryBatch      BeanBatch?        @relation(fields: [libraryBatchId], references: [id], onDelete: SetNull)
+  libraryGrinderId  String?           @map("library_grinder_id") @db.Uuid
+  libraryGrinder    Grinder?          @relation(fields: [libraryGrinderId], references: [id], onDelete: SetNull)
   /// The Basket DYE2 recorded, by its id on that tablet: its Edit Shot
   /// page's, in the annotations' extras, or else the Workflow's, in its
   /// context's extras. A Basket whose record has that id on any tablet is
   /// named by the Shot, and is never hard-deleted.
-  basketId         String?           @map("basket_id")
+  basketId          String?           @map("basket_id")
   /// The Library's Basket it resolves to through that tablet's map, as the
   /// batch and Grinder are.
-  libraryBasketId  String?           @map("library_basket_id") @db.Uuid
-  libraryBasket    Basket?           @relation(fields: [libraryBasketId], references: [id], onDelete: SetNull)
+  libraryBasketId   String?           @map("library_basket_id") @db.Uuid
+  libraryBasket     Basket?           @relation(fields: [libraryBasketId], references: [id], onDelete: SetNull)
   /// The Tools DYE2 recorded, by their ids on that tablet, which name them,
   /// so none is hard-deleted.
-  toolIds          String[]          @default([]) @map("tool_ids")
+  toolIds           String[]          @default([]) @map("tool_ids")
   /// The Library's Tools those ids resolve to through that tablet's map,
   /// place for place, empty text where the map does not hold one, kept as
   /// the Basket's link is, so a Tool a Shot used stays named once its record
   /// leaves the tablet; read by hard deletes only.
-  libraryToolIds   String[]          @default([]) @map("library_tool_ids")
+  libraryToolIds    String[]          @default([]) @map("library_tool_ids")
   /// The Recipe its Workflow named (ADR-0022), by the id of its tablet's
   /// record of it (`context.extras.dye.recipeId`), through that tablet's map,
   /// kept while it names the same id. The Shot is linked to it only where its
   /// Machine had it loaded as it was pulled (server/src/shots/links.ts),
   /// which is read, not stored.
-  recipeId         String?           @map("recipe_id") @db.Uuid
-  coffeeName       String?           @map("coffee_name")
-  coffeeRoaster    String?           @map("coffee_roaster")
-  profileTitle     String?           @map("profile_title")
-  profileId        String?           @map("profile_id")
-  targetDose       Float?            @map("target_dose")
-  actualDose       Float?            @map("actual_dose")
-  targetYield      Float?            @map("target_yield")
-  actualYield      Float?            @map("actual_yield")
+  recipeId          String?           @map("recipe_id") @db.Uuid
+  coffeeName        String?           @map("coffee_name")
+  coffeeRoaster     String?           @map("coffee_roaster")
+  profileTitle      String?           @map("profile_title")
+  profileId         String?           @map("profile_id")
+  targetDose        Float?            @map("target_dose")
+  actualDose        Float?            @map("actual_dose")
+  targetYield       Float?            @map("target_yield")
+  actualYield       Float?            @map("actual_yield")
   /// How long its Preheat lasted, in seconds: the Machine heating its water
   /// before the profile starts. Its peaks leave it out (extractCurves), and
   /// the duration it shows is `duration` without it (shownDuration). Null
   /// until a Shot of an earlier curves revision is computed again.
-  preheat          Float?
+  preheat           Float?
   /// The whole recording, in seconds, Preheat included, as the release
   /// before stores it and bounds a Shot's Loaded Recipe by (shotRecipeSql).
-  duration         Float?
-  enjoyment        Float?
-  barista          String?
-  peakPressure     Float?            @map("peak_pressure")
-  peakFlow         Float?            @map("peak_flow")
+  duration          Float?
+  enjoyment         Float?
+  barista           String?
+  peakPressure      Float?            @map("peak_pressure")
+  peakFlow          Float?            @map("peak_flow")
   /// What its samples show of how it went (measuredValues, #467), each null
   /// until a Shot of an earlier curves revision is computed again, and each
   /// but `poured` where its samples show none. Its time to first drip: the
   /// seconds from the start of its profile to when its coffee first reached
   /// the cup, as its scale shows it (timeToFirstDrip).
-  timeToFirstDrip  Float?            @map("time_to_first_drip")
+  timeToFirstDrip   Float?            @map("time_to_first_drip")
   /// The step of its Profile it ended in: its index among the Profile's
   /// steps, a float as a record may hold any whole number there, and its
   /// name.
-  lastStepFrame    Float?            @map("last_step_frame")
-  lastStepName     String?           @map("last_step_name")
+  lastStepFrame     Float?            @map("last_step_frame")
+  lastStepName      String?           @map("last_step_name")
   /// Whether any of its samples is in the `pouring` substate: a Shot that
   /// has none, and no time to first drip, is an Unfinished Shot.
-  poured           Boolean?
+  poured            Boolean?
   /// The scale's last weight after its Preheat, in grams, its seconds from
   /// the start of the profile, and the scale's weight flow at that reading,
   /// in g/s: the flow at the stop.
-  lastWeight       Float?            @map("last_weight")
-  lastWeightSeconds Float?           @map("last_weight_seconds")
-  flowAtStop       Float?            @map("flow_at_stop")
+  lastWeight        Float?            @map("last_weight")
+  lastWeightSeconds Float?            @map("last_weight_seconds")
+  flowAtStop        Float?            @map("flow_at_stop")
   /// The revision of extractCurves its Preheat, peaks and what its samples
   /// show were computed by (CURVES_REVISION); those of an earlier one are
   /// computed again from its measurements (CurvesRefresh).
-  curvesRevision   Int               @default(0) @map("curves_revision")
-  measurements     ShotMeasurements?
+  curvesRevision    Int               @default(0) @map("curves_revision")
+  measurements      ShotMeasurements?
 
   /// The migrations order each pulled_at column NULLS LAST, as the queries do; Prisma cannot express that.
   @@index([pulledAt(sort: Desc), id])
@@ -759,50 +759,50 @@ model ShotMeasurements {
 /// last reported it (`shots.tablet_id`), now if that tablet is connected and
 /// otherwise when it next connects (server/src/shots/shot-edits.service.ts).
 model ShotEdit {
-  id             String        @id @default(uuid(7)) @db.Uuid
+  id              String        @id @default(uuid(7)) @db.Uuid
   /// A number from its column's sequence, taken as its row is inserted
   /// under its Shot's lock: one Shot's edits are numbered in the order they
   /// were applied, on any instance and whatever PostgreSQL's clock does.
   /// They are listed by it, and a write to the Shot's tablet carries the
   /// latest value of each field by it.
-  number         BigInt        @default(autoincrement())
+  number          BigInt        @default(autoincrement())
   /// The Shot, by its id, with no foreign key, as a Recipe names its
   /// Reference Shot: Shots are never deleted.
-  shotId         String        @map("shot_id")
+  shotId          String        @map("shot_id")
   /// The rating it set, 0 for unrated, and the note, empty for none; each
   /// null where the edit left that field alone.
-  rating         Float?
-  note           String?
+  rating          Float?
+  note            String?
   /// Who made it: an account, and the Connected App it made it through, if
   /// one (ADR-0026). An edit made on a Machine's tablet names neither.
-  accountId      String?       @map("account_id") @db.Uuid
-  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  connectedAppId String?       @map("connected_app_id") @db.Uuid
-  connectedApp   ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
+  accountId       String?       @map("account_id") @db.Uuid
+  account         Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  connectedAppId  String?       @map("connected_app_id") @db.Uuid
+  connectedApp    ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
   /// The Machine whose tablet made it, for a Skin (ticket #515), and that
   /// tablet, as a version of a Library item names them (`ItemVersion`);
   /// each null for an account's.
-  machineId      String?       @map("machine_id") @db.Uuid
-  machine        Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  tabletId       String?       @map("tablet_id") @db.Uuid
-  tablet         Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  machineId       String?       @map("machine_id") @db.Uuid
+  machine         Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  tabletId        String?       @map("tablet_id") @db.Uuid
+  tablet          Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
   /// By PostgreSQL's clock, as its row is inserted, under its Shot's lock
   /// (`clock_timestamp()`): when the edit was applied, not when its
   /// transaction began, which may have waited for that lock.
-  madeAt         DateTime      @default(dbgenerated("clock_timestamp()")) @map("made_at") @db.Timestamptz(6)
+  madeAt          DateTime      @default(dbgenerated("clock_timestamp()")) @map("made_at") @db.Timestamptz(6)
   /// When its tablet's plugin answered that it wrote it, by PostgreSQL's
   /// clock; null while it awaits its tablet.
-  writtenAt      DateTime?     @map("written_at") @db.Timestamptz(3)
+  writtenAt       DateTime?     @map("written_at") @db.Timestamptz(3)
   /// When each field it set was dropped, by PostgreSQL's clock: its tablet
   /// reported a version of the Shot later than the edit in which it had
   /// changed that field, so the tablet's value stands and the edit of it
   /// is never written (ticket #513). Null for a field not dropped.
-  ratingDroppedAt DateTime?    @map("rating_dropped_at") @db.Timestamptz(3)
-  noteDroppedAt  DateTime?     @map("note_dropped_at") @db.Timestamptz(3)
+  ratingDroppedAt DateTime?     @map("rating_dropped_at") @db.Timestamptz(3)
+  noteDroppedAt   DateTime?     @map("note_dropped_at") @db.Timestamptz(3)
   /// When its tablet answered that it no longer holds the Shot, as one
   /// reset or replaced, by PostgreSQL's clock: the edit stays on the
   /// server, with no tablet to reach, and is sent no more.
-  unreachableAt  DateTime?     @map("unreachable_at") @db.Timestamptz(3)
+  unreachableAt   DateTime?     @map("unreachable_at") @db.Timestamptz(3)
 
   @@index([shotId, number])
   @@index([connectedAppId])
@@ -1123,50 +1123,50 @@ enum WakeScheduleAction {
 /// by the instance holding that connection, which sets `sentAt` with the
 /// row locked again. See server/src/settings-edits/.
 model SettingsEdit {
-  id            String               @id @default(uuid(7)) @db.Uuid
-  machineId     String               @map("machine_id") @db.Uuid
-  machine       Machine              @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  id             String                 @id @default(uuid(7)) @db.Uuid
+  machineId      String                 @map("machine_id") @db.Uuid
+  machine        Machine                @relation(fields: [machineId], references: [id], onDelete: Cascade)
   /// The connection that held the Machine as it was made (`connected_session_id`), and its tablet.
-  sessionId     String               @map("session_id") @db.Uuid
-  tabletId      String               @map("tablet_id") @db.Uuid
+  sessionId      String                 @map("session_id") @db.Uuid
+  tabletId       String                 @map("tablet_id") @db.Uuid
   /// Who made it.
-  accountId     String?              @map("account_id") @db.Uuid
-  account       Account?             @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountId      String?                @map("account_id") @db.Uuid
+  account        Account?               @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// The Connected App the account made it through, if one (ADR-0026); null
   /// for one made in the management interface, and for every edit the
   /// previous release makes (ADR-0025).
-  connectedAppId String?             @map("connected_app_id") @db.Uuid
-  connectedApp  ConnectedApp?        @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
+  connectedAppId String?                @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp?          @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
   /// One of EDITABLE_SETTINGS_COLLECTIONS.
-  collection    String
+  collection     String
   /// For `presenceSettings`, the wake schedule it adds, changes or deletes, if
   /// it does, by the id Decaid gave it: for an add, null until its answer
   /// carries the new schedule's.
-  scheduleAction WakeScheduleAction? @map("schedule_action")
-  scheduleId    String?              @map("schedule_id")
+  scheduleAction WakeScheduleAction?    @map("schedule_action")
+  scheduleId     String?                @map("schedule_id")
   /// Each field it sets, by its path, with its new value; and each field's
   /// value in the report it was made over, as the tablet sent it.
-  fields        Json                 @db.JsonB
-  expected      Json                 @db.JsonB
+  fields         Json                   @db.JsonB
+  expected       Json                   @db.JsonB
   /// By PostgreSQL's clock: when it was made, sent and answered.
-  madeAt        DateTime             @default(dbgenerated("transaction_timestamp()")) @map("made_at") @db.Timestamptz(3)
-  sentAt        DateTime?            @map("sent_at") @db.Timestamptz(3)
-  answeredAt    DateTime?            @map("answered_at") @db.Timestamptz(3)
+  madeAt         DateTime               @default(dbgenerated("transaction_timestamp()")) @map("made_at") @db.Timestamptz(3)
+  sentAt         DateTime?              @map("sent_at") @db.Timestamptz(3)
+  answeredAt     DateTime?              @map("answered_at") @db.Timestamptz(3)
   /// Null until answered. While it is, the edit is not confirmed once
   /// SETTINGS_EDIT_MS have passed since it was made, or its connection no
   /// longer holds the Machine online (settings-edits.service.ts).
-  outcome       SettingsEditOutcome?
+  outcome        SettingsEditOutcome?
   /// Whether its answer came after it was marked not confirmed. A late
   /// EXPIRED refusal leaves it not confirmed.
-  late          Boolean              @default(false)
-  refusal       SettingsEditRefusal?
+  late           Boolean                @default(false)
+  refusal        SettingsEditRefusal?
   /// For MACHINE_BUSY: the machine's state, as Decaid named it.
-  machineState  String?              @map("machine_state")
+  machineState   String?                @map("machine_state")
   /// For DECAID: its HTTP status, or null where it did not answer or was not asked, and what it answered or why.
-  decaidStatus  Int?                 @map("decaid_status")
-  decaidMessage String?              @map("decaid_message")
+  decaidStatus   Int?                   @map("decaid_status")
+  decaidMessage  String?                @map("decaid_message")
   /// The edit's fields as the plugin read them: back after the write, or, for CHANGED_SINCE, as the tablet held them.
-  readBack      Json?                @map("read_back") @db.JsonB
+  readBack       Json?                  @map("read_back") @db.JsonB
   /// The Settings History's changes its read-back made.
   historyEntries SettingsHistoryEntry[]
 
@@ -1457,23 +1457,23 @@ model BatchMove {
 /// A Library Bean Batch's record on one tablet (ADR-0006), as `TabletBean`
 /// keeps a Bean's: its id there, and the record as that tablet last had it.
 model TabletBeanBatch {
-  tabletId        String    @map("tablet_id") @db.Uuid
-  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  batchId         String    @map("batch_id") @db.Uuid
-  batch           BeanBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  tabletId             String    @map("tablet_id") @db.Uuid
+  tablet               Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  batchId              String    @map("batch_id") @db.Uuid
+  batch                BeanBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   /// Decaid's id for the record on that tablet.
-  localId         String    @map("local_id")
+  localId              String    @map("local_id")
   /// The record, as Decaid sent it.
-  record          Json      @db.JsonB
+  record               Json      @db.JsonB
   /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
-  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+  recordUpdatedAt      DateTime? @map("record_updated_at") @db.Timestamptz(3)
   /// The latest decision of whether the batch is at the Location that the
   /// record has seen (`BatchLocation.presenceDecidedAt`): one the server's
   /// write to it carried, or one its own edit made; null if none (ADR-0020).
-  seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
+  seenAt               DateTime? @map("seen_at") @db.Timestamptz(3)
   /// The Location of that decision: it says nothing of another's. No foreign
   /// key: it is only compared with the tablet's Location now.
-  seenLocationId  String?   @map("seen_location_id") @db.Uuid
+  seenLocationId       String?   @map("seen_location_id") @db.Uuid
   /// The latest weights the record's `weightRemaining` has held, or the
   /// server has written it, under the count its weight is of, with the
   /// writes noted since, oldest first, as `{ weight, count }`: the weight,
@@ -1482,12 +1482,12 @@ model TabletBeanBatch {
   /// going back to one of them is no weight a barista entered (ADR-0037;
   /// `weightHeld` in bean-batches.ts). The previous release neither reads
   /// nor writes it (ADR-0025).
-  writtenWeights  Json      @default("[]") @map("written_weights") @db.JsonB
+  writtenWeights       Json      @default("[]") @map("written_weights") @db.JsonB
   /// The Location's count the weight the record holds was worked out from,
   /// as the server wrote it, or that the record's own entry started: an
   /// entry made on it has seen that count (`enterRemainingWeight`). Null if
   /// none is known. No foreign key: versions go only with their item.
-  weightCountVersionId String? @map("weight_count_version_id") @db.Uuid
+  weightCountVersionId String?   @map("weight_count_version_id") @db.Uuid
 
   /// The latest edit of the item's content that the record has seen
   /// (`fieldEdits` `decidedAt`): when the edits it held were decided, by
@@ -1583,12 +1583,46 @@ model Profile {
   /// edited, as Decaid refuses to change them.
   fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
 
+  /// The Profile it is a version of (ADR-0038), and its number among that
+  /// Profile's versions, in the order they joined it: both given by the
+  /// server as it places the row (server/src/library/profile-placing.ts),
+  /// and null until it has, as for a row the previous release inserts.
+  libraryProfileId String?         @map("library_profile_id") @db.Uuid
+  libraryProfile   LibraryProfile? @relation(fields: [libraryProfileId], references: [id], onDelete: SetNull)
+  versionNumber    Int?            @map("version_number")
+
   locations ProfileLocation[]
   tablets   TabletProfile[]
 
   /// The migration indexes its content's steps, by hash, which a Shot's
   /// Profile is found by (server/src/shots/links.ts); Prisma cannot express it.
+  @@unique([libraryProfileId, versionNumber])
   @@map("profiles")
+}
+
+/// The lasting Profile (ADR-0038): what a Profile is across the Profile
+/// Versions it has had, each a `profiles` row under Decaid's id. Its id is the
+/// server's own, which no tablet is written. Whether it is shown at a Location
+/// is its current version's state there (`ProfileLocation`), and its title,
+/// author and notes are held on that version's row.
+model LibraryProfile {
+  id               String           @id @db.Uuid
+  /// Decaid's id of its current version. No foreign key: the previous release
+  /// deletes a `profiles` row knowing nothing of this, and the server then
+  /// makes another of its versions current, or removes it with its last.
+  currentVersionId String           @map("current_version_id")
+  /// The Profile it was started from, as a Duplicate is, if the Library still has it.
+  startedFromId    String?          @map("started_from_id") @db.Uuid
+  startedFrom      LibraryProfile?  @relation("ProfilesStartedFrom", fields: [startedFromId], references: [id], onDelete: SetNull)
+  startedHere      LibraryProfile[] @relation("ProfilesStartedFrom")
+  /// When it was made: when its first version joined the Library.
+  createdAt        DateTime         @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  versions Profile[]
+
+  @@index([currentVersionId])
+  @@index([startedFromId])
+  @@map("library_profiles")
 }
 
 /// What publishing a Draft makes of it (ADR-0032): a new Profile Version
@@ -1651,20 +1685,20 @@ model Draft {
 /// to the steps it ran. Gone with the Draft, as it is published or
 /// discarded. See server/src/library/draft-following.ts.
 model DraftTrial {
-  id              String   @id @default(uuid(7)) @db.Uuid
-  draftId         String   @map("draft_id") @db.Uuid
-  draft           Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  machineId       String   @map("machine_id") @db.Uuid
-  machine         Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  id              String    @id @default(uuid(7)) @db.Uuid
+  draftId         String    @map("draft_id") @db.Uuid
+  draft           Draft     @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  machineId       String    @map("machine_id") @db.Uuid
+  machine         Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
   /// The profile as the write carried it, under the title a tablet shows a
   /// followed Draft by.
-  profile         Json     @db.JsonB
+  profile         Json      @db.JsonB
   /// When the server recorded the plugin's answer, by PostgreSQL's clock.
-  writtenAt       DateTime @default(dbgenerated("statement_timestamp()")) @map("written_at") @db.Timestamptz(3)
+  writtenAt       DateTime  @default(dbgenerated("statement_timestamp()")) @map("written_at") @db.Timestamptz(3)
   /// When the plugin had Decaid's answer, by the tablet's clock, which a
   /// Shot pulled on it is timed by too: a Shot pulled from then on with
   /// these steps is a Trial Shot.
-  tabletWrittenAt DateTime @map("tablet_written_at") @db.Timestamptz(3)
+  tabletWrittenAt DateTime  @map("tablet_written_at") @db.Timestamptz(3)
   /// When following on the Machine ended after it was written, by
   /// PostgreSQL's clock; null while it goes on. A Shot pulled after then is
   /// none of the Draft's.
@@ -1683,26 +1717,26 @@ model DraftTrial {
 /// Machine follows one Draft at a time (a partial unique index in the
 /// migration). Gone with the Draft.
 model DraftFollowing {
-  draftId   String      @id @map("draft_id") @db.Uuid
-  draft     Draft       @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  machineId String      @map("machine_id") @db.Uuid
-  machine   Machine     @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  draftId              String      @id @map("draft_id") @db.Uuid
+  draft                Draft       @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  machineId            String      @map("machine_id") @db.Uuid
+  machine              Machine     @relation(fields: [machineId], references: [id], onDelete: Cascade)
   /// When it was last turned on, by PostgreSQL's clock.
-  startedAt DateTime    @default(dbgenerated("statement_timestamp()")) @map("started_at") @db.Timestamptz(3)
+  startedAt            DateTime    @default(dbgenerated("statement_timestamp()")) @map("started_at") @db.Timestamptz(3)
   /// The Machine's latest Location entry then (`location_assignments.id`):
   /// once another is its latest, it moved, and following ends.
-  locationAssignmentId String? @map("location_assignment_id") @db.Uuid
+  locationAssignmentId String?     @map("location_assignment_id") @db.Uuid
   /// The profile the Machine's Workflow was last written since then; null
   /// until it is written one.
-  trialId   String?     @map("trial_id") @db.Uuid
-  trial     DraftTrial? @relation(fields: [trialId], references: [id], onDelete: SetNull)
+  trialId              String?     @map("trial_id") @db.Uuid
+  trial                DraftTrial? @relation(fields: [trialId], references: [id], onDelete: SetNull)
   /// When it ended, and why: `workflow`, as the Machine's Workflow came to
   /// hold another profile; `stopped`, by a person, or as the Draft was
   /// followed on another Machine; `location`, as its Location stopped
   /// trying Drafts or the Machine left it. Null while
   /// following.
-  endedAt   DateTime?   @map("ended_at") @db.Timestamptz(3)
-  endedWhy  String?     @map("ended_why")
+  endedAt              DateTime?   @map("ended_at") @db.Timestamptz(3)
+  endedWhy             String?     @map("ended_why")
 
   @@index([machineId])
   @@index([trialId])
@@ -1953,23 +1987,23 @@ model TabletTool {
 /// of the Location that is not Archived in its `recipes` list on each tablet
 /// there, under its record id. Recipes are never matched (ADR-0018).
 model Recipe {
-  id         String    @id @default(uuid(7)) @db.Uuid
+  id              String    @id @default(uuid(7)) @db.Uuid
   /// The Location it belongs to: where its first tablet saved it.
-  locationId String?   @map("location_id") @db.Uuid
-  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  locationId      String?   @map("location_id") @db.Uuid
+  location        Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   /// The id of its record in DYE2's `recipes` on every tablet at its
   /// Location, which never changes: DYE2's id for it on the tablet it was
   /// saved on, its slot's number for one saved before DYE2 v0.1.25, or a new
   /// UUID for one made in the management interface. Unique among the
   /// Location's Recipes not Archived (a partial unique index in the
   /// migration).
-  recordId   String    @map("record_id")
+  recordId        String    @map("record_id")
   /// Its Recipe Slot at its Location, 1 to 9 (RECIPE_SLOTS in `protocol/`,
   /// `recipes_slot_check` in the migrations), of which 1 to 5 are the
   /// buttons of Streamline's DYE strip, unique among the Location's Recipes;
   /// null for none, as for one a tablet took off the strip or removed from
   /// its list (ADR-0019).
-  slot       Int?
+  slot            Int?
   /// Its Reference Shot (ADR-0029), by the Shot's id: the one Shot chosen to
   /// show how its Shots should go, from any Machine or Location, kept outside
   /// its content, so no tablet is written it, until someone chooses another
@@ -1977,19 +2011,19 @@ model Recipe {
   /// deleted. One the Shots list no longer lists, as a dismissed Pending
   /// Machine's, reads as none (recipes.service.ts). Found by Shot through a
   /// partial index in the migration.
-  referenceShotId String? @map("reference_shot_id")
+  referenceShotId String?   @map("reference_shot_id")
   /// What it holds, in the Library's terms (`recipeContent` in
   /// recipe-intake.ts): its name, beverage, Bean, Bean Batch, Profile,
   /// Grinder, Basket and Tools by their global ids, its dose, yield and the
   /// rest of its dial, and its hot water settings. A field it holds no value
   /// for is left out.
-  content    Json      @db.JsonB
+  content         Json      @db.JsonB
   /// Retired everywhere: in no slot, but kept so past Shots still name it.
-  archived   Boolean   @default(false)
+  archived        Boolean   @default(false)
   /// When it joined the Library, by PostgreSQL's clock.
-  createdAt  DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
-  fieldEdits Json      @default("{}") @map("field_edits") @db.JsonB
+  fieldEdits      Json      @default("{}") @map("field_edits") @db.JsonB
 
   tablets        TabletRecipe[]
   loadedOn       LoadedRecipe[]
@@ -2037,22 +2071,22 @@ model LoadedRecipe {
 /// and a Recipe named that is not its Machine's Loaded Recipe, as one
 /// Archived, is cleared from the Workflow.
 model TabletLoadedRecipe {
-  tabletId      String    @id @map("tablet_id") @db.Uuid
-  tablet        Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  tabletId String   @id @map("tablet_id") @db.Uuid
+  tablet   Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
   /// The id of the tablet's record of the recipe, as the Workflow names it.
-  recordId      String    @map("record_id")
+  recordId String   @map("record_id")
   /// The Recipe's global id, by the map, whether or not the Library still
   /// has it, so a clear stays due for one deleted; null while the map holds
   /// no record of `recordId`.
-  recipeId      String?   @map("recipe_id") @db.Uuid
+  recipeId String?  @map("recipe_id") @db.Uuid
   /// When the plugin observed the Workflow first naming `recordId`, by the
   /// tablet's clock, kept while its later Workflows name it: when a Recipe
   /// the map gains later is loaded from.
-  namedAt       DateTime  @map("named_at") @db.Timestamptz(3)
+  namedAt  DateTime @map("named_at") @db.Timestamptz(3)
   /// Each part, by its name in LOADED_RECIPE_PARTS (`protocol/`), as the
   /// Workflow held it: a number, the grind setting's text, or the tablet's id
   /// for its Basket or Bean Batch; null for none.
-  held          Json      @db.JsonB
+  held     Json     @db.JsonB
   /// Each part of the Recipe as the Workflow last took it, written there or
   /// held already, as `held` names them: a part of the Recipe that differs
   /// from it changed since, and is due where the Workflow holds otherwise. A
@@ -2060,7 +2094,7 @@ model TabletLoadedRecipe {
   /// on a load. Its `bean` key holds the Recipe's Bean as the Workflow last
   /// took it, by its global id, or null for none (#572); a base without it
   /// took the Recipe's Bean as it is now.
-  base          Json      @default("{}") @db.JsonB
+  base     Json     @default("{}") @db.JsonB
 
   @@index([recipeId])
   @@map("tablet_loaded_recipes")

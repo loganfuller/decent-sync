@@ -1,4 +1,4 @@
-import { RECIPE_SLOTS, sameValue } from "@decent-sync/protocol";
+import { RECIPE_SLOTS, isGlobalId, sameValue } from "@decent-sync/protocol";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -115,7 +115,7 @@ export class RecipeEditsService {
       await lockLocation(tx, locationId);
       const source = accountSource(editor);
       const at = await editTime(tx);
-      const values = await setUses(tx, locationId, content, {}, source, at);
+      const values = await setUses(tx, locationId, await namingCurrentVersion(tx, content), {}, source, at);
       return insertRecipe(tx, locationId, values, slot, source, at);
     }, INTAKE_TRANSACTION);
   }
@@ -177,7 +177,7 @@ export class RecipeEditsService {
    */
   async edit(id: string, values: Record<string, unknown>, editor: Editor, scope: Scope): Promise<void> {
     await this.change(id, editor, scope, "edit a Recipe", async (tx, recipe, source, at) => {
-      const set = await recipeEditValues(tx, recipe.locationId, values, recipe.content, source, at);
+      const set = await recipeEditValues(tx, recipe.locationId, await namingCurrentVersion(tx, values), recipe.content, source, at);
       const edited = await editContent(tx, { kind: "recipe", id }, { values: set, at, seenAt: "everything" }, source);
       return edited.writesDue;
     });
@@ -593,4 +593,23 @@ async function setSlot(tx: Prisma.TransactionClient, recipe: Placed, slot: numbe
   if (sameValue(recipe.slot, slot)) return;
   await tx.$executeRaw`UPDATE recipes SET slot = ${slot}::integer WHERE id = ${recipe.id}::uuid`;
   await recordVersion(tx, { kind: "recipe", id: recipe.id }, recipe.locationId, { slot }, source, at);
+}
+
+/**
+ * A Recipe's values as a person or an assistant gave them, naming its
+ * Profile's current version (ADR-0038): a `profileId` that is a Profile's own
+ * id, or Decaid's id of any of its versions, becomes Decaid's id of that
+ * Profile's current version, which is what a Recipe stores. One naming no
+ * Profile the Library has is left as given, for `setUses` to refuse.
+ */
+export async function namingCurrentVersion<T extends Record<string, unknown>>(tx: Prisma.TransactionClient, values: T): Promise<T> {
+  const named = values.profileId;
+  if (typeof named !== "string" || named === "") return values;
+  const [current] = isGlobalId(named)
+    ? await tx.$queryRaw<{ id: string }[]>`
+        SELECT p.id FROM library_profiles l JOIN profiles p ON p.id = l.current_version_id AND p.library_profile_id = l.id WHERE l.id = ${named.toLowerCase()}::uuid`
+    : await tx.$queryRaw<{ id: string }[]>`
+        SELECT c.id FROM profiles v JOIN library_profiles l ON l.id = v.library_profile_id JOIN profiles c ON c.id = l.current_version_id AND c.library_profile_id = l.id
+        WHERE v.id = ${named}`;
+  return current && current.id !== named ? { ...values, profileId: current.id } : values;
 }

@@ -1,17 +1,33 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type MachineModel, type Profile, isRecordId, machineModelOf, profileOf, profileTextOf } from "@decent-sync/protocol";
+import { type MachineModel, type Profile, isGlobalId, isRecordId, machineModelOf, profileOf, profileTextOf } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
-import { shotListedSql, shotPulledWithSql } from "../shots/links.js";
+import { profileOfSql, shotListedSql, shotPulledWithSql } from "../shots/links.js";
 import { type SourceView, viewSource, withSource } from "./history.service.js";
 import { accountModels } from "./profile-reach.js";
 
-/** A Profile as the REST API lists it. */
-export interface ProfileSummary {
-  /** Decaid's id, a hash of what the machine executes, the same on every tablet. */
+/** A Profile another was started from, as a Duplicate is: its id, and its current version's Decaid id and title. */
+export interface StartedFromView {
+  profileId: string;
   id: string;
+  title: string | null;
+}
+
+/**
+ * A Profile as the REST API lists it (ADR-0038): the lasting Profile, read
+ * through one of its Profile Versions, its current one in a list.
+ */
+export interface ProfileSummary {
+  /** Decaid's id of the version read, a hash of what the machine executes, the same on every tablet: in a list, the Profile's current version. */
+  id: string;
+  /** The Profile's own id, the server's, which stays as the Profile gains versions; null until the server has placed the row in a Profile, when it reads as a Profile of this one version. */
+  profileId: string | null;
+  /** How many Profile Versions the Profile has had. */
+  versions: number;
+  /** The Profile it was started from, as a Duplicate is, if the Library still has it. */
+  startedFrom: StartedFromView | null;
   /** Its title, author and beverage type, from its content; null where its content has none. */
   title: string | null;
   author: string | null;
@@ -37,6 +53,10 @@ export interface ProfileView extends ProfileSummary {
   content: Record<string, unknown>;
   /** Its profile, as Decaid reads it (`readProfile` in protocol/); null where Decaid would not. */
   profile: Profile | null;
+  /** The number of the version read among its Profile's, "Version n", in the order they joined it; null until the row is placed. */
+  version: number | null;
+  /** The Profile's current version, by Decaid's id and its number: the version read where `id` is the same. */
+  current: { id: string; version: number | null };
   /** The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it. */
   parent: { id: string; title: string | null } | null;
   /**
@@ -64,15 +84,19 @@ export interface ProfileView extends ProfileSummary {
 }
 
 /**
- * One of a Profile's Profile Versions: a Profile in the chain of Decaid's
- * `parentId` links through it, as the REST API returns one.
+ * One of a Profile's Profile Versions (ADR-0038): one set of steps it has
+ * had, a `profiles` row under Decaid's id, as the REST API returns one.
  */
 export interface ProfileVersionView {
   id: string;
+  /** Its number among the Profile's versions, "Version n", in the order they joined it, never given again; null until the row is placed. */
+  number: number | null;
+  /** Whether it is the Profile's current version. */
+  current: boolean;
   title: string | null;
   bundled: boolean;
   archived: boolean;
-  /** The Profile it was saved from, where that is in the chain; null for the first. */
+  /** The version it was saved from, by Decaid's `parentId`, where that is among the Profile's versions; else null. */
   parentId: string | null;
   /**
    * When it was saved: by the record its first tablet sent, as its history's
@@ -87,12 +111,43 @@ export interface ProfileVersionView {
   shots: number;
 }
 
-/** The most Profiles a chain of versions is read to, which no real chain comes near. */
+/** A Machine whose Workflow holds an earlier version of a Profile with no Recipe loaded, and that version. */
+export interface EarlierOnView {
+  machine: { id: string; name: string };
+  version: { id: string; number: number | null };
+}
+
+/** A Profile's versions, as the REST API returns them. */
+export interface ProfileVersionsView {
+  /** The Profile's own id, null until placed, and its current version's Decaid id. */
+  profile: { profileId: string | null; currentVersionId: string };
+  /** Its versions, the latest to join first. */
+  versions: ProfileVersionView[];
+  /**
+   * The Machines whose current Workflow holds the steps of an earlier
+   * version, found as a Shot's Profile is (`profileOfSql`), while they have
+   * no Loaded Recipe, by name: a Machine with a Loaded Recipe follows that
+   * Recipe, so is never listed. The server sets no Workflow because of this.
+   */
+  earlierOn: EarlierOnView[];
+}
+
+/** The most Profile Versions a Profile's are read to, which no real Profile comes near. */
 export const MAX_PROFILE_VERSIONS = 200;
+
+/** A row read as an id addresses it: the version asked for, and its Profile, if it has been placed in one. */
+export interface AddressedProfile {
+  /** Decaid's id of the version addressed: the current one for a Profile's id. */
+  versionId: string;
+  profileId: string | null;
+  /** Decaid's id of the Profile's current version: the version itself until placed. */
+  currentVersionId: string;
+}
 
 const withPlaces = {
   createdLocation: true,
   locations: { where: { shown: true }, include: { location: true } },
+  libraryProfile: { include: { startedFrom: true, _count: { select: { versions: true } } } },
 } as const satisfies Prisma.ProfileInclude;
 
 type ListedProfile = Prisma.ProfileGetPayload<{ include: typeof withPlaces }>;
@@ -102,17 +157,81 @@ type ListedProfile = Prisma.ProfileGetPayload<{ include: typeof withPlaces }>;
 export class ProfilesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Every Profile, by title, ignoring case. */
+  /**
+   * Every Profile, by title, ignoring case: one row for each (ADR-0038), read
+   * through its current version, and one for each row not yet placed in a
+   * Profile, which reads as a Profile of one version.
+   */
   async list(): Promise<ProfileSummary[]> {
-    return (await this.prisma.profile.findMany({ include: withPlaces })).map(summary).sort((a, b) => compareText(a.title, b.title) || a.id.localeCompare(b.id));
+    const rows = await this.prisma.profile.findMany({ include: withPlaces });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    /** The latest version of each Profile whose current version is not its own, as after the previous release deleted that row: read as current until the server puts it right. */
+    const standIn = new Map<string, ListedProfile>();
+    for (const row of rows) {
+      const profile = row.libraryProfile;
+      if (!profile || byId.get(profile.currentVersionId)?.libraryProfileId === profile.id) continue;
+      const held = standIn.get(profile.id);
+      if (!held || (row.versionNumber ?? 0) > (held.versionNumber ?? 0)) standIn.set(profile.id, row);
+    }
+    const titles = this.startedFromTitles(rows);
+    return rows
+      .filter((row) => row.libraryProfile === null || row.libraryProfile.currentVersionId === row.id || standIn.get(row.libraryProfile.id) === row)
+      .map((row) => summary(row, titles))
+      .sort((a, b) => compareText(a.title, b.title) || a.id.localeCompare(b.id));
   }
 
-  async get(id: string): Promise<ProfileView> {
+  /** The title of each Profile the rows were started from, by its current version's Decaid id, read from the rows themselves. */
+  private startedFromTitles(rows: readonly ListedProfile[]): ReadonlyMap<string, string | null> {
+    return new Map(rows.map((row) => [row.id, titled(row.content).title]));
+  }
+
+  /**
+   * What an id addresses (ADR-0038): a Profile's own id its current version,
+   * and a version's Decaid id that version, each with the Profile it belongs
+   * to. 404 for neither.
+   */
+  async addressed(id: string): Promise<AddressedProfile> {
+    if (isGlobalId(id)) {
+      const profile = await this.prisma.libraryProfile.findUnique({
+        where: { id: id.toLowerCase() },
+        include: { versions: { select: { id: true, versionNumber: true }, orderBy: { versionNumber: "desc" } } },
+      });
+      // A current version that is not its own, until the server puts it right, reads as its latest.
+      const current = profile?.versions.find((version) => version.id === profile.currentVersionId) ?? profile?.versions[0];
+      if (!profile || !current) throw profileNotFound();
+      return { versionId: current.id, profileId: profile.id, currentVersionId: current.id };
+    }
+    const row = await this.prisma.profile.findUnique({ where: { id }, select: { id: true, libraryProfile: { select: { id: true, currentVersionId: true } } } });
+    if (!row) throw profileNotFound();
+    return { versionId: row.id, profileId: row.libraryProfile?.id ?? null, currentVersionId: row.libraryProfile?.currentVersionId ?? row.id };
+  }
+
+  /** Decaid's ids of every version of the Profile the id addresses (`addressed`): the row alone until it is placed. */
+  async versionIds(id: string): Promise<string[]> {
+    const { versionId, profileId } = await this.addressed(id);
+    if (profileId === null) return [versionId];
+    return (await this.prisma.profile.findMany({ where: { libraryProfileId: profileId }, select: { id: true }, orderBy: { versionNumber: "asc" }, take: MAX_PROFILE_VERSIONS })).map(
+      (row) => row.id,
+    );
+  }
+
+  /**
+   * The Profile an id addresses, read at the version it addresses
+   * (`addressed`): a Profile's own id its current version, and a version's
+   * Decaid id that version, which says whether it is the current one.
+   */
+  async get(asked: string): Promise<ProfileView> {
+    const { versionId: id, currentVersionId } = await this.addressed(asked);
     const profile = await this.prisma.profile.findUnique({ where: { id }, include: withPlaces });
     if (!profile) throw profileNotFound();
     const content = object(profile.content);
     const parentId = typeof content.parentId === "string" ? content.parentId : null;
-    const parent = parentId === null ? null : await this.prisma.profile.findUnique({ where: { id: parentId }, select: { id: true, content: true } });
+    const startedFromId = profile.libraryProfile?.startedFrom?.currentVersionId ?? null;
+    const [parent, startedFrom, current] = await Promise.all([
+      parentId === null ? null : this.prisma.profile.findUnique({ where: { id: parentId }, select: { id: true, content: true } }),
+      startedFromId === null ? null : this.prisma.profile.findUnique({ where: { id: startedFromId }, select: { id: true, content: true } }),
+      currentVersionId === id ? null : this.prisma.profile.findUnique({ where: { id: currentVersionId }, select: { versionNumber: true } }),
+    ]);
     const [decided, machineModel, refused] = await Promise.all([
       this.prisma.profileLocation.findMany({ where: { profileId: id }, include: { location: true } }),
       this.machineModel(profile.archived ? [] : profile.locations.map((here) => here.locationId)),
@@ -128,9 +247,11 @@ export class ProfilesService {
         ORDER BY r.refused_at DESC, m.name`,
     ]);
     return {
-      ...summary(profile),
+      ...summary(profile, new Map(startedFrom ? [[startedFrom.id, titled(startedFrom.content).title]] : [])),
       content,
       profile: profileOf(content.profile),
+      version: profile.versionNumber,
+      current: { id: currentVersionId, version: currentVersionId === id ? profile.versionNumber : (current?.versionNumber ?? null) },
       parent: parent ? { id: parent.id, title: titled(parent.content).title } : null,
       locations: decided
         .map((here) => ({ location: viewLocation(here.location), shown: here.shown, since: here.decidedAt.toISOString() }))
@@ -141,16 +262,65 @@ export class ProfilesService {
   }
 
   /**
-   * Its Profile Versions (ADR-0032): every Profile in the chain of `parentId`
-   * links through it, up to the first, whose link names no Profile in the
-   * Library or one of Decaid's bundled Profiles, and down through every
-   * Profile saved from one in the chain, so a fork's branches both; the
-   * latest saved first. A bundled Profile the first was saved from is listed
-   * as where it was, but not walked down through, so Profiles saved from it
-   * apart, as at two Locations, are not each other's versions; and a bundled
-   * Profile's own are itself alone. 404 for no such Profile.
+   * The Profile Versions (ADR-0038) of the Profile an id addresses, its own
+   * or any of its versions' Decaid id: every `profiles` row placed in it,
+   * the latest to join first, each with its number, whether it is current,
+   * who saved it, where it is shown and how many Shots are on it; and the
+   * Machines on an earlier version (`ProfileVersionsView.earlierOn`). A row
+   * not yet placed, and each of Decaid's bundled Profiles, is itself alone.
+   * 404 for no such Profile.
    */
-  async versions(id: string, scope: Scope): Promise<ProfileVersionView[]> {
+  async versions(asked: string, scope: Scope): Promise<ProfileVersionsView> {
+    const { profileId, currentVersionId } = await this.addressed(asked);
+    const ids = await this.versionIds(asked);
+    const [profiles, firsts, shots, earlierOn] = await Promise.all([
+      this.prisma.profile.findMany({ where: { id: { in: ids } }, include: withPlaces }),
+      this.prisma.itemVersion.findMany({
+        where: { kind: "profile", itemId: { in: ids } },
+        distinct: ["itemId"],
+        orderBy: [{ itemId: "asc" }, { receivedAt: "asc" }, { seq: "asc" }],
+        include: withSource,
+      }),
+      Promise.all(ids.map((id) => this.shotCount(id))),
+      this.earlierOn(profileId, currentVersionId),
+    ]);
+    const among = new Set(ids);
+    const firstOf = new Map(firsts.map((version) => [version.itemId, version]));
+    const shotsOf = new Map(ids.map((id, index) => [id, shots[index]!]));
+    const versions = profiles
+      .map((profile): ProfileVersionView => {
+        const parentId = object(profile.content).parentId;
+        const first = firstOf.get(profile.id);
+        const { shownAt, title, bundled, archived } = summary(profile, new Map());
+        return {
+          id: profile.id,
+          number: profile.versionNumber,
+          current: profile.id === currentVersionId,
+          title,
+          bundled,
+          archived,
+          parentId: typeof parentId === "string" && parentId !== profile.id && among.has(parentId) ? parentId : null,
+          savedAt: (first?.editedAt ?? profile.createdAt).toISOString(),
+          savedBy: first ? viewSource(first, scope) : null,
+          shownAt,
+          shots: shotsOf.get(profile.id) ?? 0,
+        };
+      })
+      .sort((a, b) => (b.number ?? 0) - (a.number ?? 0) || a.id.localeCompare(b.id));
+    return { profile: { profileId, currentVersionId }, versions, earlierOn };
+  }
+
+  /**
+   * The rows linked to one by Decaid's `parentId`, whatever Profiles they
+   * are placed in: up to the first, whose link names no row in the Library
+   * or one of Decaid's bundled Profiles, and down through every row saved
+   * from one of them, a fork's branches both; a bundled row's are itself
+   * alone. Publishing a new version and returning to one still act on these
+   * (ADR-0032), one version at a time, until they act on the Profile
+   * (ADR-0038): the titles a new version may share, and the versions a
+   * Profile may return to. 404 for no such row.
+   */
+  async lineage(id: string): Promise<{ id: string; title: string | null; bundled: boolean; parentId: string | null }[]> {
     const found = await this.prisma.profile.findUnique({ where: { id }, select: { bundled: true } });
     if (!found) throw profileNotFound();
     // UNION ALL to a depth, so a loop of links, which Decaid's hash makes all but impossible, ends; then UNION in the walk down.
@@ -174,38 +344,31 @@ export class ProfilesService {
       SELECT id FROM (SELECT id FROM down LIMIT ${MAX_PROFILE_VERSIONS}) AS saved
       UNION
       SELECT id FROM top WHERE bundled`;
-    const ids = chain.map((row) => row.id);
-    const [profiles, firsts, shots] = await Promise.all([
-      this.prisma.profile.findMany({ where: { id: { in: ids } }, include: withPlaces }),
-      this.prisma.itemVersion.findMany({
-        where: { kind: "profile", itemId: { in: ids } },
-        distinct: ["itemId"],
-        orderBy: [{ itemId: "asc" }, { receivedAt: "asc" }, { seq: "asc" }],
-        include: withSource,
-      }),
-      Promise.all(ids.map((profileId) => this.shotCount(profileId))),
-    ]);
-    const inChain = new Set(ids);
-    const firstOf = new Map(firsts.map((version) => [version.itemId, version]));
-    const shotsOf = new Map(ids.map((profileId, index) => [profileId, shots[index]!]));
-    return profiles
-      .map((profile): ProfileVersionView => {
-        const parentId = object(profile.content).parentId;
-        const first = firstOf.get(profile.id);
-        const { shownAt, title, bundled, archived } = summary(profile);
-        return {
-          id: profile.id,
-          title,
-          bundled,
-          archived,
-          parentId: typeof parentId === "string" && parentId !== profile.id && inChain.has(parentId) ? parentId : null,
-          savedAt: (first?.editedAt ?? profile.createdAt).toISOString(),
-          savedBy: first ? viewSource(first, scope) : null,
-          shownAt,
-          shots: shotsOf.get(profile.id) ?? 0,
-        };
-      })
-      .sort((a, b) => b.savedAt.localeCompare(a.savedAt) || a.id.localeCompare(b.id));
+    const ids = new Set(chain.map((row) => row.id));
+    const rows = await this.prisma.profile.findMany({ where: { id: { in: [...ids] } }, select: { id: true, content: true, bundled: true } });
+    return rows.map((row) => {
+      const parentId = object(row.content).parentId;
+      return { id: row.id, title: titled(row.content).title, bundled: row.bundled, parentId: typeof parentId === "string" && parentId !== row.id && ids.has(parentId) ? parentId : null };
+    });
+  }
+
+  /**
+   * The Machines whose current Workflow, the latest stored for each, holds
+   * the steps of a version of the Profile other than its current one, found
+   * as a Shot's Profile is (`profileOfSql`), while they have no Loaded
+   * Recipe (ADR-0022): by the Machine's name. None for a row not yet placed.
+   */
+  private async earlierOn(profileId: string | null, currentVersionId: string): Promise<EarlierOnView[]> {
+    if (profileId === null) return [];
+    const rows = await this.prisma.$queryRaw<{ id: string; name: string; versionId: string; number: number | null }[]>`
+      SELECT m.id::text AS id, m.name, v.id AS "versionId", v.version_number AS number
+      FROM machines m
+      JOIN LATERAL (SELECT workflow FROM workflow_events WHERE machine_id = m.id ORDER BY id DESC LIMIT 1) AS latest ON true
+      JOIN profiles v ON v.id = ${profileOfSql(Prisma.sql`(latest.workflow -> 'profile')`)}
+      WHERE v.library_profile_id = ${profileId}::uuid AND v.id <> ${currentVersionId}
+        AND NOT EXISTS (SELECT 1 FROM loaded_recipes l WHERE l.machine_id = m.id AND l.unloaded_at IS NULL)
+      ORDER BY m.name, m.id`;
+    return rows.map((row) => ({ machine: { id: row.id, name: row.name }, version: { id: row.versionId, number: row.number } }));
   }
 
   /** How many Shots the Shots list lists on the Profile (`shotPulledWithSql`). */
@@ -231,7 +394,7 @@ export class ProfilesService {
   }
 }
 
-/** A Profile id from a path: Decaid's, such as profile:3c5e9f0a1b2c4d6e8f70. */
+/** A Profile id from a path: the Profile's own, a UUID, or Decaid's of one of its versions, such as profile:3c5e9f0a1b2c4d6e8f70 (`ProfilesService.addressed`). */
 export function readProfileId(id: string): string {
   if (!isRecordId(id)) throw profileNotFound();
   return id;
@@ -241,9 +404,14 @@ function profileNotFound(): NotFoundException {
   return new NotFoundException("No such Profile");
 }
 
-function summary(profile: ListedProfile): ProfileSummary {
+/** A row as a list has it, with the title of the Profile its own was started from, by that one's current version's Decaid id. */
+function summary(profile: ListedProfile, titles: ReadonlyMap<string, string | null>): ProfileSummary {
+  const from = profile.libraryProfile?.startedFrom ?? null;
   return {
     id: profile.id,
+    profileId: profile.libraryProfile?.id ?? null,
+    versions: profile.libraryProfile?._count.versions ?? 1,
+    startedFrom: from ? { profileId: from.id, id: from.currentVersionId, title: titles.get(from.currentVersionId) ?? null } : null,
     ...titled(profile.content),
     bundled: profile.bundled,
     archived: profile.archived,

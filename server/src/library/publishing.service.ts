@@ -22,9 +22,10 @@ import { readContentEdit } from "./item-input.js";
 import { BUNDLED_PROFILE_TEXT, LibraryEditsService, PROFILE_TITLE_LOCK, editTime, staffElsewhere } from "./library-edits.service.js";
 import { lockLocation, showAt } from "./location-state.js";
 import { profileText } from "./profile-intake.js";
+import { placeProfiles } from "./profile-placing.js";
 import { accountModels, refuseUnrunnableAt } from "./profile-reach.js";
 import { PROFILE_JOINING_LOCK } from "./profiles.js";
-import { type ProfileVersionView, ProfilesService } from "./profiles.service.js";
+import { ProfilesService } from "./profiles.service.js";
 import { recipeEditValues } from "./recipe-edits.service.js";
 import { lockFollowingForDelete } from "./draft-following.js";
 
@@ -147,7 +148,7 @@ export class PublishingService {
       draft.publishesAs === "VERSION" && draft.startedFromId !== null
         ? replacedVersions(
             draft.startedFromId,
-            await this.profiles.versions(draft.startedFromId, scope).catch((caught: unknown) => (caught instanceof NotFoundException ? [] : Promise.reject(caught))),
+            await this.profiles.lineage(draft.startedFromId).catch((caught: unknown) => (caught instanceof NotFoundException ? [] : Promise.reject(caught))),
           )
         : new Set<string>();
     return this.prisma.$transaction(async (tx) => {
@@ -205,6 +206,8 @@ export class PublishingService {
       const by = accountSource(editor);
       await recordJoined(tx, { kind: "profile", id }, profileText(content), at, by);
       const done = await replaceAt(tx, { from: source?.id ?? null, to: id, places, recipes: ask.recipes }, by, at);
+      // Placed in a Profile as it now stands (ADR-0038): a version of the one it replaced everywhere, else a Profile of its own, as a separate Profile always is.
+      await placeProfiles(tx, { separate: version ? [] : [id] });
       await lockFollowingForDelete(tx, draftId);
       await tx.$executeRaw`DELETE FROM drafts WHERE id = ${draftId}::uuid`;
       return {
@@ -274,10 +277,12 @@ export class PublishingService {
    * `from`'s versions, one Archived, or one a Machine at a Location can't
    * run; 400 for returning to the Profile itself.
    */
-  async returnTo(to: string, from: string, ask: PublishAsk, editor: Editor, scope: Scope): Promise<PublishedView> {
+  async returnTo(to: string, named: string, ask: PublishAsk, editor: Editor, scope: Scope): Promise<PublishedView> {
     refuseElsewhere(ask.locations, scope, "return to a Profile Version");
+    // The Profile's own id names its current version (ADR-0038).
+    const from = (await this.profiles.addressed(named)).versionId;
     if (to === from) throw new BadRequestException("A Profile can't return to itself: name a version other than from");
-    const versions = await this.profiles.versions(from, scope);
+    const versions = await this.profiles.lineage(from);
     const earlier = versions.find((version) => version.id === to);
     const later = versions.find((version) => version.id === from);
     if (!earlier) {
@@ -285,12 +290,16 @@ export class PublishingService {
       throw new ConflictException(`That Profile is not a version of "${later?.title ?? from}"`);
     }
     return this.prisma.$transaction(async (tx) => {
+      // Before the Locations' locks, as publishing takes it: the Profile's current version is worked out again below.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_JOINING_LOCK}::bigint)`;
       const places = await lockLocations(tx, ask.locations);
       // FOR SHARE, so no Archive of it commits before it is shown, leaving neither version shown; an Archive takes that row alone.
       const [row] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM profiles WHERE id = ${to} FOR SHARE`;
       if (!row) throw new NotFoundException("No such Profile");
       if (row.archived) throw new ConflictException(`"${earlier.title ?? to}" is Archived: restore it before returning to it`);
       const done = await replaceAt(tx, { from, to, places, recipes: ask.recipes }, accountSource(editor), await editTime(tx));
+      // The version in use is its Profile's current one (ADR-0038): this one, where it took the other's place everywhere.
+      await placeProfiles(tx);
       return { profile: { id: to, title: earlier.title }, replaced: { id: from, title: later?.title ?? null }, ...done, forked: [], edited: null };
     }, INTAKE_TRANSACTION);
   }
@@ -304,7 +313,7 @@ export class PublishingService {
  * retitled is not among them, nor a bundled Profile the chain was saved
  * from: a tablet would show either beside the new version under one title.
  */
-function replacedVersions(sourceId: string, versions: readonly ProfileVersionView[]): Set<string> {
+function replacedVersions(sourceId: string, versions: Awaited<ReturnType<ProfilesService["lineage"]>>): Set<string> {
   const saved = versions.filter((version) => !version.bundled);
   const byId = new Map(saved.map((version) => [version.id, version]));
   const lineage = new Set<string>();

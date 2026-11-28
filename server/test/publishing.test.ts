@@ -213,8 +213,10 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect((await profile(second, otherApi)).content).toMatchObject({ parentId: CAFE_SOAK, profile: { title: "Publish soak" } });
     expect(await shownAt(second)).toEqual(["Publish cafe"]);
     expect(await shownAt(CAFE_SOAK)).toEqual(["Publish cafe"]);
-    const versions = (await api.get<{ versions: { id: string; parentId: string | null; savedBy: { account: { id: string } | null } | null }[] }>(path(second, "/versions"))).versions;
-    expect(versions.find((version) => version.id === second)).toMatchObject({ parentId: CAFE_SOAK, savedBy: { account: { id: adminId } } });
+    // The cafe still shows the one it was saved from, for the ristretto, so it is a Profile of its own, started from that one (ADR-0038).
+    const versions = (await api.get<{ versions: { id: string; number: number | null; current: boolean; savedBy: { account: { id: string } | null } | null }[] }>(path(second, "/versions"))).versions;
+    expect(versions).toMatchObject([{ id: second, number: 1, current: true, savedBy: { account: { id: adminId } } }]);
+    expect(await profile(second)).toMatchObject({ profileId: expect.any(String), versions: 1, startedFrom: { id: CAFE_SOAK } });
 
     // The espresso names it, an edit in its history by the account, keeping its Reference Shot; the ristretto doesn't.
     expect((await recipe(recipes.espresso)).content.profileId).toBe(second);
@@ -474,8 +476,12 @@ describe("Publishing a Draft, and returning to an earlier version", { timeout: 1
     expect(read.newer).toEqual([{ id: saved.id, title: "Publish soak", savedAt: expect.any(String) }]);
     const published = await publish(read, { locations: [cafe.id] });
     expect(published.forked.map((version) => version.id)).toEqual([saved.id]);
-    const versions = (await api.get<{ versions: { id: string; parentId: string | null }[] }>(path(fourth, "/versions"))).versions;
-    expect(versions.filter((version) => version.parentId === fourth).map((version) => version.id).sort()).toEqual([String(saved.id), published.profile.id].sort());
+    // Both were saved from it, and both are in use, so no one Profile holds the two (ADR-0038).
+    const branches = await Promise.all([String(saved.id), published.profile.id].map((id) => api.get<{ profile: { profileId: string | null; content: { parentId: string | null } } }>(path(id))));
+    expect(branches.map((branch) => branch.profile.content.parentId)).toEqual([fourth, fourth]);
+    expect(branches[0]!.profile.profileId).not.toBeNull();
+    expect(branches[1]!.profile.profileId).not.toBeNull();
+    expect(branches[0]!.profile.profileId).not.toBe(branches[1]!.profile.profileId);
   });
 
   it("publishes a new version whose source the Library deleted since as saved from none, replacing nothing", async () => {
