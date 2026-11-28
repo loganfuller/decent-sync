@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { SummaryBucket } from "../src/lib/api";
+import type { BatchLink, BucketedGroup, SummaryBucket } from "../src/lib/api";
 import {
+  PLOT,
   TREND_NUMBERS,
   TREND_UNITS,
   axisSpan,
   axisTicks,
+  batchMarks,
   bucketParam,
   dateOf,
   dayNumber,
+  drawnMarks,
+  labelPlaces,
+  labelWidth,
+  lineX,
+  markLabel,
+  markLead,
   pointText,
   pointTitle,
   trendBucket,
@@ -187,5 +195,142 @@ describe("a trend's point in words", () => {
   it("reads a share as a whole percentage, with no range", () => {
     expect(pointText({ value: (2 / 3) * 100 }, "stoppedAtTarget")).toEqual({ value: "67%" });
     expect(pointText({ value: 0 }, "stoppedAtTarget")).toEqual({ value: "0%" });
+  });
+});
+
+describe("a Trend of one Recipe marked where its Bean Batch changed (#733)", () => {
+  const year = new Date().getFullYear();
+  const now = new Date(year, 10, 27, 12);
+  const day = (date: number) => new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", timeZone: "UTC" }).format(Date.UTC(year, 10, date));
+  const date = (of: number) => `${year}-11-${String(of).padStart(2, "0")}`;
+  const batch = (id: string, roasted: number | null, batchCode: string | null): BatchLink => ({ id, bean: { id: "house", roaster: "Lantern", name: "House Espresso" }, roastDate: roasted === null ? null : `${date(roasted)}T00:00:00.000`, batchCode });
+  /** A group of a summary by Bean Batch: the batch's Shots of each day, or those linked to none. */
+  const group = (by: BatchLink | null, ...days: [start: string | null, shots: number][]): Pick<BucketedGroup, "by" | "buckets"> => ({
+    by: { beanBatch: by },
+    buckets: days.map(([start, shots]) => ({ start, counts: counts(shots), numbers: {} })),
+  });
+  const old = batch("old", 10, "LR-0405");
+  const next = batch("next", 17, "LR-0411");
+  const plain = batch("plain", 20, null);
+
+  it("marks each batch once, on the first day a Shot charted was pulled with it, oldest first, however often the bar goes back to it", () => {
+    // The summary lists batches the latest roasted first, and the bar went back to the old one on the 23rd.
+    const marks = batchMarks([group(plain, [date(25), 3]), group(next, [date(21), 4], [date(22), 5]), group(old, [date(14), 6], [date(15), 6], [date(23), 1])]);
+    expect(marks.map((mark) => [mark.batch.id, mark.start, mark.at === dayNumber(mark.start), mark.earliest])).toEqual([
+      ["old", date(14), true, true],
+      ["next", date(21), true, false],
+      ["plain", date(25), true, false],
+    ]);
+  });
+
+  it("makes no mark of Shots linked to no batch, nor of a day with only Shots the Trend leaves out, nor of Shots whose time is unknown", () => {
+    // The old batch's first day held an Unfinished Shot alone, and one of its Shots has no time.
+    const unfinished = { start: date(13), counts: { ...counts(0), unfinished: 1 }, numbers: {} };
+    const marks = batchMarks([{ by: { beanBatch: old }, buckets: [unfinished, { start: date(14), counts: counts(2), numbers: {} }, { start: null, counts: counts(1), numbers: {} }] }, group(null, [date(16), 3])]);
+    expect(marks.map((mark) => [mark.batch.id, mark.start, mark.earliest])).toEqual([["old", date(14), true]]);
+    expect(batchMarks([group(null, [date(14), 3])])).toEqual([]);
+    expect(batchMarks([])).toEqual([]);
+  });
+
+  it("gives the first batch a line, not the left edge, where Shots linked to none were pulled before it", () => {
+    expect(batchMarks([group(old, [date(16), 2]), group(null, [date(14), 3])]).map((mark) => mark.earliest)).toEqual([false]);
+    // On its own first day, unlinked Shots beside it leave it the earliest.
+    expect(batchMarks([group(old, [date(14), 2]), group(null, [date(14), 3])]).map((mark) => mark.earliest)).toEqual([true]);
+  });
+
+  it("stands two batches first used on one day in the order they were roasted", () => {
+    expect(batchMarks([group(next, [date(14), 1]), group(old, [date(14), 1])]).map((mark) => [mark.batch.id, mark.earliest])).toEqual([
+      ["old", true],
+      ["next", false],
+    ]);
+  });
+
+  it("marks nothing of the previous release's answer, which has no buckets, or names no batch (ADR-0025)", () => {
+    expect(batchMarks([{ by: { beanBatch: old } }, { by: {}, buckets: [{ start: date(14), counts: counts(2), numbers: {} }] }])).toEqual([]);
+  });
+
+  it("marks by week as by day, on the week's Monday", () => {
+    const marks = batchMarks([group(old, ["2026-11-09", 9]), group(next, ["2026-11-16", 4], ["2026-11-23", 8])]);
+    expect(marks.map((mark) => [mark.batch.id, mark.start, mark.earliest])).toEqual([
+      ["old", "2026-11-09", true],
+      ["next", "2026-11-16", false],
+    ]);
+  });
+
+  it("labels a mark with its batch's Batch Code, or its roast date where it has none", () => {
+    expect(markLabel(next, now)).toEqual({ text: "LR-0411", code: true });
+    expect(markLabel(plain, now)).toEqual({ text: `roasted ${day(20)}`, code: false });
+    expect(markLabel(batch("undated", null, null), now)).toEqual({ text: "no roast date", code: false });
+    // The previous release sends no Batch Code.
+    expect(markLabel({ roastDate: `${date(17)}T00:00:00.000` }, now)).toEqual({ text: `roasted ${day(17)}`, code: false });
+  });
+
+  it("lists each batch from its first day, or week, and the earliest until then where another follows it", () => {
+    const marks = batchMarks([group(old, [date(14), 6]), group(next, [date(21), 4])]);
+    expect(marks.map((mark) => markLead(mark, marks, "day", now))).toEqual(["Until then", `From ${day(21)}`]);
+    expect(marks.map((mark) => markLead(mark, marks, "week", now))).toEqual(["Until then", `From the week of ${day(21)}`]);
+    // One batch alone, and one that follows Shots linked to none, are each from their first day.
+    const alone = batchMarks([group(old, [date(14), 6])]);
+    expect(markLead(alone[0]!, alone, "day", now)).toBe(`From ${day(14)}`);
+    const after = batchMarks([group(old, [date(16), 2]), group(next, [date(21), 4]), group(null, [date(14), 3])]);
+    expect(after.map((mark) => markLead(mark, after, "day", now))).toEqual([`From ${day(16)}`, `From ${day(21)}`]);
+  });
+
+  describe("on a chart", () => {
+    const marks = batchMarks([group(old, [date(14), 6]), group(next, [date(21), 4]), group(plain, [date(25), 3])]);
+    const span = [dayNumber(date(14)), dayNumber(date(27))] as const;
+
+    it("draws the earliest batch at the left edge with no line, and a line for each other on its first day", () => {
+      const drawn = drawnMarks(marks, span);
+      expect(drawn.edge?.batch.id).toBe("old");
+      expect(drawn.lines.map((mark) => mark.batch.id)).toEqual(["next", "plain"]);
+      // A chart of 30 days whose first Shots are days in: its batch is still the edge's.
+      expect(drawnMarks(marks, [dayNumber(date(1)), dayNumber(date(30))]).edge?.batch.id).toBe("old");
+      expect(drawnMarks([], span)).toEqual({ lines: [] });
+    });
+
+    it("labels at the left edge the last batch first used before the chart begins, and draws none first used beyond either end", () => {
+      // The number charted has its first value on the 22nd, and its last on the 24th.
+      const drawn = drawnMarks(marks, [dayNumber(date(22)), dayNumber(date(24))]);
+      expect(drawn.edge?.batch.id).toBe("next");
+      expect(drawn.lines).toEqual([]);
+      // A batch first used after Shots linked to none has a line, and nothing is at the edge.
+      const after = batchMarks([group(old, [date(16), 2]), group(null, [date(14), 3])]);
+      expect(drawnMarks(after, span)).toEqual({ lines: after });
+    });
+
+    it("puts a day across the chart as its time axis does: the first and last days inside the plot's ends", () => {
+      expect(lineX(span[0], span, 800)).toBe(PLOT.left + PLOT.pad);
+      expect(lineX(span[1], span, 800)).toBe(800 - PLOT.right - PLOT.pad);
+      expect(lineX((span[0] + span[1]) / 2, span, 800)).toBe((PLOT.left + PLOT.pad + 800 - PLOT.right - PLOT.pad) / 2);
+    });
+
+    it("writes the edge's label at the plot's left and each line's beside its line, wide enough for its text", () => {
+      const places = labelPlaces(drawnMarks(marks, span), span, 800, now);
+      expect(places.map((place) => [place.mark.batch.id, place.text, place.code])).toEqual([
+        ["old", "LR-0405", true],
+        ["next", "LR-0411", true],
+        ["plain", `roasted ${day(20)}`, false],
+      ]);
+      expect(places[0]!.left).toBe(PLOT.left);
+      expect(places[1]!.left).toBeGreaterThan(lineX(dayNumber(date(21)), span, 800));
+      for (const place of places) expect(place.width).toBe(labelWidth(place));
+      // None is drawn over another.
+      for (const [index, place] of places.entries()) for (const other of places.slice(index + 1)) expect(place.left + place.width).toBeLessThan(other.left);
+    });
+
+    it("leaves out a label that would be drawn over another, keeping the earlier, and writes one left of its line where the chart ends first", () => {
+      // The next batch came on the 15th, a day after the chart begins: its label would stand on the edge's.
+      const close = batchMarks([group(old, [date(14), 6]), group(next, [date(15), 4]), group(plain, [date(27), 3])]);
+      const drawn = drawnMarks(close, span);
+      const places = labelPlaces(drawn, span, 600, now);
+      expect(drawn.lines.map((mark) => mark.batch.id)).toEqual(["next", "plain"]);
+      expect(places.map((place) => place.mark.batch.id)).toEqual(["old", "plain"]);
+      // The last day's label has no room right of its line.
+      const last = places[1]!;
+      expect(last.left + last.width).toBeLessThan(lineX(dayNumber(date(27)), span, 600));
+      // A chart too narrow for any label writes none, and the list under it still names each batch.
+      expect(labelPlaces(drawn, span, 80, now)).toEqual([]);
+    });
   });
 });

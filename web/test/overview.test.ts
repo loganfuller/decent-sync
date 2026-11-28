@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GroupSpec, Judgement, Machine, Recipe, ShotSpec, SummaryGroup } from "../src/lib/api";
-import { betweenMachinesLine, cellFilters, cellLines, coveredText, daysSinceRoast, lastShotMarks, offlineKind, overviewColumns, overviewRows, periodDays, periodOf } from "../src/lib/overview";
+import { betweenMachinesLine, cellFilters, cellLines, coveredText, daysSinceRoast, lastShotMarks, offlineKind, overviewColumns, overviewRows, periodDays, periodOf, rowBatch } from "../src/lib/overview";
 
 // The Overview's pure parts (#471, #543): a period's days at a Location, a
 // Shot Summary grouped by Recipe and Machine as a block's rows and columns,
@@ -59,6 +59,39 @@ describe("the Overview's periods", () => {
     expect(daysSinceRoast("2026-11-12", "2026-11-11")).toBeUndefined();
     expect(daysSinceRoast(null, "2026-11-11")).toBeUndefined();
     expect(daysSinceRoast("last week", "2026-11-11")).toBeUndefined();
+  });
+});
+
+describe("a row's Bean Batch line (#733)", () => {
+  /** A Recipe naming a batch roasted on 30 October, as far as the line reads one. */
+  const named = (location: typeof LAB, batchFinished = false, roastDate: string | null = "2026-10-30T00:00:00.000") =>
+    ({ location, batchFinished, uses: { beanBatch: { id: "b1", roastDate, batchCode: "LR-0411", atLocation: !batchFinished } } }) as Recipe;
+  const today = "2026-11-11";
+
+  it("gives the batch's days since roast and what is left of it at the Location, a plain weight, or that it is not tracked there", () => {
+    expect(rowBatch(named(LAB), "lab", today, new Map([["b1", 3240]]))).toEqual({ days: 12, weight: "3240 g here", finished: false });
+    expect(rowBatch(named(LAB), "lab", today, new Map([["b1", 0]]))).toEqual({ days: 12, weight: "0 g here", finished: false });
+    expect(rowBatch(named(LAB), "lab", today, new Map([["b1", null]]))).toEqual({ days: 12, weight: "not tracked here", finished: false });
+    // A batch with no roast date has no days.
+    expect(rowBatch(named(LAB, false, null), "lab", today, new Map([["b1", 3240]]))).toEqual({ weight: "3240 g here", finished: false });
+  });
+
+  it("says the batch is finished there in the weight's place", () => {
+    expect(rowBatch(named(LAB, true), "lab", today, new Map([["b1", 3240]]))).toEqual({ days: 12, finished: true });
+  });
+
+  it("gives another Location's Recipe its days and no weight, and so any row where no weight was read", () => {
+    // The Harbor's Recipe, pulled at the Lab: its batch's weight at the Lab is not its Location's, and it is finished at neither here.
+    expect(rowBatch(named(HARBOR), "lab", today, new Map([["b1", 3240]]))).toEqual({ days: 12, finished: false });
+    expect(rowBatch(named(HARBOR, true), "lab", today, new Map())).toEqual({ days: 12, finished: false });
+    // The Location's batches could not be read, or name no weight of this one (ADR-0025).
+    expect(rowBatch(named(LAB), "lab", today, undefined)).toEqual({ days: 12, finished: false });
+    expect(rowBatch(named(LAB), "lab", today, new Map())).toEqual({ days: 12, finished: false });
+  });
+
+  it("is none for a Recipe that names no batch, or is not read yet", () => {
+    expect(rowBatch({ location: LAB, batchFinished: false, uses: { beanBatch: null } } as Recipe, "lab", today, new Map())).toBeUndefined();
+    expect(rowBatch(undefined, "lab", today, new Map())).toBeUndefined();
   });
 });
 

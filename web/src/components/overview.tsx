@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
+import { BatchOfBean } from "@/components/batch-name";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { CaptureOnlyBadge } from "@/components/machine-sharing";
 import { LastSeen, LastShot, SlotBadge, StatusBadge, describeMachineState } from "@/components/machines";
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type Location, type Machine, type Recipe, type ShotSummary, type SummaryGroup, api } from "@/lib/api";
+import { type BatchHere, type Location, type Machine, type Recipe, type ShotSummary, type SummaryGroup, api } from "@/lib/api";
 import {
   type OverviewColumn,
   type OverviewRow,
@@ -20,11 +21,11 @@ import {
   cellFilters,
   cellLines,
   coveredText,
-  daysSinceRoast,
   overviewColumns,
   overviewRows,
   periodDays,
   periodOf,
+  rowBatch,
 } from "@/lib/overview";
 import { ratedShotsPath } from "@/lib/shot-list";
 import { durationText } from "@/lib/shot-summary";
@@ -95,8 +96,12 @@ export function OverviewAbout() {
         its Loaded Recipe. An offline Machine is marked, unless it went offline asleep.
       </p>
       <p>
-        A row is a Recipe, with its Reference Shot's duration, the Shot chosen to show how its Shots should go, and its Bean Batch's days since
-        roast: those in the Location's Recipe Slots first, then the others, then the Shots pulled with no Recipe loaded.
+        A row is a Recipe, with its Reference Shot's duration, the Shot chosen to show how its Shots should go: those in the Location's Recipe
+        Slots first, then the others, then the Shots pulled with no Recipe loaded.
+      </p>
+      <p>
+        Under it is the Recipe's Bean Batch: its Batch Code, or its roast date where it has none, which opens the batch, its days since roast,
+        and what is left of it at the Location, or that the batch is finished there.
       </p>
       <p>
         A cell counts a Machine's Shots of a Recipe and gives their median duration, with how far that is from the Reference Shot's: out of spec
@@ -114,7 +119,12 @@ export function OverviewAbout() {
   );
 }
 
-/** What a block's numbers are read from: the period they are of, its days at the Location, the Recipes its rows name, and the summary's groups. */
+/**
+ * What a block's numbers are read from: the period they are of, its days at
+ * the Location, the Recipes its rows name, the summary's groups, and what is
+ * left of each Bean Batch at the Location, by the batch's id, null for one
+ * untracked there; none where the weights could not be read.
+ */
 interface Numbers {
   period: Period;
   from: string;
@@ -122,24 +132,42 @@ interface Numbers {
   today: string;
   recipes: Recipe[];
   groups: SummaryGroup[];
+  weights: Map<string, number | null> | undefined;
 }
 
 /**
  * Reads a block's numbers: the Shot Summary of the Location's Shots in the
  * period's days there, as they are now, grouped by Recipe and then Machine,
  * every page of it; the Location's Recipes, for their Recipe Slots and Bean
- * Batches; and any other Recipe the groups name, as another Location's,
- * which a corrected Location History brings.
+ * Batches; the Location's batches, for what is left of each there (#733);
+ * and any other Recipe the groups name, as another Location's, which a
+ * corrected Location History brings.
  */
 async function readNumbers(location: Pick<Location, "id" | "timeZone">, period: Period): Promise<Numbers> {
   const days = periodDays(period, location.timeZone);
-  const [{ recipes }, groups] = await Promise.all([
+  const [{ recipes }, groups, weights] = await Promise.all([
     api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(location.id)}/recipes`),
     readSummaryGroups({ locationId: location.id, from: days.from, to: days.to, groupBy: "recipe,machine" }),
+    readWeights(location.id),
   ]);
   const elsewhere = new Set(groups.flatMap(({ by }) => (by.recipe && !recipes.some((recipe) => recipe.id === by.recipe!.id) ? [by.recipe.id] : [])));
   const others = await Promise.all([...elsewhere].map(async (id) => (await api<{ recipe: Recipe }>("GET", `/recipes/${encodeURIComponent(id)}`)).recipe));
-  return { period, ...days, recipes: [...recipes, ...others], groups };
+  return { period, ...days, recipes: [...recipes, ...others], groups, weights };
+}
+
+/**
+ * What is left of each Bean Batch at a Location, by the batch's id: null
+ * for one untracked there. Undefined where the Location's batches can't be
+ * read, and a batch the server says no weight of is left out, so the rows
+ * say none (ADR-0025) and the rest of the block is shown all the same.
+ */
+async function readWeights(locationId: string): Promise<Map<string, number | null> | undefined> {
+  try {
+    const { batches } = await api<{ batches: BatchHere[] }>("GET", `/locations/${encodeURIComponent(locationId)}/bean-batches`);
+    return new Map(batches.flatMap((batch): [string, number | null][] => (batch.remainingWeight === undefined ? [] : [[batch.id, batch.remainingWeight]])));
+  } catch {
+    return undefined;
+  }
 }
 
 /** Every group of a Shot Summary with these filters and grouping, a page after another until it has them all. */
@@ -320,7 +348,7 @@ function OverviewNumbers({ location, machines, period, data, error }: { location
                     return (
                       <TableRow key={row.recipe?.id ?? "none"} className="hover:bg-transparent">
                         <TableHead scope="row" className={cn(STICKY, "h-auto bg-card px-2 py-3 align-top font-normal whitespace-normal sm:px-3")}>
-                          <RecipeHeading row={row} locationId={id} today={data.today} between={between} />
+                          <RecipeHeading row={row} locationId={id} today={data.today} weights={data.weights} between={between} />
                         </TableHead>
                         {columns.map((column) => {
                           const group = row.cells.get(column.id);
@@ -428,15 +456,32 @@ function LoadedRecipe({ machine }: { machine: Machine }) {
  * A row's heading: the Recipe, with its Recipe Slot here, or the Location
  * it belongs to; its Reference Shot's duration, linked to that Shot, or "No
  * reference", linked to the Recipe's Shots in the Shots list, to choose one
- * from; and its Bean Batch's days since roast. On a narrow screen, which
- * has no Between Machines column, how far apart its Machines are is under
- * them. For the Shots pulled with no Recipe loaded, that alone.
+ * from; and, on a line of its own, its Bean Batch (#733): the batch's Batch
+ * Code, or "Roasted 13 Nov" where it has none, linked to the batch and
+ * named in words, its days since roast, and what is left of it at the
+ * Location, or "Batch finished here" in the weight's place (`rowBatch`),
+ * which wraps where the column is narrow. On a narrow screen, which has no
+ * Between Machines column, how far apart its Machines are is under them.
+ * For the Shots pulled with no Recipe loaded, that alone.
  */
-function RecipeHeading({ row, locationId, today, between }: { row: OverviewRow; locationId: string; today: string; between: SpecLine | undefined }) {
+function RecipeHeading({
+  row,
+  locationId,
+  today,
+  weights,
+  between,
+}: {
+  row: OverviewRow;
+  locationId: string;
+  today: string;
+  weights: ReadonlyMap<string, number | null> | undefined;
+  between: SpecLine | undefined;
+}) {
   const { recipe, details, reference } = row;
   if (!recipe) return <span className="text-muted-foreground">No Recipe loaded</span>;
   const elsewhere = recipe.location && recipe.location.id !== locationId ? recipe.location.name : undefined;
-  const days = daysSinceRoast(details?.uses.beanBatch?.roastDate ?? null, today);
+  const used = details?.uses.beanBatch;
+  const batch = rowBatch(details, locationId, today, weights);
   const duration = reference?.numbers.duration ?? null;
   return (
     <div className="grid gap-1">
@@ -457,8 +502,26 @@ function RecipeHeading({ row, locationId, today, between }: { row: OverviewRow; 
             No reference
           </Link>
         )}
-        {days !== undefined && ` · ${days} d since roast`}
       </span>
+      {used && batch && (
+        <span data-slot="row-batch" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground tabular-nums">
+          <BatchOfBean batch={{ bean: { name: details?.uses.bean?.name ?? null }, roastDate: used.roastDate, batchCode: used.batchCode }} id={used.id} brief leading />
+          {batch.days !== undefined && <span>{batch.days} d since roast</span>}
+          {batch.finished ? (
+            // On a phone, where the column is narrower than its words, it wraps within it.
+            <Badge variant="destructive" className="max-sm:h-auto max-sm:rounded-md max-sm:py-0.5 max-sm:whitespace-normal">
+              Batch finished here
+            </Badge>
+          ) : (
+            batch.weight !== undefined && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{batch.weight}</span>
+              </>
+            )
+          )}
+        </span>
+      )}
       {between && (
         <span className="tabular-nums sm:hidden">
           <Line line={between} />

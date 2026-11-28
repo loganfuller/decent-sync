@@ -1,4 +1,5 @@
-import type { SummaryBucket, SummaryNumber } from "@/lib/api";
+import type { BatchLink, BucketedGroup, SummaryBucket, SummaryNumber } from "@/lib/api";
+import { batchCodeOf, recordedDayText, roastedText } from "./batch-name";
 import { bucketTitle } from "./machine-use";
 import { starsOf } from "./rating";
 import { MEDIAN_TEXT, NUMBERS, type NumberName, shareText, starsMedianText } from "./shot-summary";
@@ -178,4 +179,122 @@ export function pointText(point: Pick<TrendPoint, "value" | "band">, number: Tre
   if (isShare(number) || !point.band) return { value: shareText(point.value / 100)! };
   const text = number === "rating" ? starsMedianText(point.value, point.band) : MEDIAN_TEXT[number]({ shots: 1, median: point.value, p25: point.band[0], p75: point.band[1] })!;
   return { value: text.median, range: text.range };
+}
+
+/**
+ * Where a trend's chart keeps its plot, in pixels, which its marks are
+ * placed by: the value axis's width at its left, the margin at its right,
+ * the room the time axis leaves at each end for the first and last dots,
+ * the time axis's own height under it, and, over it, the margin a chart
+ * with no marks has (`top`) and the taller one that holds a marked chart's
+ * labels (`labels`).
+ */
+export const PLOT = { left: 44, right: 8, pad: 12, bottom: 30, top: 8, labels: 28 } as const;
+
+/**
+ * A Bean Batch a Trend of one Recipe is marked with (#733): the first day,
+ * or week, in which a Shot the Trend charts was pulled with it, as `start`,
+ * a date, and `at`, its count of days. `earliest` is the batch of the
+ * chart's earliest Shots, which is labelled at the chart's left edge and has
+ * no line.
+ */
+export interface BatchMark {
+  batch: BatchLink;
+  start: string;
+  at: number;
+  earliest: boolean;
+}
+
+/**
+ * A Trend's marks, oldest first, from a Shot Summary of its Shots grouped by
+ * Bean Batch by day or week: one for each batch, where it is first used,
+ * however often the bar goes back to it. Shots linked to no batch make no
+ * mark, and a batch first used after some of them is not the earliest's, so
+ * it has a line. Cleaning, calibration and Unfinished Shots,
+ * which the Trend leaves out, and Shots whose time is unknown, mark nothing.
+ * The previous release's answer, with no buckets, marks nothing (ADR-0025).
+ */
+export function batchMarks(groups: readonly Pick<BucketedGroup, "by" | "buckets">[]): BatchMark[] {
+  const firstOf = (group: Pick<BucketedGroup, "buckets">) => group.buckets?.find((bucket) => bucket.start !== null && bucket.counts.shots > 0)?.start ?? undefined;
+  const marks = groups.flatMap((group): BatchMark[] => {
+    const start = firstOf(group);
+    return group.by.beanBatch && start !== undefined ? [{ batch: group.by.beanBatch, start, at: dayNumber(start), earliest: false }] : [];
+  });
+  // Batches first used on one day stand in the order they were roasted.
+  marks.sort((a, b) => a.at - b.at || (a.batch.roastDate ?? "").localeCompare(b.batch.roastDate ?? "") || a.batch.id.localeCompare(b.batch.id));
+  const unlinked = groups.flatMap((group) => (group.by.beanBatch ? [] : [firstOf(group)])).flatMap((start) => (start === undefined ? [] : [dayNumber(start)]));
+  const [first] = marks;
+  if (first && unlinked.every((at) => at >= first.at)) first.earliest = true;
+  return marks;
+}
+
+/** What a mark's label reads: its batch's Batch Code, or "roasted 10 Nov" where it has none. */
+export function markLabel(batch: Pick<BatchLink, "roastDate" | "batchCode">, now: Date = new Date()): { text: string; code: boolean } {
+  const code = batchCodeOf(batch);
+  return code === undefined ? { text: roastedText(batch, now), code: false } : { text: code, code: true };
+}
+
+/**
+ * What stands before a batch in the list under the chart: "From 21 Nov",
+ * the first day it was used, or "From the week of 16 Nov", and "Until then"
+ * for the batch of the chart's earliest Shots where another follows it.
+ */
+export function markLead(mark: BatchMark, marks: readonly BatchMark[], bucket: Bucket, now: Date = new Date()): string {
+  if (mark.earliest && marks.length > 1) return "Until then";
+  const day = recordedDayText(mark.start, now) ?? mark.start;
+  return bucket === "week" ? `From the week of ${day}` : `From ${day}`;
+}
+
+/**
+ * How a chart over a span of days draws its marks: `edge`, the batch
+ * labelled at its left edge, which is that of its earliest Shots, or the
+ * last one first used before the span; and `lines`, those with a line on
+ * their first day or week within it. A batch first used beyond either end
+ * is drawn nowhere, and the list under the chart still names it.
+ */
+export function drawnMarks(marks: readonly BatchMark[], [from, until]: readonly [number, number]): { edge?: BatchMark; lines: BatchMark[] } {
+  const before = marks.filter((mark) => mark.at < from);
+  const edge = before.at(-1) ?? (marks[0]?.earliest ? marks[0] : undefined);
+  return { ...(edge && { edge }), lines: marks.filter((mark) => mark !== edge && mark.at >= from && mark.at <= until) };
+}
+
+/** A mark's label as wide as its text needs, in pixels: a Batch Code in monospace, or a roast day in the page's own type, at 13 px, in its chip. */
+export function labelWidth(label: { text: string; code: boolean }): number {
+  return Math.ceil(label.text.length * (label.code ? 8 : 7)) + 14;
+}
+
+/** How far a mark's label stands from its line, and one label from the next, in pixels. */
+const LABEL_GAP = 5;
+
+/**
+ * Where a chart `width` pixels wide writes its marks' labels, each by its
+ * left edge, in pixels from the chart's: the edge's label at the plot's
+ * left, and each line's label right of its line at the top, or left of it
+ * where the chart ends first. A label that would be drawn over another is
+ * left out, the earlier of them kept, and so is one the chart has no room
+ * for. `x` is each line's place: `lineX`.
+ */
+export function labelPlaces(drawn: { edge?: BatchMark; lines: readonly BatchMark[] }, span: readonly [number, number], width: number, now: Date = new Date()): { mark: BatchMark; text: string; code: boolean; left: number; width: number }[] {
+  const placed: { mark: BatchMark; text: string; code: boolean; left: number; width: number }[] = [];
+  const clear = (left: number, wide: number) => left >= PLOT.left && left + wide <= width && placed.every((other) => left >= other.left + other.width + LABEL_GAP || left + wide + LABEL_GAP <= other.left);
+  if (drawn.edge) {
+    const label = markLabel(drawn.edge.batch, now);
+    const wide = labelWidth(label);
+    if (clear(PLOT.left, wide)) placed.push({ mark: drawn.edge, ...label, left: PLOT.left, width: wide });
+  }
+  for (const mark of drawn.lines) {
+    const label = markLabel(mark.batch, now);
+    const wide = labelWidth(label);
+    const x = lineX(mark.at, span, width);
+    const left = x + LABEL_GAP + wide <= width ? x + LABEL_GAP : x - LABEL_GAP - wide;
+    if (clear(left, wide)) placed.push({ mark, ...label, left, width: wide });
+  }
+  return placed;
+}
+
+/** Where a day stands across a chart `width` pixels wide whose time axis runs over `span`, in pixels from the chart's left, as the chart's own scale puts it. */
+export function lineX(at: number, [from, until]: readonly [number, number], width: number): number {
+  const first = PLOT.left + PLOT.pad;
+  const last = width - PLOT.right - PLOT.pad;
+  return until === from ? first : first + ((last - first) * (at - from)) / (until - from);
 }
