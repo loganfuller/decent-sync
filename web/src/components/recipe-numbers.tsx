@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { OrNone } from "@/components/records";
-import { MOST_LINES, TrendChart } from "@/components/shot-trend";
+import { MOST_LINES, TrendChart, readBatchMarks } from "@/components/shot-trend";
 import { SpecMark } from "@/components/spec-mark";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -237,7 +237,8 @@ function Median({ numbers }: { numbers: ReturnType<typeof machineNumbers> }) {
  * against target or its grind setting, one at a time, a line for each
  * Machine that pulled it, with the band of its middle half, on the chart
  * the Shots list's trend uses. Charting duration, its Reference Shot's is a
- * dashed, labelled line across the chart (#547). The days are the Recipe's
+ * dashed, labelled line across the chart (#547), and the chart is marked
+ * where the Recipe's Bean Batch changed (#733). The days are the Recipe's
  * Location's, the last of them today. The number charted is kept in the
  * page's address as `trend`, duration as none, so the view survives a
  * reload and coming back from a Machine's Shots, which its name under the
@@ -261,7 +262,10 @@ export function RecipeTrendCard({ recipe }: { recipe: Recipe }) {
     const days = trendDays(timeZone);
     // By Recipe too, which brings its Reference Shot's own numbers with each group; as many Machines as the chart draws lines of.
     const query = new URLSearchParams({ recipeId: id, ...days, groupBy: "recipe,machine", bucket: "day", numbers: RECIPE_TRENDS.join(","), limit: String(MOST_LINES) });
-    return { days, summary: await api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${query}`) };
+    // The same Shots grouped by Bean Batch too, which the trend's marks are read from (#733).
+    const marksQuery = new URLSearchParams({ recipeId: id, ...days, groupBy: "beanBatch", bucket: "day", numbers: "duration" });
+    const [summary, marks] = await Promise.all([api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${query}`), readBatchMarks(marksQuery.toString())]);
+    return { days, summary, marks };
   }, [id, timeZone]);
   const { data, error } = usePolled(load, DETAILS_POLL_MS);
   const groups = data?.summary.groups ?? [];
@@ -287,6 +291,10 @@ export function RecipeTrendCard({ recipe }: { recipe: Recipe }) {
             Shot's.
           </p>
           <p>Yield against target is the yield weighed less each Shot's own target. A grind setting is charted where it is a number, such as 8.8.</p>
+          <p>
+            A vertical line stands on the first day its Shots were pulled with another Bean Batch, labelled with that batch's Batch Code, or its
+            roast date where it has none. The batches of these days are listed under the chart.
+          </p>
           <p>A Machine's name under the chart opens its Shots of these days in the Shots list.</p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -318,6 +326,7 @@ export function RecipeTrendCard({ recipe }: { recipe: Recipe }) {
                 bucket="day"
                 days={data.days}
                 reference={reference && typeof referenceDuration === "number" ? { id: reference.id, value: referenceDuration } : undefined}
+                marks={data.marks}
               />
             )}
             {data && <MoreMachines shown={lines.length} total={data.summary.total} what="The lines are of" />}

@@ -256,11 +256,13 @@ test("the Trend starts closed and reads nothing until opened, is open from a sha
   await expect(trend.getByRole("figure")).toHaveCount(0);
   expect(read).toEqual([]);
 
-  // Opened, it is read, grouped by the Recipe and its Machines, and the address says it is open.
+  // Opened, it is read, grouped by the Recipe and its Machines, and the address says it is open. Of one Recipe, it is
+  // read grouped by Bean Batch too, for the marks where its batch changed (#733).
   await openCard(page, "Trend");
   await expect(page).toHaveURL(new RegExp(`/shots\\?period=7days&recipeId=${recipes.house}&trend=duration$`));
-  expect(read).toHaveLength(1);
+  expect(read).toHaveLength(2);
   expect(read[0]).toContain("groupBy=recipe%2Cmachine");
+  expect(read[1]).toContain("groupBy=beanBatch");
   const chart = trend.getByRole("figure", { name: "Duration by day" });
   // A line and a band for each Machine, named beside its colour, its name leading to the list at that Machine.
   await expect(chart.locator(".recharts-line")).toHaveCount(2);

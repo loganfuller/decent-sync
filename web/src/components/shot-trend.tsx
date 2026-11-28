@@ -1,7 +1,8 @@
 import { ChevronDownIcon } from "lucide-react";
-import { Fragment, useCallback, useId, useState } from "react";
+import { Fragment, type RefObject, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts";
+import { BatchInLine } from "@/components/batch-name";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,9 @@ import { bucketLabel, bucketTitle } from "@/lib/machine-use";
 import { MAX_STARS } from "@/lib/rating";
 import { NUMBER_NAMES, shotsText } from "@/lib/shot-summary";
 import {
+  type BatchMark,
   type Bucket,
+  PLOT,
   TREND_NUMBERS,
   TREND_UNITS,
   type TrendNumber,
@@ -25,9 +28,14 @@ import {
   type TrendRow,
   axisSpan,
   axisTicks,
+  batchMarks,
   dateOf,
   dayNumber,
+  drawnMarks,
   isShare,
+  labelPlaces,
+  lineX,
+  markLead,
   pointText,
   pointTitle,
   trendPoints,
@@ -93,7 +101,9 @@ const STARS_AXIS = { domain: [0, MAX_STARS] satisfies [number, number], ticks: A
  * dashed line across the chart. With no Machine named beside it,
  * `recipe.byMachine`, each Machine that pulled the Recipe is a line of its
  * own, named beside its color, its name opening the list at that Machine
- * (`recipe.machinePath`).
+ * (`recipe.machinePath`). Either way it is marked where the Recipe's Bean
+ * Batch changed (#733), from a second read of the same Shots grouped by
+ * Bean Batch.
  */
 export function ShotTrendCard({
   filterQuery,
@@ -127,6 +137,10 @@ export function ShotTrendCard({
             Filtered to one Recipe and no Machine, each Machine that pulled it is a line of its own. Charting duration, the dashed line is its
             Reference Shot's.
           </p>
+          <p>
+            Filtered to one Recipe, a vertical line stands on the first day, or week, its Shots were pulled with another Bean Batch, labelled
+            with that batch's Batch Code, or its roast date where it has none. The batches are listed under the chart.
+          </p>
           <p>A day or week is that of each Shot's Location, in its time zone, or UTC for a Shot with no Location. A week starts on Monday.</p>
           <p>A day or week with no Shots, or none with a value, has no point: the line runs past it to the next.</p>
         </>
@@ -149,10 +163,12 @@ function Trend({ filterQuery, recipe, number, bucket, onNumber, onBucket }: Omit
     ...(recipe ? [["groupBy", byMachine ? "recipe,machine" : "recipe"], ["limit", String(MOST_LINES)]] : []),
   ]).toString();
   // Each trend loaded remembers what it answers, and so what it is to be drawn as.
-  const load = useCallback(
-    async () => ({ query, number, bucket, byMachine, summary: await api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${query}`) }),
-    [query, number, bucket, byMachine],
-  );
+  // Of one Recipe, the same Shots grouped by Bean Batch too, which its marks are read from.
+  const marksQuery = recipe ? new URLSearchParams([...new URLSearchParams(filterQuery), ["bucket", bucket], ["numbers", "duration"], ["groupBy", "beanBatch"]]).toString() : undefined;
+  const load = useCallback(async () => {
+    const [summary, marks] = await Promise.all([api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${query}`), marksQuery === undefined ? undefined : readBatchMarks(marksQuery)]);
+    return { query, number, bucket, byMachine, summary, marks };
+  }, [query, marksQuery, number, bucket, byMachine]);
   const { data: loaded, error } = usePolled(load, DETAILS_POLL_MS);
   const current = loaded?.query === query;
   const groups = loaded && (current || !error) ? loaded.summary.groups : undefined;
@@ -212,6 +228,7 @@ function Trend({ filterQuery, recipe, number, bucket, onNumber, onBucket }: Omit
                 number={loaded.number}
                 bucket={loaded.bucket}
                 reference={reference && typeof referenceDuration === "number" ? { id: reference.id, value: referenceDuration } : undefined}
+                marks={loaded.marks}
               />
               {loaded.byMachine && loaded.summary.total > lines.length && (
                 <p className="text-xs text-muted-foreground">
@@ -224,6 +241,30 @@ function Trend({ filterQuery, recipe, number, bucket, onNumber, onBucket }: Omit
       </Tabs>
     </CardContent>
   );
+}
+
+/** The most groups one read of a summary gives (`readPage` in the server's pagination.ts). */
+const PAGE = 100;
+
+/**
+ * A Trend's marks (#733), from the Shot Summary of the Shots `query` finds,
+ * which names their bucket and groups them by Bean Batch, every page of it.
+ * None where it can't be read, so the Trend is drawn without them.
+ */
+export async function readBatchMarks(query: string): Promise<BatchMark[]> {
+  try {
+    const page = (offset: number) => api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${new URLSearchParams([...new URLSearchParams(query), ["limit", String(PAGE)], ["offset", String(offset)]])}`);
+    const first = await page(0);
+    const groups = [...first.groups];
+    while (groups.length < first.total) {
+      const next = await page(groups.length);
+      if (next.groups.length === 0) break;
+      groups.push(...next.groups);
+    }
+    return batchMarks(groups);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -250,6 +291,15 @@ export interface TrendLine {
  * days the Shots were asked for. `reference` is a Recipe's Reference Shot's
  * own value of the number, drawn as a dashed line across the chart with its
  * value beside it, and named under the chart, where it leads to that Shot.
+ *
+ * `marks` are the Bean Batches a Trend of one Recipe is marked with (#733,
+ * `batchMarks`): a vertical line on the first day or week each was used,
+ * labelled at its top with the batch's Batch Code, or its roast date where
+ * it has none; the batch of the chart's earliest Shots labelled at its left
+ * edge, with no line; a label that would be drawn over another left out;
+ * and under the chart a legend entry and the batches, the latest first,
+ * each linked. They are the same whatever its lines are of, and the table
+ * of numbers holds none of them.
  */
 export function TrendChart({
   lines: given,
@@ -258,6 +308,7 @@ export function TrendChart({
   bucket,
   days,
   reference,
+  marks = [],
 }: {
   lines: readonly TrendLine[];
   of?: string;
@@ -265,6 +316,7 @@ export function TrendChart({
   bucket: Bucket;
   days?: { from: string; to: string };
   reference?: { id: string; value: number };
+  marks?: readonly BatchMark[];
 }) {
   const lines = given.slice(0, MOST_LINES);
   const rows = trendRows(lines.map((line) => trendPoints(line.buckets, number)));
@@ -274,6 +326,8 @@ export function TrendChart({
   const share = isShare(number);
   const referenceText = reference && pointText({ value: reference.value, band: [reference.value, reference.value] }, number).value;
   const span = days ? ([dayNumber(days.from), dayNumber(days.to)] satisfies [number, number]) : axisSpan(rows, bucket);
+  const drawn = drawnMarks(marks, span);
+  const marked = rows.length > 0 && (drawn.edge !== undefined || drawn.lines.length > 0);
 
   return (
     <>
@@ -286,78 +340,83 @@ export function TrendChart({
             {number === "grindSetting" ? "Nothing to chart: none of these Shots has a grind setting that is a number." : "Nothing to chart: none of these Shots has a value for it."}
           </p>
         ) : (
-          <ChartContainer config={CHART} className="aspect-auto h-56 w-full">
-            <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="at"
-                type="number"
-                domain={span}
-                ticks={axisTicks(span, bucket)}
-                tickLine={false}
-                axisLine={false}
-                // Room for the first and last dots, which sit on the axis's ends.
-                padding={{ left: 12, right: 12 }}
-                tickFormatter={(at: number) => bucketLabel({ date: dateOf(at) })}
-              />
-              {/* A share from none of the Shots to all of them, and a rating from no stars to five; any other number fitted to what the Shots had. */}
-              <YAxis
-                width={44}
-                tickLine={false}
-                axisLine={false}
-                domain={share ? [0, 100] : number === "rating" ? STARS_AXIS.domain : ["auto", "auto"]}
-                ticks={number === "rating" ? STARS_AXIS.ticks : undefined}
-                tickFormatter={(value: number) => (share ? `${value}%` : String(value))}
-              />
-              <ChartTooltip
-                cursor={{ stroke: "var(--muted-foreground)", strokeOpacity: 0.5 }}
-                content={({ active, payload }) => (active && payload?.[0] ? <PointTip row={payload[0].payload as TrendRow} lines={lines} of={of} number={number} bucket={bucket} /> : null)}
-              />
-              {/* Every band under every line. A line, and its band, run past a day or week it has no point of. */}
-              {!share &&
-                lines.map((line, index) => (
-                  <Area
+          <div className="relative">
+            {marked && <BatchMarks drawn={drawn} span={span} />}
+            {/* A marked chart is as much taller as its labels need over its plot. */}
+            <ChartContainer config={CHART} className={marked ? "aspect-auto h-61 w-full" : "aspect-auto h-56 w-full"}>
+              <ComposedChart data={rows} margin={{ top: marked ? PLOT.labels : PLOT.top, right: PLOT.right, bottom: 0, left: 0 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="at"
+                  type="number"
+                  domain={span}
+                  ticks={axisTicks(span, bucket)}
+                  height={PLOT.bottom}
+                  tickLine={false}
+                  axisLine={false}
+                  // Room for the first and last dots, which sit on the axis's ends.
+                  padding={{ left: PLOT.pad, right: PLOT.pad }}
+                  tickFormatter={(at: number) => bucketLabel({ date: dateOf(at) })}
+                />
+                {/* A share from none of the Shots to all of them, and a rating from no stars to five; any other number fitted to what the Shots had. */}
+                <YAxis
+                  width={PLOT.left}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={share ? [0, 100] : number === "rating" ? STARS_AXIS.domain : ["auto", "auto"]}
+                  ticks={number === "rating" ? STARS_AXIS.ticks : undefined}
+                  tickFormatter={(value: number) => (share ? `${value}%` : String(value))}
+                />
+                <ChartTooltip
+                  cursor={{ stroke: "var(--muted-foreground)", strokeOpacity: 0.5 }}
+                  content={({ active, payload }) => (active && payload?.[0] ? <PointTip row={payload[0].payload as TrendRow} lines={lines} of={of} number={number} bucket={bucket} /> : null)}
+                />
+                {/* Every band under every line. A line, and its band, run past a day or week it has no point of. */}
+                {!share &&
+                  lines.map((line, index) => (
+                    <Area
+                      key={line.id}
+                      dataKey={(row: TrendRow) => row.points[index]?.band}
+                      type="linear"
+                      stroke="none"
+                      fill={colorOf(index)}
+                      fillOpacity={0.15}
+                      activeDot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  ))}
+                {/* Under the lines, which cross it; the value axis grows to hold it. */}
+                {reference && (
+                  <ReferenceLine
+                    y={reference.value}
+                    ifOverflow="extendDomain"
+                    stroke="var(--muted-foreground)"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 4"
+                    label={{ value: `Reference ${referenceText}`, position: "insideBottomRight", fill: "var(--muted-foreground)", fontSize: 12 }}
+                  />
+                )}
+                {lines.map((line, index) => (
+                  <Line
                     key={line.id}
-                    dataKey={(row: TrendRow) => row.points[index]?.band}
+                    dataKey={(row: TrendRow) => row.points[index]?.value}
                     type="linear"
-                    stroke="none"
-                    fill={colorOf(index)}
-                    fillOpacity={0.15}
-                    activeDot={false}
+                    stroke={colorOf(index)}
+                    strokeWidth={2}
+                    // Each day or week marked, ringed in the surface's color where dots meet a line, while there is room for them.
+                    dot={rows.length <= MOST_MARKERS ? { r: 4, fill: colorOf(index), stroke: "var(--card)", strokeWidth: 2 } : false}
+                    activeDot={{ r: 5, fill: colorOf(index), stroke: "var(--card)", strokeWidth: 2 }}
                     connectNulls
                     isAnimationActive={false}
                   />
                 ))}
-              {/* Under the lines, which cross it; the value axis grows to hold it. */}
-              {reference && (
-                <ReferenceLine
-                  y={reference.value}
-                  ifOverflow="extendDomain"
-                  stroke="var(--muted-foreground)"
-                  strokeWidth={1.5}
-                  strokeDasharray="5 4"
-                  label={{ value: `Reference ${referenceText}`, position: "insideBottomRight", fill: "var(--muted-foreground)", fontSize: 12 }}
-                />
-              )}
-              {lines.map((line, index) => (
-                <Line
-                  key={line.id}
-                  dataKey={(row: TrendRow) => row.points[index]?.value}
-                  type="linear"
-                  stroke={colorOf(index)}
-                  strokeWidth={2}
-                  // Each day or week marked, ringed in the surface's color where dots meet a line, while there is room for them.
-                  dot={rows.length <= MOST_MARKERS ? { r: 4, fill: colorOf(index), stroke: "var(--card)", strokeWidth: 2 } : false}
-                  activeDot={{ r: 5, fill: colorOf(index), stroke: "var(--card)", strokeWidth: 2 }}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ))}
-            </ComposedChart>
-          </ChartContainer>
+              </ComposedChart>
+            </ChartContainer>
+          </div>
         )}
       </figure>
-      {(of !== undefined || reference) && (
+      {(of !== undefined || reference || (marked && drawn.lines.length > 0)) && (
         <ul aria-label="Lines" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {of !== undefined &&
             lines.map((line, index) => (
@@ -381,6 +440,22 @@ export function TrendChart({
               <span className="tabular-nums">{referenceText}</span>
             </li>
           )}
+          {marked && drawn.lines.length > 0 && (
+            <li className="flex items-center gap-1.5 text-muted-foreground">
+              <span aria-hidden className="h-3.5 w-0.5 shrink-0 bg-foreground" />
+              Another Bean Batch from this {bucket}
+            </li>
+          )}
+        </ul>
+      )}
+      {rows.length > 0 && marks.length > 0 && (
+        <ul aria-label={`Bean Batches in these ${bucket}s`} className="grid gap-1 text-sm">
+          {[...marks].reverse().map((mark) => (
+            <li key={mark.batch.id} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-muted-foreground">{markLead(mark, marks, bucket)}</span>
+              <BatchInLine batch={mark.batch} id={mark.batch.id} roasted />
+            </li>
+          ))}
         </ul>
       )}
       {untimed > 0 && (
@@ -390,6 +465,54 @@ export function TrendChart({
       )}
       {rows.length > 0 && <Numbers rows={rows} lines={lines} of={of} number={number} bucket={bucket} />}
     </>
+  );
+}
+
+/** The width an element is drawn at, in pixels, as it is laid out and as it changes: undefined until it is measured. */
+function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number | undefined] {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState<number>();
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    setWidth(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => entry && setWidth(entry.contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
+}
+
+/**
+ * A chart's marks, drawn over it: a vertical line from its top to its time
+ * axis for each batch with one, and the labels, the edge's at the plot's
+ * left and each line's beside its top, placed by the chart's own scale
+ * (`lineX`) and kept off each other (`labelPlaces`). Nothing of it is read
+ * out or pointed at: the list under the chart names each batch, and the
+ * chart's points keep their tooltips.
+ */
+function BatchMarks({ drawn, span }: { drawn: ReturnType<typeof drawnMarks>; span: readonly [number, number] }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} aria-hidden="true" data-slot="batch-marks" className="pointer-events-none absolute inset-0">
+      {width !== undefined && (
+        <>
+          {drawn.lines.map((mark) => (
+            <span key={mark.batch.id} data-slot="batch-mark-line" data-day={mark.start} className="absolute top-0.5 w-0.5 -translate-x-1/2 bg-foreground" style={{ left: lineX(mark.at, span, width), bottom: PLOT.bottom }} />
+          ))}
+          {labelPlaces(drawn, span, width).map((label) => (
+            <span
+              key={label.mark.batch.id}
+              data-slot="batch-mark-label"
+              className={`absolute top-0.5 inline-flex h-5.5 items-center justify-center rounded-md border text-[13px] whitespace-nowrap ${label.code ? "font-mono font-medium" : ""} ${label.mark === drawn.edge ? "bg-card text-muted-foreground" : "bg-muted text-foreground"}`}
+              style={{ left: label.left, width: label.width }}
+            >
+              {label.text}
+            </span>
+          ))}
+        </>
+      )}
+    </div>
   );
 }
 

@@ -205,7 +205,15 @@ A Location's Recipes are on its own page, in the **Recipes** card, and every Loc
 3. Under **Recipe Slot**, choose **The next free slot**, **A slot of my choosing**, or **No slot: kept here only**.
 4. Press **Create**.
 
-The lists offer what the Location has first. Choosing a Bean Batch from elsewhere adds it at the Location, and choosing a Profile, Basket or Tool not shown there shows it there. The form says so under **Saving also** before you save.
+**Bean Batch** is a field you type into. Type part of the Bean's name, its roaster or its Batch Code, and the list under it shows the batches that match:
+
+- **At** the Location, the latest roasted first, each with its roast day and what is left of it there, such as "3240 g here", or "Not tracked".
+- **Elsewhere: saving adds it at** the Location, each with the Locations it is at and what they hold of it, such as "6000 g there".
+- **No batch**.
+
+Press a batch to choose it, or move through the list with the arrow keys and press Enter. A batch picked from elsewhere is added at the Location with no weight. To bring its weight, move it on the batch's page ([Move a Bean Batch to another Location, or finish it there](#move-a-bean-batch-to-another-location-or-finish-it-there)).
+
+The Profile and Basket lists offer what the Location has first, and choosing a Profile, Basket or Tool not shown there shows it there. The form says what saving adds or shows under **Saving also** before you save.
 
 A Recipe created on a tablet, in DYE2, joins the Library the same way.
 
@@ -216,6 +224,23 @@ Open the Recipe and press **Edit**. Each field you change is written to every ta
 <Still name="recipe-details" alt="A Recipe's Recipe card: its Bean Batch, Profile, dose, yield, Grinder, grind setting and Basket, with a button to show the fields not set" />
 
 The Recipe's page lists what it holds in its **Recipe** card, with a button under them to show the fields not set.
+
+### Change a Recipe's Bean Batch
+
+Picking the next roast is the commonest edit of a Recipe, so its page leads with its batch. Under the Recipe's name, the **Bean Batch** strip gives the batch, linked, with its Batch Code, its roast day and how long ago that was, and its roaster. Beside it, **Remaining at** the Location is what is left of the batch there, or "Not tracked" where no weight is entered.
+
+1. Press **Change batch**.
+2. Type part of the Bean's name, its roaster or its Batch Code, and choose the batch from the list, as in the Recipe form.
+3. Press **Save**. **Cancel** changes nothing.
+
+Saving changes the Recipe's batch and nothing else. As any edit, it reaches every tablet at the Location and every Machine that has the Recipe loaded, and the Recipe's **History** keeps it.
+
+When the batch is finished at the Recipe's Location, or moved away from it, the Recipe reads **Batch finished here** and the strip says so, with the day. Under **Pick the next roast**, it lists the same Bean's other batches at the Location, the latest roasted first, each with what is left of it there:
+
+- **Use this batch** changes the Recipe's batch at once, with nothing to confirm.
+- **Another batch…** opens the same dialog as **Change batch**, for a batch of another Bean or from another Location.
+
+Admins, and Staff who work at the Recipe's Location, see these buttons. Everyone else sees the strip without them.
 
 ### Move a Recipe between slots
 
@@ -228,7 +253,7 @@ To empty its slot, open **More** and choose **Take out of its slot**.
 
 ### Copy a Recipe to another Location
 
-Open **More** and choose **Copy to a Location**. Choose where under **Copy to**, and its slot, Grinder and Bean Batch there, then press **Copy**.
+Open **More** and choose **Copy to a Location**. Choose where under **Copy to**, and its slot, Grinder and Bean Batch there, then press **Copy**. **Bean Batch** is the same field you type into: its first entry keeps the Recipe's own batch, and under **None** are the batches at the Location you copy to.
 
 The copy is a new Recipe at that Location, a starting point for dialling in there. It keeps the dose, yield, grind setting and the steam, hot water and flush settings, and starts with the same Reference Shot. Its history starts with the copy, and the Recipe you copied is not changed.
 

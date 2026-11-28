@@ -22,7 +22,7 @@ Open **Shots**. The list is newest first, under a heading for each day.
 <Still name="shots" alt="The Shots list: the Dates presets and the Filters button, the Summary card, the Trend card, closed, and the first Shots of today, one of them with its duration marked out of spec" />
 
 1. **Choose the dates.** Today, Yesterday, 7 days or 30 days, or Custom for any dates, with From and To. A day is each Shot's Location's own, in its time zone, so Today at a cafe is that cafe's today.
-2. **Open Filters to narrow it.** Filter by Location, Machine, Recipe, Bean, Bean Batch, Grinder, Basket, Barista, Profile and Rating. A Bean Batch is offered by its Bean, its Batch Code and its roast date. On a phone the filters open in a sheet.
+2. **Open Filters to narrow it.** Filter by Location, Machine, Recipe, Bean, Bean Batch, Grinder, Basket, Barista, Profile and Rating. The Bean Batch filter is a field you type into: type part of the Bean's name, its roaster or its Batch Code, and choose from the batches that match, each named by its Bean, its Batch Code and its roast date. On a phone the filters open in a sheet.
 3. **Read what is set above the list.** Each filter you set is a chip that names it. Remove a filter from its chip.
 
 Two of the filters do more than their names say:
@@ -109,6 +109,7 @@ Under the Summary is the **Trend** card, closed until you choose **Show**. It ch
 
 - Each day's or week's median is a line, with a band for the range the middle half of its Shots fall in. The share that stopped at target is a line alone. A rating is charted in stars, from 0 to 5.
 - Filtered to one Recipe, the chart draws a line for each Machine that pulled it. Charting duration, it draws the Recipe's Reference Shot's as a dashed line.
+- Filtered to one Recipe, the chart also marks where the Recipe's Bean Batch changed: a vertical line on the first day, or week, its Shots were pulled with another batch, labelled with that batch's Batch Code, or its roast date where it has none. The batch of the earliest Shots charted is labelled at the chart's left edge. Under the chart, the batches of those days are listed, the latest first, each linked. So a duration that drifts as a roast ages and resets with the next one shows where the roast changed.
 - A day is each Shot's Location's own, in its time zone, or UTC's for a Shot with no Location. A week starts on Monday.
 - Whether the card is open, the number, and the day or week chosen are kept in the page's address, with the filters.
 
@@ -126,7 +127,13 @@ The **Overview** is the home page and the first item of the navigation. It has a
 
 A Machine that went offline is marked, unless it went offline asleep, as one left for the night.
 
-**A row for each Recipe** pulled in the period is under the cards, in Recipe Slot order, with its Reference Shot's duration. Each Machine has a column. A cell:
+**A row for each Recipe** pulled in the period is under the cards, in Recipe Slot order, with its Reference Shot's duration. Under that is a line for the Recipe's Bean Batch:
+
+- its Batch Code, or its roast day where it has none, which opens the batch;
+- its days since roast;
+- what is left of it at the Location, such as "3240 g here", or "not tracked here" where no weight is entered, or **Batch finished here** where the batch is finished there.
+
+Each Machine has a column. A cell:
 
 - counts that Machine's Shots of that Recipe, with their median duration;
 - says how far that is from the Reference Shot's, marked when out of spec;
@@ -142,14 +149,14 @@ Each Location's page shows its own block, with the period chosen in its heading.
 
 ## See how one Recipe is pulling
 
-A Recipe's page shows how it is pulling before how it is set up. Open it from the Library, or from the Recipe's name anywhere it is a link.
+A Recipe's page shows how it is pulling before how it is set up. Open it from the Library, or from the Recipe's name anywhere it is a link. Under its name is its Bean Batch, with what is left of it at the Location and **Change batch** ([Change a Recipe's Bean Batch](../library-and-recipes/#change-a-recipes-bean-batch)).
 
 <Still name="recipe" alt="A Recipe's page: its name with Edit, Move to a slot and More beside it, then How it is pulling, with the Reference Shot card beside the By Machine card, where one Machine's duration against the reference is marked out of spec" />
 
 1. **How it is pulling.** Choose Today, Yesterday or 7 days, which are its Location's days.
    - **Reference Shot** shows the Recipe's Reference Shot.
    - **By Machine** has a row for each Machine that pulled it: the count of Shots, their median duration with the range the middle half fall in and how far it is from the Reference Shot's, their yield against target and the share stopped at target, each marked where out of spec. A last row, Between Machines, says how far apart the Machines are, so the Machine that is off stands out.
-2. **Trend.** The last 30 days by day, a line for each Machine with its middle-half band. Choose one number at a time: its duration, with the Reference Shot's as a dashed line, its yield against target, or its grind setting. A coffee ageing or a grinder drifting shows here. A grind setting is charted where it is a number, so a Recipe whose setting is text has no grind trend.
+2. **Trend.** The last 30 days by day, a line for each Machine with its middle-half band. Choose one number at a time: its duration, with the Reference Shot's as a dashed line, its yield against target, or its grind setting. A coffee ageing or a grinder drifting shows here. A grind setting is charted where it is a number, so a Recipe whose setting is text has no grind trend. A vertical line marks the first day the Recipe was pulled with another Bean Batch, labelled with that batch's Batch Code, and the batches of those days are listed under the chart.
 3. **Recipe.** The fields the Recipe has set, with the rest shown on asking.
 4. **Shots.** How many Shots it has in the period.
 5. **History.** Closed until you open it.

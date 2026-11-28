@@ -10,17 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type BeanBatchSummary, type BeanSummary } from "@/lib/api";
+import { batchMatches } from "@/lib/batch-picker";
 import { atLines } from "@/lib/remaining-weight";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 /** The words searched for, kept in the address. */
 const SEARCH = "q";
-
-/** Whether a batch matches the words searched for, each in its Bean's name, its roaster or its Batch Code, ignoring case. */
-function matches(batch: BeanBatchSummary, search: string): boolean {
-  const text = [batch.bean.name, batch.bean.roaster, batch.batchCode].filter((part) => part !== null).join(" ").toLowerCase();
-  return search.toLowerCase().split(/\s+/).every((word) => text.includes(word));
-}
 
 /**
  * The Library's Bean Batches, each by its Bean over its roast day (#732),
@@ -50,7 +45,8 @@ export function BeanBatchesPage() {
     };
   }, []);
 
-  const shown = (batches ?? []).filter((batch) => matches(batch, search));
+  // As the batch picker finds one (`batchMatches`): each word in its Bean's name, its roaster or its Batch Code, ignoring case.
+  const shown = (batches ?? []).filter((batch) => batchMatches(batch, search));
 
   return (
     <section className="grid gap-6">

@@ -1,9 +1,10 @@
 import { type BrowserContextOptions, expect, type Locator, type Page, test } from "@playwright/test";
 import { withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { roastDay } from "./support/days.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { DEPOT_1, type Fields, type JudgedShots, ZONE_NAME, at, emptyLibrary, seedJudgedShots, shotOf } from "./support/judged-shots.js";
-import { boxes } from "./support/layout.js";
+import { DEPOT_1, type Fields, type JudgedShots, ZONE_NAME, at, date, emptyLibrary, seedJudgedShots, shotOf } from "./support/judged-shots.js";
+import { boxes, textContrast } from "./support/layout.js";
 import { datesPreset, field, filterChip } from "./support/locators.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { expectTip, tap } from "./support/tooltips.js";
@@ -36,6 +37,11 @@ const RELATIVE = String.raw`(?:Just now|\d+ min ago|\d+ h ago|Yesterday, \d+:\d\
 const reads = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll(" ", "\\s+").replaceAll("<when>", RELATIVE)}$`);
 
 let recipes: JudgedShots["recipes"];
+
+/** The House's Bean Batch, which has no Batch Code and no weight entered at the Lab, as its row's own line gives it (#733): by its roast day, with its days since roast. */
+const HOUSE_BATCH = `Roasted ${roastDay(date(-12))} 12 d since roast · not tracked here`;
+/** The House's row heading at the Lab: its slot, its name, its Reference Shot's duration, and its batch's line. */
+const HOUSE_ROW = `2 House Reference 23.5 s ${HOUSE_BATCH}`;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
@@ -85,9 +91,9 @@ test("the home page shows a block for each Location: how many Shots its numbers 
   // The Lab's table: a column for each Machine, by its name alone, and one for how far apart they are.
   const labTable = table(page, "Lab");
   await expect(labTable.getByRole("columnheader")).toHaveText(["Recipe", "Lab Left", "Lab Right", "Between Machines"]);
-  // Decaf, in slot 1, before House, in slot 2, with its Reference Shot's duration and its Bean Batch's days since roast;
-  // then the Shots pulled with no Recipe loaded.
-  await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", "2 House Reference 23.5 s · 12 d since roast", "No Recipe loaded"], { useInnerText: true });
+  // Decaf, in slot 1, before House, in slot 2, with its Reference Shot's duration and, on a line of its own, its Bean
+  // Batch, its days since roast and what is left of it at the Lab; then the Shots pulled with no Recipe loaded.
+  await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", HOUSE_ROW, "No Recipe loaded"], { useInnerText: true });
   await expect(labTable.getByRole("rowheader").nth(1).getByLabel("Slot 2")).toHaveText("2");
   await labTable.getByRole("rowheader").getByRole("link", { name: "House" }).click();
   await expect(page).toHaveURL(new RegExp(`/library/recipes/${recipes.house}$`));
@@ -243,7 +249,7 @@ test("the period switches to yesterday and to the last 7 days, and stays in the 
   await page.getByRole("tab", { name: "7 days" }).click();
   await expect(page).toHaveURL(/\/\?period=week$/);
   await expect(labBlock.getByText("18 Shots in the last 7 days · 1 unfinished", { exact: true })).toBeVisible();
-  await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", "2 House Reference 23.5 s · 12 d since roast", "Guest No reference", "No Recipe loaded"], { useInnerText: true });
+  await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", HOUSE_ROW, "Guest No reference", "No Recipe loaded"], { useInnerText: true });
   await expect(cell(labTable, "Decaf", 0)).toHaveText("3 Shots · 23.5 s Out of spec: +2.5 g vs target Out of spec: 0 of 3 stopped at target", { useInnerText: true });
   // Its four on the Right: three of 30 s and yesterday's.
   await expect(cell(labTable, "Decaf", 1)).toHaveText("4 Shots · 30.0 s", { useInnerText: true });
@@ -376,7 +382,7 @@ test("a Location's page shows its own block, with its choice of period in its he
   await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Overview", "Recipes", "Bean Batches"]);
   const labTable = overview.getByRole("table", { name: "Recipes by Machine at Lab" });
   await expect(labTable.getByRole("columnheader")).toHaveText(["Recipe", "Lab Left", "Lab Right", "Between Machines"]);
-  await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", "2 House Reference 23.5 s · 12 d since roast", "No Recipe loaded"], { useInnerText: true });
+  await expect(labTable.getByRole("rowheader")).toHaveText(["1 Decaf No reference", HOUSE_ROW, "No Recipe loaded"], { useInnerText: true });
   await expect(cell(labTable, "House", 0)).toHaveText("5 Shots · 27.0 s Out of spec: +3.5 s vs reference 1 unfinished", { useInnerText: true });
   await expect(cell(labTable, "Decaf", 2)).toHaveText("Out of spec: 6.5 s apart", { useInnerText: true });
 
@@ -490,6 +496,124 @@ test("on a phone, with three Machines or more the page still fits: the table scr
     expect(last!.x).toBeGreaterThanOrEqual(pinned!.x + pinned!.width);
     await harborTable.getByRole("columnheader").last().scrollIntoViewIfNeeded();
     await expect(harborTable.getByRole("columnheader").last()).toBeInViewport({ ratio: 1 });
+  } finally {
+    await context.close();
+  }
+});
+
+test("a Recipe's row gives its Bean Batch a line of its own: its Batch Code, or its roast day, linked to the batch, its days since roast, and what is left of it at the Location, a plain weight, or Batch finished here", async ({
+  page,
+  browser,
+}) => {
+  const { recipe: house } = (await (await page.request.get(`/api/recipes/${recipes.house}`)).json()) as { recipe: { uses: { beanBatch: { id: string } | null } } };
+  const batchId = house.uses.beanBatch!.id;
+  const roasted = roastDay(date(-12));
+  /** The batch's line of the row whose heading starts with `recipe`. */
+  const line = (within: Locator, recipe: string) => within.getByRole("rowheader").filter({ hasText: new RegExp(`^\\d?${recipe}`) }).locator('[data-slot="row-batch"]');
+  const put = async (path: string, data: Fields) => expect((await page.request.put(path, { data })).status()).toBe(200);
+
+  // With no Batch Code and no weight entered: its roast day, the link to the batch, named in words; the days since
+  // roast, which stand here now and not on the Reference Shot's line; and that it is not tracked at the Lab.
+  await page.goto("/");
+  const labTable = table(page, "Lab");
+  await expect(line(labTable, "House")).toHaveText(HOUSE_BATCH, { useInnerText: true });
+  const named = line(labTable, "House").getByRole("link", { name: `Guji, roasted ${roasted}`, exact: true });
+  await expect(named).toHaveText(`Roasted ${roasted}`);
+  await expect(named).toHaveAttribute("href", `/library/bean-batches/${batchId}`);
+  const heading = labTable.getByRole("rowheader").filter({ hasText: /^\d?House/ });
+  await expect(heading.getByRole("link", { name: "Reference 23.5 s" }).locator("xpath=..")).toHaveText("Reference 23.5 s");
+  const [reference, batch] = await boxes(heading.getByRole("link", { name: "Reference 23.5 s" }), line(labTable, "House"));
+  expect(batch!.y).toBeGreaterThanOrEqual(reference!.y + reference!.height - 1);
+  // A Recipe that names no batch has no such line, and neither have the Shots pulled with no Recipe loaded.
+  await expect(labTable.locator('[data-slot="row-batch"]')).toHaveCount(1);
+  await expect(labTable.getByRole("rowheader").last()).toHaveText("No Recipe loaded");
+  // The Overview's explanation says what the line is.
+  await expectTip(
+    page.getByRole("main"),
+    "Overview",
+    /Under it is the Recipe's Bean Batch: its Batch Code, or its roast date where it has none, which opens the batch, its days since roast, and what is left of it at the Location, or that the batch is finished there\./,
+  );
+
+  // Given a Batch Code, and a weight at the Lab: its code, in a chip, is the link, and the weight is a plain number.
+  expect((await page.request.patch(`/api/bean-batches/${batchId}`, { data: { content: { batchCode: "LR-0411" } } })).status()).toBe(200);
+  await put(`/api/bean-batches/${batchId}/locations/${lab.id}`, { remainingWeight: 3240 });
+  await page.reload();
+  await expect(line(labTable, "House")).toHaveText("LR-0411 12 d since roast · 3240 g here", { useInnerText: true });
+  const coded = line(labTable, "House").getByRole("link", { name: `Guji LR-0411, roasted ${roasted}`, exact: true });
+  await expect(coded).toHaveText("LR-0411");
+  await expect(coded).toHaveAttribute("href", `/library/bean-batches/${batchId}`);
+  await expect(coded.getByLabel("Batch Code LR-0411", { exact: true })).toHaveCSS("font-family", /mono/i);
+  // No weight is marked, coloured or flagged: it reads as the days beside it do, and nothing estimates the Shots left.
+  await expect(mark(line(labTable, "House"))).toHaveCount(0);
+  const [weightColour, daysColour] = await Promise.all([line(labTable, "House").getByText("3240 g here"), line(labTable, "House").getByText("12 d since roast")].map((text) => text.evaluate((node) => getComputedStyle(node).color)));
+  expect(weightColour).toBe(daysColour);
+  await expect(line(labTable, "House")).not.toContainText(/Shots left|low/i);
+  // It reads in both themes.
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveClass(colorScheme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/);
+    for (const text of [coded.getByLabel("Batch Code LR-0411", { exact: true }), line(labTable, "House").getByText("3240 g here"), line(labTable, "House").getByText("12 d since roast")]) {
+      const colours = await text.evaluate((node) => {
+        let ground = "rgba(0, 0, 0, 0)";
+        for (let at: Element | null = node; at && /^rgba\(.+, 0\)$/.test(ground); at = at.parentElement) ground = getComputedStyle(at).backgroundColor;
+        return { color: getComputedStyle(node).color, ground };
+      });
+      expect(await textContrast(text), `${colorScheme}: ${colours.color} on ${colours.ground}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+
+  // A Location's own Overview card gives the same line.
+  await page.goto(`/locations/${lab.id}`);
+  const card_ = page.getByRole("region", { name: "Overview", exact: true }).getByRole("table", { name: "Recipes by Machine at Lab" });
+  await expect(line(card_, "House")).toHaveText("LR-0411 12 d since roast · 3240 g here", { useInnerText: true });
+
+  // Where the Location's batches can't be read, as from a server that answers none (ADR-0025), the line leaves out the
+  // weight, and the block is shown all the same.
+  await page.route("**/api/locations/*/bean-batches", (route) => route.fulfill({ status: 404, json: { message: "Not Found" } }));
+  await page.goto("/");
+  await expect(line(labTable, "House")).toHaveText("LR-0411 12 d since roast", { useInnerText: true });
+  await expect(cell(labTable, "House", 0)).toContainText("5 Shots");
+  await expect(page.getByRole("region", { name: "Lab", exact: true }).getByRole("alert")).toHaveCount(0);
+  await page.unrouteAll({ behavior: "wait" });
+
+  // Finished at the Lab: "Batch finished here" takes the weight's place.
+  await put(`/api/bean-batches/${batchId}/locations/${lab.id}`, { atLocation: false });
+  await page.reload();
+  await expect(line(labTable, "House")).toHaveText("LR-0411 12 d since roast Batch finished here", { useInnerText: true });
+  await expect(line(labTable, "House")).not.toContainText("g here");
+  await page.goto(`/locations/${lab.id}`);
+  await expect(line(card_, "House")).toHaveText("LR-0411 12 d since roast Batch finished here", { useInnerText: true });
+
+  // Another Location's Recipe, as a Shot at the Harbor pulled with the Lab's House: its code and its days, and no
+  // weight, nor that it is finished, which is the Lab's to say.
+  const database = await server.connectDatabase();
+  try {
+    // With the Recipe its Machine had loaded then, as a Shot's Recipe is one its Machine had loaded.
+    await database.query("UPDATE loaded_recipes SET recipe_id = $1 WHERE machine_id = $2", [recipes.house, machines.harbor1.id]);
+    await database.query("UPDATE shots SET recipe_id = $1 WHERE id = 'harbor-house'", [recipes.house]);
+  } finally {
+    await database.end();
+  }
+  await page.goto("/");
+  const harborTable = table(page, "Harbor");
+  await expect(harborTable.getByRole("rowheader").filter({ hasText: /^House/ })).toContainText("Lab");
+  await expect(line(harborTable, "House")).toHaveText(/^LR-0411\s+\d+ d since roast$/, { useInnerText: true });
+
+  // At a phone's width the line wraps within the Recipe column, and the page still fits.
+  const context = await browser.newContext({ baseURL: server.url(), ...PHONE });
+  try {
+    const phone = await context.newPage();
+    await signInAsAdmin(phone);
+    await phone.goto("/");
+    const narrow = table(phone, "Lab");
+    await expect(line(narrow, "House")).toContainText("Batch finished here");
+    await expectFits(phone);
+    const [column, wrapped] = await boxes(narrow.getByRole("rowheader").filter({ hasText: /^\d?House/ }), line(narrow, "House"));
+    expect(wrapped!.x).toBeGreaterThanOrEqual(column!.x);
+    expect(wrapped!.x + wrapped!.width).toBeLessThanOrEqual(column!.x + column!.width + 0.5);
+    // More than one line of it, as the column is narrow.
+    expect(wrapped!.height).toBeGreaterThan(30);
   } finally {
     await context.close();
   }

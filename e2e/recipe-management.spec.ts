@@ -60,7 +60,8 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await form.getByLabel("Name", { exact: true }).fill("Lab Guji");
     await form.getByLabel("Beverage").fill("Espresso");
     await form.getByLabel("Bean Batch").click();
-    await samsPage.getByRole("option", { name: `Guji, roasted ${roastDay("2026-10-01")} (adds it here)` }).click();
+    // Under "Elsewhere: saving adds it at Roastery lab", with where it is.
+    await samsPage.getByRole("group", { name: "Elsewhere: saving adds it at Roastery lab" }).getByRole("option", { name: `Guji, roasted ${roastDay("2026-10-01")}, at Uptown` }).click();
     await form.getByLabel("Profile").click();
     await samsPage.getByRole("option", { name: "Uptown Bloom (shows it here)" }).click();
     await form.getByLabel("Dose (g)").fill("18");
@@ -342,7 +343,11 @@ test("a Recipe whose Bean Batch is finished at its Location is flagged", async (
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" })).filter({ hasText: "Finished Kenya Espresso" })).toContainText("Batch finished here");
   await page.getByRole("link", { name: "Finished Kenya Espresso" }).click();
   await expect(page.getByRole("heading", { name: "Finished Kenya Espresso", level: 1 })).toContainText("Batch finished here");
-  await expect(page.getByText(`Its Bean Batch, Finished Kenya, roasted ${roastDay("2026-10-01")}, is no longer at Finished lab: pick the next roast.`)).toBeVisible();
+  // The strip under its title says so, in the place of the alert it replaces (#733), and names the batch.
+  const strip = page.getByRole("region", { name: "Bean Batch", exact: true });
+  await expect(strip).toContainText("Its Bean Batch is finished at Finished lab");
+  await expect(strip.getByRole("link", { name: `Finished Kenya, roasted ${roastDay("2026-10-01")}`, exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
   void recipe;
 });
 
@@ -477,9 +482,9 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await expect(field(details, "Bean Batch")).toHaveText("Bean-only Sidamo, no batch");
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
   const form = page.getByRole("form", { name: "Edit Bean-only Espresso" });
-  await expect(form.getByLabel("Bean Batch")).toHaveText("Bean-only Sidamo, no batch");
+  await expect(form.getByLabel("Bean Batch")).toHaveValue("Bean-only Sidamo, no batch");
   await form.getByLabel("Bean Batch").click();
-  await page.getByRole("option", { name: "None", exact: true }).click();
+  await page.getByRole("option", { name: "No batch", exact: true }).click();
   await form.getByRole("button", { name: "Save" }).click();
   await expect(details.getByRole("term").filter({ hasText: /^Bean Batch$/ })).toHaveCount(0);
   await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBeNull();
@@ -596,7 +601,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await form.getByLabel("Slot", { exact: true }).click();
   await page.getByRole("option", { name: "1", exact: true }).click();
   await expect(form.getByRole("list", { name: "About this slot" })).toContainText("Slot 1 holds Copy Uptown House, which is taken out of its slot and kept at Copy Uptown.");
-  await expect(form.getByLabel("Bean Batch")).toHaveText(`Copy Guji, roasted ${roastDay("2026-10-01")} (this Recipe's)`);
+  await expect(form.getByLabel("Bean Batch")).toHaveValue(`Copy Guji, roasted ${roastDay("2026-10-01")} (this Recipe's)`);
   // The form says what copying adds and shows at Uptown before saving.
   const also = form.getByRole("status", { name: "Copying also" });
   await expect(also).toContainText(`adds the Bean Batch Copy Guji, roasted ${roastDay("2026-10-01")} at Copy Uptown`);

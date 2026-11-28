@@ -136,6 +136,16 @@ export async function chooseFilter(page: Page, filter: string, option: string): 
   await closeFilters(page);
 }
 
+/**
+ * That the batch picker's options within `scope`, its list or one of its
+ * groups, are these, in order, each by the name a screen reader reads it by
+ * (#733): the batch in words, then its note and its weight, or an entry's
+ * own words.
+ */
+export async function expectOptions(scope: Locator, names: string[]): Promise<void> {
+  await expect.poll(() => scope.getByRole("option").evaluateAll((options) => options.map((option) => option.getAttribute("aria-label")))).toEqual(names);
+}
+
 /** The chip above a record list of a filter that is set, which names it and what it is set to. */
 export function filterChip(page: Page, filter: string): Locator {
   return page

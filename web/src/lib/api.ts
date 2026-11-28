@@ -979,13 +979,16 @@ export interface SummaryNumbers {
 
 /**
  * What a Shot Summary's group is grouped by: an entry for each grouping asked for, of which the management interface
- * asks for a Recipe and a Machine, and none without one. A Recipe's is null for the group of Shots pulled with none.
+ * asks for a Recipe, a Machine and a Bean Batch, and none without one. A Recipe's is null for the group of Shots pulled
+ * with none.
  */
 export interface GroupedBy {
   /** The Machine the Shots are credited to; null where a Pending Machine holds them, which is at no Location. */
   machine?: { id: string; name: string } | null;
   /** The Recipe the Shots were pulled with, and the Location it belongs to. */
   recipe?: { id: string; name: string | null; location: { id: string; name: string } | null } | null;
+  /** The Library's Bean Batch the Shots are linked to, which a Trend of one Recipe is marked by (#733); null for the group of Shots linked to none. */
+  beanBatch?: BatchLink | null;
 }
 
 /**

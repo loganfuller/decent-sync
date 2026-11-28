@@ -1884,6 +1884,31 @@ knows no `bucket` and gives no buckets, of which nothing is drawn.
 `e2e/shot-trend.spec.ts` covers it, and `e2e/shots-list.spec.ts` its lines
 by Machine and its reference line.
 
+A Trend of one Recipe, here and on the Recipe's page, is marked where the
+Recipe's Bean Batch changed (#733). It is read a second time with the same
+filters and bucket, grouped by `beanBatch` (`readBatchMarks`), every page
+of it, which an assistant reads the same through `summarise_shots`, so
+nothing was added to REST or the MCP endpoint. `batchMarks` in
+`web/src/lib/shot-trend.ts` makes one mark for each batch, on the first day
+or week with a Shot the Trend charts that was pulled with it, however often
+the bar goes back to it; Shots linked to no batch make none. The chart
+draws a vertical line on that day, labelled at its top with the batch's
+Batch Code, or "roasted 10 Nov" where it has none, and labels the batch of
+the chart's earliest Shots at its left edge with no line (`drawnMarks`); a
+batch first used after Shots linked to none has a line. The lines and
+labels are drawn over the chart by its own scale (`lineX`, from the plot's
+measures in `PLOT`, which the chart's axes take too), and a label that
+would be drawn over another, or past the chart's end, is left out
+(`labelPlaces`). Under the chart a legend entry says what a line is,
+"Another Bean Batch from this day" or "week", and a list names the batches
+of the days charted, the latest first, each linked, with its roast day:
+"From 21 Nov", or "From the week of 16 Nov", and "Until then" for the
+earliest. The marks are the same with one line or a line for each Machine,
+and the table of numbers holds none of them. Where the read fails, or
+gives no buckets, as the previous release's during a deploy would, the
+Trend is drawn without marks. `e2e/recipe-numbers.spec.ts` covers them, by
+day on the Recipe's page and by week in the Shots list.
+
 The Overview (`/`, and each Location's page; `web/src/components/overview.tsx`,
 #471, #543) is drawn from `GET /api/machines`, read every 5 s, and `GET
 /api/shots/summary` grouped by `recipe,machine` for the Location and the
@@ -1909,7 +1934,17 @@ give an assistant what it shows.
 - **A row** is a Recipe pulled in the period, as before: its Recipe Slot,
   its name, its Reference Shot's duration, linked to that Shot, or "No
   reference", linked to the Recipe's rated Shots in the Shots list (#544),
-  to choose one from, and its Bean Batch's days since roast.
+  to choose one from. Under that is a line for its Bean Batch (#733,
+  `rowBatch` in `web/src/lib/overview.ts`): the batch's Batch Code, or
+  "Roasted 13 Nov" where it has none, linked to the batch and named in
+  words; its days since roast, by the Location's today; and what is left of
+  it at the Location, "3240 g here" or "not tracked here", a plain number
+  with no mark for a low one, or "Batch finished here" in the weight's
+  place. A row of another Location's Recipe has the code and the days and
+  no weight. The weights are the Location's batches'
+  (`GET /api/locations/:id/bean-batches`), read with the block's numbers;
+  where they can't be read the line leaves the weight out and the block is
+  shown all the same.
 - **A cell** gives the count and the median duration, and under them what
   the group's `spec` has it say (`cellLines`): the duration's difference
   from the reference, marked when out of spec and muted when within spec or
@@ -2001,7 +2036,9 @@ loaded again every 30 s. No read was added for them.
   the chart has colors; a line under the chart says so where more Machines
   pulled the Recipe, as one under By Machine's table does past the 100
   groups a page holds. The choice of number scrolls within its own row
-  where a narrow screen has no room for the three.
+  where a narrow screen has no room for the three. The chart is marked
+  where the Recipe's Bean Batch changed, as the Shots list's Trend of one
+  Recipe is (#733, above), from the same 30 days grouped by `beanBatch`.
 - A day here is the Recipe's Location's, and the Shots of it are those the
   date filters find, each by its own Location's time zone, as a bucket's
   are: a Shot of the Recipe pulled at another Location, which a corrected

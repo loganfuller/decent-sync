@@ -5,6 +5,7 @@ import { describeHardware } from "@/components/machines";
 import { LocationCredit, MachineCredit, OrNone, recordTime, secondsText } from "@/components/records";
 import { ANY, type ListFilter, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilterBar, type RecordList, useRecordFilters, useRecordList } from "@/components/record-lists";
 import { BatchInLine } from "@/components/batch-name";
+import { BatchPicker } from "@/components/batch-picker";
 import { ReferenceMark } from "@/components/reference-shots";
 import { grinderName } from "@/components/grinders";
 import { ShotSummaryCard } from "@/components/shot-summary";
@@ -16,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, type ListedShot, type ShotFilterOptions, type ShotPage } from "@/lib/api";
+import { api, type BatchLink, type ListedShot, type ShotFilterOptions, type ShotPage } from "@/lib/api";
 import { batchWords } from "@/lib/batch-name";
 import { type Difference, RATINGS, dayGroups, durationDifference, ratingChoiceText, stopNote, timeOfDay, yieldDifference } from "@/lib/shot-list";
 import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
@@ -477,15 +478,7 @@ function useShotFilters(list: RecordList<ShotPage>): { filters: ListFilter[]; er
       names: ["beanBatchId"],
       value: linkValue(params.get("beanBatchId"), batches, "Not linked"),
       control: (
-        <LinkFilter
-          id={`${id}-batch`}
-          label="Bean Batch"
-          any="Any Bean Batch"
-          none="Not linked to a Bean Batch"
-          value={params.get("beanBatchId")}
-          options={batches}
-          onChange={(beanBatchId) => list.filter({ beanBatchId })}
-        />
+        <BatchFilter id={`${id}-batch`} value={params.get("beanBatchId")} batches={options?.beanBatches} onChange={(beanBatchId) => list.filter({ beanBatchId })} />
       ),
     },
     {
@@ -645,6 +638,30 @@ function LinkFilter({
           {(items.includes(null) || value === NONE) && <SelectItem value={NONE}>{none}</SelectItem>}
         </SelectContent>
       </Select>
+    </Field>
+  );
+}
+
+/**
+ * The filter by the Bean Batch Shots are linked to, picked with the batch
+ * picker (#733): any, one of the batches the Shots found are linked to,
+ * found by typing its Bean, roaster or Batch Code, or none, as `LinkFilter`
+ * offers a Library item, with no groups and no weights. A batch linked to
+ * no listed Shot, as one opened from its page, is still named.
+ */
+function BatchFilter({ id, value, batches, onChange }: { id: string; value: string | null; batches: (BatchLink | null)[] | undefined; onChange(value: string | null): void }) {
+  const items = batches ?? [];
+  const listed = items.flatMap((batch) => (batch === null ? [] : [{ value: batch.id, batch }]));
+  const options = [
+    { value: ANY, label: "Any Bean Batch" },
+    ...listed,
+    ...(value !== null && value !== NONE && !listed.some((option) => option.value === value) ? [{ value, label: batches ? "No Shots linked to this Bean Batch" : "Bean Batch" }] : []),
+    ...(items.includes(null) || value === NONE ? [{ value: NONE, label: "Not linked to a Bean Batch" }] : []),
+  ];
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>Bean Batch</FieldLabel>
+      <BatchPicker id={id} groups={[{ options }]} value={value ?? ANY} onChange={(choice) => onChange(choice === ANY ? null : choice)} />
     </Field>
   );
 }

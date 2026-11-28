@@ -1,5 +1,6 @@
 import type { GroupSpec, GroupedBy, Machine, Recipe, ShotSpec, SummaryGroup, SummaryReference } from "@/lib/api";
 import { dateIn } from "./machine-activity";
+import { grams } from "./remaining-weight";
 import { shotsText, signedText, yieldAgainstTargetText } from "./shot-summary";
 
 // The Overview (#471, #543; GLOSSARY.md) as the home page and each
@@ -55,6 +56,32 @@ export function daysSinceRoast(roastDate: string | null, today: string): number 
   const now = dayNumber(today);
   if (roasted === undefined || now === undefined || roasted > now) return undefined;
   return Math.round((now - roasted) / DAY);
+}
+
+/**
+ * What a row says of its Recipe's Bean Batch on the line under its
+ * Reference Shot's (#733), after the batch's Batch Code: its days since
+ * roast, and what is left of it at the block's Location, "3240 g here" or
+ * "not tracked here", a plain number whatever it is, or that the batch is
+ * `finished` there, which takes the weight's place. A Recipe of another
+ * Location has the days and no weight, and so has any row where no weight
+ * was read (`weights`, by the batch's id, null for one untracked there), as
+ * from a server that gives none (ADR-0025). Undefined for a Recipe that
+ * names no batch, or is not read yet.
+ */
+export function rowBatch(
+  details: Pick<Recipe, "location" | "uses" | "batchFinished"> | undefined,
+  locationId: string,
+  today: string,
+  weights: ReadonlyMap<string, number | null> | undefined,
+): { days?: number; weight?: string; finished: boolean } | undefined {
+  const batch = details?.uses.beanBatch;
+  if (!details || !batch) return undefined;
+  const days = daysSinceRoast(batch.roastDate, today);
+  const here = details.location?.id === locationId;
+  const finished = here && details.batchFinished;
+  const weight = here && !finished ? weights?.get(batch.id) : undefined;
+  return { ...(days !== undefined && { days }), ...(weight !== undefined && { weight: weight === null ? "not tracked here" : `${grams(weight)} here` }), finished };
 }
 
 /** A column of a Location's block: a Machine that is there now, or that pulled Shots there in the period. */

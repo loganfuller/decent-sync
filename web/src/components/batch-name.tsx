@@ -89,19 +89,21 @@ export function BatchInLine({
  * Bean, linked, with its Batch Code and whatever is shown beside its name
  * (`beside`), such as "Batch finished here", over "Roasted 17 Nov" and what
  * follows that on its line (`also`). A table with a Batch Code column of its
- * own leaves the code out here (`code` false).
+ * own leaves the code out here (`code` false). `large` is the batch a page
+ * leads with, as a Recipe's does (#733): its name in large text, over a
+ * second line of the page's own size.
  */
-export function BatchCell({ batch, id, code = true, beside, also }: { batch: NamedBatch; id?: string; code?: boolean; beside?: ReactNode; also?: ReactNode }) {
+export function BatchCell({ batch, id, code = true, large = false, beside, also }: { batch: NamedBatch; id?: string; code?: boolean; large?: boolean; beside?: ReactNode; also?: ReactNode }) {
   const { bean } = batchLine(batch);
   const batchCode = code ? batchCodeOf(batch) : undefined;
   return (
     <>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <BeanOfBatch batch={batch} bean={bean} id={id} />
-        {batchCode !== undefined && <BatchCode code={batchCode} />}
+      <div className={large ? "flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xl font-semibold wrap-anywhere" : "flex flex-wrap items-center gap-x-2 gap-y-1"}>
+        <BeanOfBatch batch={batch} bean={bean} id={id} linkClassName={large ? "underline-offset-4 hover:underline" : undefined} />
+        {batchCode !== undefined && <BatchCode code={batchCode} className={large ? "px-2 py-px text-base" : undefined} />}
         {beside}
       </div>
-      <div className="text-sm text-muted-foreground">
+      <div className={large ? "text-muted-foreground" : "text-sm text-muted-foreground"}>
         {roastedLine(batch)}
         {also}
       </div>
@@ -113,15 +115,16 @@ export function BatchCell({ batch, id, code = true, beside, also }: { batch: Nam
  * A batch where its Bean is already said: its Batch Code, set apart, with
  * "roasted 17 Nov" after it, or "Roasted 10 Nov" for a batch with none.
  * `brief`, between two batches of one Bean, as a Machine's Activity names
- * the next roast, is the code alone, or "roasted 10 Nov". Linked to the
- * batch's page where `id` is given, the link named in words, as its text
+ * the next roast, is the code alone, or "roasted 10 Nov", and "Roasted 10
+ * Nov" where it leads its line (`leading`), as on the Overview. Linked to
+ * the batch's page where `id` is given, the link named in words, as its text
  * alone leaves the Bean out.
  */
-export function BatchOfBean({ batch, id, brief = false, linkClassName }: { batch: NamedBatch; id?: string; brief?: boolean; linkClassName?: string }) {
+export function BatchOfBean({ batch, id, brief = false, leading = false, linkClassName }: { batch: NamedBatch; id?: string; brief?: boolean; leading?: boolean; linkClassName?: string }) {
   const { code, roasted } = batchOfBean(batch);
   const shown =
     code === undefined ? (
-      brief ? (
+      brief && !leading ? (
         roastedText(batch)
       ) : (
         roasted
