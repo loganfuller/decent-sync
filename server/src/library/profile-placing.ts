@@ -96,10 +96,12 @@ export async function placeProfiles(
     }
     const plan = planPlacement(linked, theirs, randomUUID, separate);
     if (isEmptyPlan(plan)) continue;
-    // A row known to be separate is placed now, waiting if it must: the next look would not know it is.
-    if (!(await lockPlaced(tx, plan, plan.placed.some((row) => separate.has(row.id))))) continue;
-    await carryOut(tx, plan);
-    placed += plan.placed.length;
+    // Where another transaction holds a row the plan numbers, it is left for the next look, but for a row known to be
+    // separate, which the next look would not know is one, so is placed alone now, in a Profile of its own.
+    const done = (await lockPlaced(tx, plan)) ? plan : alone(plan, separate, new Set(theirs.map((profile) => profile.id)));
+    if (done === null || !(await lockPlaced(tx, done))) continue;
+    await carryOut(tx, done);
+    placed += done.placed.length;
   }
   await followToCurrent(tx);
   return { placed, more };
@@ -121,22 +123,41 @@ async function followToCurrent(tx: Prisma.TransactionClient): Promise<void> {
 }
 
 /**
- * Takes the row locks of the `profiles` rows the plan numbers, without waiting unless `wait`: false where another
- * transaction holds any, and the plan is left for the next look. A tablet's report with no new profile takes no
- * PROFILE_JOINING_LOCK and locks the rows it edits in id order (`lockItems`), and one that adds a profile has locked
- * some before it places, so placing that waited for a row, holding others, could deadlock with one. Rows this
- * transaction holds already count as taken, as a caller's own new rows are, so a plan waits only where it numbers a
- * row not placed before that another transaction is editing, as during an upgrade's conversion.
+ * Takes the row locks of the `profiles` rows the plan numbers, never waiting: false where another transaction holds
+ * any, and the plan is left for the next look. A tablet's report with no new profile takes no PROFILE_JOINING_LOCK
+ * and locks the rows it edits in id order (`lockItems`), and publishing and a report that adds a profile hold other
+ * locks before they place, so placing that waited for a row could deadlock with any of them. Rows this transaction
+ * holds already count as taken, as a caller's own new rows are, so a plan is left only where it numbers a row not
+ * placed before that another transaction is editing, as during an upgrade's conversion.
  */
-async function lockPlaced(tx: Prisma.TransactionClient, plan: PlacementPlan, wait: boolean): Promise<boolean> {
+async function lockPlaced(tx: Prisma.TransactionClient, plan: PlacementPlan): Promise<boolean> {
   const ids = [...new Set(plan.placed.map((row) => row.id))];
   if (ids.length === 0) return true;
-  if (wait) {
-    await tx.$queryRaw`SELECT 1 FROM profiles WHERE id = ANY(${ids}::text[]) ORDER BY id FOR NO KEY UPDATE`;
-    return true;
-  }
   const taken = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM profiles WHERE id = ANY(${ids}::text[]) ORDER BY id FOR NO KEY UPDATE SKIP LOCKED`;
   return taken.length === ids.length;
+}
+
+/**
+ * Of a plan, only the rows known to be separate, each its own Profile's one version, started from the Profile its
+ * plan says where the Library has that one already, else from none, as when the row it was saved from is not placed
+ * yet: the rest of the plan is left for the next look. Null where the plan places none of them.
+ */
+function alone(plan: PlacementPlan, separate: ReadonlySet<string>, existing: ReadonlySet<string>): PlacementPlan | null {
+  const rows = plan.placed.filter((row) => separate.has(row.id));
+  if (rows.length === 0) return null;
+  const made = rows.flatMap((row) =>
+    plan.created.flatMap((profile) =>
+      profile.id === row.profileId
+        ? [{ ...profile, currentVersionId: row.id, startedFromId: profile.startedFromId !== null && existing.has(profile.startedFromId) ? profile.startedFromId : null }]
+        : [],
+    ),
+  );
+  return {
+    created: made,
+    placed: rows.flatMap((row) => (made.some((profile) => profile.id === row.profileId) ? [{ ...row, versionNumber: 1 }] : [])),
+    current: [],
+    removed: [],
+  };
 }
 
 /** Writes a plan: the Profiles it makes, each row's Profile and number, and the current versions it changes. */

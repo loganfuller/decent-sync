@@ -382,4 +382,38 @@ describe("Converting the Profiles an upgrade finds", () => {
       await holder.end();
     }
   });
+
+  it("publishes a Draft as a separate Profile from a row another transaction holds, without waiting for it", async () => {
+    const holder = await server.connectDatabase();
+    const editing = await server.connectDatabase();
+    try {
+      await holder.query("SELECT pg_advisory_lock(4000008)");
+      await inDatabase((query) => add(query, [{ id: "source", shown: [one] }]));
+      // An edit of the row it starts from holds it, as `editShared` takes it, so placing leaves that row for the next look.
+      await editing.query("BEGIN");
+      await editing.query("SELECT 1 FROM profiles WHERE id = $1 FOR NO KEY UPDATE", [id("source")]);
+      await holder.query("SELECT pg_advisory_unlock(4000008)");
+      const draft = (await api.send<{ draft: { id: string; saves: number } }>("POST", "/drafts", { profileId: id("source"), as: "separate" }, 201)).draft;
+      const saved = (await api.send<{ draft: { id: string; saves: number } }>("PUT", `/drafts/${draft.id}`, { profile: derivedProfile("Conversion source copy", 7.25), saves: draft.saves }, 200)).draft;
+      const publishing = api.send<{ published: { profile: { id: string } } }>("POST", `/drafts/${saved.id}/publish`, { saves: saved.saves, locations: [one.id] }, 200);
+      const answered = await Promise.race([publishing.then(() => true), delay(10_000).then(() => false)]);
+      expect(answered).toBe(true);
+      const copy = (await publishing).published.profile.id;
+      const readCopy = async () => (await api.get<{ profile: Read }>(`/profiles/${encodeURIComponent(copy)}`)).profile;
+      const separate = await readCopy();
+      expect(separate).toMatchObject({ versions: 1, current: { id: copy }, startedFrom: null });
+      expect(separate.profileId).not.toBeNull();
+      expect((await read("source")).profileId).toBeNull();
+      await editing.query("COMMIT");
+      await holder.query("SELECT pg_notify('library_changes', $1)", [one.id]);
+      await expect.poll(async () => (await read("source")).profileId, { timeout: 30_000 }).not.toBeNull();
+      // Still a Profile of its own once the row it was saved from is placed.
+      expect(await readCopy()).toMatchObject({ profileId: separate.profileId, versions: 1 });
+    } finally {
+      await editing.query("ROLLBACK").catch(() => undefined);
+      await editing.end();
+      await holder.query("SELECT pg_advisory_unlock_all()");
+      await holder.end();
+    }
+  });
 });
