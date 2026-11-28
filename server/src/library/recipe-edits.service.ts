@@ -605,11 +605,12 @@ async function setSlot(tx: Prisma.TransactionClient, recipe: Placed, slot: numbe
 export async function namingCurrentVersion<T extends Record<string, unknown>>(tx: Prisma.TransactionClient, values: T): Promise<T> {
   const named = values.profileId;
   if (typeof named !== "string" || named === "") return values;
-  const [current] = isGlobalId(named)
-    ? await tx.$queryRaw<{ id: string }[]>`
-        SELECT p.id FROM library_profiles l JOIN profiles p ON p.id = l.current_version_id AND p.library_profile_id = l.id WHERE l.id = ${named.toLowerCase()}::uuid`
-    : await tx.$queryRaw<{ id: string }[]>`
-        SELECT c.id FROM profiles v JOIN library_profiles l ON l.id = v.library_profile_id JOIN profiles c ON c.id = l.current_version_id AND c.library_profile_id = l.id
-        WHERE v.id = ${named}`;
-  return current && current.id !== named ? { ...values, profileId: current.id } : values;
+  const profile = isGlobalId(named) ? Prisma.sql`${named.toLowerCase()}::uuid` : Prisma.sql`(SELECT library_profile_id FROM profiles WHERE id = ${named})`;
+  // A current version that is not its own, until the server puts it right, is its latest, as `ProfilesService.addressed` reads it.
+  const [current] = await tx.$queryRaw<{ id: string | null }[]>`
+    SELECT COALESCE(
+      (SELECT c.id FROM profiles c WHERE c.id = l.current_version_id AND c.library_profile_id = l.id),
+      (SELECT c.id FROM profiles c WHERE c.library_profile_id = l.id ORDER BY c.version_number DESC NULLS LAST LIMIT 1)) AS id
+    FROM library_profiles l WHERE l.id = ${profile}`;
+  return current?.id && current.id !== named ? { ...values, profileId: current.id } : values;
 }

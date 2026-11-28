@@ -3087,8 +3087,9 @@ server starts, when any instance says the Library changed
 an upgrade finds, what the latest release adds or changes beside this one,
 and a change that leaves another version than the current one in use, as a
 tablet showing an earlier version again or a return at every Location,
-which makes that version current. Until a row is placed it reads as a
-Profile of one version, with no id of the Profile's own.
+which makes that version current. A Profile whose rows another change is
+editing at that moment is left for the next look. Until a row is placed it
+reads as a Profile of one version, with no id of the Profile's own.
 
 A tablet's save over a Profile is its next version only where the report
 that adds the new record also hides the old one, or the old one was hidden
