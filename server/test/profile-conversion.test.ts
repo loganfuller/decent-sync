@@ -358,23 +358,26 @@ describe("Converting the Profiles an upgrade finds", () => {
     }
   });
 
-  it("leaves for the next look a Profile whose rows another transaction holds, placing the rest without waiting", async () => {
+  it.each([
+    ["an edit", "FOR NO KEY UPDATE", "held"],
+    ["showing it at a Location", "FOR KEY SHARE", "shared"],
+  ])("leaves for the next look a Profile whose rows another transaction holds, as %s does, placing the rest without waiting", async (_as, mode, name) => {
     const holder = await server.connectDatabase();
     const editing = await server.connectDatabase();
     const profileOf = async (name: string) => (await read(name)).profileId;
     try {
       await holder.query("SELECT pg_advisory_lock(4000008)");
-      await inDatabase((query) => add(query, [{ id: "held-1" }, { id: "held-2", parent: "held-1", shown: [one] }, { id: "free-1", shown: [one] }]));
-      // A tablet's report holds a row it edits, as `lockItems` takes it, under no PROFILE_JOINING_LOCK.
+      await inDatabase((query) => add(query, [{ id: `${name}-1` }, { id: `${name}-2`, parent: `${name}-1`, shown: [one] }, { id: `${name}-free`, shown: [one] }]));
+      // A tablet's report holds a row it edits, as `lockItems` takes it, or one showing it holds it FOR KEY SHARE, under no PROFILE_JOINING_LOCK.
       await editing.query("BEGIN");
-      await editing.query("SELECT 1 FROM profiles WHERE id = $1 FOR NO KEY UPDATE", [id("held-1")]);
+      await editing.query(`SELECT 1 FROM profiles WHERE id = $1 ${mode}`, [id(`${name}-1`)]);
       await holder.query("SELECT pg_advisory_unlock(4000008)");
-      await expect.poll(() => profileOf("free-1"), { timeout: 30_000 }).not.toBeNull();
-      expect([await profileOf("held-1"), await profileOf("held-2")]).toEqual([null, null]);
+      await expect.poll(() => profileOf(`${name}-free`), { timeout: 30_000 }).not.toBeNull();
+      expect([await profileOf(`${name}-1`), await profileOf(`${name}-2`)]).toEqual([null, null]);
       await editing.query("COMMIT");
       await holder.query("SELECT pg_notify('library_changes', $1)", [one.id]);
       await expect.poll(async () => (await unplaced()).length, { timeout: 30_000 }).toBe(0);
-      expect(await read("held-2")).toMatchObject({ versions: 2, current: { id: id("held-2") } });
+      expect(await read(`${name}-2`)).toMatchObject({ versions: 2, current: { id: id(`${name}-2`) } });
     } finally {
       await editing.query("ROLLBACK").catch(() => undefined);
       await editing.end();

@@ -128,12 +128,14 @@ async function followToCurrent(tx: Prisma.TransactionClient): Promise<void> {
  * and locks the rows it edits in id order (`lockItems`), and publishing and a report that adds a profile hold other
  * locks before they place, so placing that waited for a row could deadlock with any of them. Rows this transaction
  * holds already count as taken, as a caller's own new rows are, so a plan is left only where it numbers a row not
- * placed before that another transaction is editing, as during an upgrade's conversion.
+ * placed before that another transaction is editing, as during an upgrade's conversion. FOR UPDATE, not FOR NO KEY
+ * UPDATE: a row's Profile and number are in a unique index, so writing them takes FOR UPDATE, which a transaction
+ * holding the row FOR KEY SHARE, as one showing it at a Location does, would make placing wait for.
  */
 async function lockPlaced(tx: Prisma.TransactionClient, plan: PlacementPlan): Promise<boolean> {
   const ids = [...new Set(plan.placed.map((row) => row.id))];
   if (ids.length === 0) return true;
-  const taken = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM profiles WHERE id = ANY(${ids}::text[]) ORDER BY id FOR NO KEY UPDATE SKIP LOCKED`;
+  const taken = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM profiles WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE SKIP LOCKED`;
   return taken.length === ids.length;
 }
 
