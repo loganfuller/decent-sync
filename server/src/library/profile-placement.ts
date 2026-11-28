@@ -20,7 +20,9 @@
 // - Where none is in use, the latest to join is current, and the Profile is
 //   shown nowhere.
 // - Version numbers are given in the order the versions joined the Library,
-//   and a version already numbered keeps its number in its Profile.
+//   and a version already numbered keeps its number in its Profile. A
+//   number is never given twice in one Profile, even once the version that
+//   had it has left the Profile or been deleted.
 //
 // "In use" is shown at a Location while not Archived, or named by a Recipe
 // that is not Archived: so every Location shows the steps it showed, and
@@ -47,6 +49,8 @@ export interface PlacingRow {
 export interface PlacingProfile {
   id: string;
   currentVersionId: string;
+  /** The highest number it has given a version, whether or not that version is still its own; 0 where none is given. */
+  lastVersionNumber?: number;
 }
 
 /** What placing changes. */
@@ -79,6 +83,8 @@ interface Group {
   existing: boolean;
   /** Its current version before the plan; null for one made here, or one whose current version is no longer its own. */
   was: string | null;
+  /** The highest number it has given, which the next to join follows. */
+  lastVersionNumber: number;
   startedFromId: string | null;
   members: PlacingRow[];
   /** The members that join it here, which take the next numbers. */
@@ -101,7 +107,7 @@ export function planPlacement(
   const byId = new Map(rows.map((row) => [row.id, row]));
   const groups = new Map<string, Group>();
   const groupOf = new Map<string, Group>();
-  for (const profile of profiles) groups.set(profile.id, { id: profile.id, existing: true, was: profile.currentVersionId, startedFromId: null, members: [], joined: [] });
+  for (const profile of profiles) groups.set(profile.id, { id: profile.id, existing: true, was: profile.currentVersionId, lastVersionNumber: profile.lastVersionNumber ?? 0, startedFromId: null, members: [], joined: [] });
   for (const row of rows) {
     const group = row.profileId === null ? undefined : groups.get(row.profileId);
     if (!group) continue;
@@ -113,7 +119,7 @@ export function planPlacement(
   const left = new Set<string>();
 
   const start = (row: PlacingRow, from: Group | null): Group => {
-    const group: Group = { id: newId(), existing: false, was: null, startedFromId: from?.id ?? null, members: [row], joined: [row] };
+    const group: Group = { id: newId(), existing: false, was: null, lastVersionNumber: 0, startedFromId: from?.id ?? null, members: [row], joined: [row] };
     groups.set(group.id, group);
     groupOf.set(row.id, group);
     changed.add(group);
@@ -171,7 +177,7 @@ export function planPlacement(
       plan.current.push({ profileId: group.id, versionId: current });
       changed.add(group);
     }
-    let next = Math.max(0, ...members.map((row) => (row.profileId === group.id && !left.has(row.id) ? (row.versionNumber ?? 0) : 0)));
+    let next = Math.max(group.lastVersionNumber, ...members.map((row) => (row.profileId === group.id && !left.has(row.id) ? (row.versionNumber ?? 0) : 0)));
     for (const row of [...group.joined].sort(byJoining)) plan.placed.push({ id: row.id, profileId: group.id, versionNumber: ++next });
     if (changed.has(group)) plan.touched.push({ profileId: group.id, currentVersionId: current, versionIds: members.map((row) => row.id) });
   }

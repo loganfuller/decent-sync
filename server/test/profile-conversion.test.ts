@@ -264,4 +264,77 @@ describe("Converting the Profiles an upgrade finds", () => {
       [id("chain-1"), 1, false],
     ]);
   });
+
+  it("never gives a number again once the version that had it has left the Profile", async () => {
+    const chain = (await read("chain-1")).profileId!;
+    // Version 4 shown again beside Version 3, current, so leaves for a Profile of its own; then Version 3 replaced everywhere.
+    await inDatabase(async (query) => {
+      await query("UPDATE profile_locations SET shown = true WHERE profile_id = $1 AND location_id = $2::uuid", [id("chain-4"), two.id]);
+    });
+    await expect.poll(async () => (await read("chain-4")).profileId, { timeout: 30_000 }).not.toBe(chain);
+    await inDatabase(async (query) => {
+      await query("UPDATE profile_locations SET shown = false WHERE profile_id = $1", [id("chain-3")]);
+      await query("UPDATE recipes SET content = jsonb_set(content, '{profileId}', to_jsonb($2::text)) WHERE content ->> 'profileId' = $1 AND NOT archived", [id("chain-3"), id("chain-5")]);
+      await add(query, [{ id: "chain-5", parent: "chain-3", shown: [one] }]);
+    });
+    await expect.poll(() => versionsOf(chain), { timeout: 30_000 }).toEqual([
+      [id("chain-5"), 5, true],
+      [id("chain-3"), 3, false],
+      [id("chain-2"), 2, false],
+      [id("chain-1"), 1, false],
+    ]);
+  });
+
+  it("refuses a title a Profile not placed yet has, while placing waits", async () => {
+    const holder = await server.connectDatabase();
+    try {
+      // Placing waits for this lock, PROFILE_JOINING_LOCK, so both rows stay unplaced through the edit.
+      await holder.query("SELECT pg_advisory_lock(4000008)");
+      await inDatabase((query) => add(query, [{ id: "untitled-a" }, { id: "untitled-b" }]));
+      expect((await read("untitled-a")).profileId).toBeNull();
+      const refused = await api.call("PATCH", path("untitled-a"), { content: { title: "conversion UNTITLED-B" } });
+      expect(refused.status).toBe(409);
+    } finally {
+      await holder.query("SELECT pg_advisory_unlock(4000008)");
+      await holder.end();
+    }
+    await expect.poll(async () => (await unplaced()).length, { timeout: 30_000 }).toBe(0);
+  });
+
+  it("takes an Archived Recipe's row before the versions' rows, as an edit of it does, so the two never deadlock", async () => {
+    const holder = await server.connectDatabase();
+    const editing = await server.connectDatabase();
+    try {
+      await holder.query("SELECT pg_advisory_lock(4000008)");
+      await inDatabase(async (query) => {
+        await add(query, [{ id: "locked-1" }, { id: "locked-2", parent: "locked-1", shown: [one] }]);
+        await recipe(query, "archived while edited", "locked-1", true);
+      });
+      // An edit of the Recipe holds its row, as recipe-edits.service.ts takes it, then reads the Profile it names FOR SHARE.
+      await editing.query("BEGIN");
+      await editing.query("SELECT 1 FROM recipes WHERE record_id = 'recipe:conversion-archived while edited' FOR UPDATE");
+      await holder.query("SELECT pg_advisory_unlock(4000008)");
+      // Placing then waits for the Recipe's row.
+      const waiting = async () =>
+        (await holder.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event IN ('transactionid', 'tuple') AND pid <> $1", [(editing as unknown as { processID: number }).processID])).rows[0]!.n;
+      await expect.poll(waiting, { timeout: 30_000 }).toBeGreaterThan(0);
+      // Before any version's row, so the edit's read is not held up: shorter than the second PostgreSQL waits before it looks for a deadlock.
+      await editing.query("SET LOCAL lock_timeout = '300ms'");
+      expect((await editing.query("SELECT id FROM profiles WHERE id = $1 FOR SHARE", [id("locked-2")])).rows).toEqual([{ id: id("locked-2") }]);
+      await editing.query("COMMIT");
+    } finally {
+      await editing.query("ROLLBACK").catch(() => undefined);
+      await editing.end();
+      await holder.query("SELECT pg_advisory_unlock_all()");
+      await holder.end();
+    }
+    await expect.poll(async () => (await unplaced()).length, { timeout: 30_000 }).toBe(0);
+    const database = await server.connectDatabase();
+    try {
+      const { rows } = await database.query("SELECT content ->> 'profileId' AS profile FROM recipes WHERE record_id = 'recipe:conversion-archived while edited'");
+      expect(rows).toEqual([{ profile: id("locked-2") }]);
+    } finally {
+      await database.end();
+    }
+  });
 });

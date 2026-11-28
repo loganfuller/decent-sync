@@ -428,10 +428,12 @@ export class LibraryEditsService {
       // A title kept as it is, as an assistant may send with other fields, takes nothing from another Profile.
       if (typeof title === "string" && !(typeof content.title === "string" && sameTitle(content.title, title))) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_TITLE_LOCK}::bigint)`;
-        // The Profile's own earlier versions keep the title each had (ADR-0038), which is this Profile's to take again.
+        // The Profile's own earlier versions keep the title each had (ADR-0038), which is this Profile's to take again. A row
+        // not placed yet has none, and every other row is checked, placed or not.
         const others = await tx.$queryRaw<{ title: string | null }[]>`
-          SELECT content -> 'profile' ->> 'title' AS title FROM profiles
-          WHERE id <> ${id} AND library_profile_id IS DISTINCT FROM (SELECT library_profile_id FROM profiles WHERE id = ${id} AND library_profile_id IS NOT NULL)`;
+          SELECT other.content -> 'profile' ->> 'title' AS title FROM profiles other, profiles edited
+          WHERE edited.id = ${id} AND other.id <> edited.id
+            AND (edited.library_profile_id IS NULL OR other.library_profile_id IS DISTINCT FROM edited.library_profile_id)`;
         const other = others.find((profile) => profile.title !== null && sameTitle(profile.title, title));
         if (other) throw new ConflictException(`A Profile in the Library is titled "${other.title}" already`);
       }

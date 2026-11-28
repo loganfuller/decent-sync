@@ -1606,17 +1606,20 @@ model Profile {
 /// is its current version's state there (`ProfileLocation`), and its title,
 /// author and notes are held on that version's row.
 model LibraryProfile {
-  id               String           @id @db.Uuid
+  id                String           @id @db.Uuid
   /// Decaid's id of its current version. No foreign key: the previous release
   /// deletes a `profiles` row knowing nothing of this, and the server then
   /// makes another of its versions current, or removes it with its last.
-  currentVersionId String           @map("current_version_id")
+  currentVersionId  String           @map("current_version_id")
   /// The Profile it was started from, as a Duplicate is, if the Library still has it.
-  startedFromId    String?          @map("started_from_id") @db.Uuid
-  startedFrom      LibraryProfile?  @relation("ProfilesStartedFrom", fields: [startedFromId], references: [id], onDelete: SetNull)
-  startedHere      LibraryProfile[] @relation("ProfilesStartedFrom")
+  startedFromId     String?          @map("started_from_id") @db.Uuid
+  startedFrom       LibraryProfile?  @relation("ProfilesStartedFrom", fields: [startedFromId], references: [id], onDelete: SetNull)
+  startedHere       LibraryProfile[] @relation("ProfilesStartedFrom")
+  /// The highest number given one of its versions, kept when that version
+  /// leaves it or is deleted, so a number is never given twice.
+  lastVersionNumber Int              @default(0) @map("last_version_number")
   /// When it was made: when its first version joined the Library.
-  createdAt        DateTime         @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  createdAt         DateTime         @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
   versions Profile[]
 

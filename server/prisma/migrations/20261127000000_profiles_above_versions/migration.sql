@@ -8,7 +8,9 @@
 -- this (ADR-0025). No data is changed: the server converts the rows itself,
 -- in the background. The current version carries no foreign key, as the
 -- previous release deletes a `profiles` row knowing nothing of it; the
--- server repairs a Profile left naming one.
+-- server repairs a Profile left naming one. `last_version_number` is the
+-- highest number it has given a version, kept when that version leaves the
+-- Profile or is deleted, so no number is given twice.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -17,6 +19,7 @@ CREATE TABLE "library_profiles" (
     "id" UUID NOT NULL,
     "current_version_id" TEXT NOT NULL,
     "started_from_id" UUID,
+    "last_version_number" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT transaction_timestamp(),
 
     CONSTRAINT "library_profiles_pkey" PRIMARY KEY ("id")

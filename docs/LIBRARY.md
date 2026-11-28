@@ -3036,7 +3036,8 @@ A Profile is the lasting thing, and a Profile Version one set of steps it
 has had (ADR-0038, #735). A `profiles` row stays what it was, under Decaid's
 id: it is one Profile Version. `library_profiles` holds the Profile above
 it: an id of the server's own, which no tablet is written, Decaid's id of
-its current version, the Profile it was started from, and when it was made.
+its current version, the Profile it was started from, when it was made, and
+the highest number it has given a version (`last_version_number`).
 Each `profiles` row names its Profile (`library_profile_id`) and its number
 among that Profile's versions (`version_number`), both given by the server
 and null until it has placed the row, as for one the latest release inserts
@@ -3071,7 +3072,8 @@ release adds:
   current version it has, unless a later one joined it, and a Profile just
   made takes its latest; it is then shown nowhere.
 - Versions are numbered in the order they joined the Library, and a number
-  is not given again in its Profile.
+  is not given again in its Profile, even once the version that had it has
+  left the Profile or been deleted.
 - An Archived Recipe naming an earlier version follows to the current one,
   with no entry in its history. No Recipe that is not Archived can name
   one, as a version one names is in use.

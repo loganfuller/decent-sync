@@ -69,7 +69,7 @@ export async function placeProfiles(
       SELECT p.id, p.content ->> 'parentId' AS "parentId", p.bundled, ${inUseSql()} AS "inUse", p.created_at AS "joinedAt",
         p.library_profile_id::text AS "profileId", p.version_number AS "versionNumber"
       FROM profiles p`,
-    tx.$queryRaw<PlacingProfile[]>`SELECT id::text AS id, current_version_id AS "currentVersionId" FROM library_profiles`,
+    tx.$queryRaw<PlacingProfile[]>`SELECT id::text AS id, current_version_id AS "currentVersionId", last_version_number AS "lastVersionNumber" FROM library_profiles`,
   ]);
   const separate = new Set(options.separate ?? []);
   const profilesOf = new Map<string, PlacingProfile>(profiles.map((profile) => [profile.id, profile]));
@@ -94,8 +94,19 @@ export async function placeProfiles(
   return { placed, more };
 }
 
-/** Writes a plan: the Profiles it makes, each row's Profile and number, the current versions it changes, and the Recipes that follow. */
+/** Writes a plan: the Recipes that follow, the Profiles it makes, each row's Profile and number, and the current versions it changes. */
 async function carryOut(tx: Prisma.TransactionClient, plan: PlacementPlan): Promise<void> {
+  // An Archived Recipe naming an earlier version follows to the current one, with no entry in its history (ADR-0038): no
+  // Recipe that is not Archived names one, as a version one names is in use, so is current or a Profile of its own.
+  // Recipes' rows before the `profiles` rows, the order a Recipe's edit takes them, which locks its row and then the
+  // Profile it names FOR SHARE: the other way round, an edit of one of these Recipes deadlocks with placing.
+  for (const profile of plan.touched) {
+    const earlier = profile.versionIds.filter((id) => id !== profile.currentVersionId);
+    if (earlier.length === 0) continue;
+    await tx.$executeRaw`
+      UPDATE recipes SET content = jsonb_set(content, '{profileId}', to_jsonb(${profile.currentVersionId}::text))
+      WHERE content ->> 'profileId' = ANY(${earlier}::text[]) AND archived`;
+  }
   // A Profile started from another made here references it, so those started from none first, then the rest without it, set after.
   for (const made of plan.created) {
     await tx.$executeRaw`
@@ -108,19 +119,18 @@ async function carryOut(tx: Prisma.TransactionClient, plan: PlacementPlan): Prom
   for (const row of plan.placed) {
     await tx.$executeRaw`UPDATE profiles SET library_profile_id = ${row.profileId}::uuid, version_number = ${row.versionNumber} WHERE id = ${row.id}`;
   }
+  // The highest number each Profile has given, which it keeps when that version leaves it or is deleted.
+  const numbered = [...new Set(plan.placed.map((row) => row.profileId))];
+  if (numbered.length > 0) {
+    await tx.$executeRaw`
+      UPDATE library_profiles l SET last_version_number = GREATEST(l.last_version_number, given.number)
+      FROM (SELECT library_profile_id, max(version_number) AS number FROM profiles WHERE library_profile_id = ANY(${numbered}::uuid[]) GROUP BY library_profile_id) given
+      WHERE l.id = given.library_profile_id`;
+  }
   for (const change of plan.current) {
     await tx.$executeRaw`UPDATE library_profiles SET current_version_id = ${change.versionId} WHERE id = ${change.profileId}::uuid`;
   }
   if (plan.removed.length > 0) await tx.$executeRaw`DELETE FROM library_profiles WHERE id = ANY(${plan.removed}::uuid[])`;
-  // An Archived Recipe naming an earlier version follows to the current one, with no entry in its history (ADR-0038): no
-  // Recipe that is not Archived names one, as a version one names is in use, so is current or a Profile of its own.
-  for (const profile of plan.touched) {
-    const earlier = profile.versionIds.filter((id) => id !== profile.currentVersionId);
-    if (earlier.length === 0) continue;
-    await tx.$executeRaw`
-      UPDATE recipes SET content = jsonb_set(content, '{profileId}', to_jsonb(${profile.currentVersionId}::text))
-      WHERE content ->> 'profileId' = ANY(${earlier}::text[]) AND archived`;
-  }
 }
 
 /**
