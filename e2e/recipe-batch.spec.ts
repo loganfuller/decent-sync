@@ -306,11 +306,11 @@ test("the Recipe form picks a batch from a field that is typed into: each word m
   await expect(form).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(picker).toHaveValue(`${words.now()} (this Recipe's batch now)`);
-  // Typed into with the caret left after what the field reads, as Safari may leave it on a click, the words typed are
-  // taken alone.
+  // Typed into with the caret left inside what the field reads, as Safari may leave it on a tap, and with no key going
+  // down first, as a soft keyboard or a paste may type, the words typed are taken alone.
   await picker.click();
-  await picker.evaluate((input: HTMLInputElement) => input.setSelectionRange(input.value.length, input.value.length));
-  await page.keyboard.type("0419");
+  await picker.evaluate((input: HTMLInputElement) => input.setSelectionRange(10, 10));
+  await page.keyboard.insertText("0419");
   await expect(picker).toHaveValue("0419");
   await expectOptions(page.getByRole("listbox", { name: "Batches matching 0419", exact: true }), [`${words.next()}, 6000 g here`, "No batch"]);
   await page.keyboard.press("Escape");
