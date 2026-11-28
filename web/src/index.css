@@ -25,6 +25,7 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-on-tint: var(--destructive-on-tint);
     --color-spec-mark: var(--spec-mark);
     --color-spec-mark-ground: var(--spec-mark-ground);
     --color-accent-foreground: var(--accent-foreground);
@@ -66,6 +67,12 @@
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
+    /* The destructive badge's text (ui/badge.tsx), which rests on a tint of --destructive: one step darker on Tailwind's
+       red scale here and one step lighter in the dark theme. It reads at 5.3:1 on a card and 5.1:1 on a hovered table
+       row here, and 7:1 and 6.4:1 in the dark theme, where --destructive itself gives 4:1 on a card here and 4.3:1 on
+       a dark hovered row (#744, e2e/machine-activity.spec.ts, e2e/batch-names.spec.ts). A badge that is a link deepens
+       its tint on hover, which here would fall under 4.5:1, to 4.3:1 on a hovered row; no badge is a link. */
+    --destructive-on-tint: oklch(0.505 0.213 27.518);
     /* What marks something out of spec (spec-mark.tsx): its text on its ground at 6:1 here and 7:1 in the dark
        theme, in sRGB so a test can read them back (e2e/overview.spec.ts). */
     --spec-mark: #b42318;
@@ -105,6 +112,7 @@
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
+    --destructive-on-tint: oklch(0.808 0.114 19.571);
     --spec-mark: #fda29b;
     --spec-mark-ground: #55160c;
     --border: oklch(1 0 0 / 10%);

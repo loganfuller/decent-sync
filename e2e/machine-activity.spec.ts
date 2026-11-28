@@ -265,11 +265,12 @@ test("the Workflow card names its Bean Batch with its weight at the Machine's Lo
   });
   await page.reload();
   await expect(row).toHaveText(`Activity Fixture BrazilLR-0411Batch finished hereRoasted ${roastDay("2026-11-17")}`);
-  // In the dark theme the code's chip and the day under it still read, and at a phone's width nothing is wider than the screen.
+  // In the dark theme the code's chip, the badge beside it and the day under it still read, and at a phone's width nothing is wider than the screen.
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
     await expect(page.locator("html")).toHaveClass(colorScheme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/);
     expect(await textContrast(row.getByLabel("Batch Code LR-0411", { exact: true })), `${colorScheme}: the code`).toBeGreaterThanOrEqual(4.5);
+    expect(await textContrast(row.getByText("Batch finished here", { exact: true })), `${colorScheme}: the badge`).toBeGreaterThanOrEqual(4.5);
     expect(await textContrast(row.getByText(`Roasted ${roastDay("2026-11-17")}`)), `${colorScheme}: the roast day`).toBeGreaterThanOrEqual(4.5);
   }
   await page.emulateMedia({ colorScheme: "light" });
