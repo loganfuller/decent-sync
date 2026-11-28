@@ -69,9 +69,11 @@ describe("the option the arrows and Enter are on", () => {
     // "No batch" chosen, as a new Recipe is, or "Any Bean Batch" in the Shots filter: Enter takes the match.
     expect(activeOption(options.slice(1), undefined, "none", "0418")?.value).toBe("c");
     expect(activeOption(options, undefined, "c", "lr")?.value).toBe("a");
-    // Typed, with no batch found: the one chosen, or the first entry left.
-    expect(activeOption(options.slice(2), undefined, "none", "yirgacheffe")?.value).toBe("none");
-    expect(activeOption([{ value: "any", label: "Any Bean Batch" }, options[2]!], undefined, "x", "yirgacheffe")?.value).toBe("any");
+    // Typed, with no batch found: none, so Enter on a word mistyped chooses no entry that is no batch.
+    expect(activeOption(options.slice(2), undefined, "none", "yirgacheffe")).toBeUndefined();
+    expect(activeOption([{ value: "any", label: "Any Bean Batch" }, options[2]!], undefined, "a", "yirgacheffe")).toBeUndefined();
+    // Unless the arrows moved to one.
+    expect(activeOption(options.slice(2), "none", "a", "yirgacheffe")?.value).toBe("none");
   });
 
   it("is the one the arrows moved to, while it is listed", () => {

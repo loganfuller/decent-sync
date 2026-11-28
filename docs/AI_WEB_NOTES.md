@@ -18,7 +18,7 @@ Conventions of the management interface (`web/`) that no single file states.
 
 - A batch is picked with `BatchPicker` (`web/src/components/batch-picker.tsx`) alone, never a `Select` of batches: the Recipe form, the copy dialog, the Change batch dialog and the Shots list's Bean Batch filter each give it their own groups of options (#733).
 - Its list opens in the page's own flow, under the field, not in a portal: a list portalled out of a dialog can't be scrolled by the wheel, and one positioned over a dialog's scrolling content is clipped by it.
-- While its list is open it hears Escape on `window`, as the key goes down, and stops it there, so a dialog or popover around it, which listens on the document, stays open.
+- While its list is open, or, where its list is always in view as in the Change batch dialog, while something is typed, it hears Escape on `window`, as the key goes down, and stops it there, so a dialog or popover around it, which listens on the document, stays open.
 - An option's accessible name is its `aria-label` (`optionName`): the batch in words, then its note and its weight. A spec reads its options with `expectOptions` (`e2e/support/locators.ts`).
 
 ## Trend marks

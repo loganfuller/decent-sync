@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router";
 import { BatchCell, BatchCode } from "@/components/batch-name";
 import { BatchPicker } from "@/components/batch-picker";
@@ -65,10 +65,40 @@ export function RecipeBatchStrip({
   const { location } = recipe;
   const batch = usedBatch(recipe);
   const offered = batches && beans ? offeredBatches(batches, beans) : undefined;
+
+  // The Change batch dialog has no trigger of its own, and Use this batch is gone once its save redraws the strip: the
+  // keyboard's focus goes back to the button that opened the dialog, or, where a save has replaced it, to the strip's
+  // first button, never to the page.
+  const wrapper = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const saved = useRef(false);
+  const refocus = () => (opener.current?.isConnected ? opener.current : wrapper.current?.querySelector<HTMLElement>("button"))?.focus();
+  useEffect(() => {
+    if (!saved.current) return;
+    saved.current = false;
+    if (document.activeElement === null || document.activeElement === document.body) refocus();
+  }, [recipe]);
+  const onSaved = () => {
+    saved.current = true;
+    onChanged();
+  };
+
   const dialog = changing && location && (
-    <ChangeBatchDialog recipe={recipe} location={location} batches={offered} readError={readError} onSaved={onChanged} onClose={() => setChanging(false)} />
+    <ChangeBatchDialog
+      recipe={recipe}
+      location={location}
+      batches={offered}
+      readError={readError}
+      onSaved={onSaved}
+      onClose={() => setChanging(false)}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        refocus();
+      }}
+    />
   );
-  const open = () => {
+  const open = (event: MouseEvent<HTMLButtonElement>) => {
+    opener.current = event.currentTarget;
     if (readError) onReread();
     setChanging(true);
   };
@@ -82,10 +112,10 @@ export function RecipeBatchStrip({
 
   if (recipe.batchFinished && batch) {
     return (
-      <>
-        <FinishedStrip recipe={recipe} batch={batch} next={offered && nextRoasts(recipe, offered, location?.id)} readError={readError} mayChange={mayChange} another={change("Another batch…")} onChanged={onChanged} />
+      <div ref={wrapper} className="contents">
+        <FinishedStrip recipe={recipe} batch={batch} next={offered && nextRoasts(recipe, offered, location?.id)} readError={readError} mayChange={mayChange} another={change("Another batch…")} onChanged={onSaved} />
         {dialog}
-      </>
+      </div>
     );
   }
 
@@ -93,38 +123,40 @@ export function RecipeBatchStrip({
   const days = batch && daysSinceRoast(batch.roastDate, dateIn(location?.timeZone));
   const weight = batch && location ? weightAt(batches?.find((held) => held.id === batch.id), location.id) : undefined;
   return (
-    <section aria-label="Bean Batch" className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10">
-      <div className="grid min-w-0 gap-1">
-        <span className="text-[0.8125rem] text-muted-foreground">Bean Batch</span>
-        {batch ? (
-          <BatchCell batch={batch} id={batch.id} large also={`${days === undefined ? "" : `, ${agoText(days)}`}${batch.bean.roaster ? ` · ${batch.bean.roaster}` : ""}`} />
-        ) : bean ? (
-          <>
-            <div className="text-xl font-semibold wrap-anywhere">
-              <Link to={`${LIBRARY_KINDS.bean.pages}/${bean.id}`} className="underline-offset-4 hover:underline">
-                {bean.name ?? "Unnamed Bean"}
-              </Link>
-            </div>
-            <div className="text-muted-foreground">
-              No batch
-              {bean.roaster && ` · ${bean.roaster}`}
-            </div>
-          </>
-        ) : (
-          <div className="text-xl font-semibold text-muted-foreground">No Bean Batch</div>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        {weight !== undefined && location && (
-          <dl className="grid gap-0.5">
-            <dt className="text-[0.8125rem] text-muted-foreground">Remaining at {location.name}</dt>
-            <dd className={`text-2xl leading-tight tracking-tight tabular-nums ${weight === null ? "font-medium text-muted-foreground" : "font-bold"}`}>{weightText(weight)}</dd>
-          </dl>
-        )}
-        {change("Change batch")}
-      </div>
-      {dialog}
-    </section>
+    <div ref={wrapper} className="contents">
+      <section aria-label="Bean Batch" className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10">
+        <div className="grid min-w-0 gap-1">
+          <span className="text-[0.8125rem] text-muted-foreground">Bean Batch</span>
+          {batch ? (
+            <BatchCell batch={batch} id={batch.id} large also={`${days === undefined ? "" : `, ${agoText(days)}`}${batch.bean.roaster ? ` · ${batch.bean.roaster}` : ""}`} />
+          ) : bean ? (
+            <>
+              <div className="text-xl font-semibold wrap-anywhere">
+                <Link to={`${LIBRARY_KINDS.bean.pages}/${bean.id}`} className="underline-offset-4 hover:underline">
+                  {bean.name ?? "Unnamed Bean"}
+                </Link>
+              </div>
+              <div className="text-muted-foreground">
+                No batch
+                {bean.roaster && ` · ${bean.roaster}`}
+              </div>
+            </>
+          ) : (
+            <div className="text-xl font-semibold text-muted-foreground">No Bean Batch</div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+          {weight !== undefined && location && (
+            <dl className="grid gap-0.5">
+              <dt className="text-[0.8125rem] text-muted-foreground">Remaining at {location.name}</dt>
+              <dd className={`text-2xl leading-tight tracking-tight tabular-nums ${weight === null ? "font-medium text-muted-foreground" : "font-bold"}`}>{weightText(weight)}</dd>
+            </dl>
+          )}
+          {change("Change batch")}
+        </div>
+        {dialog}
+      </section>
+    </div>
   );
 }
 
@@ -273,6 +305,7 @@ function ChangeBatchDialog({
   readError,
   onSaved,
   onClose,
+  onCloseAutoFocus,
 }: {
   recipe: Recipe;
   location: NonNullable<Recipe["location"]>;
@@ -280,6 +313,8 @@ function ChangeBatchDialog({
   readError: string | undefined;
   onSaved(): void;
   onClose(): void;
+  /** Where the keyboard's focus goes as it closes, as it has no trigger of its own. */
+  onCloseAutoFocus(event: Event): void;
 }) {
   const [initial] = useState(() => batchValueOf(recipe.content));
   const [value, setValue] = useState(initial);
@@ -306,7 +341,7 @@ function ChangeBatchDialog({
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Change the Bean Batch of {recipeName(recipe)}</DialogTitle>
           <DialogDescription>A Recipe at {location.name}. The change reaches every tablet there.</DialogDescription>

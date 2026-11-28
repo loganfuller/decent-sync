@@ -61,13 +61,14 @@ export function batchCount(groups: readonly BatchOptionGroup[]): number {
  * The option the arrows and Enter are on: the one the arrows moved to; else,
  * while words are typed, the first batch they find, since an entry that is
  * no batch is never hidden, and the one chosen would keep Enter on "No
- * batch" with a match above it; else the one chosen; else the first.
+ * batch" with a match above it, or none where they find none, so Enter on
+ * a word mistyped chooses nothing; else the one chosen; else the first.
  */
 export function activeOption(options: readonly BatchOption[], active: string | undefined, value: string, search: string): BatchOption | undefined {
   const moved = options.find((option) => option.value === active);
   if (moved) return moved;
-  const found = search.trim() === "" ? undefined : options.find((option) => option.batch);
-  return found ?? options.find((option) => option.value === value) ?? options[0];
+  if (search.trim() !== "") return options.find((option) => option.batch);
+  return options.find((option) => option.value === value) ?? options[0];
 }
 
 /** An option as the field reads while it is the one chosen: the batch in words, with its note, or the entry's label. */

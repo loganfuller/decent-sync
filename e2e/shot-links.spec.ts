@@ -169,6 +169,10 @@ test("the Shots list, its Bean Batch filter and a Shot's page name a Shot's batc
   await picker.fill("guji");
   await expectOptions(offered, ["Any Bean Batch", "Not linked to a Bean Batch"]);
   await expect(offered.getByText("No batch matches.", { exact: true })).toBeVisible();
+  // Enter on words that find no batch chooses nothing: the filter stays.
+  await page.keyboard.press("Enter");
+  await expect(offered).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`beanBatchId=${batchId}`));
   // Escape closes its list alone: the filters stay open.
   await page.keyboard.press("Escape");
   await expect(filters.getByRole("listbox")).toHaveCount(0);

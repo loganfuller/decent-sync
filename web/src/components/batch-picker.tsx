@@ -60,6 +60,7 @@ export function BatchPicker({
   const options = shown.flatMap((group) => group.options);
   const chosen = groups.flatMap((group) => group.options).find((option) => option.value === value);
   const visible = listed || open;
+  const shownValue = typed ?? (listed || !chosen ? "" : optionText(chosen));
   const at = activeOption(options, active, value, search);
   const optionId = (option: BatchOption) => `${id}-option-${options.indexOf(option)}`;
   const noMatch = search.trim() !== "" && batchCount(groups) > 0 && batchCount(shown) === 0;
@@ -118,10 +119,10 @@ export function BatchPicker({
     else if (event.key === "ArrowUp") move(options[Math.max(index - 1, 0)]);
     else if (event.key === "Home" && visible && typed === null) move(options[0]);
     else if (event.key === "End" && visible && typed === null) move(options.at(-1));
-    else if (event.key === "Enter" && visible && at) {
-      // Chooses the option, and leaves the form around the picker unsent.
+    else if (event.key === "Enter" && visible) {
+      // Chooses the option, if the arrows or the words typed are on one, and leaves the form around the picker unsent.
       event.preventDefault();
-      choose(at);
+      if (at) choose(at);
     }
   }
 
@@ -147,12 +148,16 @@ export function BatchPicker({
         spellCheck={false}
         placeholder="Bean, roaster or Batch Code"
         className="w-full"
-        value={typed ?? (listed || !chosen ? "" : optionText(chosen))}
+        value={shownValue}
         // What the field reads of the option chosen is replaced by the first key typed.
         onFocus={(event) => event.currentTarget.select()}
         onClick={() => setOpen(true)}
         onChange={(event) => {
-          setTyped(event.target.value);
+          // A browser that leaves the caret after what the field read of the option chosen, as Safari may on a click,
+          // adds what is typed to it: that is taken alone, as the select on focus would have had it.
+          const next = event.target.value;
+          const kept = typed === null && shownValue !== "" && next.length > shownValue.length && next.startsWith(shownValue);
+          setTyped(kept ? next.slice(shownValue.length) : next);
           setOpen(true);
           setActive(undefined);
         }}

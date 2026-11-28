@@ -299,6 +299,21 @@ test("the Recipe form picks a batch from a field that is typed into: each word m
   await picker.fill("yirgacheffe");
   await expectOptions(page.getByRole("listbox"), ["No batch"]);
   await expect(page.getByRole("listbox").getByText("No batch matches.", { exact: true })).toBeVisible();
+  // Enter on words that find no batch chooses nothing, not No batch, and sends nothing.
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await expect(picker).toHaveValue("yirgacheffe");
+  await expect(form).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveValue(`${words.now()} (this Recipe's batch now)`);
+  // Typed into with the caret left after what the field reads, as Safari may leave it on a click, the words typed are
+  // taken alone.
+  await picker.click();
+  await picker.evaluate((input: HTMLInputElement) => input.setSelectionRange(input.value.length, input.value.length));
+  await page.keyboard.type("0419");
+  await expect(picker).toHaveValue("0419");
+  await expectOptions(page.getByRole("listbox", { name: "Batches matching 0419", exact: true }), [`${words.next()}, 6000 g here`, "No batch"]);
+  await page.keyboard.press("Escape");
 
   // From the keyboard: Enter chooses the first match, which leaves the form open and unsent; the arrows move through
   // the options, the field naming the one they are on to a screen reader.
@@ -439,6 +454,7 @@ test("a Recipe whose batch is finished at its Location shows the finished strip 
   await expect(dialog.getByRole("option", { selected: true })).toHaveAccessibleName(`${words.old()}, this Recipe's batch now · at no Location`);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  await expect(strip.getByRole("button", { name: "Another batch…", exact: true })).toBeFocused();
   await expect(strip.getByText("Its Bean Batch is finished at Downtown", { exact: true })).toBeVisible();
   expect(edits).toEqual([]);
 
@@ -464,6 +480,8 @@ test("a Recipe whose batch is finished at its Location shows the finished strip 
   await expect(strip.getByText("Its Bean Batch is finished at Downtown")).toHaveCount(0);
   await expect(field(strip, "Remaining at Downtown")).toHaveText("3240 g");
   await expect(strip.getByRole("button")).toHaveText(["Change batch"]);
+  // The button pressed is gone with the strip it was in: the keyboard's focus goes to the new strip's button.
+  await expect(strip.getByRole("button", { name: "Change batch", exact: true })).toBeFocused();
   await expect(page.getByRole("heading", { name: "House Ristretto", level: 1 })).not.toContainText("Batch finished here");
   // Its History keeps the change, as an edit's.
   const history = (await openCard(page, "History")).getByRole("table", { name: "History" });
@@ -523,6 +541,8 @@ test("Change batch opens the picker in a dialog titled for the Recipe: Cancel ch
   await expect(list.getByRole("option", { selected: true })).toHaveAccessibleName(`${words.next()}, 6000 g here`);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  // The keyboard's focus goes back to the button that opened it.
+  await expect(strip.getByRole("button", { name: "Change batch", exact: true })).toBeFocused();
   await expect(strip.getByRole("link", { name: words.now(), exact: true })).toBeVisible();
   expect(edits).toEqual([]);
   expect(await batchOf(page, recipes.cortado)).toBe(batches.now);
@@ -543,6 +563,7 @@ test("Change batch opens the picker in a dialog titled for the Recipe: Cancel ch
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(edits).toEqual([{ content: { beanBatchId: batches.lab } }]);
+  await expect(strip.getByRole("button", { name: "Change batch", exact: true })).toBeFocused();
   // The strip names the batch, which is at Downtown now, with no weight there.
   await expect(strip.getByRole("link", { name: words.lab(), exact: true })).toHaveAttribute("href", batchPage(batches.lab));
   await expect(strip.getByText(`Roasted ${day(-1)}, 1 day ago · Lantern Coffee Roasters`, { exact: true })).toBeVisible();
