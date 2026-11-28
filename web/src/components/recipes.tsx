@@ -372,6 +372,7 @@ function useChoices(version = 0): { choices: Choices | undefined; error: string 
   const [error, setError] = useState<string>();
   useEffect(() => {
     let current = true;
+    setError(undefined);
     Promise.all([
       api<{ batches: BeanBatchSummary[] }>("GET", "/bean-batches"),
       api<{ beans: BeanSummary[] }>("GET", "/beans"),
@@ -1277,7 +1278,20 @@ const KEEP = "keep";
  * time afresh from the Recipe as it is then, and `onClose` is called as it
  * closes.
  */
-function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { recipe: Recipe; choices: Choices | undefined; onClose(): void; onCloseAutoFocus(event: Event): void }) {
+function CopyRecipeDialog({
+  recipe,
+  choices,
+  choicesError,
+  onClose,
+  onCloseAutoFocus,
+}: {
+  recipe: Recipe;
+  choices: Choices | undefined;
+  /** Why what a Recipe may use could not be read, shown while there is none, as Copy waits for it. */
+  choicesError: string | undefined;
+  onClose(): void;
+  onCloseAutoFocus(event: Event): void;
+}) {
   const navigate = useNavigate();
   const mayChangeAt = useMayChangeAt();
   const { locations, error: locationsError } = useLocations();
@@ -1421,6 +1435,7 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
         <form aria-label="Copy the Recipe" className="grid gap-4" onSubmit={copy}>
           {error && <FormError error={error} />}
           {locationsError && <FormError error={locationsError} />}
+          {!choices && choicesError && <FormError error={choicesError} />}
           <div className="grid gap-2">
             <Label htmlFor={`${id}-location`}>Copy to</Label>
             <Select value={locationId} onValueChange={chooseLocation}>
@@ -1532,7 +1547,10 @@ export function RecipeDetails({ id }: { id: string }) {
   // A change here changes the Recipe, so it is loaded again, with its history and what it may use.
   const [changes, setChanges] = useState(0);
   const changed = useCallback(() => setChanges((count) => count + 1), []);
-  const { choices } = useChoices(changes);
+  // What a Recipe may use, read again with it, or alone, as a dialog that needs it opens after a read of it failed.
+  const [rereads, setRereads] = useState(0);
+  const reread = useCallback(() => setRereads((count) => count + 1), []);
+  const { choices, error: choicesError } = useChoices(changes + rereads);
   const names = useMemo(() => namesOf(choices), [choices]);
   const [period, setPeriod] = useOverviewPeriod();
   const [loaded, setLoaded] = useState<{ recipe: Recipe; recipes: Recipe[] }>();
@@ -1609,7 +1627,7 @@ export function RecipeDetails({ id }: { id: string }) {
             <Place recipe={recipe} />
           </p>
         </div>
-        <RecipeActions recipe={recipe} recipes={recipes} choices={choices} mayChange={mayChange} mayCopy={mayCopy} onChanged={changed} />
+        <RecipeActions recipe={recipe} recipes={recipes} choices={choices} choicesError={choicesError} onReread={reread} mayChange={mayChange} mayCopy={mayCopy} onChanged={changed} />
       </div>
       {error && (
         <Alert variant="destructive">
@@ -1620,7 +1638,7 @@ export function RecipeDetails({ id }: { id: string }) {
         <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>
       )}
 
-      <RecipeBatchStrip recipe={recipe} batches={choices?.batches} beans={choices?.beans} mayChange={mayChange} onChanged={changed} />
+      <RecipeBatchStrip recipe={recipe} batches={choices?.batches} beans={choices?.beans} readError={choices ? undefined : choicesError} onReread={reread} mayChange={mayChange} onChanged={changed} />
 
       <PeriodTabs period={period} onPeriod={setPeriod} className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -1660,6 +1678,8 @@ function RecipeActions({
   recipe,
   recipes,
   choices,
+  choicesError,
+  onReread,
   mayChange,
   mayCopy,
   onChanged,
@@ -1667,6 +1687,10 @@ function RecipeActions({
   recipe: Recipe;
   recipes: Recipe[];
   choices: Choices | undefined;
+  /** Why what a Recipe may use could not be read, which the copy dialog shows while it has none. */
+  choicesError: string | undefined;
+  /** Reads it again, as the copy dialog opens after a read of it failed. */
+  onReread(): void;
   mayChange: boolean;
   mayCopy: boolean;
   onChanged(): void;
@@ -1686,6 +1710,7 @@ function RecipeActions({
   const opener = useRef<HTMLElement | null>(null);
   const open = (next: RecipeAction, from?: HTMLElement) => {
     setError(undefined);
+    if (next === "copy" && !choices && choicesError) onReread();
     opener.current = from ?? more.current;
     setAction(next);
   };
@@ -1758,7 +1783,7 @@ function RecipeActions({
 
       {/* Each mounted while it is open, so it starts from the Recipe as it is then. */}
       {action === "move" && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={onChanged} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
-      {action === "copy" && <CopyRecipeDialog recipe={recipe} choices={choices} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
+      {action === "copy" && <CopyRecipeDialog recipe={recipe} choices={choices} choicesError={choicesError} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
       <ConfirmDialog
         {...confirming("takeOut")}
         title={`Take ${title} out of slot ${recipe.slot}?`}

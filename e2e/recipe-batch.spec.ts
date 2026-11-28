@@ -358,6 +358,15 @@ test("the Recipe form picks a batch from a field that is typed into: each word m
   expect(options!.x + options!.width).toBeLessThanOrEqual(dialog!.x + dialog!.width);
   expect(await page.getByRole("listbox").evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   await page.setViewportSize({ width: 1280, height: 720 });
+
+  // Typed into from No batch, which no word hides, Enter chooses the batch the words find, and the arrows move on from it.
+  await fresh.fill("0419");
+  await page.keyboard.press("Enter");
+  await expect(fresh).toHaveValue(words.next());
+  await fresh.fill("house lr");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(fresh).toHaveValue(words.now());
 });
 
 test("the copy dialog picks the copy's batch with the same picker: the entry that keeps the Recipe's batch first, then None, then the batches at the Location copied to", async ({ page }) => {
@@ -561,6 +570,36 @@ test("Change batch opens the picker in a dialog titled for the Recipe: Cancel ch
   await expect(guest.getByRole("option").first()).toHaveAccessibleName("House Espresso, no batch");
   await expect(guest.getByRole("option", { selected: true })).toHaveAccessibleName("House Espresso, no batch");
   await guest.getByRole("button", { name: "Cancel", exact: true }).click();
+});
+
+test("a failed read of what a Recipe may use is said where its batches would be: in the Change batch dialog, whose Save waits for them, and in the finished strip; the dialog opened again reads them again", async ({ page }) => {
+  const { recipes } = await seed(page);
+  // Any one of the Library's lists failing leaves the batches unread, even one that names no batch.
+  const tools = (url: URL) => url.pathname === "/api/tools";
+  await page.route(tools, (route) => route.fulfill({ status: 503, json: { message: "The Library is not answering" } }));
+
+  // Seeded finished at Riverside, which no other test changes.
+  await page.goto(`/library/recipes/${recipes.kenya}`);
+  const strip = stripOf(page);
+  await expect(strip.getByText("Its Bean Batch is finished at Riverside", { exact: true })).toBeVisible();
+  await expect(strip.getByText("The Library is not answering", { exact: true })).toBeVisible();
+  await expect(strip.getByText("No other batch of Guest Kenya is at Riverside.", { exact: true })).toHaveCount(0);
+
+  await strip.getByRole("button", { name: "Another batch…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Change the Bean Batch of Kenya Filter" });
+  await expect(dialog.getByRole("alert")).toHaveText("The Library is not answering");
+  await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await page.unroute(tools);
+  await strip.getByRole("button", { name: "Another batch…", exact: true }).click();
+  await expect(dialog.getByRole("group", { name: "At Riverside", exact: true }).getByRole("option").first()).toBeVisible();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  // The finished strip has the batches it was waiting for too.
+  await expect(strip.getByText("No other batch of Guest Kenya is at Riverside.", { exact: true })).toBeVisible();
+  await expect(strip.getByText("The Library is not answering", { exact: true })).toHaveCount(0);
 });
 
 test("someone who may not change the Recipe sees the strip without Change batch, Use this batch or Another batch…: a Viewer, and Staff of another Location", async ({ page, browser }) => {

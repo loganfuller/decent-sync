@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type BatchOptionGroup, batchCount, batchMatches, latestRoastedFirst, matchingGroups, optionName, optionText } from "../src/lib/batch-picker";
+import { type BatchOption, type BatchOptionGroup, activeOption, batchCount, batchMatches, latestRoastedFirst, matchingGroups, optionName, optionText } from "../src/lib/batch-picker";
 
 // The batch picker's pure parts (#733): which batches the words typed find, what they leave of its groups, how an option
 // reads in the field and to a screen reader, and the order the latest roast comes first in.
@@ -49,6 +49,34 @@ describe("the words typed", () => {
     expect(matchingGroups(groups, "kenya").map((group) => group.options.map((option) => option.value))).toEqual([["none"]]);
     expect(batchCount(groups)).toBe(3);
     expect(batchCount(matchingGroups(groups, "kenya"))).toBe(0);
+  });
+});
+
+describe("the option the arrows and Enter are on", () => {
+  const options: BatchOption[] = [
+    { value: "a", batch: house("LR-0411") },
+    { value: "c", batch: decaf },
+    { value: "none", label: "No batch" },
+  ];
+
+  it("is the one chosen while nothing is typed, or the first when none of them is", () => {
+    expect(activeOption(options, undefined, "c", "")?.value).toBe("c");
+    expect(activeOption(options, undefined, "none", "  ")?.value).toBe("none");
+    expect(activeOption(options, undefined, "gone", "")?.value).toBe("a");
+  });
+
+  it("is the first batch the words typed find, not an entry that is no batch left chosen, nor the batch chosen", () => {
+    // "No batch" chosen, as a new Recipe is, or "Any Bean Batch" in the Shots filter: Enter takes the match.
+    expect(activeOption(options.slice(1), undefined, "none", "0418")?.value).toBe("c");
+    expect(activeOption(options, undefined, "c", "lr")?.value).toBe("a");
+    // Typed, with no batch found: the one chosen, or the first entry left.
+    expect(activeOption(options.slice(2), undefined, "none", "yirgacheffe")?.value).toBe("none");
+    expect(activeOption([{ value: "any", label: "Any Bean Batch" }, options[2]!], undefined, "x", "yirgacheffe")?.value).toBe("any");
+  });
+
+  it("is the one the arrows moved to, while it is listed", () => {
+    expect(activeOption(options, "none", "c", "lr")?.value).toBe("none");
+    expect(activeOption(options.slice(1), "a", "none", "0418")?.value).toBe("c");
   });
 });
 

@@ -3,7 +3,7 @@ import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from
 import { BatchCode } from "@/components/batch-name";
 import { Input } from "@/components/ui/input";
 import { batchBean, batchCodeOf, roastedLine } from "@/lib/batch-name";
-import { type BatchOption, type BatchOptionGroup, batchCount, matchingGroups, optionName, optionText } from "@/lib/batch-picker";
+import { type BatchOption, type BatchOptionGroup, activeOption, batchCount, matchingGroups, optionName, optionText } from "@/lib/batch-picker";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,7 +60,7 @@ export function BatchPicker({
   const options = shown.flatMap((group) => group.options);
   const chosen = groups.flatMap((group) => group.options).find((option) => option.value === value);
   const visible = listed || open;
-  const at = options.find((option) => option.value === active) ?? options.find((option) => option.value === value) ?? options[0];
+  const at = activeOption(options, active, value, search);
   const optionId = (option: BatchOption) => `${id}-option-${options.indexOf(option)}`;
   const noMatch = search.trim() !== "" && batchCount(groups) > 0 && batchCount(shown) === 0;
 

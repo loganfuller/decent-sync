@@ -40,18 +40,24 @@ const saveBatch = (recipe: Recipe, value: string) => api("PATCH", `/recipes/${en
  *
  * `batches` and `beans` are the Library's, read with the Recipe, undefined
  * until they are: the weight is left out until then, and where the server
- * says none of it (ADR-0025).
+ * says none of it (ADR-0025). `readError` says why they could not be read,
+ * which the Change batch dialog and the finished strip show in their place,
+ * and `onReread` reads them again, as the dialog opens.
  */
 export function RecipeBatchStrip({
   recipe,
   batches,
   beans,
+  readError,
+  onReread,
   mayChange,
   onChanged,
 }: {
   recipe: Recipe;
   batches: BeanBatchSummary[] | undefined;
   beans: BeanSummary[] | undefined;
+  readError?: string;
+  onReread(): void;
   mayChange: boolean;
   onChanged(): void;
 }) {
@@ -59,11 +65,17 @@ export function RecipeBatchStrip({
   const { location } = recipe;
   const batch = usedBatch(recipe);
   const offered = batches && beans ? offeredBatches(batches, beans) : undefined;
-  const dialog = changing && location && <ChangeBatchDialog recipe={recipe} location={location} batches={offered} onSaved={onChanged} onClose={() => setChanging(false)} />;
+  const dialog = changing && location && (
+    <ChangeBatchDialog recipe={recipe} location={location} batches={offered} readError={readError} onSaved={onChanged} onClose={() => setChanging(false)} />
+  );
+  const open = () => {
+    if (readError) onReread();
+    setChanging(true);
+  };
   const change = (label: string) =>
     mayChange &&
     location && (
-      <Button variant="outline" onClick={() => setChanging(true)}>
+      <Button variant="outline" onClick={open}>
         {label}
       </Button>
     );
@@ -71,7 +83,7 @@ export function RecipeBatchStrip({
   if (recipe.batchFinished && batch) {
     return (
       <>
-        <FinishedStrip recipe={recipe} batch={batch} next={offered && nextRoasts(recipe, offered, location?.id)} mayChange={mayChange} another={change("Another batch…")} onChanged={onChanged} />
+        <FinishedStrip recipe={recipe} batch={batch} next={offered && nextRoasts(recipe, offered, location?.id)} readError={readError} mayChange={mayChange} another={change("Another batch…")} onChanged={onChanged} />
         {dialog}
       </>
     );
@@ -161,6 +173,7 @@ function FinishedStrip({
   recipe,
   batch,
   next,
+  readError,
   mayChange,
   another,
   onChanged,
@@ -169,6 +182,8 @@ function FinishedStrip({
   batch: NonNullable<ReturnType<typeof usedBatch>>;
   /** The next roasts offered; undefined until the Library's batches are read. */
   next: BeanBatchSummary[] | undefined;
+  /** Why they could not be read, said in their place. */
+  readError: string | undefined;
   mayChange: boolean;
   another: ReactNode;
   onChanged(): void;
@@ -200,6 +215,7 @@ function FinishedStrip({
       {error && <FormError error={error} />}
       <div className="grid gap-2">
         <p className="font-medium">Pick the next roast of {batchBean(batch)} here</p>
+        {!next && readError && <p className="text-destructive">{readError}</p>}
         {next?.length === 0 && (
           <p className="text-muted-foreground">
             No other batch of {batchBean(batch)} is at {here}.
@@ -247,18 +263,21 @@ function FinishedStrip({
  * the Recipe loaded, and the Recipe's History keeps it. Cancel changes
  * nothing. It is shown open, by the button that asks for it, each time
  * afresh from the Recipe as it is then. `batches` are those a Recipe is
- * offered (`offeredBatches`), undefined until read.
+ * offered (`offeredBatches`), undefined until read, and `readError` why
+ * they could not be, shown while Save waits for them.
  */
 function ChangeBatchDialog({
   recipe,
   location,
   batches,
+  readError,
   onSaved,
   onClose,
 }: {
   recipe: Recipe;
   location: NonNullable<Recipe["location"]>;
   batches: BeanBatchSummary[] | undefined;
+  readError: string | undefined;
   onSaved(): void;
   onClose(): void;
 }) {
@@ -294,6 +313,7 @@ function ChangeBatchDialog({
         </DialogHeader>
         <form aria-label="Change the Bean Batch" className="grid min-w-0 gap-4" onSubmit={save}>
           {error && <FormError error={error} />}
+          {!batches && readError && <FormError error={readError} />}
           <div className="grid min-w-0 gap-2">
             <Label htmlFor={`${id}-batch`}>Bean Batch</Label>
             <BatchPicker id={`${id}-batch`} groups={groups} value={value} onChange={setValue} listed />

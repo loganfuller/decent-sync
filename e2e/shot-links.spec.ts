@@ -181,6 +181,11 @@ test("the Shots list, its Bean Batch filter and a Shot's page name a Shot's batc
   await expect(picker).toHaveValue("Not linked to a Bean Batch");
   await expect(page).toHaveURL(/beanBatchId=none/);
   await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Not linked");
+  // Typed into from an entry that is no batch, which no word hides, Enter chooses the batch the words find.
+  await picker.fill("ls-1004");
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveValue(sidra);
+  await expect(page).toHaveURL(new RegExp(`beanBatchId=${batchId}`));
   await closeFilters(page);
   await chooseFilter(page, "Bean Batch", sidra);
   await expect(rows(list)).toHaveCount(2);
