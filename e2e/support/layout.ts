@@ -47,9 +47,15 @@ export async function expectFits(page: Page, width: number) {
   expect(measured, `${new URL(page.url()).pathname} fits the screen`).toEqual({ scrollWidth: width, clientWidth: width });
 }
 
-/** The contrast of an element's text against what is behind it, by WCAG's formula, as the browser computed both. */
+/**
+ * The contrast of an element's text against what is behind it, by WCAG's formula, as the browser computed both, once
+ * the colours have settled: a badge fades from one theme's colours to the other's, and is neither's on the way.
+ */
 export async function textContrast(element: Locator): Promise<number> {
-  return element.evaluate((node) => {
+  return element.evaluate(async (node) => {
+    for (let at: Element | null = node; at; at = at.parentElement) {
+      await Promise.all(at.getAnimations().filter((each) => each instanceof CSSTransition).map((each) => each.finished.catch(() => undefined)));
+    }
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d", { willReadFrequently: true })!;
