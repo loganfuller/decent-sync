@@ -169,7 +169,7 @@ function ShotRows({ shots, list }: { shots: ListedShot[]; list: RecordList<ShotP
           {groups.map((group, index) => (
             <DayRows key={`${index} ${group.heading}`} heading={group.heading}>
               {group.shots.map((shot) => (
-                <ShotRow key={shot.id} shot={shot} state={state} located={located} />
+                <ShotRow key={shot.id} shot={shot} state={state} located={located} versioned={list.params.has("profileId")} />
               ))}
             </DayRows>
           ))}
@@ -217,12 +217,14 @@ function TimeLink({ shot, state }: { shot: ListedShot; state: ListState }) {
 }
 
 /** A Shot's row of the table. */
-function ShotRow({ shot, state, located }: { shot: ListedShot; state: ListState; located: boolean }) {
+function ShotRow({ shot, state, located, versioned }: { shot: ListedShot; state: ListState; located: boolean; versioned: boolean }) {
   const stopped = stopNote(shot.spec, shot.stopReason);
   // Its profile, and its Bean Batch in a line, linked, where it is linked to one (#732), or else its Bean as it recorded it, by its
   // name, or its roaster where it recorded no name, and its Location, each where there is one.
+  // In a list of a Profile's Shots, each says which of its versions it ran (ADR-0038).
+  const version = versioned && typeof shot.profile?.version === "number" ? `Version ${shot.profile.version}` : undefined;
   const recorded: ReactNode[] = [
-    shot.profileTitle?.trim() || undefined,
+    [shot.profileTitle?.trim() || undefined, version].filter(Boolean).join(", ") || undefined,
     shot.beanBatch ? <BatchInLine batch={shot.beanBatch} id={shot.beanBatch.id} plain linkClassName="underline-offset-4 hover:underline" /> : shot.coffeeName?.trim() || shot.coffeeRoaster?.trim() || undefined,
   ].filter((part) => part !== undefined);
   return (

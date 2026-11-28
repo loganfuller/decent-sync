@@ -859,10 +859,17 @@ export interface GrinderLink {
   model: string | null;
 }
 
-/** A Library Profile a Shot was pulled with. */
+/**
+ * A Library Profile a Shot was pulled with: the Profile Version whose steps
+ * it ran, by Decaid's id, with the Profile it belongs to and its number
+ * among that Profile's versions (ADR-0038), each null until the server has
+ * placed it and absent from a server of the release before.
+ */
 export interface ProfileLink {
   id: string;
   title: string | null;
+  profileId?: string | null;
+  version?: number | null;
 }
 
 /** A Library Recipe a Shot was pulled with, or a Basket it used, by its name. */
@@ -1447,10 +1454,20 @@ export interface Grinder extends GrinderSummary {
   content: Record<string, unknown>;
 }
 
-/** A Profile in the Library, as the Profiles list shows it. */
+/**
+ * A Profile in the Library, as the Profiles list shows it (ADR-0038): the
+ * lasting Profile, read through one of its Profile Versions, its current one
+ * in a list.
+ */
 export interface ProfileSummary {
-  /** Decaid's id, such as profile:bf1ca48b9c7389c7d146: a hash of what the machine executes, the same on every tablet. */
+  /** Decaid's id of the version read, such as profile:bf1ca48b9c7389c7d146: a hash of what the machine executes, the same on every tablet. */
   id: string;
+  /** The Profile's own id, which its page is at and which stays as it gains versions; null until the server has placed it, and absent from a server of the release before. */
+  profileId?: string | null;
+  /** How many Profile Versions it has had. Absent from a server of the release before. */
+  versions?: number;
+  /** The Profile it was started from, as a Duplicate is, if the Library still has it. Absent from a server of the release before. */
+  startedFrom?: { profileId: string; id: string; title: string | null } | null;
   title: string | null;
   author: string | null;
   beverageType: string | null;
@@ -1470,8 +1487,12 @@ export interface Profile extends ProfileSummary {
   content: Record<string, unknown>;
   /** Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it, and absent from a server of the release before. */
   profile?: ProfileDefinition | null;
-  /** The Profile it was saved from, if the Library has it. */
+  /** The version or Profile its steps were saved from, if the Library has it. */
   parent: { id: string; title: string | null } | null;
+  /** The number of the version read among its Profile's, as in "Version 2"; null until placed, and absent from a server of the release before. */
+  version?: number | null;
+  /** The Profile's current version, by Decaid's id and number: the version read where its id is the same. Absent from a server of the release before. */
+  current?: { id: string; version: number | null };
   /**
    * Each Location that has decided whether it shows it, by name, kept while
    * it is Archived: whether it is shown there, and since when that was
@@ -1624,13 +1645,17 @@ export interface SavedDraft {
   between: { saves: number; savedBy: EditSource; savedAt: string } | null;
 }
 
-/** One of a Profile's Profile Versions: a Profile in the chain of Decaid's `parentId` links through it. */
+/** One of a Profile's Profile Versions (ADR-0038): one set of steps it has had, under Decaid's id. */
 export interface ProfileVersion {
   id: string;
+  /** Its number among the Profile's versions, in the order they joined it; null until placed, and absent from a server of the release before. */
+  number?: number | null;
+  /** Whether it is the Profile's current version. Absent from a server of the release before. */
+  current?: boolean;
   title: string | null;
   bundled: boolean;
   archived: boolean;
-  /** The Profile it was saved from, where that is in the chain; null for the first. */
+  /** The version it was saved from, where that is among these; else null. */
   parentId: string | null;
   /** When it was saved: by the record its first tablet sent, else when it joined the Library. */
   savedAt: string;
@@ -1639,6 +1664,19 @@ export interface ProfileVersion {
   shownAt: ProfileAtLocation[];
   /** How many Shots are on it. */
   shots: number;
+}
+
+/** A Machine whose Workflow holds an earlier version of a Profile with no Recipe loaded, and that version. */
+export interface MachineOnEarlierVersion {
+  machine: { id: string; name: string };
+  version: { id: string; number: number | null };
+}
+
+/** A Profile's versions, as its page reads them; a server of the release before answers the versions alone. */
+export interface ProfileVersions {
+  versions: ProfileVersion[];
+  profile?: { profileId: string | null; currentVersionId: string };
+  earlierOn?: MachineOnEarlierVersion[];
 }
 
 /** A Recipe naming a Profile, with the Machines that have it loaded now. */

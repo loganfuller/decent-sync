@@ -4,7 +4,7 @@ import { useMayChange } from "@/auth";
 import { LibraryNav } from "@/components/bean-batches";
 import { DraftsCard } from "@/components/drafts";
 import { PageTitleWithInfo } from "@/components/info-tip";
-import { ProfileBadges, profilePath, profileTitle } from "@/components/profiles";
+import { ProfileBadges, profilePagePath, profilePath, profileTitle } from "@/components/profiles";
 import { shownAtText } from "@/components/shown-locations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,12 @@ export function ProfilesPage() {
       <div className="grid gap-1">
         <PageTitleWithInfo title="Profiles">
           <p>
-            The programs the machines follow, each shown or hidden at each Location. A Profile created on a tablet joins the
-            Library shown at that tablet's Location only, and is written to every tablet there. Hiding, deleting or changing
-            its steps on a tablet hides it at that tablet's Location only; new steps make a new Profile. A Profile is written
-            here as a Draft, which is on no tablet until it is published.
+            The programs the machines follow, each shown or hidden at each Location. A Profile has one row here, whatever
+            versions it has had. A Profile created on a tablet joins the Library shown at that tablet's Location only, and is written to
+            every tablet there. Hiding or deleting it on a tablet hides it at that tablet's Location only. New steps saved
+            over a Profile that is then shown nowhere else are its next version; saved beside it, they are a Profile of
+            their own, which says the Profile it was started from. A Profile is written here as a Draft, which is on no
+            tablet until it is published.
           </p>
         </PageTitleWithInfo>
         <LibraryNav />
@@ -61,22 +63,33 @@ export function ProfilesPage() {
                 <TableHead>Shown at</TableHead>
                 <TableHead>Created at</TableHead>
                 <TableHead>Kind</TableHead>
+                <TableHead>Versions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {profiles.map((profile) => (
                 <TableRow key={profile.id}>
                   <TableCell className="font-medium">
-                    <Link to={profilePath(profile.id)} className="underline-offset-4 hover:underline">
+                    <Link to={profilePagePath(profile)} className="underline-offset-4 hover:underline">
                       {profileTitle(profile)}
                     </Link>
+                    {profile.startedFrom && (
+                      <div className="text-xs font-normal text-muted-foreground">
+                        Started from{" "}
+                        <Link to={profilePath(profile.startedFrom.profileId)} className="underline underline-offset-4">
+                          {profileTitle(profile.startedFrom)}
+                        </Link>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>{profile.author || <span className="text-muted-foreground">-</span>}</TableCell>
+
                   <TableCell>{shownAtText(profile)}</TableCell>
                   <TableCell>{profile.createdLocation?.name ?? <span className="text-muted-foreground">-</span>}</TableCell>
                   <TableCell>
                     <ProfileBadges profile={profile} />
                   </TableCell>
+                  <TableCell className="tabular-nums">{profile.versions ?? <span className="text-muted-foreground">-</span>}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
