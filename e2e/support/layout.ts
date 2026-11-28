@@ -53,8 +53,14 @@ export async function expectFits(page: Page, width: number) {
  */
 export async function textContrast(element: Locator): Promise<number> {
   return element.evaluate(async (node) => {
-    for (let at: Element | null = node; at; at = at.parentElement) {
-      await Promise.all(at.getAnimations().filter((each) => each instanceof CSSTransition).map((each) => each.finished.catch(() => undefined)));
+    // A transition can start, or start again, while another is awaited, so look again until none is running.
+    for (let pass = 0; pass < 5; pass++) {
+      const running: Animation[] = [];
+      for (let at: Element | null = node; at; at = at.parentElement) {
+        running.push(...at.getAnimations().filter((each) => each instanceof CSSTransition && each.playState === "running"));
+      }
+      if (running.length === 0) break;
+      await Promise.all(running.map((each) => each.finished.catch(() => undefined)));
     }
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;

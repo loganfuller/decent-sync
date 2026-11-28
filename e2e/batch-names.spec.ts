@@ -108,6 +108,15 @@ test("Recipes lists name each Recipe's batch by its Bean and Batch Code over its
   await expect(batchCell(slots, "House Ristretto").getByRole("link")).toHaveAttribute("href", batchPage(finished));
   const [name, badge] = await boxes(batchCell(slots, "House Ristretto").getByRole("link"), batchCell(slots, "House Ristretto").getByText("Batch finished here"));
   expect(Math.abs(name!.y + name!.height / 2 - (badge!.y + badge!.height / 2))).toBeLessThan(6);
+  // The badge reads in both themes with the pointer over its row, whose shade on the card is the ground nearest its text.
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveClass(colorScheme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/);
+    await rows(slots).filter({ has: page.getByRole("link", { name: "House Ristretto", exact: true }) }).hover();
+    expect(await textContrast(batchCell(slots, "House Ristretto").getByText("Batch finished here", { exact: true })), `${colorScheme}: the badge on a hovered row`).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.mouse.move(0, 0);
+  await page.emulateMedia({ colorScheme: "light" });
   // No ISO date is left in the list.
   await expect(slots).not.toContainText(/\d{4}-\d\d-\d\d/);
 
