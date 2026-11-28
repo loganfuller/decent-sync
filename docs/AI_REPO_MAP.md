@@ -119,6 +119,8 @@ Where things live, and what to read for each kind of task. Each file says what i
 - `src/components/`: the pages' parts; `ui/` holds the shadcn/ui components.
 - `src/lib/`: pure modules, tested in `test/`; `api.ts` calls the REST API, `build.ts` follows the server's build.
 - `src/lib/batch-name.ts`, `src/components/batch-name.tsx`: how every page names a Bean Batch, in words and as drawn.
+- `src/lib/batch-picker.ts`, `src/components/batch-picker.tsx`: the batch picker, a field typed into over a list of the batches that match, which every page picks a batch with.
+- `src/lib/recipe-batch.ts`, `src/components/recipe-batch.tsx`: a Recipe's Bean Batch on its page: the strip under its title, the Change batch dialog, and the strip of a batch finished at its Location.
 - `src/assets/`, `public/`: the logo drawings and the browser icons.
 
 ### `site/`

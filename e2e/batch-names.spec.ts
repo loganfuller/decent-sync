@@ -2,14 +2,14 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { roastDay } from "./support/days.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { boxes, expectFits, textContrast } from "./support/layout.js";
-import { field, openCard, recipeAction, rows } from "./support/locators.js";
+import { expectOptions, field, openCard, recipeAction, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 
 // A Bean Batch named one way wherever the management interface mentions one
 // (ticket #732): by its Bean and its Batch Code, with its roast date, a day,
 // wherever there is a second line or a sentence, and in the code's place on
 // a batch that has none. Here: the Recipes lists, a Recipe's card, form,
-// copy dialog, finished alert and History, and a Bean's page, each with a
+// copy dialog, finished strip and History, and a Bean's page, each with a
 // batch that has a Batch Code, one that has none and one with no roast date,
 // as the previous release's server answers them (ADR-0025), in the dark
 // theme and at a phone's width. The Shots list, its filter and a Shot's page
@@ -146,7 +146,7 @@ test("Recipes lists name each Recipe's batch by its Bean and Batch Code over its
   await expectFits(page, 393);
 });
 
-test("a Recipe's card, its finished alert, its form, its copy dialog and its History name a batch by the rule: in a line on its card, and in words wherever it can't be a link", async ({ page }) => {
+test("a Recipe's card, its finished strip, its form, its copy dialog and its History name a batch by the rule: in a line on its card, and in words wherever it can't be a link", async ({ page }) => {
   const { downtown, coded, finished, recipes } = await seed(page);
   const inWords = {
     coded: `House Espresso LR-0411, roasted ${roastDay("2026-11-17")}`,
@@ -168,25 +168,30 @@ test("a Recipe's card, its finished alert, its form, its copy dialog and its His
   await page.goto(`/library/recipes/${recipes.undated}`);
   await expect(field(details, "Bean Batch")).toHaveText("House Espresso LR-0398 no roast date");
 
-  // The alert of a Recipe whose batch is finished at its Location names the batch in words.
+  // The strip of a Recipe whose batch is finished at its Location (#733) names the batch as a cell does, its Bean the link, named in words.
   await page.goto(`/library/recipes/${recipes.finished}`);
-  await expect(page.getByText(`Its Bean Batch, ${inWords.finished}, is no longer at Downtown: pick the next roast.`)).toBeVisible();
+  const strip = page.getByRole("region", { name: "Bean Batch", exact: true });
+  await expect(strip).toContainText("Its Bean Batch is finished at Downtown");
+  await expect(strip.getByRole("link", { name: inWords.finished, exact: true })).toHaveAttribute("href", batchPage(finished));
+  await expect(code(strip, "LR-0405")).toBeVisible();
   await expect(field(details, "Bean Batch").getByRole("link")).toHaveAttribute("href", batchPage(finished));
 
-  // Its form: each option of the Bean Batch select in words, those elsewhere saying that saving adds them.
+  // Its form: the picker (#733) names each option in words, the latest roasted first, with its weight at Downtown, and
+  // those elsewhere under a heading that says saving adds them.
   await page.goto(`/library/recipes/${recipes.coded}`);
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
   const form = page.getByRole("form", { name: "Edit House" });
-  await expect(form.getByLabel("Bean Batch")).toHaveText(inWords.coded);
+  await expect(form.getByLabel("Bean Batch")).toHaveValue(`${inWords.coded} (this Recipe's batch now)`);
   await form.getByLabel("Bean Batch").click();
-  await expect(page.getByRole("group", { name: "At Downtown", exact: true }).getByRole("option")).toHaveText([inWords.coded, inWords.plain, inWords.undated]);
-  // A batch finished at Downtown is one from elsewhere there now.
-  await expect(page.getByRole("group", { name: "Elsewhere: saving adds it at Downtown" }).getByRole("option")).toHaveText([`${inWords.elsewhere} (adds it here)`, `${inWords.finished} (adds it here)`]);
-  await page.getByRole("option", { name: `${inWords.elsewhere} (adds it here)`, exact: true }).click();
+  await expectOptions(page.getByRole("group", { name: "At Downtown", exact: true }), [`${inWords.coded}, this Recipe's batch now, 3240 g here`, `${inWords.plain}, Not tracked`, `${inWords.undated}, Not tracked`]);
+  // A batch finished at Downtown is one from elsewhere there now, at no Location.
+  await expectOptions(page.getByRole("group", { name: "Elsewhere: saving adds it at Downtown" }), [`${inWords.elsewhere}, at Riverside, Not tracked`, `${inWords.finished}, at no Location`]);
+  await page.getByRole("option", { name: `${inWords.elsewhere}, at Riverside, Not tracked`, exact: true }).click();
+  await expect(form.getByLabel("Bean Batch")).toHaveValue(`${inWords.elsewhere} (at Riverside)`);
   await expect(form.getByRole("status", { name: "Saving also" })).toContainText(`adds the Bean Batch ${inWords.elsewhere} at Downtown`);
   // Saved with the batch that has no code instead, which its History then names in words, with the one it replaced.
   await form.getByLabel("Bean Batch").click();
-  await page.getByRole("option", { name: inWords.plain, exact: true }).click();
+  await page.getByRole("option", { name: `${inWords.plain}, Not tracked`, exact: true }).click();
   await form.getByRole("button", { name: "Save" }).click();
   await expect(field(details, "Bean Batch")).toHaveText(`House Espresso, roasted ${roastDay("2026-11-10")}`);
   const history = (await openCard(page, "History")).getByRole("table", { name: "History" });
@@ -200,11 +205,14 @@ test("a Recipe's card, its finished alert, its form, its copy dialog and its His
   const copy = page.getByRole("form", { name: "Copy the Recipe" });
   await copy.getByLabel("Copy to").click();
   await page.getByRole("option", { name: "Riverside" }).click();
-  await expect(copy.getByLabel("Bean Batch")).toHaveText(`${inWords.undated} (this Recipe's)`);
+  await expect(copy.getByLabel("Bean Batch")).toHaveValue(`${inWords.undated} (this Recipe's)`);
   await expect(copy.getByRole("status", { name: "Copying also" })).toContainText(`adds the Bean Batch ${inWords.undated} at Riverside`);
   await copy.getByLabel("Bean Batch").click();
-  await expect(page.getByRole("group", { name: "At Riverside", exact: true }).getByRole("option")).toHaveText([inWords.elsewhere]);
+  await expectOptions(page.getByRole("group", { name: "At Riverside", exact: true }), [`${inWords.elsewhere}, Not tracked`]);
+  // Escape closes the picker's list alone, and the dialog stays.
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await expect(copy).toBeVisible();
   void downtown;
 });
 
@@ -339,20 +347,26 @@ test("each page reads the previous release's server, as during a deploy: with no
   await expect(slots.getByLabel(/^Batch Code/)).toHaveCount(0);
   await expect(batchCell("House Ristretto").getByRole("link")).toHaveAttribute("href", /^\/library\/bean-batches\//);
 
-  // A Recipe's card and alert: by its Bean and roast date, and its form's options the same.
+  // A Recipe's card and finished strip: by its Bean and roast date, and its form's options the same, with no code.
   await page.goto(`/library/recipes/${recipes.finished}`);
   const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Bean Batch")).toHaveText(`House Espresso, roasted ${roastDay("2026-11-03")}`);
-  await expect(page.getByText(`Its Bean Batch, House Espresso, roasted ${roastDay("2026-11-03")}, is no longer at Downtown: pick the next roast.`)).toBeVisible();
+  const strip = page.getByRole("region", { name: "Bean Batch", exact: true });
+  await expect(strip.getByRole("link", { name: `House Espresso, roasted ${roastDay("2026-11-03")}`, exact: true })).toBeVisible();
+  await expect(strip.getByLabel(/^Batch Code/)).toHaveCount(0);
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
   await page.getByRole("form", { name: "Edit House Ristretto" }).getByLabel("Bean Batch").click();
-  await expect(page.getByRole("group", { name: "At Downtown", exact: true }).getByRole("option").filter({ hasText: "House Espresso" })).toHaveText([
-    `House Espresso, roasted ${roastDay("2026-11-17")}`,
-    `House Espresso, roasted ${roastDay("2026-11-10")}`,
-    "House Espresso, no roast date",
-  ]);
+  const atDowntown = page.getByRole("group", { name: "At Downtown", exact: true });
+  // An earlier test of this file may have added one more of another Bean there: those of House Espresso are these.
+  await expect
+    .poll(async () => (await atDowntown.getByRole("option").evaluateAll((options) => options.map((option) => option.getAttribute("aria-label") ?? ""))).filter((name) => name.startsWith("House Espresso")))
+    .toEqual([`House Espresso, roasted ${roastDay("2026-11-17")}, 3240 g here`, `House Espresso, roasted ${roastDay("2026-11-10")}, Not tracked`, "House Espresso, no roast date, Not tracked"]);
+  await expect(atDowntown.getByLabel(/^Batch Code/)).toHaveCount(0);
+  // Escape closes the list, and again the form.
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // A Bean's page: each batch by its roast day, a dash for its code, and its weights added up.
   await page.goto(`/library/beans/${house}`);

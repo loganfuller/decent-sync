@@ -3840,6 +3840,60 @@ list, and no route was added for it. Its New Recipe (`NewRecipeDialog` in
 `web/src/components/recipes.tsx`) asks for the Location first, of those the
 account may change, choosing it when there is only one, then opens the
 Recipe form a Location's Recipes card creates one with.
+
+A batch is picked with one picker (#733; `BatchPicker` in
+`web/src/components/batch-picker.tsx`, its pure parts in
+`web/src/lib/batch-picker.ts`): a field that is typed into, a combo box,
+over a list of the batches that match, each word typed looked for in a
+batch's Bean's name, its roaster and its Batch Code, ignoring case, as the
+list of batches searches (`batchMatches`). An option is a batch in two
+lines, its Bean and code over its roast day and a note, with its weight at
+its right, or an entry that is no batch, which no word typed hides. Its
+list opens under the field in the page's own flow, not over it, so no
+dialog, popover or sheet around it clips it, and Escape closes the list
+alone. It offers what each select it replaced offered, and no more:
+- the Recipe form, new and edit (`recipeBatchGroups` in
+  `web/src/lib/recipe-batch.ts`): the Recipe's own batch where it is no
+  longer offered, or the Bean it keeps with no batch; "At Downtown", the
+  latest roasted first, each with its remaining weight there, "3240 g here"
+  or "Not tracked"; "Elsewhere: saving adds it at Downtown", each with the
+  Locations it is at and its weight over them, "6000 g there"; and "No
+  batch". No Archived batch and no batch of an Archived Bean is offered. A
+  line under it says a batch picked from elsewhere is added at the Location
+  with no weight;
+- the copy dialog: the entry that keeps the Recipe's batch, "None", and the
+  batches at the Location copied to, each with its weight there;
+- the Shots list's Bean Batch filter: "Any Bean Batch", the batches the
+  Shots found are linked to, and "Not linked to a Bean Batch", with no
+  groups and no weights.
+
+A Recipe's page has a strip for its Bean Batch between its title and how it
+is pulling (#733; `RecipeBatchStrip` in
+`web/src/components/recipe-batch.tsx`): the batch in large text, its Bean
+the link to the batch, with its Batch Code, over "Roasted 17 Nov, 10 days
+ago" and its roaster; at its right its remaining weight at the Recipe's
+Location, or "Not tracked", a plain number with no mark for a low one; and
+**Change batch**, for whoever may change the Recipe. It is read from the
+Library's batches (`GET /api/bean-batches`), which the page reads again
+after each change. A Recipe naming a Bean with no batch has the Bean's name
+over "No batch", and one naming neither "No Bean Batch". Change batch opens
+the picker in a dialog, its list in view, with Cancel and Save: saving is
+an edit of the Recipe's `beanBatchId` and nothing else
+(`PATCH /api/recipes/:id`), so a batch from elsewhere is added at the
+Location with no weight, the change reaches the Location's tablets, and the
+Recipe's History keeps it. A Recipe whose batch is finished at its Location
+has the finished strip in the place of the alert it had, in the alert's
+colours: the batch, with "finished here 26 Nov" or "moved to Riverside 26
+Nov" where a Batch Move of all took it (`leftHereText`, from the batch and
+its history, as the batch's own page says it), left out where they don't
+give the day; each other batch of the same Bean at the Location, not
+Archived, the latest roasted first (`nextRoasts`), with its weight there and
+**Use this batch**, which makes the same edit at once with no confirmation,
+or one line where there is none; and **Another batch…**, which opens the
+dialog. Whoever may not change the Recipe sees either strip without its
+buttons. `e2e/recipe-batch.spec.ts` covers the strip, the dialog and the
+picker.
+
 Each item's page shows how
 many Shots it has, with a link that opens them in the Shots list
 (`web/src/components/item-shots.tsx`), and its history, in a History card

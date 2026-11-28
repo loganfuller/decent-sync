@@ -2,7 +2,10 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { preheatShotFixture, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { farFromMidnight } from "./support/calendar.js";
+import { roastDay } from "./support/days.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { copyShot } from "./support/judged-shots.js";
+import { boxes, expectFits } from "./support/layout.js";
 import { datesPreset, filterChip, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
@@ -316,6 +319,148 @@ test("numbers that can't be read say so", async ({ page }) => {
   await expect(page.getByRole("region", { name: "By Machine", exact: true }).getByRole("alert")).toHaveText("Could not read the numbers: Internal server error");
   await expect(page.getByRole("region", { name: "Trend", exact: true }).getByRole("alert")).toHaveText("Could not read the trend: Internal server error");
   await expect(page.getByRole("region", { name: "Trend", exact: true }).getByRole("figure")).toHaveCount(0);
+});
+
+test("the trend is marked where the Recipe's Bean Batch changed: a line on the first day, or week, each later batch was used, labelled by its Batch Code, or its roast date where it has none, the earliest batch at the left edge, and the batches listed under the chart", async ({
+  page,
+}) => {
+  // Three roasts of one Bean, the second with no Batch Code. The House was pulled with the first 30, 29 and 8 days ago,
+  // with the second 20 days ago, and with the third from 10 days ago on: two more Shots, copies of the one of 29 days
+  // ago, and one of 8 days ago for the day the bar went back to the first roast.
+  const post = async <T>(path: string, data: Fields): Promise<T> => {
+    const response = await page.request.post(`/api${path}`, { data });
+    expect(response.status(), `${path}: ${await response.text()}`).toBe(201);
+    return (await response.json()) as T;
+  };
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  const lab = locations.find((location) => location.name === "Lab")!;
+  const { bean } = await post<{ bean: { id: string } }>("/beans", { content: { roaster: "Lantern Coffee Roasters", name: "House Espresso" } });
+  const batch = async (content: Fields) => (await post<{ batch: { id: string } }>("/bean-batches", { beanId: bean.id, content, locations: [{ locationId: lab.id }] })).batch.id;
+  const old = await batch({ roastDate: date(-40), batchCode: "LR-0405" });
+  const plain = await batch({ roastDate: date(-25) });
+  const next = await batch({ roastDate: date(-14), batchCode: "LR-0411" });
+  const database = await server.connectDatabase();
+  try {
+    const link = (batchId: string, ...ids: string[]) => database.query("UPDATE shots SET library_batch_id = $1 WHERE id = ANY($2)", [batchId, ids]);
+    await link(old, "left-29-days", "left-30-days");
+    await link(next, "left-2-days", "right-5-days-1", "right-5-days-2", "left-today-1", "left-today-2", "left-today-unfinished", "right-today");
+    await copyShot(database, "left-29-days", "left-20-days", { pulled_at: at(-20, 8), library_batch_id: plain });
+    await copyShot(database, "left-29-days", "left-10-days", { pulled_at: at(-10, 8), library_batch_id: next });
+    await copyShot(database, "left-29-days", "left-8-days", { pulled_at: at(-8, 8), library_batch_id: old });
+  } finally {
+    await database.end();
+  }
+  const day_ = (days: number) => roastDay(date(days));
+  /** The Monday of the week a day at the Lab is in, as a date. */
+  const monday = (days: number) => {
+    const of = day(days);
+    return new Date(of.getTime() - ((of.getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(0, 10);
+  };
+  const listed = (lead: (days: number) => string) => [
+    `${lead(-10)}House Espresso LR-0411 roasted ${day_(-14)}`,
+    `${lead(-20)}House Espresso, roasted ${day_(-25)}`,
+    `Until thenHouse Espresso LR-0405 roasted ${day_(-40)}`,
+  ];
+  const marks = (chart: Locator) => ({ lines: chart.locator('[data-slot="batch-mark-line"]'), labels: chart.locator('[data-slot="batch-mark-label"]') });
+  const days = (lines: Locator) => lines.evaluateAll((all) => all.map((line) => line.getAttribute("data-day")));
+
+  // A Recipe's page: its trend by day, a line for each Machine.
+  await page.goto(`/library/recipes/${recipes.house}`);
+  const trend = page.getByRole("region", { name: "Trend", exact: true });
+  await expectTip(trend, "Trend", /A vertical line stands on the first day its Shots were pulled with another Bean Batch, labelled with that batch's Batch Code, or its roast date where it has none\. The batches of these days are listed under the chart\./);
+  const chart = trend.getByRole("figure", { name: "Duration by day" });
+  await expect(chart.locator(".recharts-line-curve")).toHaveCount(2);
+  const { lines, labels } = marks(chart);
+  // A line on the first day each later batch was used, and none for the earliest, nor for the day the bar went back to it.
+  await expect.poll(() => days(lines)).toEqual([date(-20), date(-10)]);
+  // The earliest batch's code at the chart's left edge; the second's roast date, as it has no code; the third's code.
+  await expect(labels).toHaveText(["LR-0405", `roasted ${day_(-25)}`, "LR-0411"]);
+  await expect(labels.nth(0)).toHaveCSS("font-family", /mono/i);
+  await expect(labels.nth(1)).not.toHaveCSS("font-family", /mono/i);
+  const [frame, edge, second, secondLine, third, thirdLine] = await boxes(chart.locator('[data-slot="chart"]'), labels.nth(0), labels.nth(1), lines.nth(0), labels.nth(2), lines.nth(1));
+  expect(edge!.x - frame!.x).toBeLessThan(60);
+  // Each label is beside the top of its line, and none is drawn over another.
+  for (const [label, line] of [[second!, secondLine!], [third!, thirdLine!]] as const) {
+    expect(label.x).toBeGreaterThan(line.x);
+    expect(label.x - (line.x + line.width)).toBeLessThan(10);
+    expect(Math.abs(label.y - line.y)).toBeLessThan(4);
+    expect(line.height).toBeGreaterThan(150);
+  }
+  expect(second!.x).toBeGreaterThan(edge!.x + edge!.width);
+  expect(third!.x).toBeGreaterThan(second!.x + second!.width);
+  // A line stands on its day: where the Left's point of that day is, the second of its line's six, which the chart draws
+  // before the Right's two.
+  const dots = chart.locator(".recharts-line-dot");
+  await expect(dots).toHaveCount(8);
+  const [dot, on] = await boxes(dots.nth(1), lines.nth(0));
+  expect(Math.abs(dot!.x + dot!.width / 2 - (on!.x + on!.width / 2))).toBeLessThan(1.5);
+  // Under the chart: a legend entry for the lines, and the batches of these days, the latest first, each linked.
+  await expect(trend.getByRole("list", { name: "Lines" }).getByRole("listitem")).toHaveText(["Lab Left", "Lab Right", "Another Bean Batch from this day"]);
+  const batches = trend.getByRole("list", { name: "Bean Batches in these days" });
+  await expect(batches.getByRole("listitem")).toHaveText(listed((ago) => `From ${day_(ago)}`));
+  await expect(batches.getByRole("link", { name: `House Espresso LR-0411, roasted ${day_(-14)}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${next}`);
+  await expect(batches.getByRole("link", { name: `House Espresso, roasted ${day_(-25)}`, exact: true })).toHaveAttribute("href", `/library/bean-batches/${plain}`);
+  // The table of numbers is as it was, and the chart's points keep their tooltips under the marks.
+  await expect(await numbers(trend, "Duration by day")).toHaveCount(8);
+  await expect(trend.getByRole("columnheader")).toHaveText(["Day", "Machine", "Shots", "Median", "Middle half"]);
+  await dots.nth(1).hover();
+  await expect(chart.locator(".recharts-tooltip-wrapper")).toContainText(dayTitle(-20));
+  // The marks are the Recipe's, whatever number is charted.
+  await trend.getByRole("tab", { name: "Grind setting" }).click();
+  const grind = marks(trend.getByRole("figure", { name: "Grind setting by day" }));
+  await expect.poll(() => days(grind.lines)).toEqual([date(-20), date(-10)]);
+  await expect(grind.labels).toHaveText(["LR-0405", `roasted ${day_(-25)}`, "LR-0411"]);
+  await trend.getByRole("tab", { name: "Duration" }).click();
+
+  // At a phone's width a label that would be drawn over another is left out, and the list still names its batch.
+  await page.setViewportSize({ width: 393, height: 852 });
+  await expect.poll(() => days(lines)).toEqual([date(-20), date(-10)]);
+  await expect(labels).toHaveText(["LR-0405", `roasted ${day_(-25)}`]);
+  await expect(batches.getByRole("listitem")).toHaveText(listed((ago) => `From ${day_(ago)}`));
+  const [narrowEdge, narrowSecond] = await boxes(labels.nth(0), labels.nth(1));
+  expect(narrowSecond!.x).toBeGreaterThan(narrowEdge!.x + narrowEdge!.width);
+  await expectFits(page, 393);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  // The Shots list, filtered to the Recipe, marks its Trend the same way: by day, a line for each Machine.
+  await page.goto(`/shots?recipeId=${recipes.house}&period=30days&trend=duration`);
+  const listTrend = page.getByRole("region", { name: "Trend" });
+  const byDay = listTrend.getByRole("figure", { name: "Duration by day" });
+  await expect(byDay.locator(".recharts-line-curve")).toHaveCount(2);
+  await expect.poll(() => days(marks(byDay).lines)).toEqual([date(-20), date(-10)]);
+  await expect(marks(byDay).labels).toHaveText(["LR-0405", `roasted ${day_(-25)}`, "LR-0411"]);
+  // By week: a line on the Monday of the first week each later batch was used.
+  await listTrend.getByRole("tab", { name: "By week" }).click();
+  const byWeek = listTrend.getByRole("figure", { name: "Duration by week" });
+  await expect.poll(() => days(marks(byWeek).lines)).toEqual([monday(-20), monday(-10)]);
+  await expect(marks(byWeek).labels).toHaveText(["LR-0405", `roasted ${day_(-25)}`, "LR-0411"]);
+  await expect(listTrend.getByRole("list", { name: "Lines" }).getByRole("listitem")).toHaveText(["Lab Left", "Lab Right", "Another Bean Batch from this week"]);
+  await expect(listTrend.getByRole("list", { name: "Bean Batches in these weeks" }).getByRole("listitem")).toHaveText(listed((ago) => `From the week of ${roastDay(monday(ago))}`));
+  // With one line, of one Machine, the marks are the same.
+  await listTrend.getByRole("list", { name: "Lines" }).getByRole("link", { name: "Lab Left" }).click();
+  await expect(filterChip(page, "Machine")).toHaveText("Machine:Lab Left");
+  await expect(byWeek.locator(".recharts-line-curve")).toHaveCount(1);
+  await expect.poll(() => days(marks(byWeek).lines)).toEqual([monday(-20), monday(-10)]);
+  await expect(marks(byWeek).labels).toHaveText(["LR-0405", `roasted ${day_(-25)}`, "LR-0411"]);
+  await expect(listTrend.getByRole("list", { name: "Lines" }).getByRole("listitem")).toHaveText(["Another Bean Batch from this week"]);
+
+  // A list of every Recipe's Shots has no marks: they are one Recipe's.
+  await page.goto("/shots?period=30days&trend=duration");
+  await expect(byDay.locator(".recharts-line-curve")).toHaveCount(1);
+  await expect(byDay.locator('[data-slot="batch-marks"]')).toHaveCount(0);
+  await expect(listTrend.getByRole("list", { name: /^Bean Batches in these/ })).toHaveCount(0);
+
+  // With no groups to read, as from a server that knows no such grouping (ADR-0025), the Trend is drawn without marks.
+  await page.route(
+    (url) => url.pathname === "/api/shots/summary" && url.searchParams.get("groupBy") === "beanBatch",
+    (route) => route.fulfill({ status: 400, json: { message: "groupBy names no such grouping" } }),
+  );
+  await page.goto(`/library/recipes/${recipes.house}`);
+  await expect(chart.locator(".recharts-line-curve")).toHaveCount(2);
+  await expect(chart.locator('[data-slot="batch-marks"]')).toHaveCount(0);
+  await expect(trend.getByRole("list", { name: /^Bean Batches in these/ })).toHaveCount(0);
+  await expect(trend.getByRole("alert")).toHaveCount(0);
+  await expect(trend.getByRole("list", { name: "Lines" }).getByRole("listitem")).toHaveText(["Lab Left", "Lab Right"]);
 });
 
 /** The rows of the trend's numbers, as its table gives them, opened if it is closed. */

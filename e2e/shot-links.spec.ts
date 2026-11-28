@@ -5,7 +5,7 @@ import { SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
-import { chooseFilter, field, filterChip, openCard, rows } from "./support/locators.js";
+import { chooseFilter, closeFilters, expectOptions, field, filterChip, openCard, openFilters, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 import { roastDay } from "./support/days.js";
 
@@ -149,6 +149,41 @@ test("the Shots list, its Bean Batch filter and a Shot's page name a Shot's batc
   await expect(rows(list)).toHaveCount(2);
   await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Linked Sidra LS-1004");
   await expect(filterChip(page, "Bean Batch").getByLabel("Batch Code LS-1004", { exact: true })).toHaveCSS("border-top-width", "1px");
+
+  // The filter is the batch picker (#733): a field that reads the batch chosen, and, typed into, finds a batch by its Bean, its roaster or
+  // its Batch Code, among those the Shots found are linked to, with Any Bean Batch and Not linked in reach, and no groups and no weights.
+  const filters = await openFilters(page);
+  const picker = filters.getByRole("combobox", { name: "Bean Batch", exact: true });
+  const sidra = `Linked Sidra LS-1004, roasted ${roastDay("2026-10-04")}`;
+  await expect(picker).toHaveValue(sidra);
+  await expect(picker).toHaveAttribute("placeholder", "Bean, roaster or Batch Code");
+  await picker.click();
+  const offered = filters.getByRole("listbox");
+  await expectOptions(offered, ["Any Bean Batch", sidra, "Not linked to a Bean Batch"]);
+  await expect(offered.getByRole("option", { selected: true })).toHaveAccessibleName(sidra);
+  await expect(offered.getByRole("option", { name: sidra, exact: true })).toHaveText(`Linked SidraLS-1004Roasted ${roastDay("2026-10-04")}`);
+  await expect(offered.getByRole("group", { name: /\S/ })).toHaveCount(0);
+  await expect(offered).not.toContainText(/\d g|Not tracked/);
+  await picker.fill("bakehouse ls-10");
+  await expectOptions(offered, ["Any Bean Batch", sidra, "Not linked to a Bean Batch"]);
+  await picker.fill("guji");
+  await expectOptions(offered, ["Any Bean Batch", "Not linked to a Bean Batch"]);
+  await expect(offered.getByText("No batch matches.", { exact: true })).toBeVisible();
+  // Escape closes its list alone: the filters stay open.
+  await page.keyboard.press("Escape");
+  await expect(filters.getByRole("listbox")).toHaveCount(0);
+  await expect(filters).toBeVisible();
+  await expect(picker).toHaveValue(sidra);
+  // From the keyboard: the arrows open the list and move from the batch chosen to the next option, which Enter chooses.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveValue("Not linked to a Bean Batch");
+  await expect(page).toHaveURL(/beanBatchId=none/);
+  await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Not linked");
+  await closeFilters(page);
+  await chooseFilter(page, "Bean Batch", sidra);
+  await expect(rows(list)).toHaveCount(2);
 
   // At a phone's width a Shot's two lines name no Bean, as before, and nothing is wider than the screen.
   await page.setViewportSize({ width: 393, height: 852 });
