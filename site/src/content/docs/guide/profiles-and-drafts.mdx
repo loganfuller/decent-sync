@@ -7,7 +7,7 @@ import Still from "../../../components/Still.astro";
 
 A Profile is the program a Machine follows while pulling a Shot, such as a pressure or flow curve. Its page draws how it runs before you pull anything. To change one you edit a Draft, which is kept by the server and offered on no tablet until you publish it, so you can shape it, try it on one Machine and only then put it in front of baristas.
 
-This page covers reading a Profile, its Profile Versions, editing a Draft on its graph, trying it with Trial Shots, and publishing. The terms in capitals are defined in the [Glossary](../../reference/glossary/). Which Locations show a Profile is covered in [Library and Recipes](../library-and-recipes/#show-or-hide-a-profile-basket-or-tool).
+A Profile has one row in the **Profiles** list and one page, whatever versions it has had. This page covers reading a Profile, its Profile Versions, editing a Draft on its graph, trying it with Trial Shots, and publishing. The terms in capitals are defined in the [Glossary](../../reference/glossary/). Which Locations show a Profile is covered in [Library and Recipes](../library-and-recipes/#show-or-hide-a-profile-basket-or-tool).
 
 An Admin can do everything here. Staff can too, with two limits: they follow a Draft only on a Machine at a Location they work at, and show a Profile they publish, or a version they return to, only at such Locations. Marking a Location for trying Drafts is an Admin's alone. A Viewer reads Profiles and sees no Drafts.
 
@@ -50,7 +50,7 @@ The **Steps** card lists each step: **What the Machine does**, when it **Moves o
 - **Locations**: where it is shown.
 - **Recipes on this version**: the Recipes that name it, with their slots and the Machines that have each loaded.
 - **Title, author and notes**, with **Edit**. Changing these makes no new version.
-- **Shots** on it and its earlier versions, and its **History**.
+- **Shots** of all its versions, counted by version, and its **History**. **Open in the Shots list** lists them, each with the version it ran.
 - **Export** saves it as Decaid's profile JSON, in a file named by its title.
 
 ## Lay a Shot over it
@@ -58,7 +58,7 @@ The **Steps** card lists each step: **What the Machine does**, when it **Moves o
 A real Shot over the simulation shows how close the two are.
 
 1. On the Profile's page press **Lay a Shot over it**.
-2. Choose a Shot. The list gives the Shots **On this Profile and its earlier versions** first, then **Any Shot**, which you can narrow to one Machine.
+2. Choose a Shot. The list gives the Shots on this Profile, whichever of its versions they ran, first, then **Any Shot**, which you can narrow to one Machine.
 3. Press **Choose**.
 
 The Shot's curves are drawn over the run. The simulation is set, once, to match it: the Shot's dose, the weight it stopped at, its Machine's model, and the grind that best imitates it. From there, moving **Puck** finer or coarser shows how that Shot would likely shift.
@@ -67,10 +67,19 @@ Each control can still be changed after. **Lay another Shot over it** swaps the 
 
 ## Profile Versions
 
-A change to a Profile's steps makes a new Profile Version: a new Profile saved from the one before. The **Versions** card lists the chain, the latest saved first, each with when and by whom it was saved, where it is shown and how many Shots it has. Decaid's bundled Profiles are named by their titles, and say **Bundled with Decaid**.
+A Profile Version is one set of steps a Profile has had. A change to a Profile's steps makes a new version; the Profile keeps its row in the list, its page and its address. The **Versions** card lists them, the latest first, named **Version 1**, **Version 2** and so on in the order they joined the Profile, each with when and by whom it was saved, where it is shown and how many Shots it has. One is marked **current**: the one the Profile's Locations show and its Recipes hold. A number is never given to another version.
 
 - **Compare** opens two versions side by side: **What differs** lists the rows where their steps differ, and **How each runs, simulated** draws both on the same puck in one graph.
 - **Return to it** shows an earlier version again in place of the current one ([Return to an earlier version](#return-to-an-earlier-version)).
+- **Machines on an earlier version** names each Machine whose Workflow still holds an earlier version's steps with no Recipe loaded. Nothing changes its Workflow for you: the next pick of the Profile on its tablet takes the current version. A Machine with a Loaded Recipe follows that Recipe, so is never listed.
+
+Opening an earlier version, from the card or from a link saved before the Profile changed, shows the Profile at that version: its steps, its simulation and its Shots, with a link to the Profile's page. Where the Profile is shown, its Recipes, and its title, author and notes are on that page.
+
+Some Profiles are not versions of another:
+
+- A **Duplicate** is a Profile of its own, with versions of its own. Its row in the list and its page say the Profile it was **started from**.
+- A version that did not take the old one's place everywhere is a Profile of its own too, started from the old one: one published at some of the Locations showing the Profile, or while a Recipe that is not Archived still names the old one. So is new steps saved beside a Profile on a tablet, as Streamline's Save As New does.
+- Each of Decaid's bundled Profiles has one version, and says **Bundled with Decaid**. Steps saved from one are a Profile of their own.
 
 ## Start a Draft
 
@@ -180,11 +189,11 @@ Publishing needs no tablet online: each tablet at those Locations gets the Profi
 
 | The Draft began with | Publishing makes |
 |---|---|
-| **Edit**, and its steps changed | A new version, in the old one's place at the Locations you chose. The Recipes you chose move to it, keeping their Reference Shots, and the change reaches the Machines that have them loaded. The old version is hidden there, unless a Recipe you did not move, and not Archived, still names it. Locations you did not choose are left as they are. |
+| **Edit**, and its steps changed | A new version, in the old one's place at the Locations you chose. The Recipes you chose move to it, keeping their Reference Shots, and the change reaches the Machines that have them loaded. The old version is hidden there, unless a Recipe you did not move, and not Archived, still names it. Locations you did not choose are left as they are. Where the old version is then shown nowhere and named by no such Recipe, the new one is the Profile's next version; where it is still in use somewhere, the new one is a Profile of its own, started from it. |
 | **Edit**, and only its title, author or notes changed | An edit of the Profile itself. No new version is made. |
 | **Duplicate**, a shape or a file | A separate Profile. It moves no Recipes and hides nothing. |
 
-The dialog also warns when a newer version was saved since the Draft began, on a tablet for example. Publishing a new version then saves the Draft from the version it started from all the same, so the versions fork. An edit of only the title, author or notes edits the version the Draft started from, and makes nothing new.
+The dialog also warns when a newer version was saved since the Draft began, on a tablet for example. Publishing a new version then saves the Draft from the version it started from all the same: where the newer version is still in use, yours becomes a Profile of its own beside it. An edit of only the title, author or notes edits the version the Draft started from, and makes nothing new.
 
 A Draft is gone once published. To drop one without publishing, press **Discard the Draft**.
 
@@ -196,4 +205,4 @@ After a Profile is published, its page warns where a tablet refused it, naming e
 2. Press **Return to it**.
 3. Choose the Locations and Recipes, as for publishing, and press **Return to this version**.
 
-The earlier version is shown again at those Locations in place of the current one, and the Recipes you chose move to it. Nothing new is created, and the version you returned from stays in the chain.
+The earlier version is shown again at those Locations in place of the current one, and the Recipes you chose move to it. Nothing new is created. Once it has taken the current one's place everywhere, it is the Profile's current version again, and the one you returned from stays among its versions.

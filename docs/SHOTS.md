@@ -488,7 +488,11 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     or Grinder (Links to the Library, above), whichever tablet's id for it
     they recorded, so a batch is compared across Machines and Locations;
     `none` for Shots linked to none. `beanId`: Shots linked to any of that
-    Bean's batches. `profileId`: Shots pulled with that Library Profile.
+    Bean's batches. `profileId`: Shots pulled with that Library Profile: with any of its
+    Profile Versions for the Profile's own id (ADR-0038), or with one version
+    for Decaid's id of it. Each Shot's `profile` says the version it ran,
+    `{ id, title, profileId, version }`, Decaid's id and title of that
+    version, the Profile's own id and the version's number there.
     `recipeId`: Shots pulled with that Recipe loaded on their Machine, or
     `none` for Shots linked to none. `basketId`: Shots linked to that
     Basket, or `none`. Each item's page counts its Shots, and opens them in
@@ -2238,7 +2242,9 @@ one line with a link that opens them in the Shots list, filtered to it (#547;
 list takes a Bean's and a Profile's id from its address too (`beanId`,
 `profileId`), each shown as a chip that removes it, named Library Bean and
 Library Profile, with no control behind the Filters button: its Bean and
-Profile filters there are by what Shots recorded.
+Profile filters there are by what Shots recorded. Listed by a Library
+Profile, each Shot's row says which of the Profile's versions it ran, after
+the profile it recorded.
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
 Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.

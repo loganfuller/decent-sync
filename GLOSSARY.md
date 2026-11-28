@@ -154,11 +154,11 @@ A bean batch taken from one location it is at to another: all of it, or part of 
 _Avoid_: Transfer, delivery, shipment, stock movement
 
 **Profile**:
-A program the machine follows while pulling a shot, such as a pressure or flow curve. Each location shows or hides each profile.
+A program the machine follows while pulling a shot, such as a pressure or flow curve: the lasting thing, whatever versions it has had. It has one current version, the same at every location, and a history of the versions it has had; its title, author and notes are its own, and each location shows or hides it. A duplicate is a profile of its own, which says the profile it was started from, and each of Decaid's bundled profiles is a profile of one version.
 _Avoid_: Recipe (a recipe is more than a profile)
 
 **Profile Version**:
-One profile in a chain in which each was saved from the one before, shown as the versions of one profile. A change to a profile's steps makes a new version; a change to its title, author or notes does not.
+One set of steps a profile has had, which is what the machine executes. Versions are named "Version n" in the order each joined the profile, and are never renumbered. A change to a profile's steps makes a new version; a change to its title, author or notes does not.
 _Avoid_: Revision; version (for one accepted edit in an item's history)
 
 **Draft**:
