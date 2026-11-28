@@ -511,6 +511,8 @@ export class LibraryChangesTools {
   })
   async setArchived({ kind: itemKind, id: itemId, archived }: z.infer<typeof archivedInput>, context: McpContext): Promise<ItemOutput> {
     const editor = editorOf(context);
+    // A Profile by any of its ids is Archived through its current version, which is what is answered (ADR-0038).
+    let acted = itemId;
     switch (itemKind) {
       case "bean":
         await this.edits.archiveBean(readBeanId(itemId), archived, editor);
@@ -519,7 +521,8 @@ export class LibraryChangesTools {
         await this.edits.archiveBatch(readBeanBatchId(itemId), archived, editor);
         break;
       case "profile":
-        await this.edits.archiveProfile(await this.currentVersion(itemId), archived, editor);
+        acted = await this.currentVersion(itemId);
+        await this.edits.archiveProfile(acted, archived, editor);
         break;
       case "grinder":
         await this.edits.archiveGrinder(readGrinderId(itemId), archived, editor);
@@ -532,7 +535,7 @@ export class LibraryChangesTools {
         await this.recipeEdits.archive(readRecipeId(itemId), archived, editor, callerOf(context).scope);
         break;
     }
-    return this.library.read(itemKind, itemId, callerOf(context).scope);
+    return this.library.read(itemKind, acted, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -550,6 +553,8 @@ export class LibraryChangesTools {
     const { scope } = callerOf(context);
     const locationId = readLocationId(input.locationId).toLowerCase();
     const itemKind: OfferedKind = input.kind;
+    // A Profile by any of its ids is shown or hidden through its current version, which is what is answered (ADR-0038).
+    let acted = input.id;
     if (itemKind === "beanBatch") {
       if (input.offered === undefined && input.remainingWeight === undefined) {
         throw new BadRequestException("Send offered: true to add the Bean Batch at the Location or false to finish it there, or its remainingWeight there, or both");
@@ -559,10 +564,12 @@ export class LibraryChangesTools {
     } else {
       if (input.remainingWeight !== undefined) throw new BadRequestException("Only a Bean Batch has a remaining weight at a Location");
       if (input.offered === undefined) throw new BadRequestException(`Send offered: true to show the ${KINDS[itemKind].name} at the Location, or false to hide it there`);
-      if (itemKind === "profile") await this.edits.showProfile(await this.currentVersion(input.id), locationId, input.offered, editor, scope);
-      else await this.edits.showEquipment(itemKind, readEquipmentId(itemKind, input.id), locationId, input.offered, editor, scope);
+      if (itemKind === "profile") {
+        acted = await this.currentVersion(input.id);
+        await this.edits.showProfile(acted, locationId, input.offered, editor, scope);
+      } else await this.edits.showEquipment(itemKind, readEquipmentId(itemKind, input.id), locationId, input.offered, editor, scope);
     }
-    return this.library.read(itemKind, input.id, callerOf(context).scope);
+    return this.library.read(itemKind, acted, callerOf(context).scope);
   }
 
   /** Creates a Basket or Tool as its REST route does, shown at the Location given. */

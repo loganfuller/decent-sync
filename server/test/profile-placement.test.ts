@@ -96,6 +96,14 @@ describe("Placing Profile Versions in Profiles", () => {
     expect(published).toMatchObject({ created: [{ id: "P1", currentVersionId: "c", startedFromId: "G" }], placed: [{ id: "c", profileId: "P1", versionNumber: 1 }], current: [] });
   });
 
+  it("numbers a chain that joined at once in the order it was saved, whatever its ids", () => {
+    // One report brought them all: "a" saved from "z", saved from "m"; none in use, so the last saved is current.
+    const rows = [row("a", 1, "z", false), row("z", 1, "m", false), row("m", 1, null, false)];
+    const planned = plan(rows);
+    expect(placedAs(rows, planned)).toEqual({ m: "P1#1", z: "P1#2", a: "P1#3" });
+    expect(planned.created).toMatchObject([{ currentVersionId: "a" }]);
+  });
+
   it("never gives again a number a version that has left the Profile, or been deleted, had", () => {
     // G gave Version 2 to a row that has since left it or been deleted; the next to join takes 3.
     const rows = [row("a", 1, null, false, { profileId: "G", versionNumber: 1 }), row("c", 3, "a", true)];

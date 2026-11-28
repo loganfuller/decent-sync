@@ -49,8 +49,11 @@ not Archived holds the steps it held.
 - An Archived Recipe naming an earlier version now names the Profile's
   current one.
 
-What this gets wrong is an extra row in the Profiles list, never a change to
-what a Machine runs. A link to a Profile's page saved before the upgrade
+What this gets wrong is the rows in the Profiles list, never a change to what
+a Machine runs: an extra row where a version was published at some Locations
+only, and one row fewer where a Duplicate or a separately published Profile
+was saved from one now in use nowhere, as one since Archived, which becomes
+that Profile's next version, its Shots with it. A link to a Profile's page saved before the upgrade
 still opens it, at the version the link named.
 
 For a script of yours over the REST API: `GET /api/profiles` lists one row

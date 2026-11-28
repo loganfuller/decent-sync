@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Logger, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -151,7 +151,8 @@ export class ProfilesController {
   async remove(@Param("id") id: string): Promise<void> {
     const { versionId } = await this.profiles.addressed(readProfileId(id));
     await hardDelete(this.prisma, "profile", versionId);
-    await this.placing.run();
+    // The Profile it leaves is put right now where it can be; the delete is done either way, and the job's next look tries again.
+    await this.placing.run().catch((error: unknown) => new Logger("ProfilesController").warn(`Deleted ${versionId}, but could not yet put its Profile right: ${String(error)}`));
   }
 
   /** Its history (ADR-0020, ADR-0033): its versions, the latest taken in first, and its Lost Edits, the latest lost first, or those of the field its query names. */

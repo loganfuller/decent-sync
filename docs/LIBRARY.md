@@ -3110,7 +3110,8 @@ id, `/library/profiles/<id>`, which stays as it gains versions (#735). An
 address by Decaid's id of one of its versions opens the Profile at that
 version: its steps, simulation and Shots, with a notice naming the current
 version and no controls for what is the Profile's, where it is shown, its
-title, author and notes, Archiving and deleting. The page opens on its
+title, author and notes, Archiving and deleting, and editing its steps: a
+Duplicate of that version's steps is still offered. The page opens on its
 graph, a simulation run in the browser with the shared module, and replaces
 the title and steps table it had:
 

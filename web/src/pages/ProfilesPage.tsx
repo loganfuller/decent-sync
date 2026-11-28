@@ -83,7 +83,6 @@ export function ProfilesPage() {
                     )}
                   </TableCell>
                   <TableCell>{profile.author || <span className="text-muted-foreground">-</span>}</TableCell>
-
                   <TableCell>{shownAtText(profile)}</TableCell>
                   <TableCell>{profile.createdLocation?.name ?? <span className="text-muted-foreground">-</span>}</TableCell>
                   <TableCell>

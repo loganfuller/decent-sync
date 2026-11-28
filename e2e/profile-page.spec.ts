@@ -240,6 +240,8 @@ test("a Profile has one row and one address whatever versions it has, an old ver
   const earlier = page.getByRole("region", { name: "An earlier version", exact: true });
   await expect(earlier).toContainText("This is Version 1 of the Profile, which is not its current one.");
   await expect(page.getByRole("switch", { name: "Shown at Lasting lab" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Duplicate", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Versions" }).getByRole("list", { name: "Versions" }).getByRole("listitem")).toHaveCount(2);
   await earlier.getByRole("link", { name: /the Profile's page, at Version 2/ }).click();
   await expect(page).toHaveURL(new RegExp(`/library/profiles/${profileId}$`));

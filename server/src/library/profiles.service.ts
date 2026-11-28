@@ -212,9 +212,9 @@ export class ProfilesService {
   async versionIds(id: string): Promise<string[]> {
     const { versionId, profileId } = await this.addressed(id);
     if (profileId === null) return [versionId];
-    return (await this.prisma.profile.findMany({ where: { libraryProfileId: profileId }, select: { id: true }, orderBy: { versionNumber: "asc" }, take: MAX_PROFILE_VERSIONS })).map(
-      (row) => row.id,
-    );
+    // The latest, where a Profile has more than the most read.
+    const latest = await this.prisma.profile.findMany({ where: { libraryProfileId: profileId }, select: { id: true }, orderBy: { versionNumber: "desc" }, take: MAX_PROFILE_VERSIONS });
+    return latest.map((row) => row.id).reverse();
   }
 
   /**

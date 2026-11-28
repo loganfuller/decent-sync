@@ -288,6 +288,14 @@ describe("A Profile, its versions, the Recipes on it and the model it is simulat
     expect((await read(profileId)).title).toBe("Versions Bloom");
     // Another Profile's it does not.
     expect((await api.call("PATCH", path(profileId), { content: { title: "Versions Orphan" } })).status).toBe(409);
+    // The assistant's tools act on the current version by an earlier one's id, and answer with what they changed.
+    const offered = await assistant.callWithinBudget<{ profile: { id: string } }>("set_location_offering", { kind: "profile", id: ids.first, locationId: cafe.id, offered: true });
+    expect(offered.result.profile.id).toBe(ids.third);
+    expect((await shownAt(ids.third)).length).toBe(2);
+    await assistant.callWithinBudget("set_location_offering", { kind: "profile", id: ids.first, locationId: cafe.id, offered: false });
+    const archived = await assistant.callWithinBudget<{ profile: { id: string; archived: boolean } }>("set_archived", { kind: "profile", id: ids.first, archived: true });
+    expect(archived.result.profile).toMatchObject({ id: ids.third, archived: true });
+    expect((await assistant.callWithinBudget<{ profile: { archived: boolean } }>("set_archived", { kind: "profile", id: profileId, archived: false })).result.profile.archived).toBe(false);
   });
 
   it("is read by Staff away from its Locations and by a Viewer", async () => {

@@ -70,9 +70,25 @@ export function isEmptyPlan(plan: PlacementPlan): boolean {
   return plan.created.length === 0 && plan.placed.length === 0 && plan.current.length === 0 && plan.removed.length === 0;
 }
 
-/** The rows in the order they joined the Library, by id where two joined at once. */
-function byJoining(a: PlacingRow, b: PlacingRow): number {
-  return a.joinedAt.getTime() - b.joinedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+/**
+ * The rows in the order they joined the Library. Of rows that joined at once, as one report or transaction adds a
+ * chain, one saved from another comes after it, by how many of the rows it was saved from; then by id.
+ */
+function joiningOrder(byId: ReadonlyMap<string, PlacingRow>): (a: PlacingRow, b: PlacingRow) => number {
+  const depth = new Map<string, number>();
+  const depthOf = (row: PlacingRow): number => {
+    const known = depth.get(row.id);
+    if (known !== undefined) return known;
+    const seen = new Set([row.id]);
+    let count = 0;
+    for (let parent = row.parentId === null ? undefined : byId.get(row.parentId); parent && !seen.has(parent.id); parent = parent.parentId === null ? undefined : byId.get(parent.parentId)) {
+      seen.add(parent.id);
+      count++;
+    }
+    depth.set(row.id, count);
+    return count;
+  };
+  return (a, b) => a.joinedAt.getTime() - b.joinedAt.getTime() || depthOf(a) - depthOf(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 interface Group {
@@ -103,6 +119,7 @@ export function planPlacement(
   separate: ReadonlySet<string> = new Set(),
 ): PlacementPlan {
   const byId = new Map(rows.map((row) => [row.id, row]));
+  const byJoining = joiningOrder(byId);
   const groups = new Map<string, Group>();
   const groupOf = new Map<string, Group>();
   for (const profile of profiles) groups.set(profile.id, { id: profile.id, existing: true, was: profile.currentVersionId, lastVersionNumber: profile.lastVersionNumber ?? 0, startedFromId: null, members: [], joined: [] });

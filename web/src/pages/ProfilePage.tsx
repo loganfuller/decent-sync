@@ -200,7 +200,8 @@ function ProfileDetails({ id }: { id: string }) {
           <p className="font-mono text-xs break-all text-muted-foreground">{profile.id}</p>
         </div>
         <div className="flex flex-wrap items-start gap-2">
-          {mayChange && definition && <StartDraftButtons profile={profile} />}
+          {/* At an earlier version only a Duplicate of its steps: an edit is of the Profile, made from its current version. */}
+          {mayChange && definition && <StartDraftButtons profile={profile} editable={!current} />}
           <ExportButton profile={profile} />
           {mayChange && !current && (
             <>
@@ -358,11 +359,11 @@ function ProfileDetails({ id }: { id: string }) {
  * version of it, which one of Decaid's bundled Profiles doesn't offer, and
  * Duplicate, a copy of it to publish as a Profile of its own.
  */
-function StartDraftButtons({ profile }: { profile: Profile }) {
+function StartDraftButtons({ profile, editable }: { profile: Profile; editable: boolean }) {
   const { start, starting, error } = useStartDraft();
   return (
     <>
-      {!profile.bundled && (
+      {!profile.bundled && editable && (
         <Button disabled={starting} onClick={() => void start({ profileId: profile.id, as: "version" })}>
           <Pencil aria-hidden /> Edit
         </Button>
