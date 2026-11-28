@@ -63,8 +63,6 @@ export interface PlacementPlan {
   current: { profileId: string; versionId: string }[];
   /** Profiles the Library has that no row belongs to any longer. */
   removed: string[];
-  /** Every Profile whose versions or current version the plan changes, made here or not, with its versions: its Recipes follow to its current version. */
-  touched: { profileId: string; currentVersionId: string; versionIds: string[] }[];
 }
 
 /** Whether a plan changes anything. */
@@ -114,7 +112,6 @@ export function planPlacement(
     group.members.push(row);
     groupOf.set(row.id, group);
   }
-  const changed = new Set<Group>();
   /** The rows that leave the Profile they were placed in. */
   const left = new Set<string>();
 
@@ -122,7 +119,6 @@ export function planPlacement(
     const group: Group = { id: newId(), existing: false, was: null, lastVersionNumber: 0, startedFromId: from?.id ?? null, members: [row], joined: [row] };
     groups.set(group.id, group);
     groupOf.set(row.id, group);
-    changed.add(group);
     return group;
   };
 
@@ -140,7 +136,6 @@ export function planPlacement(
     from.members.push(row);
     from.joined.push(row);
     groupOf.set(row.id, from);
-    changed.add(from);
     return from;
   };
   for (const row of [...rows].sort(byJoining)) place(row);
@@ -153,13 +148,12 @@ export function planPlacement(
     for (const row of used.filter((each) => each !== stays)) {
       group.members = group.members.filter((member) => member !== row);
       group.joined = group.joined.filter((member) => member !== row);
-      changed.add(group);
       if (row.profileId === group.id) left.add(row.id);
       start(row, group);
     }
   }
 
-  const plan: PlacementPlan = { created: [], placed: [], current: [], removed: [], touched: [] };
+  const plan: PlacementPlan = { created: [], placed: [], current: [], removed: [] };
   for (const group of groups.values()) {
     if (group.members.length === 0) {
       if (group.existing) plan.removed.push(group.id);
@@ -175,11 +169,9 @@ export function planPlacement(
       plan.created.push({ id: group.id, currentVersionId: current, startedFromId: group.startedFromId, createdAt: members[0]!.joinedAt });
     } else if (current !== group.was) {
       plan.current.push({ profileId: group.id, versionId: current });
-      changed.add(group);
     }
     let next = Math.max(group.lastVersionNumber, ...members.map((row) => (row.profileId === group.id && !left.has(row.id) ? (row.versionNumber ?? 0) : 0)));
     for (const row of [...group.joined].sort(byJoining)) plan.placed.push({ id: row.id, profileId: group.id, versionNumber: ++next });
-    if (changed.has(group)) plan.touched.push({ profileId: group.id, currentVersionId: current, versionIds: members.map((row) => row.id) });
   }
   // A Profile started from one that is removed here is started from none.
   const removed = new Set(plan.removed);

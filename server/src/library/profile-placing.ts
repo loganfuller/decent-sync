@@ -40,8 +40,16 @@ async function anythingToPlace(tx: Pick<Prisma.TransactionClient, "$queryRaw">):
         WHERE l.current_version_id <> p.id AND ${inUseSql()})
       OR EXISTS (
         SELECT 1 FROM library_profiles l
-        WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = l.current_version_id AND p.library_profile_id = l.id)) AS due`;
+        WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = l.current_version_id AND p.library_profile_id = l.id))
+      OR EXISTS (SELECT 1 FROM recipes r WHERE ${namesEarlierSql()}) AS due`;
   return row?.due ?? false;
+}
+
+/** Whether the Recipe aliased `r` is Archived and names an earlier version of a Profile whose current version is its own, so is due to follow to it. */
+function namesEarlierSql(): Prisma.Sql {
+  return Prisma.sql`r.archived AND EXISTS (
+    SELECT 1 FROM profiles named JOIN library_profiles l ON l.id = named.library_profile_id JOIN profiles holding ON holding.id = l.current_version_id
+    WHERE named.id = r.content ->> 'profileId' AND holding.library_profile_id = l.id AND named.id <> holding.id)`;
 }
 
 /** Whether the row of `profiles` aliased `p` is in use (profile-placement.ts): shown at a Location while not Archived, or named by a Recipe that is not Archived. */
@@ -91,22 +99,27 @@ export async function placeProfiles(
     await carryOut(tx, plan);
     placed += plan.placed.length;
   }
+  await followToCurrent(tx);
   return { placed, more };
 }
 
-/** Writes a plan: the Recipes that follow, the Profiles it makes, each row's Profile and number, and the current versions it changes. */
+/**
+ * An Archived Recipe naming an earlier version follows to the current one, with no entry in its history (ADR-0038): no
+ * Recipe that is not Archived names one, as a version one names is in use, so is current or a Profile of its own. One
+ * whose row another transaction holds is skipped, never waited for, and follows on the next look: a Recipe's edit
+ * locks its row and then the Profile it names FOR SHARE, while placing holds `profiles` rows, as a tablet's report
+ * locks them before it places, so waiting could deadlock.
+ */
+async function followToCurrent(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE recipes SET content = jsonb_set(recipes.content, '{profileId}', to_jsonb(l.current_version_id))
+    FROM profiles named JOIN library_profiles l ON l.id = named.library_profile_id
+    WHERE recipes.id IN (SELECT r.id FROM recipes r WHERE ${namesEarlierSql()} FOR UPDATE OF r SKIP LOCKED)
+      AND named.id = recipes.content ->> 'profileId'`;
+}
+
+/** Writes a plan: the Profiles it makes, each row's Profile and number, and the current versions it changes. */
 async function carryOut(tx: Prisma.TransactionClient, plan: PlacementPlan): Promise<void> {
-  // An Archived Recipe naming an earlier version follows to the current one, with no entry in its history (ADR-0038): no
-  // Recipe that is not Archived names one, as a version one names is in use, so is current or a Profile of its own.
-  // Recipes' rows before the `profiles` rows, the order a Recipe's edit takes them, which locks its row and then the
-  // Profile it names FOR SHARE: the other way round, an edit of one of these Recipes deadlocks with placing.
-  for (const profile of plan.touched) {
-    const earlier = profile.versionIds.filter((id) => id !== profile.currentVersionId);
-    if (earlier.length === 0) continue;
-    await tx.$executeRaw`
-      UPDATE recipes SET content = jsonb_set(content, '{profileId}', to_jsonb(${profile.currentVersionId}::text))
-      WHERE content ->> 'profileId' = ANY(${earlier}::text[]) AND archived`;
-  }
   // A Profile started from another made here references it, so those started from none first, then the rest without it, set after.
   for (const made of plan.created) {
     await tx.$executeRaw`

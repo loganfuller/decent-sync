@@ -301,40 +301,55 @@ describe("Converting the Profiles an upgrade finds", () => {
     await expect.poll(async () => (await unplaced()).length, { timeout: 30_000 }).toBe(0);
   });
 
-  it("takes an Archived Recipe's row before the versions' rows, as an edit of it does, so the two never deadlock", async () => {
+  it("never waits for an Archived Recipe's row another transaction holds, and makes it follow once that ends", async () => {
     const holder = await server.connectDatabase();
     const editing = await server.connectDatabase();
+    const named = async () =>
+      (await holder.query("SELECT content ->> 'profileId' AS profile FROM recipes WHERE record_id = 'recipe:conversion-archived while edited'")).rows[0]!.profile;
     try {
       await holder.query("SELECT pg_advisory_lock(4000008)");
       await inDatabase(async (query) => {
         await add(query, [{ id: "locked-1" }, { id: "locked-2", parent: "locked-1", shown: [one] }]);
         await recipe(query, "archived while edited", "locked-1", true);
       });
-      // An edit of the Recipe holds its row, as recipe-edits.service.ts takes it, then reads the Profile it names FOR SHARE.
+      // An edit of the Recipe holds its row, as recipe-edits.service.ts takes it, then reads the Profile it names FOR SHARE:
+      // placing that waited for the row, holding the versions' rows, as a tablet's report locks them first, would deadlock.
       await editing.query("BEGIN");
       await editing.query("SELECT 1 FROM recipes WHERE record_id = 'recipe:conversion-archived while edited' FOR UPDATE");
       await holder.query("SELECT pg_advisory_unlock(4000008)");
-      // Placing then waits for the Recipe's row.
-      const waiting = async () =>
-        (await holder.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event IN ('transactionid', 'tuple') AND pid <> $1", [(editing as unknown as { processID: number }).processID])).rows[0]!.n;
-      await expect.poll(waiting, { timeout: 30_000 }).toBeGreaterThan(0);
-      // Before any version's row, so the edit's read is not held up: shorter than the second PostgreSQL waits before it looks for a deadlock.
-      await editing.query("SET LOCAL lock_timeout = '300ms'");
+      // The rows are placed while the Recipe's row is held, and the Recipe is left as it is for now.
+      await expect.poll(async () => (await unplaced()).length, { timeout: 30_000 }).toBe(0);
+      expect(await named()).toBe(id("locked-1"));
+      await editing.query("SET LOCAL lock_timeout = '1s'");
       expect((await editing.query("SELECT id FROM profiles WHERE id = $1 FOR SHARE", [id("locked-2")])).rows).toEqual([{ id: id("locked-2") }]);
       await editing.query("COMMIT");
+      await holder.query("SELECT pg_notify('library_changes', $1)", [one.id]);
+      // Once it ends, the next look makes it follow to the current version.
+      await expect.poll(named, { timeout: 30_000 }).toBe(id("locked-2"));
     } finally {
       await editing.query("ROLLBACK").catch(() => undefined);
       await editing.end();
       await holder.query("SELECT pg_advisory_unlock_all()");
       await holder.end();
     }
+  });
+
+  it("answers by any version's id as by the Profile's own while its current version is gone, until placing puts it right", async () => {
+    await inDatabase((query) => add(query, [{ id: "gone-1" }, { id: "gone-2", parent: "gone-1" }, { id: "gone-3", parent: "gone-2", shown: [one] }]));
     await expect.poll(async () => (await unplaced()).length, { timeout: 30_000 }).toBe(0);
-    const database = await server.connectDatabase();
+    const profileId = (await read("gone-1")).profileId!;
+    const holder = await server.connectDatabase();
     try {
-      const { rows } = await database.query("SELECT content ->> 'profileId' AS profile FROM recipes WHERE record_id = 'recipe:conversion-archived while edited'");
-      expect(rows).toEqual([{ profile: id("locked-2") }]);
+      // Placing waits for this lock while the release before deletes the current version's row.
+      await holder.query("SELECT pg_advisory_lock(4000008)");
+      await holder.query("DELETE FROM profiles WHERE id = $1", [id("gone-3")]);
+      expect((await read(profileId)).current.id).toBe(id("gone-2"));
+      expect((await read("gone-1")).current.id).toBe(id("gone-2"));
+      const edited = await api.send<{ profile: { id: string } }>("PATCH", path("gone-1"), { content: { notes: "Gone notes" } });
+      expect(edited.profile.id).toBe(id("gone-2"));
     } finally {
-      await database.end();
+      await holder.query("SELECT pg_advisory_unlock(4000008)");
+      await holder.end();
     }
   });
 });

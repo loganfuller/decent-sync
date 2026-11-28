@@ -152,6 +152,11 @@ const withPlaces = {
 
 type ListedProfile = Prisma.ProfileGetPayload<{ include: typeof withPlaces }>;
 
+/** A Profile's current version; one that is not its own, until the server puts it right, reads as its latest (`versions`, the latest first). */
+function currentOf(profile: { currentVersionId: string; versions: readonly { id: string }[] }): string | undefined {
+  return profile.versions.find((version) => version.id === profile.currentVersionId)?.id ?? profile.versions[0]?.id;
+}
+
 /** The Library's Profiles, which Staff read as Admins do. Profiles join it from tablets (`library/profiles.ts`). */
 @Injectable()
 export class ProfilesService {
@@ -191,19 +196,16 @@ export class ProfilesService {
    * to. 404 for neither.
    */
   async addressed(id: string): Promise<AddressedProfile> {
+    const versions = { select: { id: true, versionNumber: true }, orderBy: { versionNumber: "desc" } } as const;
     if (isGlobalId(id)) {
-      const profile = await this.prisma.libraryProfile.findUnique({
-        where: { id: id.toLowerCase() },
-        include: { versions: { select: { id: true, versionNumber: true }, orderBy: { versionNumber: "desc" } } },
-      });
-      // A current version that is not its own, until the server puts it right, reads as its latest.
-      const current = profile?.versions.find((version) => version.id === profile.currentVersionId) ?? profile?.versions[0];
+      const profile = await this.prisma.libraryProfile.findUnique({ where: { id: id.toLowerCase() }, include: { versions } });
+      const current = profile && currentOf(profile);
       if (!profile || !current) throw profileNotFound();
-      return { versionId: current.id, profileId: profile.id, currentVersionId: current.id };
+      return { versionId: current, profileId: profile.id, currentVersionId: current };
     }
-    const row = await this.prisma.profile.findUnique({ where: { id }, select: { id: true, libraryProfile: { select: { id: true, currentVersionId: true } } } });
+    const row = await this.prisma.profile.findUnique({ where: { id }, select: { id: true, libraryProfile: { include: { versions } } } });
     if (!row) throw profileNotFound();
-    return { versionId: row.id, profileId: row.libraryProfile?.id ?? null, currentVersionId: row.libraryProfile?.currentVersionId ?? row.id };
+    return { versionId: row.id, profileId: row.libraryProfile?.id ?? null, currentVersionId: (row.libraryProfile && currentOf(row.libraryProfile)) ?? row.id };
   }
 
   /** Decaid's ids of every version of the Profile the id addresses (`addressed`): the row alone until it is placed. */

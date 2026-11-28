@@ -3075,8 +3075,9 @@ release adds:
   is not given again in its Profile, even once the version that had it has
   left the Profile or been deleted.
 - An Archived Recipe naming an earlier version follows to the current one,
-  with no entry in its history. No Recipe that is not Archived can name
-  one, as a version one names is in use.
+  with no entry in its history, or, while another change of it is under way,
+  on the next look. No Recipe that is not Archived can name one, as a
+  version one names is in use.
 
 Publishing, returning and a tablet's report that adds a profile place in
 their own transaction, under `PROFILE_JOINING_LOCK`. Everything else waits

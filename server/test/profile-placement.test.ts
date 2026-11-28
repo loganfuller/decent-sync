@@ -31,7 +31,6 @@ describe("Placing Profile Versions in Profiles", () => {
     const planned = plan(rows);
     expect(placedAs(rows, planned)).toEqual({ a: "P1#1", b: "P1#2", c: "P1#3" });
     expect(planned.created).toEqual([{ id: "P1", currentVersionId: "c", startedFromId: null, createdAt: rows[1]!.joinedAt }]);
-    expect(planned.touched).toEqual([{ profileId: "P1", currentVersionId: "c", versionIds: ["a", "b", "c"] }]);
   });
 
   it("starts a separate Profile for one saved from a row still in use, as a Duplicate or a version published at some Locations", () => {
@@ -118,7 +117,7 @@ describe("Placing Profile Versions in Profiles", () => {
     const profiles = [{ id: "G", currentVersionId: "b" }];
     const rows = [row("a", 1, null, true, { profileId: "G", versionNumber: 1 }), row("b", 2, "a", false, { profileId: "G", versionNumber: 2 })];
     expect(needsPlacing(rows, profiles)).toBe(true);
-    expect(plan(rows, profiles)).toEqual({ created: [], placed: [], current: [{ profileId: "G", versionId: "a" }], removed: [], touched: [{ profileId: "G", currentVersionId: "a", versionIds: ["a", "b"] }] });
+    expect(plan(rows, profiles)).toEqual({ created: [], placed: [], current: [{ profileId: "G", versionId: "a" }], removed: [] });
     // Hidden everywhere again, it stays current: the latest to join does not take its place.
     const hidden = [{ ...rows[0]!, inUse: false }, rows[1]!];
     expect(needsPlacing(hidden, [{ id: "G", currentVersionId: "a" }])).toBe(false);
@@ -149,7 +148,7 @@ describe("Placing Profile Versions in Profiles", () => {
     const profiles = [{ id: "G", currentVersionId: "b" }];
     const rows = [row("a", 1, null, false, { profileId: "G", versionNumber: 1 }), row("b", 2, "a", true, { profileId: "G", versionNumber: 2 })];
     expect(needsPlacing(rows, profiles)).toBe(false);
-    expect(plan(rows, profiles)).toEqual({ created: [], placed: [], current: [], removed: [], touched: [] });
+    expect(plan(rows, profiles)).toEqual({ created: [], placed: [], current: [], removed: [] });
   });
 
   it("gathers rows linked by what they were saved from or the Profile they share, each set planned alone", () => {
