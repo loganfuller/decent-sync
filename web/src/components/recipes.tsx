@@ -4,11 +4,13 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo,
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import { BatchCell, BatchInLine } from "@/components/batch-name";
+import { BatchPicker } from "@/components/batch-picker";
 import { ItemHistoryCard, attributePairs } from "@/components/item-history";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { PeriodChoice, PeriodTabs, useOverviewPeriod } from "@/components/overview";
+import { ElsewhereNote, RecipeBatchStrip } from "@/components/recipe-batch";
 import { RecipeByMachineCard, RecipeTrendCard } from "@/components/recipe-numbers";
 import { ReferenceShotCard } from "@/components/reference-shots";
 import { type Attribute, FormError, failure, useMayChangeAt } from "@/components/library-forms";
@@ -39,8 +41,10 @@ import {
   type ProfileSummary,
   type Recipe,
 } from "@/lib/api";
-import { type NamedBatch, batchWords } from "@/lib/batch-name";
+import { batchWords } from "@/lib/batch-name";
+import { type BatchOptionGroup, latestRoastedFirst } from "@/lib/batch-picker";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { NO_BATCH, batchEdit, batchValueOf, hereText, offeredBatches, recipeBatchGroups, usedBatch, usedBatchText, weightAt } from "@/lib/recipe-batch";
 import { ratedShotsPath } from "@/lib/shot-list";
 
 // Each Location's Recipes, DYE2's recipes, in its Recipe Slots or none, each
@@ -129,20 +133,6 @@ function grindText(recipe: Recipe): string | undefined {
   const grinder = recipe.uses.grinder ? (recipe.uses.grinder.model ?? "Unnamed Grinder") : undefined;
   if (grinder === undefined) return setting === undefined ? undefined : `Setting ${setting}`;
   return setting === undefined ? grinder : `${grinder} at ${setting}`;
-}
-
-/** A Recipe's Bean Batch as what names one (`NamedBatch`): its Bean's name is its Recipe's Bean's. Undefined for a Recipe that names no batch. */
-function usedBatch(recipe: Recipe): (NamedBatch & { id: string }) | undefined {
-  const { beanBatch, bean } = recipe.uses;
-  return beanBatch ? { id: beanBatch.id, bean: { name: bean?.name ?? null }, roastDate: beanBatch.roastDate, batchCode: beanBatch.batchCode } : undefined;
-}
-
-/** A Recipe's Bean Batch in words, or, for one naming a Bean with no batch, that Bean and that it has none. */
-function usedBatchText(recipe: Recipe): string | undefined {
-  const batch = usedBatch(recipe);
-  if (batch) return batchWords(batch);
-  const { bean } = recipe.uses;
-  return bean ? `${bean.name ?? "Unnamed Bean"}, no batch` : undefined;
 }
 
 /**
@@ -376,8 +366,8 @@ interface Choices {
   tools: EquipmentSummary[];
 }
 
-/** Loads what a Recipe may use, once. */
-function useChoices(): { choices: Choices | undefined; error: string | undefined } {
+/** Loads what a Recipe may use, once, and again as `version` changes, as a change to the Recipe may add a batch at its Location. */
+function useChoices(version = 0): { choices: Choices | undefined; error: string | undefined } {
   const [choices, setChoices] = useState<Choices>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -396,7 +386,7 @@ function useChoices(): { choices: Choices | undefined; error: string | undefined
     return () => {
       current = false;
     };
-  }, []);
+  }, [version]);
   return { choices, error };
 }
 
@@ -413,11 +403,8 @@ function namesOf(choices: Choices | undefined): ReadonlyMap<string, string> {
   ]);
 }
 
-/** Stands for no item, as a Select's options each need a value. */
-const NONE = "none";
-
-/** Stands for a Recipe's Bean with no batch, as a Bean picked on a tablet with none at its Location leaves it: kept unless another is picked. */
-const BEAN_ONLY = "bean-only";
+/** Stands for no item, as a Select's options each need a value: the batch picker's too (`NO_BATCH`). */
+const NONE = NO_BATCH;
 
 /** A steam, hot water or flush setting a Recipe may hold, by its content field. */
 type SettingField =
@@ -539,7 +526,7 @@ function valuesOf(content: Record<string, unknown>): FormValues {
   return {
     name: text("name"),
     beverage: text("beverage"),
-    beanBatchId: typeof content.beanBatchId !== "string" && typeof content.beanId === "string" ? BEAN_ONLY : id("beanBatchId"),
+    beanBatchId: batchValueOf(content),
     profileId: id("profileId"),
     dose: number("dose"),
     yield: number("yield"),
@@ -577,7 +564,7 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
     name: values.name.trim() === "" ? null : values.name.trim(),
     beverage: values.beverage.trim() === "" ? null : values.beverage.trim(),
     // A Bean with no batch is kept as it is; None clears it, with its batch.
-    ...(values.beanBatchId === BEAN_ONLY ? {} : { beanBatchId: values.beanBatchId === NONE ? null : values.beanBatchId }),
+    ...batchEdit(values.beanBatchId),
     profileId: values.profileId === NONE ? null : values.profileId,
     grinderId: values.grinderId === NONE ? null : values.grinderId,
     basketId: values.basketId === NONE ? null : values.basketId,
@@ -849,9 +836,10 @@ function RecipeForm({
 
   // What this Location offers of each kind, and the rest, which saving offers here; Archived items, and the batches of
   // an Archived Bean, are offered nowhere.
-  const archivedBeans = new Set((choices?.beans ?? []).filter((bean) => bean.archived).map((bean) => bean.id));
-  const batches = (choices?.batches ?? []).filter((batch) => !batch.archived && !archivedBeans.has(batch.bean.id));
+  const batches = offeredBatches(choices?.batches ?? [], choices?.beans ?? []);
   const batchHere = (batch: BeanBatchSummary) => batch.locations.some((at) => at.location.id === here);
+  // The picker's options: the Recipe's own batch, or the Bean it keeps with none, even where it is no longer offered.
+  const batchGroups = recipeBatchGroups({ batches, here: location, value: initial.beanBatchId, own: recipe && usedBatch(recipe), kept: recipe && usedBatchText(recipe) });
   const profiles = (choices?.profiles ?? []).filter((profile) => !profile.archived);
   const shownHere = (item: { shownAt: { location: { id: string } }[] }) => item.shownAt.some((at) => at.location.id === here);
   const grinders = (choices?.grinders ?? []).filter((grinder) => grinder.location?.id === here && !grinder.archived);
@@ -961,24 +949,10 @@ function RecipeForm({
           <Input id={`${id}-beverage`} placeholder="Such as Cappuccino" value={values.beverage} onChange={(event) => set("beverage", event.target.value)} />
         </div>
 
-        <div className="grid gap-2 sm:col-span-2">
+        <div className="grid min-w-0 gap-2 sm:col-span-2">
           <Label htmlFor={`${id}-batch`}>Bean Batch</Label>
-          <Select value={values.beanBatchId} onValueChange={(value) => set("beanBatchId", value)}>
-            <SelectTrigger id={`${id}-batch`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>None</SelectItem>
-              {values.beanBatchId !== NONE && !batches.some((batch) => batch.id === values.beanBatchId) && (
-                <SelectItem value={values.beanBatchId}>{recipe ? (usedBatchText(recipe) ?? "Its batch now") : "Its batch now"}</SelectItem>
-              )}
-              <ChoiceGroup label={`At ${location.name}`} items={batches.filter(batchHere).map((batch) => [batch.id, batchWords(batch)])} />
-              <ChoiceGroup
-                label={`Elsewhere: saving adds it at ${location.name}`}
-                items={batches.filter((batch) => !batchHere(batch)).map((batch) => [batch.id, `${batchWords(batch)} (adds it here)`])}
-              />
-            </SelectContent>
-          </Select>
+          <BatchPicker id={`${id}-batch`} groups={batchGroups} value={values.beanBatchId} onChange={(value) => set("beanBatchId", value)} />
+          <ElsewhereNote location={location} />
         </div>
 
         <div className="grid gap-2 sm:col-span-2">
@@ -1334,9 +1308,10 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
   }, [locationId]);
 
   const grinders = (choices?.grinders ?? []).filter((grinder) => grinder.location?.id === locationId && !grinder.archived);
-  const archivedBeans = new Set((choices?.beans ?? []).filter((bean) => bean.archived).map((bean) => bean.id));
   const atTarget = (batch: BeanBatchSummary) => batch.locations.some((at) => at.location.id === locationId);
-  const batches = (choices?.batches ?? []).filter((batch) => !batch.archived && !archivedBeans.has(batch.bean.id) && atTarget(batch) && batch.id !== recipe.uses.beanBatch?.id);
+  const batches = offeredBatches(choices?.batches ?? [], choices?.beans ?? [])
+    .filter((batch) => atTarget(batch) && batch.id !== recipe.uses.beanBatch?.id)
+    .sort(latestRoastedFirst);
   const free = targetRecipes ? lowestFree(targetRecipes) : undefined;
   const slot = slotMode === "next" ? free : slotMode === "chosen" ? slotChosen(slotText) : undefined;
   const there = slot === undefined ? undefined : targetRecipes?.find((candidate) => candidate.slot === slot);
@@ -1352,12 +1327,22 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
         .filter((batch) => batch.bean.id === beanOnly.id && !batch.archived && atTarget(batch))
         .sort((a, b) => sinceAtTarget(b) - sinceAtTarget(a) || Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
     : undefined;
-  const keptText =
+  // The picker's options: the entry that keeps the Recipe's batch, or its Bean's latest there, first; then None; then the Location's batches.
+  const own = usedBatch(recipe);
+  const kept: BatchOptionGroup["options"][number] =
     beanOnly && target
       ? beanBatchThere
-        ? `${batchWords(beanBatchThere)} (this Recipe's Bean's latest batch at ${target.name})`
-        : `${beanOnly.name ?? "Unnamed Bean"}, no batch (this Recipe's Bean, with none at ${target.name})`
-      : `${usedBatchText(recipe) ?? "Its batch"} (this Recipe's)`;
+        ? { value: KEEP, batch: beanBatchThere, note: `this Recipe's Bean's latest batch at ${target.name}` }
+        : { value: KEEP, label: `${beanOnly.name ?? "Unnamed Bean"}, no batch (this Recipe's Bean, with none at ${target.name})` }
+      : own
+        ? { value: KEEP, batch: own, note: "this Recipe's" }
+        : { value: KEEP, label: "Its batch (this Recipe's)" };
+  const batchGroups: BatchOptionGroup[] = [
+    { options: [...(batchId === KEEP || recipe.uses.beanBatch || recipe.uses.bean ? [kept] : []), { value: NONE, label: "None" }] },
+    ...(target && batches.length > 0
+      ? [{ label: `At ${target.name}`, options: batches.map((batch) => ({ value: batch.id, batch, weight: hereText(weightAt(batch, locationId), "there") })) }]
+      : []),
+  ];
 
   // What copying adds or shows at the Location that it does not offer now, so the copy can be loaded there.
   const offered: string[] = [];
@@ -1498,20 +1483,9 @@ function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { reci
                 </p>
               </div>
 
-              <div className="grid gap-2">
+              <div className="grid min-w-0 gap-2">
                 <Label htmlFor={`${id}-batch`}>Bean Batch</Label>
-                <Select value={batchId} onValueChange={setBatchId}>
-                  <SelectTrigger id={`${id}-batch`} className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {batchId === KEEP || recipe.uses.beanBatch || recipe.uses.bean ? (
-                      <SelectItem value={KEEP}>{keptText}</SelectItem>
-                    ) : null}
-                    <SelectItem value={NONE}>None</SelectItem>
-                    <ChoiceGroup label={`At ${target.name}`} items={batches.map((batch) => [batch.id, batchWords(batch)])} />
-                  </SelectContent>
-                </Select>
+                <BatchPicker id={`${id}-batch`} groups={batchGroups} value={batchId} onChange={setBatchId} />
               </div>
 
               {offered.length > 0 && (
@@ -1555,15 +1529,15 @@ export function RecipeDetails({ id }: { id: string }) {
   const mayChangeAnything = useMayChange();
   const isAdmin = useIsAdmin();
   const staffLocations = useStaffLocationIds();
-  const { choices } = useChoices();
+  // A change here changes the Recipe, so it is loaded again, with its history and what it may use.
+  const [changes, setChanges] = useState(0);
+  const changed = useCallback(() => setChanges((count) => count + 1), []);
+  const { choices } = useChoices(changes);
   const names = useMemo(() => namesOf(choices), [choices]);
   const [period, setPeriod] = useOverviewPeriod();
   const [loaded, setLoaded] = useState<{ recipe: Recipe; recipes: Recipe[] }>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // A change here changes the Recipe, so it is loaded again, with its history.
-  const [changes, setChanges] = useState(0);
-  const changed = useCallback(() => setChanges((count) => count + 1), []);
 
   useEffect(() => {
     let current = true;
@@ -1642,17 +1616,11 @@ export function RecipeDetails({ id }: { id: string }) {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {recipe.batchFinished && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            Its Bean Batch, {usedBatchText(recipe)}, is no longer at {location?.name ?? "its Location"}: pick the next roast.
-          </AlertDescription>
-        </Alert>
-      )}
       {!mayChange && mayChangeAnything && (
         <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>
       )}
 
+      <RecipeBatchStrip recipe={recipe} batches={choices?.batches} beans={choices?.beans} mayChange={mayChange} onChanged={changed} />
 
       <PeriodTabs period={period} onPeriod={setPeriod} className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">

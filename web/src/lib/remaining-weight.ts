@@ -178,10 +178,26 @@ export function differenceText(typed: string, worked: number | null): string | u
  */
 export function leftText(left: BeanBatch["finished"][number], versions: ItemVersion[] | undefined, now: Date = new Date()): string {
   const day = dayText(left.finishedAt, now);
+  const move = movedAway(left, versions);
+  return move ? `Moved to ${move.to?.name ?? "a Location since deleted"} ${day}` : `Finished ${day}`;
+}
+
+/**
+ * The same, as a Recipe's page says it of its own Location after its batch's
+ * roast day (#733): "moved to Riverside 26 Nov", or "finished here 26 Nov".
+ */
+export function leftHereText(left: BeanBatch["finished"][number], versions: ItemVersion[] | undefined, now: Date = new Date()): string {
+  const day = dayText(left.finishedAt, now);
+  const move = movedAway(left, versions);
+  return move ? `moved to ${move.to?.name ?? "a Location since deleted"} ${day}` : `finished here ${day}`;
+}
+
+/** The Batch Move of all that took a batch from a Location it has left, where the latest change that took it from there was one; undefined where it was finished there, or its history says neither. */
+function movedAway(left: BeanBatch["finished"][number], versions: ItemVersion[] | undefined): NonNullable<ItemVersion["move"]> | undefined {
   const took = (versions ?? [])
     .filter((version) => (version.move ? version.move.all && version.move.from?.id === left.location.id : version.location?.id === left.location.id && version.fields.atLocation === false))
     .reduce<ItemVersion | undefined>((latest, version) => (latest === undefined || version.receivedAt > latest.receivedAt ? version : latest), undefined);
-  return took?.move ? `Moved to ${took.move.to?.name ?? "a Location since deleted"} ${day}` : `Finished ${day}`;
+  return took?.move ?? undefined;
 }
 
 /** What Batch Moves have brought to a Location and taken from it since its count started, an amount for each other Location, and one for any whose Location has been deleted since. */

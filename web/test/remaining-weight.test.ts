@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BatchAtLocation, EditSource, ItemVersion } from "../src/lib/api";
-import { atLines, atText, barOf, batchesCountText, dayText, differenceText, enteredBy, leftText, movedLine, startText, totalLine, totalText, weightLine, weightLineParts, weightText } from "../src/lib/remaining-weight";
+import { atLines, atText, barOf, batchesCountText, dayText, differenceText, enteredBy, leftHereText, leftText, movedLine, startText, totalLine, totalText, weightLine, weightLineParts, weightText } from "../src/lib/remaining-weight";
 
 // What the management interface writes of a Bean Batch's Remaining Weight at a Location (#706), with what Batch Moves have brought and taken since its count started (#704),
 // and what a batch's page, the list of batches and the Enter weight dialog lead with (#726).
@@ -211,5 +211,19 @@ describe("a batch's Remaining Weight in words", () => {
     // Not read yet, or the release before's, which names no move: it reads as finished.
     expect(leftText(left, undefined, now)).toBe(`Finished ${day}`);
     expect(leftText(left, [{ ...movedAll, move: undefined }], now)).toBe(`Finished ${day}`);
+  });
+
+  it("says the same of a Recipe's own Location on the Recipe's page, after its batch's roast day (#733)", () => {
+    const day = dayText(at, now);
+    const riverside = { ...location, id: "l2", name: "Riverside" };
+    const left = { location, remainingWeight: 0, finishedAt: at };
+    const version = (receivedAt: string, changes: Partial<ItemVersion>): ItemVersion => ({ id: receivedAt, fields: {}, location: null, source: sam, editedAt: receivedAt, receivedAt, copiedFrom: null, move: null, ...changes });
+    const movedAll = version("2026-11-25T15:00:00.000Z", { move: { from: location, to: riverside, amount: 2420, all: true } });
+    const finished = version("2026-11-25T13:00:00.000Z", { location, fields: { atLocation: false } });
+    expect(leftHereText(left, [finished], now)).toBe(`finished here ${day}`);
+    expect(leftHereText(left, [finished, movedAll], now)).toBe(`moved to Riverside ${day}`);
+    expect(leftHereText(left, [version("2026-11-25T15:00:00.000Z", { move: { from: location, to: null, amount: null, all: true } })], now)).toBe(`moved to a Location since deleted ${day}`);
+    // Its history not read, or the release before's: finished here.
+    expect(leftHereText(left, undefined, now)).toBe(`finished here ${day}`);
   });
 });
