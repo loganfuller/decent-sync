@@ -172,14 +172,15 @@ export class RecipesService {
   }
 
   /**
-   * The Recipes, not Archived, whose content names the Profile, each with the
-   * Machines that have it loaded now (ADR-0022), by name: by their Location's
-   * name, then in slot order, then by name, ignoring case.
+   * The Recipes, not Archived, whose content names one of a Profile's
+   * versions (`versionIds`, ADR-0038), each with the Machines that have it
+   * loaded now (ADR-0022), by name: by their Location's name, then in slot
+   * order, then by name, ignoring case.
    */
-  async namingProfile(profileId: string): Promise<RecipeOnProfileView[]> {
+  async namingProfile(versionIds: readonly string[]): Promise<RecipeOnProfileView[]> {
     const rows = await this.prisma.$queryRaw<RecipeRow[]>`
       SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt", reference_shot_id AS "referenceShotId"
-      FROM recipes WHERE content ->> 'profileId' = ${profileId} AND NOT archived`;
+      FROM recipes WHERE content ->> 'profileId' = ANY(${[...versionIds]}::text[]) AND NOT archived`;
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
     const locationIds = [...new Set(rows.flatMap((row) => (row.locationId === null ? [] : [row.locationId])))];

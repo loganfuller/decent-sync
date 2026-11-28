@@ -24,7 +24,7 @@ import {
 } from "../library/item-input.js";
 import { KINDS } from "../library/kinds.js";
 import { LibraryEditsService } from "../library/library-edits.service.js";
-import { readProfileId } from "../library/profiles.service.js";
+import { ProfilesService, readProfileId } from "../library/profiles.service.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { readLocationId } from "../locations/input.js";
@@ -124,7 +124,7 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
     beanId:
       "The id of the Bean it uses, as find_library_items gives it, not Archived, for a Bean it is to name without choosing a batch: it keeps its batch if that is of this Bean, or else takes the Bean's batch most recently added at its Location, or none, the Bean then offered there. null clears its Bean and its batch. Given with beanBatchId, the batch decides its Bean.",
     beanBatchId: "The id of the Bean Batch it uses, as find_library_items gives it, not Archived; its Bean is the batch's. A batch not at the Recipe's Location is added there. null for none, which clears its Bean too.",
-    profileId: "The id of the Profile it uses, as find_library_items gives it, not Archived. One not shown at the Recipe's Location is shown there.",
+    profileId: "The id of the Profile it uses, as find_library_items gives it, not Archived: the Profile's own id or Decaid's id of any of its versions, stored as its current version's. One not shown at the Recipe's Location is shown there.",
     dose: "Its dose, in grams.",
     yield: "Its yield, in grams: 0 for stop-at-weight off.",
     grinderId: "The id of its Grinder, as find_library_items gives it: one of the Recipe's Location's, not Archived.",
@@ -318,7 +318,13 @@ export class LibraryChangesTools {
     private readonly edits: LibraryEditsService,
     private readonly recipeEdits: RecipeEditsService,
     private readonly library: LibraryTools,
+    private readonly profiles: ProfilesService,
   ) {}
+
+  /** Decaid's id of the current version of the Profile an id names, its own or one of its versions' (ADR-0038): its title, author and notes, where it is shown and whether it is Archived are the Profile's. */
+  private async currentVersion(id: string): Promise<string> {
+    return (await this.profiles.addressed(readProfileId(id))).currentVersionId;
+  }
 
   @BudgetedTool({
     name: "create_bean",
@@ -436,7 +442,7 @@ export class LibraryChangesTools {
     budget: { whole: PROFILE_WHOLE },
   })
   async editProfile({ id: given, ...fields }: z.infer<typeof profileEditInput>, context: McpContext): Promise<ItemOutput> {
-    const profileId = readProfileId(given);
+    const profileId = await this.currentVersion(given);
     await this.edits.editProfile(profileId, readContentEdit("profile", { content: changed(fields) }), editorOf(context));
     return this.library.read("profile", profileId, callerOf(context).scope);
   }
@@ -505,6 +511,8 @@ export class LibraryChangesTools {
   })
   async setArchived({ kind: itemKind, id: itemId, archived }: z.infer<typeof archivedInput>, context: McpContext): Promise<ItemOutput> {
     const editor = editorOf(context);
+    // A Profile by any of its ids is Archived through its current version, which is what is answered (ADR-0038).
+    let acted = itemId;
     switch (itemKind) {
       case "bean":
         await this.edits.archiveBean(readBeanId(itemId), archived, editor);
@@ -513,7 +521,8 @@ export class LibraryChangesTools {
         await this.edits.archiveBatch(readBeanBatchId(itemId), archived, editor);
         break;
       case "profile":
-        await this.edits.archiveProfile(readProfileId(itemId), archived, editor);
+        acted = await this.currentVersion(itemId);
+        await this.edits.archiveProfile(acted, archived, editor);
         break;
       case "grinder":
         await this.edits.archiveGrinder(readGrinderId(itemId), archived, editor);
@@ -526,7 +535,7 @@ export class LibraryChangesTools {
         await this.recipeEdits.archive(readRecipeId(itemId), archived, editor, callerOf(context).scope);
         break;
     }
-    return this.library.read(itemKind, itemId, callerOf(context).scope);
+    return this.library.read(itemKind, acted, callerOf(context).scope);
   }
 
   @BudgetedTool({
@@ -544,6 +553,8 @@ export class LibraryChangesTools {
     const { scope } = callerOf(context);
     const locationId = readLocationId(input.locationId).toLowerCase();
     const itemKind: OfferedKind = input.kind;
+    // A Profile by any of its ids is shown or hidden through its current version, which is what is answered (ADR-0038).
+    let acted = input.id;
     if (itemKind === "beanBatch") {
       if (input.offered === undefined && input.remainingWeight === undefined) {
         throw new BadRequestException("Send offered: true to add the Bean Batch at the Location or false to finish it there, or its remainingWeight there, or both");
@@ -553,10 +564,12 @@ export class LibraryChangesTools {
     } else {
       if (input.remainingWeight !== undefined) throw new BadRequestException("Only a Bean Batch has a remaining weight at a Location");
       if (input.offered === undefined) throw new BadRequestException(`Send offered: true to show the ${KINDS[itemKind].name} at the Location, or false to hide it there`);
-      if (itemKind === "profile") await this.edits.showProfile(readProfileId(input.id), locationId, input.offered, editor, scope);
-      else await this.edits.showEquipment(itemKind, readEquipmentId(itemKind, input.id), locationId, input.offered, editor, scope);
+      if (itemKind === "profile") {
+        acted = await this.currentVersion(input.id);
+        await this.edits.showProfile(acted, locationId, input.offered, editor, scope);
+      } else await this.edits.showEquipment(itemKind, readEquipmentId(itemKind, input.id), locationId, input.offered, editor, scope);
     }
-    return this.library.read(itemKind, input.id, callerOf(context).scope);
+    return this.library.read(itemKind, acted, callerOf(context).scope);
   }
 
   /** Creates a Basket or Tool as its REST route does, shown at the Location given. */

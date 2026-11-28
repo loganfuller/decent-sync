@@ -16,6 +16,7 @@ import { GrindersService } from "./grinders.service.js";
 import { HistoryService } from "./history.service.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { ProfileSimulationService } from "./profile-simulation.service.js";
+import { ProfilePlacing } from "./profile-placing.js";
 import { ProfilesController } from "./profiles.controller.js";
 import { ProfilesService } from "./profiles.service.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
@@ -51,6 +52,7 @@ import { SharingService } from "./sharing.service.js";
     BeanBatchesService,
     GrindersService,
     ProfilesService,
+    ProfilePlacing,
     EquipmentService,
     RecipesService,
     HistoryService,

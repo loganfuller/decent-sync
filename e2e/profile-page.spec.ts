@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { shotGrind, simulationShotOf } from "@decent-sync/protocol";
 import { expect, type Page, test } from "@playwright/test";
-import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, type SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { graphClashes } from "./support/graph-text.js";
 import { boxes } from "./support/layout.js";
@@ -58,6 +58,27 @@ async function waitForProfile(page: Page, id: string) {
 
 const profilePage = (id: string) => `/library/profiles/${encodeURIComponent(id)}`;
 
+/**
+ * Saves a Profile over another on the tablet, as Streamline's Save does: the
+ * old one is hidden. Hidden first here, and seen hidden by the server, so the
+ * new one is its Profile's next version whichever of the plugin's reports
+ * carries it (ADR-0038).
+ */
+async function saveOver(page: Page, tablet: SimulatedTablet, over: unknown, profile: Fields): Promise<Fields> {
+  await tablet.setProfileVisibility(over, "hidden");
+  await expect
+    .poll(async () => ((await (await page.request.get(`/api/profiles/${encodeURIComponent(String(over))}`)).json()) as { profile: { shownAt: unknown[] } }).profile.shownAt)
+    .toEqual([]);
+  const saved = await tablet.addProfile(profile, { parentId: over });
+  await waitForProfile(page, String(saved.id));
+  return saved;
+}
+
+/** The Profile's own id, of the Profile a version's Decaid id is in. */
+async function profileIdOf(page: Page, id: unknown): Promise<string> {
+  return ((await (await page.request.get(`/api/profiles/${encodeURIComponent(String(id))}`)).json()) as { profile: { profileId: string } }).profile.profileId;
+}
+
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a Profile's page draws how it runs, lists its steps in words, its versions and the Recipes on it", async ({ page }) => {
@@ -65,11 +86,10 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   const tablet = await tabletAt(page, server, "Soak lab group", lab, "57801", { ...tabletApi, "/profiles": [] });
   const first = await tablet.addProfile(soak("Lab Soak"));
   await waitForProfile(page, String(first.id));
-  const second = await tablet.addProfile(soak("Lab Soak", { pressure: 6.5 }), { parentId: first.id });
-  await waitForProfile(page, String(second.id));
-  // Saved again from the first, a fork beside the second.
-  const fork = await tablet.addProfile(soak("Lab Soak, held", { limiter: { value: 2, range: 1 } }), { parentId: first.id });
-  await waitForProfile(page, String(fork.id));
+  const second = await saveOver(page, tablet, first.id, soak("Lab Soak", { pressure: 6.5 }));
+  // Saved as new from the second, which stays visible: a Profile of its own, among no other's versions.
+  const copy = (await tablet.callApi("POST", "/profiles", { profile: soak("Lab Soak, held", { limiter: { value: 2, range: 1 } }), parentId: second.id })).body as Fields;
+  await waitForProfile(page, String(copy.id));
   const recipe = (await (await page.request.post("/api/recipes", { data: { locationId: lab.id, slot: 3, content: { name: "Soak Espresso", profileId: second.id, dose: 20, yield: 44 } } })).json()) as {
     recipe: { id: string };
   };
@@ -84,7 +104,7 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await page.goto(profilePage(String(second.id)));
   await expect(page.getByRole("heading", { name: /^Lab Soak/, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Version 2");
-  await expect(page.getByRole("main").getByText(/Espresso · by Decent Sync fixtures · saved from/)).toBeVisible();
+  await expect(page.getByRole("main").getByText(/Espresso · by Decent Sync fixtures$/)).toBeVisible();
 
   const graph = page.getByRole("region", { name: "How it runs" });
   await expectTip(page.getByRole("main"), "How it runs, simulated", /^A simulation of what a Machine does with this Profile, not a measurement/);
@@ -138,20 +158,18 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await expect(facts).toContainText("PreinfusionEnds after Settle");
   await expect(facts).toContainText("Water tankNot preheated");
 
-  // Its versions, the latest first, both branches of the fork, each saved by the lab's Machine.
+  // Its versions, the latest first, each saved by the lab's Machine, with which is current; the Duplicate is not among them.
   const versions = page.getByRole("region", { name: "Versions" }).getByRole("list", { name: "Versions" }).getByRole("listitem");
-  await expect(versions).toHaveCount(3);
-  await expect(versions.nth(0)).toContainText("Version 3");
+  await expect(versions).toHaveCount(2);
+  await expect(versions.nth(0)).toContainText("Version 2 · current");
+  await expect(versions.nth(0)).toContainText("Soak lab group");
   await expect(versions.nth(0)).toContainText("saved from Version 1");
-  await expect(versions.nth(1)).toContainText("Version 2 · this one");
-  await expect(versions.nth(1)).toContainText("Soak lab group");
-  await expect(versions.nth(1)).toContainText("saved from Version 1");
-  await expect(versions.nth(2)).toContainText("Version 1");
-  await expect(versions.nth(2)).toContainText("Shown nowhere · no Shots");
+  await expect(versions.nth(1)).toContainText("Version 1");
+  await expect(versions.nth(1)).toContainText("Shown nowhere · no Shots");
 
   const recipes = page.getByRole("region", { name: "Recipes on this version" });
   await expect(recipes.getByRole("listitem")).toHaveText(["Soak EspressoSoak lab, slot 3 · loaded on Soak lab group"]);
-  await expect(page.getByRole("region", { name: "Shots" })).toContainText("No Shots on this version, none on earlier ones");
+  await expect(page.getByRole("region", { name: "Shots" })).toContainText("No Shots yet");
 
   // Export gives its profile as Decaid's JSON.
   const download = page.waitForEvent("download");
@@ -172,6 +190,66 @@ test("a Profile's page draws how it runs, lists its steps in words, its versions
   await expect(both.locator("[data-compared] path").first()).toHaveAttribute("d", /^M/);
   await expect(both.locator("[data-compared-stop]")).toContainText("Version 1 stops");
   expect(await graphClashes(page.getByRole("region", { name: "How each runs" }))).toEqual([]);
+});
+
+test("a Profile has one row and one address whatever versions it has, an old version's address opens it at that version, and its page names its Shots by version and the Machines on an earlier one", async ({ page }) => {
+  const lab = await createLocation(page, "Lasting lab");
+  const tablet = await tabletAt(page, server, "Lasting lab group", lab, "57861", { ...tabletApi, "/profiles": [] });
+  // Steps of their own: Decaid's id is of the steps, and the Library has the Lab Soak's from the test before.
+  const first = await tablet.addProfile(soak("Lasting Soak", { pressure: 5.2 }));
+  await waitForProfile(page, String(first.id));
+  const second = await saveOver(page, tablet, first.id, soak("Lasting Soak", { pressure: 5.3 }));
+  const copy = (await tablet.callApi("POST", "/profiles", { profile: soak("Lasting Soak, held", { pressure: 5.3, limiter: { value: 2, range: 1 } }), parentId: second.id })).body as Fields;
+  await waitForProfile(page, String(copy.id));
+  const profileId = await profileIdOf(page, second.id);
+  // A Shot pulled on the first version, and the Machine's Workflow left holding its steps, with no Recipe loaded.
+  const recorded = JSON.parse(fs.readFileSync(new URL("../server/test/fixtures/decaid/simulated-shots-v0.9.2/classic-italian.json", import.meta.url), "utf8")) as Fields;
+  const workflow = { ...(recorded.workflow as Fields), profile: first.profile, machine: { ...((recorded.workflow as Fields).machine as Fields), serialNumber: "57861" } };
+  tablet.pullShot({ ...recorded, id: "lasting-first-shot", workflow });
+  await expect.poll(async () => (await page.request.get("/api/shots/lasting-first-shot")).status()).toBe(200);
+  tablet.setWorkflow(workflow);
+
+  // One row for the Profile, at its own id, and one for the Duplicate, which says what it was started from.
+  await page.goto("/library/profiles");
+  const table = page.getByRole("table", { name: "Profiles" });
+  await expect(table.getByRole("link", { name: "Lasting Soak", exact: true })).toHaveCount(2);
+  const row = table.getByRole("row").filter({ hasNotText: "held" }).filter({ has: page.getByRole("link", { name: "Lasting Soak", exact: true }) });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole("cell").last()).toHaveText("2");
+  await expect(table.getByRole("row").filter({ hasText: "Lasting Soak, held" })).toContainText("Started from Lasting Soak");
+  await row.getByRole("link", { name: "Lasting Soak", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/library/profiles/${profileId}$`));
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Version 2");
+  await expect(page.getByRole("region", { name: "An earlier version", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Shown at Lasting lab" })).toBeChecked();
+
+  // The Machine whose Workflow still holds the first version.
+  const onEarlier = page.getByRole("region", { name: "Machines on an earlier version" });
+  await expect(onEarlier.getByRole("listitem")).toHaveText(["Lasting lab group, on Version 1"]);
+
+  // Its Shots are those of all its versions, each with its version in the Shots list.
+  const shots = page.getByRole("region", { name: "Shots" });
+  await expect(shots).toContainText("1 Shot: 1 on Version 1");
+  await shots.getByRole("link", { name: "Open in the Shots list" }).click();
+  await expect(page).toHaveURL(new RegExp(`profileId=${profileId}`));
+  await expect(page.getByRole("table", { name: "Shots" }).getByRole("row").filter({ hasText: "Version 1" })).toHaveCount(1);
+
+  // An address by an earlier version's Decaid id opens the Profile at that version, with the way to its current one.
+  await page.goto(profilePage(String(first.id)));
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Version 1");
+  const earlier = page.getByRole("region", { name: "An earlier version", exact: true });
+  await expect(earlier).toContainText("This is Version 1 of the Profile, which is not its current one.");
+  await expect(page.getByRole("switch", { name: "Shown at Lasting lab" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Duplicate", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Versions" }).getByRole("list", { name: "Versions" }).getByRole("listitem")).toHaveCount(2);
+  await earlier.getByRole("link", { name: /the Profile's page, at Version 2/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/library/profiles/${profileId}$`));
+
+  // The Duplicate's page says the Profile it was started from, and has one version.
+  await page.goto(profilePage(String(copy.id)));
+  await expect(page.getByRole("main").getByText(/started from/)).toContainText("Lasting Soak");
+  await expect(page.getByRole("region", { name: "Versions" })).toContainText("Its only version");
 });
 
 test("a Shot laid over a Profile's run sets the simulation's dose, stop-at weight, Machine and puck to match it, each changeable after", async ({ page }) => {

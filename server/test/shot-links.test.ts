@@ -210,8 +210,8 @@ describe("Shots linked to the Library", () => {
     tablet.pullShot(shotWith("weighed-untitled", "26041", {}, { ...lighter, title: "Weighed bloom renamed", target_weight: 37.5 }));
     for (const id of ["weighed-36", "weighed-40", "weighed-yield", "weighed-untitled"]) await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
 
-    expect((await viewShot("weighed-36")).profile).toEqual({ id: lighterId, title: "Weighed bloom 36" });
-    expect((await viewShot("weighed-40")).profile).toEqual({ id: heavierId, title: "Weighed bloom 40" });
+    expect((await viewShot("weighed-36")).profile).toMatchObject({ id: lighterId, title: "Weighed bloom 36" });
+    expect((await viewShot("weighed-40")).profile).toMatchObject({ id: heavierId, title: "Weighed bloom 40" });
     expect((await viewShot("weighed-yield")).profile?.id).toBe(lighterId);
     expect((await viewShot("weighed-untitled")).profile).toBeNull();
     expect(new Set(await listed(`profileId=${encodeURIComponent(lighterId)}`))).toEqual(new Set(["weighed-36", "weighed-yield"]));
@@ -235,7 +235,7 @@ describe("Shots linked to the Library", () => {
 
     tablet.pullShot(shotWith("streamline-shot", "26051", {}));
     await expect.poll(async () => (await api.call("GET", "/shots/streamline-shot")).status).toBe(200);
-    expect((await viewShot("streamline-shot")).profile).toEqual({ id: LONDONIUM, title: "Londonium" });
+    expect((await viewShot("streamline-shot")).profile).toMatchObject({ id: LONDONIUM, title: "Londonium" });
     expect(await listed(`profileId=${encodeURIComponent(LONDONIUM)}&machineId=${machine.machine.id}`)).toEqual(["streamline-shot"]);
   });
 
@@ -289,7 +289,7 @@ describe("Shots linked to the Library", () => {
     // streamline-js's side panel: 94 degrees written into every step, the yield as its target weight, the limiter as none.
     tablet.pullShot(shotWith("warmed-overridden", "26091", {}, { ...withTemperature(withLimiter(pulled, null), 94), target_weight: 41 }));
     await expect.poll(async () => (await api.call("GET", "/shots/warmed-overridden")).status).toBe(200);
-    expect((await viewShot("warmed-overridden")).profile).toEqual({ id: pulledId, title: "Warmed bloom" });
+    expect((await viewShot("warmed-overridden")).profile).toMatchObject({ id: pulledId, title: "Warmed bloom" });
 
     // A barista saves it at 94 degrees as a Profile of its own: a Shot pulled with that one is its, and the overridden
     // Shot, which names the first, is still the first's.

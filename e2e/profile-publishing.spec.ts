@@ -81,14 +81,21 @@ test("publishes a Draft as a new version at the Locations and with the Recipes c
   await expect(dialog.getByText("Lab Soak is hidden here.")).toBeVisible();
   await recipes.getByRole("checkbox", { name: /Move Lab Ristretto/ }).click();
   await expect(dialog.getByText("Lab Soak stays shown here, as Lab Ristretto still names it.")).toBeVisible();
+  // Moved with the other, the new one takes the soak's place everywhere it is shown, so is its next version (ADR-0038).
+  await recipes.getByRole("checkbox", { name: /Move Lab Ristretto/ }).click();
+  await expect(dialog.getByText("Lab Soak is hidden here.")).toBeVisible();
   await dialog.getByRole("button", { name: "Publish", exact: true }).click();
 
   // The new version's page, saying what publishing did.
   await expect(page).toHaveURL(/\/library\/profiles\/profile%3A/);
   const notice = page.getByRole("status").filter({ hasText: "Shown at Publish lab" });
-  await expect(notice).toContainText("Lab Soak stays shown at Publish lab, as Lab Ristretto still names it.");
-  await expect(notice).toContainText("Moved to it: Lab Espresso at Publish lab.");
+  await expect(notice).toContainText("Lab Soak is hidden at Publish lab.");
+  await expect(notice).toContainText("Lab Espresso at Publish lab");
   await expect(page.getByRole("region", { name: "Recipes on this version" })).toContainText("Lab Espresso");
+  // One Profile, of two versions, the one published current.
+  const versions = page.getByRole("region", { name: "Versions" });
+  await expect(versions.getByRole("listitem").filter({ hasText: "Version 2" })).toContainText("current");
+  await expect(versions.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Version 1", exact: true }) })).toContainText("Shown nowhere");
   const newId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1)!);
   await expect.poll(() => tablet.profiles().find((record) => record.id === newId)?.parentId, { timeout: 15_000 }).toBe(soakId);
 

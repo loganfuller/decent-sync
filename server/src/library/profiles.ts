@@ -24,6 +24,7 @@ import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
+import { placeProfiles } from "./profile-placing.js";
 import {
   type ProfileIntakeStep,
   type ReportedProfile,
@@ -228,6 +229,8 @@ export async function takeInProfiles(
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
     await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, decided === null ? null : { at: decided, locationId }, null);
   }
+  // The rows it added are placed in Profiles (ADR-0038) as it stands now, under the lock they were added under.
+  if (reportedNew.length > 0) await placeProfiles(tx);
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
 }

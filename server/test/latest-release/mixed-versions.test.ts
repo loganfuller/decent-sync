@@ -914,6 +914,75 @@ describe("the latest release beside the change", () => {
       }
     });
 
+    // The latest release knows nothing of the Profile above a version (ADR-0038, #735): it publishes a version and takes in
+    // a tablet's profiles as rows with no Profile, and the change's server places each by the rules it converts by, once
+    // the latest release says the Library changed. Through the change's server each then reads by Profile.
+    it("places in Profiles what the latest release's server publishes and takes in from a tablet, read by Profile through the change's", async () => {
+      const location = await apis.change.createLocation("Placed, at the first", "America/Chicago");
+      const elsewhere = await apis.change.createLocation("Placed, at the second", "America/Chicago");
+      const { tablet } = await connected("Placed, on the latest release", "latest release", "latest release", { location });
+      const release = apis["latest release"];
+      type DraftRead = { id: string; saves: number; profile: { steps: Record<string, unknown>[] } & Record<string, unknown> };
+      /** Publishes through the latest release's server. */
+      const publish = async (start: Record<string, unknown>, change: (profile: DraftRead["profile"]) => Record<string, unknown>, locations: string[]) => {
+        const { draft } = await release.send<{ draft: DraftRead }>("POST", "/drafts", start, 201);
+        const { draft: saved } = await release.send<{ draft: DraftRead }>("PUT", `/drafts/${draft.id}`, { profile: change(draft.profile), saves: draft.saves });
+        return (await release.send<{ published: { profile: { id: string } } }>("POST", `/drafts/${saved.id}/publish`, { saves: saved.saves, locations }, 200)).published.profile.id;
+      };
+      const lowered = (by: number) => (profile: DraftRead["profile"]) => ({
+        ...profile,
+        steps: profile.steps.map((step, index) => (index === profile.steps.length - 1 ? { ...step, pressure: Number(step.pressure ?? 6) - by } : step)),
+      });
+      type Read = { id: string; profileId: string | null; version: number | null; versions: number; current: { id: string }; startedFrom: { id: string } | null };
+      const path = (id: string, rest = "") => `/profiles/${encodeURIComponent(id)}${rest}`;
+      const read = async (id: string) => (await apis.change.get<{ profile: Read }>(path(id))).profile;
+      const versionsOf = async (id: string) =>
+        (await apis.change.get<{ versions: { id: string; number: number | null; current: boolean }[] }>(path(id, "/versions"))).versions.map((version) => [version.id, version.number, version.current]);
+
+      // A new Profile, published by the latest release: a Profile of one version.
+      const first = await publish({ shape: "classic" }, (profile) => ({ ...lowered(0.2)(profile), title: "Placed beside" }), [location.id]);
+      await expect.poll(async () => (await read(first)).profileId).not.toBeNull();
+      const profileId = (await read(first)).profileId!;
+      expect(await read(first)).toMatchObject({ version: 1, versions: 1, current: { id: first } });
+
+      // A new version, published by the latest release where the first is shown, so taking its place everywhere.
+      const second = await publish({ profileId: first, as: "version" }, lowered(0.5), [location.id]);
+      await expect.poll(() => versionsOf(profileId)).toEqual([
+        [second, 2, true],
+        [first, 1, false],
+      ]);
+      expect(await read(profileId)).toMatchObject({ id: second, profileId, version: 2, versions: 2 });
+      // An address by the earlier version's Decaid id reads the Profile at that version.
+      expect(await read(first)).toMatchObject({ id: first, profileId, version: 1, current: { id: second } });
+
+      // One published by the latest release at another Location only leaves the second shown at the first: a Profile of its own.
+      const apart = await publish({ profileId: second, as: "version" }, lowered(1), [elsewhere.id]);
+      await expect.poll(async () => (await read(apart)).profileId).not.toBeNull();
+      expect(await read(apart)).toMatchObject({ version: 1, versions: 1, startedFrom: { id: second } });
+      expect((await read(apart)).profileId).not.toBe(profileId);
+
+      // A tablet's save over the second, taken in by the latest release's server: hidden first, and seen hidden, then saved.
+      await expect.poll(() => tablet.profiles().find((record) => record.id === second)?.visibility).toBe("visible");
+      await tablet.setProfileVisibility(second, "hidden");
+      await expect.poll(async () => (await apis.change.get<{ profile: { shownAt: unknown[] } }>(path(second))).profile.shownAt).toEqual([]);
+      const held = tablet.profiles().find((record) => record.id === second)!.profile as Record<string, unknown> & { steps: Record<string, unknown>[] };
+      const saved = await tablet.addProfile(lowered(1.5)(held), { parentId: second });
+      const third = String(saved.id);
+      await expect.poll(() => versionsOf(profileId), { timeout: 15_000 }).toEqual([
+        [third, 3, true],
+        [second, 2, false],
+        [first, 1, false],
+      ]);
+
+      // The change's list holds one row for each Profile, its current version, which the latest release's pages read by Decaid's id.
+      const listed = (await apis.change.get<{ profiles: { id: string; profileId: string | null; title: string | null }[] }>("/profiles")).profiles.filter((profile) => profile.title === "Placed beside");
+      expect(listed.map((profile) => profile.id).sort()).toEqual([third, apart].sort());
+      // The latest release goes on reading every row it knows.
+      const known = (await release.get<{ profiles: { id: string }[] }>("/profiles")).profiles.map((profile) => profile.id);
+      expect(known).toEqual(expect.arrayContaining([first, second, third, apart]));
+      expect((await release.get<{ profile: { id: string } }>(path(first))).profile.id).toBe(first);
+    });
+
     // A range typed into a grinder under 1.10.0, whose server kept the record as sent and took none of it in (#551):
     // the change's server takes it in from the tablet's next report, where the Grinder never had one, rather than
     // writing the Grinder's none over it. The tablet keeps the latest release's plugin, as in the minutes after a deploy.

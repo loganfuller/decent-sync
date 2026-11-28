@@ -430,10 +430,17 @@ export interface GrinderLink {
   model: string | null;
 }
 
-/** The Library Profile a Shot was pulled with, by its title. */
+/**
+ * The Library Profile a Shot was pulled with: the Profile Version whose
+ * steps it ran (ADR-0038), by Decaid's id and that version's title, with
+ * the Profile it belongs to, by the Profile's own id, and its number among
+ * that Profile's versions, each null until the server has placed it.
+ */
 export interface ProfileLink {
   id: string;
   title: string | null;
+  profileId: string | null;
+  version: number | null;
 }
 
 /** The Library Recipe a Shot was pulled with, or a Basket it used, by its name. */
@@ -487,8 +494,8 @@ async function withLinks<
 > {
   const ids = shots.map((shot) => shot.id);
   const [profiles, recipes, references] = await Promise.all([
-    db.$queryRaw<{ shotId: string; id: string; title: string | null }[]>`
-      SELECT s.id AS "shotId", p.id, p.content -> 'profile' ->> 'title' AS title
+    db.$queryRaw<{ shotId: string; id: string; title: string | null; profileId: string | null; version: number | null }[]>`
+      SELECT s.id AS "shotId", p.id, p.content -> 'profile' ->> 'title' AS title, p.library_profile_id::text AS "profileId", p.version_number AS version
       FROM shots AS s JOIN profiles AS p ON p.id = ${shotProfileSql("s")} WHERE s.id = ANY(${ids}::text[])`,
     db.$queryRaw<{ shotId: string; id: string; name: string | null }[]>`
       SELECT s.id AS "shotId", r.id::text AS id, r.content ->> 'name' AS name

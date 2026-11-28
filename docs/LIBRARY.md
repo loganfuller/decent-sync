@@ -3030,11 +3030,90 @@ grind at which the standard puck has the open resistance the Shot's
 samples show, at the standard dose (`readPuck`, `grindOf`), held to the
 control's ends.
 
+## A Profile and its versions
+
+A Profile is the lasting thing, and a Profile Version one set of steps it
+has had (ADR-0038, #735). A `profiles` row stays what it was, under Decaid's
+id: it is one Profile Version. `library_profiles` holds the Profile above
+it: an id of the server's own, which no tablet is written, Decaid's id of
+its current version, the Profile it was started from, when it was made, and
+the highest number it has given a version (`last_version_number`).
+Each `profiles` row names its Profile (`library_profile_id`) and its number
+among that Profile's versions (`version_number`), both given by the server
+and null until it has placed the row, as for one the latest release inserts
+(ADR-0025). Whether a Profile is shown at a Location is its current
+version's `profile_locations` row, its title, author and notes are held on
+its current version's row, and a Recipe names it by its current version's
+Decaid id, all as before.
+
+So far this is how a Profile is read. Nothing yet changes how a version
+becomes current: publishing a Draft, returning to a version and a tablet's
+report act on one `profiles` row at a time, as below, and what each leaves
+is placed in a Profile by rules (`server/src/library/profile-placement.ts`,
+a pure plan; `profile-placing.ts` reads the rows and carries it out). The
+same rules convert the rows an upgrade finds and place a row the latest
+release adds:
+
+- A row saved from another, by `parentId`, is a version of that one's
+  Profile where the one it was saved from is in use nowhere, so was
+  replaced. In use is shown at a Location while not Archived, or named by a
+  Recipe that is not Archived. Where that one is still in use, as after a
+  Duplicate or a version published at some Locations only, the row starts a
+  Profile of its own, which says the Profile it was started from.
+- A Draft published as a separate Profile starts a Profile of its own
+  whatever it was saved from.
+- Each of Decaid's bundled Profiles is a Profile of one version, and a row
+  saved from one starts a Profile of its own.
+- Where two versions of one Profile are both in use, as a fork leaves them,
+  the Profile's current version stays where it is one of them, so its id
+  goes on naming the same line; else the later to join stays. Each other
+  starts a Profile of its own.
+- The version in use is current. Where none is, the Profile keeps the
+  current version it has, unless a later one joined it, and a Profile just
+  made takes its latest; it is then shown nowhere.
+- Versions are numbered in the order they joined the Library, and a number
+  is not given again in its Profile, even once the version that had it has
+  left the Profile or been deleted.
+- An Archived Recipe naming an earlier version follows to the current one,
+  with no entry in its history, or, while another change of it is under way,
+  on the next look. No Recipe that is not Archived can name one, as a
+  version one names is in use.
+
+Publishing, returning and a tablet's report that adds a profile place in
+their own transaction, under `PROFILE_JOINING_LOCK`. Everything else waits
+for `ProfilePlacing`, a background job on every instance, which runs as the
+server starts, when any instance says the Library changed
+(`library_changes`) and every minute, in batches under that lock: the rows
+an upgrade finds, what the latest release adds or changes beside this one,
+and a change that leaves another version than the current one in use, as a
+tablet showing an earlier version again or a return at every Location,
+which makes that version current. A Profile whose rows another change is
+editing at that moment is left for the next look. Until a row is placed it
+reads as a Profile of one version, with no id of the Profile's own.
+
+A tablet's save over a Profile is its next version only where the report
+that adds the new record also hides the old one, or the old one was hidden
+already. Streamline creates the new record a moment before it hides the
+old, so the two can arrive in two reports, and the new one is then a
+Profile of its own, started from the old. Reading a tablet's report as
+ADR-0038 has it, and folding such a Profile into the one it was saved from,
+is for the change that makes a tablet's save current everywhere.
+
+Hard-deleting removes the version named, a Profile's own id naming its
+current one. A Profile left with other versions takes the latest of them as
+current, and one left with none is gone.
+
 ## The Profile page
 
-A Profile's page in the management interface (#578) opens on its graph, a
-simulation run in the browser with the shared module, and replaces the
-title and steps table it had:
+A Profile's page in the management interface (#578) is at the Profile's own
+id, `/library/profiles/<id>`, which stays as it gains versions (#735). An
+address by Decaid's id of one of its versions opens the Profile at that
+version: its steps, simulation and Shots, with a notice naming the current
+version and no controls for what is the Profile's, where it is shown, its
+title, author and notes, Archiving and deleting, and editing its steps: a
+Duplicate of that version's steps is still offered. The page opens on its
+graph, a simulation run in the browser with the shared module, and replaces
+the title and steps table it had:
 
 - **How it runs.** On the standard puck, 18 g in, stopping at its stop-at
   weight, as the model it is shown for; the dose, the stop-at weight, a
@@ -3073,21 +3152,28 @@ title and steps table it had:
   and what the simulation on the standard puck did with it; then its brew
   temperature, stop-at weight, where preinfusion ends and its water tank,
   each with what a Recipe replaces.
-- **Versions**: its Profile Versions, the latest saved first, each with
-  when and by whom it was saved, the Profile it was saved from, where it is
-  shown and its Shots. A version is named "Version n" in the order the
-  chain's versions were saved, but one of Decaid's bundled Profiles, by its
-  title; a chain of one Profile names it by nothing. Any other version opens
-  a comparison (`/library/profiles/:id/compare/:other`): the rows where their
-  steps' words differ, and both simulated on the same standard puck, in one
-  graph.
+- **Versions**: the Profile's Profile Versions, the latest first, each with
+  when and by whom it was saved, the version it was saved from, where it is
+  shown and its Shots, and which is current. A version is named "Version n"
+  by the number the server gave it as it joined the Profile, but one of
+  Decaid's bundled Profiles, by its title; a Profile of one version names it
+  by nothing. Any other version opens a comparison
+  (`/library/profiles/:id/compare/:other`): the rows where their steps'
+  words differ, and both simulated on the same standard puck, in one graph.
+  Under them, **Machines on an earlier version**: each Machine whose current
+  Workflow holds the steps of an earlier version while it has no Loaded
+  Recipe, with that version, found as a Shot's Profile is (`profileOfSql`).
+  A Machine with a Loaded Recipe follows the Recipe, so is never listed, and
+  the server sets no Workflow because of the list.
 - Beside them: the Locations showing it, the Recipes on it with the Machines
-  that have each loaded, the Shots on it and on its earlier versions, its
-  title, author and notes, and its history. Export gives its record's
+  that have each loaded, the Shots of all its versions, counted by version,
+  with a link to them in the Shots list, its title, author and notes, and
+  its history. Export gives its record's
   profile as Decaid's profile JSON, in a file named by its title.
 - **Edit** and **Duplicate** start a Draft of it (Drafts, below), but for a
-  Viewer; one of Decaid's bundled Profiles offers Duplicate alone. Each
-  version it was saved from offers **Return to it** (Publishing, below).
+  Viewer; one of Decaid's bundled Profiles offers Duplicate alone. On the
+  current version's page each other version offers **Return to it**
+  (Publishing, below).
 - **Refused on tablets**: the Machines whose tablets refused its write,
   each with why, the latest first (`ProfileView.refusedOn`, from
   `tablet_refusals`): among them a Decaid answering under another id, which
@@ -3096,10 +3182,14 @@ title and steps table it had:
   to the Library as a separate Profile, named in the refusal; and a Machine
   whose model can't run it (#588).
 
-An assistant reads the same (ADR-0026): `get_profile_versions`
-(`server/src/mcp/library.tools.ts`) gives the versions and the Recipes on a
-Profile as the two routes below do, `get_library_item` a version's steps and
-its profile, what Export gives, and `simulate_profile` its simulation.
+An assistant reads the same (ADR-0026), by Profile: `get_profile_versions`
+(`server/src/mcp/library.tools.ts`) gives the versions, the Machines on an
+earlier one and the Recipes on a Profile as the two routes below do,
+`get_library_item` a version's steps and its profile, what Export gives,
+with the Profile's own id, its current version and the Profile it was
+started from, `find_library_items` one row for each Profile, and
+`simulate_profile` its simulation. Each takes the Profile's own id or
+Decaid's id of any of its versions.
 
 ## Drafts
 
@@ -3425,43 +3515,58 @@ Every endpoint requires the account session; Staff read them as Admins do.
   it unless it is Archived, or null if that Location no longer exists.
 - `GET /api/grinders/:id` returns `{ grinder }`, the same with its `content`;
   or 404.
-- `GET /api/profiles` returns `{ profiles }`, each `{ id, title, author,
+- Every `:id` of a Profile's routes is the Profile's own id, a UUID, or
+  Decaid's id of one of its Profile Versions (A Profile and its versions,
+  above). The Profile's own id reads its current version. Editing its title,
+  author and notes, showing or hiding it and Archiving it act on its current
+  version whichever of its versions is named; the other routes read the
+  version named.
+- `GET /api/profiles` returns `{ profiles }`, one for each Profile, read
+  through its current version, and one for each row not yet placed in a
+  Profile: each `{ id, profileId, versions, startedFrom, title, author,
   beverageType, bundled, archived, shownAt, createdAt, createdLocation }`, by
-  title, ignoring case. `id` is Decaid's, such as
-  `profile:bf1ca48b9c7389c7d146`; `title`, `author` and `beverageType` are its
-  content's. `shownAt` lists the Locations showing it, by name, each `{
+  title, ignoring case. `id` is Decaid's id of the version read, such as
+  `profile:bf1ca48b9c7389c7d146`; `profileId` the Profile's own, or null
+  until the row is placed; `versions` how many versions it has had;
+  `startedFrom` the Profile it was started from, `{ profileId, id, title }`,
+  its own id and its current version's Decaid id and title, or null;
+  `title`, `author` and `beverageType` are its content's. `shownAt` lists the Locations showing it, by name, each `{
   location, since }`, when the Location last decided to show it, by
   PostgreSQL's clock, as when a tablet there showed it again while it was
   shown. None while it is Archived.
 - `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`;
   its `profile`, as Decaid reads it (`readProfile` in
   `protocol/src/profile.ts`), each field Decaid reads and writes for a
-  profile and a step, or null where Decaid would not read it; `parent`, `{ id, title }` of the Profile it was saved from if the
-  Library has it, or null; and `locations`, each Location that has decided
+  profile and a step, or null where Decaid would not read it; `version`,
+  the number of the version read among the Profile's, and `current`,
+  `{ id, version }`, the Profile's current version, the one read where its
+  `id` is the same; `parent`, `{ id, title }` of the row its steps were
+  saved from if the Library has it, or null; and `locations`, each Location that has decided
   whether it shows it, by name, `{ location, shown, since }`, kept while it
   is Archived; and `machineModel`, the model it is simulated as unless asked
   (Simulating a Profile, above); and `refusedOn`, the Machines whose tablets
   refused its write, each `{ machine: { id, name }, error, refusedAt }`, the
   latest first; or 404. A Location not listed does not show
   it. The id goes in the path as it is or percent-encoded.
-- `GET /api/profiles/:id/versions` returns `{ versions }`, its Profile
-  Versions: every Profile in the chain of `parentId` links through it, up to
-  the first, whose link names no Profile in the Library or one of Decaid's
-  bundled Profiles, and down through each saved from one in the chain, so
-  both branches of a fork, at most 200, the latest saved first. A bundled
-  Profile the first was saved from is listed, but not walked down through,
-  so Profiles saved from it apart, as at two Locations, are not each other's
-  versions; a bundled Profile's own versions are itself alone. Each is
-  `{ id, title, bundled, archived, parentId, savedAt, savedBy, shownAt,
-  shots }`: `parentId` the Profile it was saved from where that is listed,
-  else null;
+- `GET /api/profiles/:id/versions` returns `{ profile, versions, earlierOn
+  }`. `profile` is `{ profileId, currentVersionId }`. `versions` are the
+  Profile's Profile Versions, every row placed in it, at most 200, the
+  latest to join first; a row not yet placed, and each of Decaid's bundled
+  Profiles, is itself alone. Each is `{ id, number, current, title, bundled,
+  archived, parentId, savedAt, savedBy, shownAt, shots }`: `number` its
+  number among the Profile's versions, or null until placed; `current`
+  whether it is the Profile's current version; `parentId` the version it
+  was saved from where that is listed, else null;
   `savedAt` its history's first entry's time, the record its first tablet
   sent, else when it joined the Library; `savedBy` that entry's source, as
   a history's (a Machine, or an account named to Admins only), or null;
-  `shots`, how many Shots the Shots list's `profileId` filter counts. 404
-  for no such Profile.
+  `shots`, how many Shots the Shots list's `profileId` filter counts for
+  that version. `earlierOn` lists the Machines whose current Workflow holds
+  the steps of a version other than the current one while they have no
+  Loaded Recipe, each `{ machine: { id, name }, version: { id, number } }`,
+  by name. 404 for no such Profile.
 - `GET /api/profiles/:id/recipes` returns `{ recipes }`, the Recipes not
-  Archived whose content names it, each `{ recipe, loadedOn }`: the Recipe
+  Archived whose content names any of the Profile's versions, each `{ recipe, loadedOn }`: the Recipe
   as `GET /api/recipes/:id` gives it, and the Machines whose Loaded Recipe it
   is now, `{ id, name }`; by Location name, slot and name. 404 for no such
   Profile.
@@ -3507,6 +3612,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `POST /api/drafts` starts one and returns `{ draft, held }` with 201, from
   `{ profileId, as }`, `as` `version` (Edit) or `separate` (Duplicate); `{
   shape }`, a starting shape's key; or `{ file }`, a profile file's content.
+  `profileId` is the Profile's own id or any version's Decaid id: Edit starts
+  from the Profile's current version, and Duplicate copies the version named.
   `held` lists each value of a file held to the ranges, `{ step, path, from,
   to }`. 400 for none or more than one of them, an unknown shape or a file
   Decaid would not read; 404 for no such Profile; 409 for Edit of a bundled
@@ -3630,7 +3737,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `DELETE /api/tools/:id` and `DELETE /api/recipes/:id` hard-delete one, a
   Bean with its batches, and answer 204: Admins only. 409 if a Shot names
   it, or one of a Bean's batches, or a Recipe names a Basket or Tool, or it
-  is one of Decaid's bundled Profiles.
+  is one of Decaid's bundled Profiles. A Profile's removes the version
+  named, its own id naming its current one (A Profile and its versions,
+  above).
 - `GET /api/baskets` and `GET /api/tools` return `{ baskets }` and
   `{ tools }`, each `{ id, name, archived, shownAt, createdAt,
   createdLocation, content }`, by name, ignoring case; `shownAt` as a
@@ -3691,7 +3800,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   from 1 to 9 (`RECIPE_SLOTS`), `next` for the lowest free of them, or none where
   every slot holds a Recipe, or null (the default) for none, and returns `{
   recipe }` with 201. `PATCH /api/recipes/:id`, with `{ content }`, each
-  field to change, null to clear it, edits one. `PUT /api/recipes/:id/slot`,
+  field to change, null to clear it, edits one. A `profileId` given to
+  either is a Profile's own id or Decaid's id of any of its versions, and
+  the Recipe stores Decaid's id of that Profile's current version
+  (`namingCurrentVersion`, ADR-0038). `PUT /api/recipes/:id/slot`,
   with `{ slot }` as for a new one, moves it, the Recipe in that slot taking
   its old one, or takes it out of its slot (null); `next` where every slot
   holds a Recipe is refused (409). `PUT /api/recipes/:id/reference-shot`,

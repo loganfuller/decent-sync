@@ -151,9 +151,11 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   // A lab Profile, saved again from it with new steps, which Streamline hides; and one created at both Locations.
   const bloom = await labTablet.addProfile(derivedProfile("Lab Bloom", 8.5));
   await expect.poll(async () => shownAt(page, String(bloom.id))).toEqual(["Profile lab"]);
+  // Hidden first, and seen hidden, so the new one is the Profile's next version whichever report carries it (ADR-0038).
+  await labTablet.setProfileVisibility(bloom.id, "hidden");
+  await expect.poll(async () => shownAt(page, String(bloom.id))).toEqual([]);
   const turbo = await labTablet.addProfile(derivedProfile("Lab Bloom Turbo", 9.5), { parentId: bloom.id });
   await expect.poll(async () => shownAt(page, String(turbo.id))).toEqual(["Profile lab"]);
-  await expect.poll(async () => shownAt(page, String(bloom.id))).toEqual([]);
   const house = await labTablet.addProfile(derivedProfile("House Espresso", 7.5));
   await expect.poll(async () => shownAt(page, String(house.id))).toEqual(["Profile lab"]);
   await cafeTablet.addProfile(derivedProfile("Cafe House Espresso", 7.5));
@@ -168,9 +170,10 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   await expectTip(page.getByRole("main"), "Profiles", /^The programs the machines follow, each shown or hidden at each Location\./);
   const table = page.getByRole("table", { name: "Profiles" });
   const row = (title: string) => rows(table).filter({ has: page.getByRole("link", { name: title, exact: true }) });
-  await expect(row("Lab Bloom")).toHaveText(["Lab Bloom", "Decent Sync fixtures", "Nowhere", "Profile lab", ""].join(""));
-  await expect(row("Lab Bloom Turbo")).toHaveText(["Lab Bloom Turbo", "Decent Sync fixtures", "Profile lab", "Profile lab", ""].join(""));
-  await expect(row("House Espresso")).toHaveText(["House Espresso", "Decent Sync fixtures", "Profile cafe, Profile lab", "Profile lab", ""].join(""));
+  // One row for each Profile: the Bloom's is its current version, the Turbo, and its first version has no row of its own.
+  await expect(row("Lab Bloom")).toHaveCount(0);
+  await expect(row("Lab Bloom Turbo")).toHaveText(["Lab Bloom Turbo", "Decent Sync fixtures", "Profile lab", "Profile lab", "", "2"].join(""));
+  await expect(row("House Espresso")).toHaveText(["House Espresso", "Decent Sync fixtures", "Profile cafe, Profile lab", "Profile lab", "", "1"].join(""));
   await expect(row("Londonium").getByRole("cell").nth(2)).toContainText("Profile lab");
   await expect(row("Londonium").getByRole("cell").nth(2)).not.toContainText("Profile cafe");
   await expect(row("Londonium").getByRole("cell").nth(4)).toHaveText("Bundled with Decaid");
@@ -181,6 +184,7 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   await expectTip(page.getByRole("main"), "Locations", /^Where it is shown\. Showing it at a Location writes it to that Location's tablets/);
   await expect(page.getByText(String(turbo.id), { exact: true })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
   await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Created at")).toHaveText("Profile lab");
@@ -194,11 +198,11 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
     /^2PourRamps to 9\.5 bar over the step, flow limited to 3\.5 ml\/s100 ml pumped, or after 30 s/,
   ]);
 
-  // The Profile it was saved from, hidden at the lab, is shown nowhere.
-  await page.getByRole("main").getByRole("link", { name: "Lab Bloom", exact: true }).first().click();
+  // The version it was saved over, opened from its versions, is shown nowhere: where the Profile is shown is on its current version's page.
+  await page.getByRole("region", { name: "Versions" }).getByRole("link", { name: "Version 1", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^Lab Bloom/, level: 1 })).toContainText("Version 1");
-  await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).not.toBeChecked();
-  await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
+  await expect(page.getByRole("region", { name: "An earlier version", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).toHaveCount(0);
 });
 
 test("the Grinders list shows each Grinder's Location, and a Grinder's page shows what it is", async ({ page }) => {
@@ -325,8 +329,10 @@ async function grindersAt(page: Page, model: string): Promise<[string | undefine
 
 /** The Locations showing the Library's Profile with that id, through the REST API. */
 async function shownAt(page: Page, id: string): Promise<string[] | undefined> {
-  const { profiles } = (await (await page.request.get("/api/profiles")).json()) as { profiles: { id: string; shownAt: { location: { name: string } }[] }[] };
-  return profiles.find((profile) => profile.id === id)?.shownAt.map((here) => here.location.name);
+  // Read by its own id: the list holds one row for each Profile, its current version (ADR-0038), and this may be an earlier one.
+  const read = await page.request.get(`/api/profiles/${encodeURIComponent(id)}`);
+  if (read.status() !== 200) return undefined;
+  return ((await read.json()) as { profile: { shownAt: { location: { name: string } }[] } }).profile.shownAt.map((here) => here.location.name);
 }
 
 /** The Locations offering the Library's Bean of that name, through the REST API. */

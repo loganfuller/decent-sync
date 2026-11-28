@@ -7,9 +7,18 @@ export function profileTitle(profile: Pick<ProfileSummary, "title">): string {
   return profile.title ?? "Untitled Profile";
 }
 
-/** The address of a Profile's page: its id holds a colon, as Decaid's do. */
+/**
+ * The address of a Profile's page (ADR-0038): at the Profile's own id, which
+ * stays as it gains versions, or at Decaid's id of one of its versions,
+ * which holds a colon and opens the Profile at that version.
+ */
 export function profilePath(id: string): string {
   return `/library/profiles/${encodeURIComponent(id)}`;
+}
+
+/** The address of the page of the Profile a row lists: its own id, or its version's where the server has given it none yet. */
+export function profilePagePath(profile: Pick<ProfileSummary, "id" | "profileId">): string {
+  return profilePath(profile.profileId ?? profile.id);
 }
 
 /** What sets a Profile apart: one of Decaid's bundled Profiles, or Archived. */

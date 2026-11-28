@@ -51,7 +51,7 @@ const shotBasics = z.object({
   location,
   locationInferred: z.boolean().describe("Its Location comes from the Location History of a Machine it is credited to by inference."),
   recipe: z.object({ id, name: z.string().nullable() }).nullable().describe("The Recipe its Machine had loaded as it was pulled."),
-  profile: z.object({ id, title: z.string().nullable() }).nullable().describe("The Library's Profile it was pulled with."),
+  profile: z.object({ id, title: z.string().nullable(), profileId: id.nullable().describe("The Profile's own id, which stays as it gains versions; null until Decent Sync has placed the version in a Profile."), version: z.number().nullable().describe("Which of that Profile's versions the Shot ran, as in Version 2; null until placed.") }).nullable().describe("The Library's Profile it was pulled with: the Profile Version whose steps it ran, by Decaid's id."),
   profileTitle: z.string().nullable().describe("Its profile's title, as the Shot recorded it."),
   bean: z.object({ roaster: z.string().nullable(), name: z.string().nullable() }).describe("Its Bean, as the Shot recorded it."),
   beanBatch: z
@@ -172,7 +172,14 @@ const shotRow = z.object({
   location: z.object({ id, name: z.string() }).optional().describe("The Location its Machine was at then; left out when unknown."),
   locationInferred: z.literal(true).optional().describe("Only when true: its Location comes from the Location History of a Machine it is credited to by inference."),
   recipe: z.object({ id, name: text }).optional().describe("The Recipe its Machine had loaded as it was pulled, by the Library's name."),
-  profile: libraryItem({ title: text }, "The Profile it was pulled with"),
+  profile: libraryItem(
+    {
+      title: text,
+      profileId: text.describe("The Profile's own id, which stays as it gains versions; left out until Decent Sync has placed the version in a Profile."),
+      version: z.number().optional().describe("Which of that Profile's versions it ran, as in Version 2; the id is that version's, Decaid's."),
+    },
+    "The Profile it was pulled with",
+  ),
   beanBatch: libraryItem({ roaster: text, name: text, roastDate: text, batchCode: text }, "The Bean Batch it used, by its Bean's roaster and name, and the Library's roast date and Batch Code"),
   grinder: libraryItem({ model: text }, "The Grinder it used"),
   grinderSetting: text.describe("As its Workflow recorded it."),
@@ -323,7 +330,7 @@ const shotFilters = {
   machineId: id.optional().describe("Shots credited to this Machine."),
   beanId: id.optional().describe("Shots that used any Bean Batch of this Library Bean."),
   beanBatchId: id.optional().describe("Shots that used this Library Bean Batch; none for those linked to none."),
-  profileId: id.optional().describe("Shots pulled with this Library Profile."),
+  profileId: id.optional().describe("Shots pulled with this Library Profile: its own id (profileId) for the Shots of all its versions, or Decaid's id of one version for that version's alone."),
   grinderId: id.optional().describe("Shots that used this Library Grinder; none for those linked to none."),
   basketId: id.optional().describe("Shots that used this Library Basket; none for those linked to none."),
   recipeId: id.optional().describe("Shots pulled with this Recipe loaded; none for those pulled with none."),
@@ -808,6 +815,9 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     const shown = Object.fromEntries(Object.entries(names).map(([key, name]) => [key, shorten(recordedText(name), ROW_NAME)]));
     return libraryId === undefined && Object.values(shown).every((name) => name === null) ? null : present({ id: libraryId ?? null, ...shown });
   };
+  /** A Shot's Profile with the Profile it is a version of and its number there (ADR-0038), where it is placed in one. */
+  const versioned = <T extends object>(row: T | null, profile: { profileId: string | null; version: number | null } | null) =>
+    row === null || profile === null ? row : present({ ...row, profileId: profile.profileId, version: profile.version });
   const batch = shot.beanBatch;
   return present({
     id: shot.id,
@@ -817,7 +827,7 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     location: shot.location && { id: shot.location.id, name: shot.location.name },
     ...(shot.locationInferred && { locationInferred: true as const }),
     recipe: shot.recipe && present({ id: shot.recipe.id, name: shorten(shot.recipe.name, ROW_NAME) }),
-    profile: item(shot.profile?.id, { title: shot.profile ? shot.profile.title : shot.profileTitle }),
+    profile: versioned(item(shot.profile?.id, { title: shot.profile ? shot.profile.title : shot.profileTitle }), shot.profile),
     beanBatch: item(batch?.id, batch ? { roaster: batch.bean.roaster, name: batch.bean.name, roastDate: dayOf(batch.roastDate), batchCode: batch.batchCode } : { roaster: shot.coffeeRoaster, name: shot.coffeeName }),
     grinder: item(shot.grinder?.id, { model: shot.grinder ? shot.grinder.model : shot.grinderModel }),
     grinderSetting: shot.grinderSetting,

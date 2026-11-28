@@ -193,7 +193,13 @@ export const profileShape = z
   .describe("Its profile as Decaid reads it: what the machine executes, and its title, author and notes.");
 
 const profileSummary = z.object({
-  id: id.describe("Decaid's id, the same on every tablet."),
+  id: id.describe("Decaid's id of the Profile Version read, the same on every tablet: the Profile's current version unless another was asked for."),
+  profileId: id.nullable().describe("The Profile's own id, which stays as it gains versions and names it wherever a Profile's id is asked for; null until Decent Sync has placed the version in a Profile."),
+  versions: z.number().describe("How many Profile Versions it has had, which get_profile_versions lists."),
+  startedFrom: z
+    .object({ profileId: id, id, title: z.string().nullable() })
+    .nullable()
+    .describe("The Profile it was started from, as a Duplicate is: that Profile's own id, and its current version's Decaid id and title; null where it was started from none or the Library no longer has it."),
   title: z.string().nullable(),
   author: z.string().nullable(),
   beverageType: z.string().nullable(),
@@ -422,7 +428,9 @@ export const itemOutput = z.object({
     .extend({
       content: content(`${RECORD_FIELDS} Its visibility is each Location's, so left out.`),
       profile: profileShape.nullable().describe("Its profile, as Decaid reads it: what the machine executes, and its title, author and notes; null where Decaid would not read it."),
-      parent: z.object({ id, title: z.string().nullable() }).nullable().describe("The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it."),
+      version: z.number().nullable().describe("The number of the version read among the Profile's, as in Version 2; null until placed."),
+      current: z.object({ id, version: z.number().nullable() }).describe("The Profile's current version, by Decaid's id and number: the one read where its id is the same."),
+      parent: z.object({ id, title: z.string().nullable() }).nullable().describe("The version or Profile these steps were saved from, as Streamline saves one whose steps changed, if the Library has it."),
       locations: decidedAt,
       machineModel: z
         .enum(MACHINE_MODELS)
@@ -442,24 +450,30 @@ const getOutput = itemOutput.extend({
   history: listed(historyEntry, "Only when asked for: its versions, each an edit accepted, and its Lost Edits (lost), each an edit that did not apply, the latest taken in first. limit and offset page it."),
 });
 
-const profileVersionsInput = z.object({ profileId: id.describe("The Library Profile whose versions to read, as find_library_items gives it.") });
+const profileVersionsInput = z.object({ profileId: id.describe("The Library Profile whose versions to read: its own id (profileId) or Decaid's id of any of its versions, as find_library_items gives them.") });
 
 const profileVersionsOutput = z.object({
+  profile: z.object({ profileId: id.nullable(), currentVersionId: id }).describe("The Profile: its own id, null until Decent Sync has placed it, and its current version's Decaid id."),
   versions: z
     .array(
       z.object({
         id,
+        number: z.number().nullable().describe("Its number among the Profile's versions, as in Version 2, in the order they joined it, never given again; null until placed."),
+        current: z.boolean().describe("Whether it is the Profile's current version."),
         title: z.string().nullable(),
         bundled: z.boolean().describe("One of Decaid's own Profiles, which every tablet has."),
         archived: z.boolean(),
-        parentId: id.nullable().describe("The version it was saved from; null for the first."),
+        parentId: id.nullable().describe("The version it was saved from, where that is among these; else null."),
         savedAt: time("When it was saved: by the record its first tablet sent, else when it joined the Library."),
         savedBy: source.nullable().describe("Who saved it: the Machine whose tablet saved it, or the account that published it; null where unknown."),
         shownAt,
         shots: z.number().describe("How many Shots are on it, as the Shots list's profileId filter counts them."),
       }),
     )
-    .describe("Every Profile in the chain of parentId links through the one asked about, up to the first and down through each saved from one in the chain, so both branches of a fork; the latest saved first."),
+    .describe("Every Profile Version the Profile has had, the latest to join first. A Duplicate is a Profile of its own, among no other's versions, and one of Decaid's bundled Profiles has one version."),
+  earlierOn: z
+    .array(z.object({ machine: z.object({ id, name: z.string() }), version: z.object({ id, number: z.number().nullable() }) }))
+    .describe("The Machines whose Workflow holds the steps of an earlier version while they have no Loaded Recipe, each with that version, by name. A Machine with a Loaded Recipe follows that Recipe, so is never listed. Decent Sync sets no Workflow because of this."),
   recipes: z
     .array(
       z.object({
@@ -467,7 +481,7 @@ const profileVersionsOutput = z.object({
         loadedOn: z.array(z.object({ id, name: z.string() })).describe("The Machines whose Loaded Recipe it is now."),
       }),
     )
-    .describe("The Recipes, not Archived, that name the Profile asked about, by Location, slot and name, each with the Machines that have it loaded now."),
+    .describe("The Recipes, not Archived, that name the Profile, by Location, slot and name, each with the Machines that have it loaded now."),
 });
 
 type FindInput = z.infer<typeof findInput>;
@@ -598,7 +612,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "get_profile_versions",
     title: "Get a Profile's versions",
-    description: `Reads a Profile's Profile Versions, as its page in the management interface lists them: each Profile in the chain of Decaid's parentId links through it, as a tablet saves a Profile whose steps changed as a new one saved from the old, with when and by whom each was saved, where each is shown and how many Shots are on each; and the Recipes that name the Profile asked about, with the Machines that have each loaded now. get_library_item reads each version's steps, and simulate_profile runs each on the same puck to compare them. Times are in UTC.`,
+    description: `Reads a Profile's Profile Versions, as its page in the management interface lists them: each set of steps the Profile has had, numbered in the order they joined it, with which is current, when and by whom each was saved, where each is shown and how many Shots are on each; the Recipes that name the Profile, with the Machines that have each loaded now; and the Machines whose Workflow still holds an earlier version with no Recipe loaded. The Profile is named by its own id or by Decaid's id of any of its versions. get_library_item reads each version's steps by its Decaid id, and simulate_profile runs each on the same puck to compare them. Times are in UTC.`,
     inputSchema: profileVersionsInput,
     outputSchema: profileVersionsOutput,
     annotations: { readOnlyHint: true },
@@ -607,9 +621,9 @@ export class LibraryTools {
   })
   async getProfileVersions({ profileId }: z.infer<typeof profileVersionsInput>, context: McpContext): Promise<z.infer<typeof profileVersionsOutput>> {
     const id = readProfileId(profileId);
-    const versions = await this.profiles.versions(id, callerOf(context).scope);
-    const recipes = await this.recipes.namingProfile(id);
-    return { versions: versions.map(profileVersionOf), recipes: recipes.map(recipeOnProfileOf) };
+    const read = await this.profiles.versions(id, callerOf(context).scope);
+    const recipes = await this.recipes.namingProfile(read.versions.map((version) => version.id));
+    return { profile: read.profile, versions: read.versions.map(profileVersionOf), earlierOn: read.earlierOn, recipes: recipes.map(recipeOnProfileOf) };
   }
 
   @BudgetedTool({
@@ -797,6 +811,9 @@ function decidedOf(item: { locations: { location: LocationView; shown: boolean; 
 function profileOf(profile: ProfileSummary | ProfileView): z.infer<typeof profileSummary> {
   return {
     id: profile.id,
+    profileId: profile.profileId,
+    versions: profile.versions,
+    startedFrom: profile.startedFrom,
     title: profile.title,
     author: profile.author,
     beverageType: profile.beverageType,
@@ -813,6 +830,8 @@ function profileViewOf(profile: ProfileView): NonNullable<GetOutput["profile"]> 
     ...profileOf(profile),
     content: profile.content,
     profile: profile.profile,
+    version: profile.version,
+    current: profile.current,
     parent: profile.parent && { id: profile.parent.id, title: profile.parent.title },
     locations: decidedOf(profile),
     machineModel: profile.machineModel,
@@ -891,6 +910,8 @@ function recipeOf(found: RecipeView): z.infer<typeof recipe> {
 function profileVersionOf(version: ProfileVersionView): z.infer<typeof profileVersionsOutput>["versions"][number] {
   return {
     id: version.id,
+    number: version.number,
+    current: version.current,
     title: version.title,
     bundled: version.bundled,
     archived: version.archived,

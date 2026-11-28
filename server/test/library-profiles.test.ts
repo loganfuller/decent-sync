@@ -84,11 +84,12 @@ describe("Profiles shown per Location", () => {
    * Library has it. Decaid's bundled Profiles are the same Library Profiles
    * in every scenario, so each looks only at its own Locations.
    */
-  const shownAt = async (scenario: string, id: unknown) =>
-    (await libraryProfiles())
-      .find((profile) => profile.id === id)
-      ?.shownAt.map((here) => here.location.name)
-      .filter((name) => name.startsWith(`${scenario} `));
+  const shownAt = async (scenario: string, id: unknown) => {
+    // Read by its own id, as the list holds one row for each Profile, its current version (ADR-0038), and this may be an earlier one.
+    const read = await api.call("GET", `/profiles/${encodeURIComponent(String(id))}`);
+    if (read.status !== 200) return undefined;
+    return ((await read.json()) as { profile: ProfileSummary }).profile.shownAt.map((here) => here.location.name).filter((name) => name.startsWith(`${scenario} `));
+  };
 
   /** The tablet's record of the Profile's visibility, or undefined if it holds none. */
   const visibilityOn = (tablet: SimulatedTablet, id: unknown) => tablet.profiles().find((record) => record.id === id)?.visibility;

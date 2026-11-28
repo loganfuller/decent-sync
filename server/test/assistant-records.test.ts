@@ -44,7 +44,7 @@ interface RestShot {
   location: LocationView | null;
   locationInferred: boolean;
   recipe: { id: string; name: string | null } | null;
-  profile: { id: string; title: string | null } | null;
+  profile: { id: string; title: string | null; profileId?: string | null; version?: number | null } | null;
   profileTitle: string | null;
   coffeeRoaster: string | null;
   coffeeName: string | null;
@@ -168,6 +168,8 @@ function shotRow(shot: RestShot): Fields {
   const present = (fields: Fields) => Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== null || key === "id"));
   const item = (id: string | undefined, names: Fields) => (id === undefined && Object.values(names).every((name) => name === null) ? null : present({ id: id ?? null, ...names }));
   const batch = shot.beanBatch;
+  const versioned = (row: Fields | null, profile: RestShot["profile"]) =>
+    row === null || profile === null ? row : present({ ...row, profileId: profile.profileId ?? null, version: profile.version ?? null });
   return present({
     id: shot.id,
     machine: shot.machine,
@@ -175,7 +177,8 @@ function shotRow(shot: RestShot): Fields {
     location: shot.location && { id: shot.location.id, name: shot.location.name },
     ...(shot.locationInferred && { locationInferred: true }),
     recipe: shot.recipe && present(shot.recipe),
-    profile: item(shot.profile?.id, { title: recorded(shot.profile ? shot.profile.title : shot.profileTitle) }),
+    // With the Profile it is a version of and its number there (ADR-0038), each where it has one.
+    profile: versioned(item(shot.profile?.id, { title: recorded(shot.profile ? shot.profile.title : shot.profileTitle) }), shot.profile),
     beanBatch: item(
       batch?.id,
       batch
@@ -539,7 +542,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
       expect.objectContaining({
         beanBatch: { id: batch.id, roaster: "Roux", name: "Assistant Guji", roastDate: "2026-10-01", batchCode: "AG-1001" },
         grinder: { id: grinder.id, model: "Assistant EK43" },
-        profile: { id: profileId, title: "Assistant bloom" },
+        profile: { id: profileId, title: "Assistant bloom", profileId: expect.any(String), version: 1 },
         basket: { id: null, name: "Decent 18g Ridgeless" },
       }),
     ]);

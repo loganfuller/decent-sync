@@ -27,6 +27,43 @@ Releasing).
 
 ## Unreleased
 
+### Profiles are gathered under their versions as the server starts
+
+A Profile is now one row in the Profiles list, with one page and one address,
+whatever versions it has had
+([ADR-0038](docs/adr/0038-a-profile-has-one-current-version-everywhere-and-a-history.md)).
+The server converts what the Library holds itself, in the background, as it
+starts: there is nothing to do, and no Machine runs anything it did not run
+before. Every Location shows the steps it showed, and every Recipe that is
+not Archived holds the steps it held.
+
+- A Profile saved from another becomes a version of it only where the one it
+  was saved from is shown at no Location and named by no Recipe that is not
+  Archived, so was replaced. Where that one is still in use, as after a
+  Duplicate or a version published at some Locations only, it becomes a
+  Profile of its own, which says the Profile it was started from.
+- Where a fork left two versions of one Profile in use, the later saved stays
+  that Profile's current version and the other becomes a Profile of its own.
+- Where none is shown, the latest saved is current, and the Profile is shown
+  nowhere.
+- An Archived Recipe naming an earlier version now names the Profile's
+  current one.
+
+What this gets wrong is the rows in the Profiles list, never a change to what
+a Machine runs: an extra row where a version was published at some Locations
+only, and one row fewer where a Duplicate or a separately published Profile
+was saved from one now in use nowhere, as one since Archived, which becomes
+that Profile's next version, its Shots with it. A link to a Profile's page saved before the upgrade
+still opens it, at the version the link named.
+
+For a script of yours over the REST API: `GET /api/profiles` lists one row
+for each Profile, its current version, with the Profile's own id in
+`profileId` beside Decaid's `id`, so an earlier version is no longer in the
+list, though `GET /api/profiles/:id` still reads it by its Decaid id.
+`GET /api/profiles/:id/versions` lists the Profile's versions, no longer
+every Profile saved from one another: a Duplicate, and one published beside
+the Profile it was saved from, are not among them.
+
 ### The REST API refuses a new Bean Batch at no Location or several
 
 `POST /api/bean-batches` now takes exactly one Location in `locations`, as the

@@ -2,7 +2,7 @@ import { type Profile, simulateProfile, standardPuck } from "@decent-sync/protoc
 import { describe, expect, it } from "vitest";
 import type { ProfileVersion } from "../src/lib/api";
 import { differences, profileFacts, relativeTemperature, stepAction, stepMovesOn, stepSimulated } from "../src/lib/profile-words";
-import { earlierVersions, versionNames } from "../src/lib/profile-versions";
+import { otherVersions, versionNames } from "../src/lib/profile-versions";
 
 // A Profile's steps in the Profile page's words (#578), and its versions' names.
 
@@ -73,9 +73,20 @@ describe("a Profile's versions", () => {
     expect(versionNames([version("only", "2026-11-01T00:00:00Z", null)])).toEqual(new Map([["only", "Title only"]]));
   });
 
-  it("follows a version back to the first, not into another branch, nor into the bundled Profile the first was saved from", () => {
-    expect(earlierVersions(chain, "c").map((each) => each.id)).toEqual(["a"]);
-    expect(earlierVersions(chain, "root")).toEqual([]);
+  it("names each by the number the server gave it as it joined its Profile, whatever numbers are missing (ADR-0038)", () => {
+    const numbered = [
+      { ...version("c", "2026-11-03T00:00:00Z", "a"), number: 4, current: true },
+      { ...version("a", "2026-11-01T00:00:00Z", null), number: 1, current: false },
+    ];
+    expect(versionNames(numbered)).toEqual(new Map([["a", "Version 1"], ["c", "Version 4"]]));
+    // The Profile's other versions, which it can return to and whose Shots are its own.
+    expect(otherVersions(numbered, "c").map((each) => each.id)).toEqual(["a"]);
+    expect(otherVersions(numbered, "a").map((each) => each.id)).toEqual(["c"]);
+  });
+
+  it("follows a version back to the first, not into another branch, nor into the bundled Profile the first was saved from, where the server is of the release before", () => {
+    expect(otherVersions(chain, "c").map((each) => each.id)).toEqual(["a"]);
+    expect(otherVersions(chain, "root")).toEqual([]);
   });
 });
 

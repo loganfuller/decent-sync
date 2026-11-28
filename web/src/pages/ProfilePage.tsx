@@ -31,14 +31,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ApiError, api, type Profile, type ProfileVersion, type Published, type RecipeOnProfile } from "@/lib/api";
+import { ApiError, api, type MachineOnEarlierVersion, type Profile, type ProfileVersion, type ProfileVersions, type Published, type RecipeOnProfile } from "@/lib/api";
 import { measure, profileFacts, seconds, stepAction, stepMovesOn, stepName, stepSimulated } from "@/lib/profile-words";
-import { earlierVersions, versionNames } from "@/lib/profile-versions";
+import { otherVersions, versionNames } from "@/lib/profile-versions";
 import { askOf } from "@/lib/puck-ask";
 import { shotsText } from "@/lib/shot-summary";
 
 /**
- * One Profile (#578): how it runs, as a simulation on a puck drawn in lanes
+ * One Profile (#578, #735), at its own id, or at Decaid's id of one of its
+ * Profile Versions, which opens it at that version (ADR-0038): how it runs, as a simulation on a puck drawn in lanes
  * with the plan behind it, on the standard puck, with any Shot laid over it
  * setting the simulation to match it; its steps in plain words; its Profile Versions, any two of
  * which can be compared; the Locations showing it, the Recipes on it and the
@@ -96,6 +97,7 @@ function ProfileDetails({ id }: { id: string }) {
   const { profile, error } = useProfile(id, changes);
   // Undefined until read, null where the server, of the release before, has no such route.
   const [versions, setVersions] = useState<ProfileVersion[] | null>();
+  const [earlierOn, setEarlierOn] = useState<MachineOnEarlierVersion[]>([]);
   const [recipes, setRecipes] = useState<RecipeOnProfile[] | null>();
   const [sideError, setSideError] = useState<string>();
   // The run the graph draws, which the steps table says what each step did in.
@@ -110,7 +112,14 @@ function ProfileDetails({ id }: { id: string }) {
       if (caught instanceof ApiError && caught.status === 404) absent();
       else setSideError(caught instanceof Error ? caught.message : "Could not be loaded");
     };
-    api<{ versions: ProfileVersion[] }>("GET", `${path}/versions`).then(({ versions }) => current && setVersions(versions), failed(() => setVersions(null)));
+    api<ProfileVersions>("GET", `${path}/versions`).then(
+      (read) => {
+        if (!current) return;
+        setVersions(read.versions);
+        setEarlierOn(read.earlierOn ?? []);
+      },
+      failed(() => setVersions(null)),
+    );
     api<{ recipes: RecipeOnProfile[] }>("GET", `${path}/recipes`).then(({ recipes }) => current && setRecipes(recipes), failed(() => setRecipes(null)));
     return () => {
       current = false;
@@ -147,8 +156,14 @@ function ProfileDetails({ id }: { id: string }) {
   // Its title, author and notes, read whatever its steps hold, as the server reads them.
   const profileText = profileTextOf(profile.content.profile);
   const names = versions ? versionNames(versions) : new Map<string, string>();
-  const earlier = versions ? earlierVersions(versions, profile.id) : [];
+  const others = versions ? otherVersions(versions, profile.id) : [];
   const versionName = versions && versions.length > 1 && !profile.bundled ? names.get(profile.id) : undefined;
+  // Opened at an earlier version: its steps are read here, and what is the Profile's is changed on its page.
+  const current = profile.current && profile.current.id !== profile.id ? profile.current : undefined;
+  const currentName = current && (names.get(current.id) ?? "the current version");
+  const profileAddress = profilePath(profile.profileId ?? current?.id ?? profile.id);
+  // The Shots of all its versions, by the Profile's own id, or from a server that gives none, each version's.
+  const shotProfileIds = profile.profileId ? [profile.profileId] : [profile.id, ...others.map((version) => version.id)];
   const byline = [definition?.beverage_type && capitalised(definition.beverage_type), text(profileText.author) && `by ${text(profileText.author)}`].filter(Boolean).join(" · ");
 
   return (
@@ -162,21 +177,33 @@ function ProfileDetails({ id }: { id: string }) {
           </h1>
           <p className="text-sm text-muted-foreground">
             {byline}
-            {profile.parent && (
+            {profile.startedFrom ? (
               <>
-                {byline ? " · " : ""}saved from{" "}
-                <Link to={profilePath(profile.parent.id)} className="text-foreground underline underline-offset-4">
-                  {profileTitle(profile.parent)}
+                {byline ? " · " : ""}started from{" "}
+                <Link to={profilePath(profile.startedFrom.profileId)} className="text-foreground underline underline-offset-4">
+                  {profileTitle(profile.startedFrom)}
                 </Link>
               </>
+            ) : (
+              // A server of the release before says only what it was saved from.
+              profile.profileId === undefined &&
+              profile.parent && (
+                <>
+                  {byline ? " · " : ""}saved from{" "}
+                  <Link to={profilePath(profile.parent.id)} className="text-foreground underline underline-offset-4">
+                    {profileTitle(profile.parent)}
+                  </Link>
+                </>
+              )
             )}
           </p>
           <p className="font-mono text-xs break-all text-muted-foreground">{profile.id}</p>
         </div>
         <div className="flex flex-wrap items-start gap-2">
-          {mayChange && definition && <StartDraftButtons profile={profile} />}
+          {/* At an earlier version only a Duplicate of its steps: an edit is of the Profile, made from its current version. */}
+          {mayChange && definition && <StartDraftButtons profile={profile} editable={!current} />}
           <ExportButton profile={profile} />
-          {mayChange && (
+          {mayChange && !current && (
             <>
               <ArchiveButton path={path} name={profileTitle(profile)} archived={profile.archived} effect="hidden on every tablet that holds it" onDone={changed} />
               {!profile.bundled && <DeleteButton path={path} name={profileTitle(profile)} back="/library/profiles" />}
@@ -186,6 +213,21 @@ function ProfileDetails({ id }: { id: string }) {
       </div>
 
       {published?.profile.id === profile.id && <PublishedNotice published={published} />}
+
+      {current && (
+        <Alert role="region" aria-label="An earlier version">
+          <AlertDescription>
+            <p>
+              This is {versionName ?? "an earlier version"} of the Profile, which is not its current one. Its steps, simulation and Shots are shown here; where the Profile is shown, its
+              Recipes, and its title, author and notes are on{" "}
+              <Link to={profileAddress} className="font-semibold underline underline-offset-4">
+                the Profile&apos;s page, at {currentName}
+              </Link>
+              .
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {profile.refusedOn && profile.refusedOn.length > 0 && (
         <Alert variant="destructive" role="region" aria-label="Refused on tablets">
@@ -216,7 +258,7 @@ function ProfileDetails({ id }: { id: string }) {
         title={profileTitle(profile)}
         machineModel={profile.machineModel}
         definition={definition}
-        shotProfileIds={[profile.id, ...earlier.map((version) => version.id)]}
+        shotProfileIds={shotProfileIds}
         recipes={recipes ?? []}
         onRun={setRun}
       />
@@ -224,9 +266,11 @@ function ProfileDetails({ id }: { id: string }) {
       <StepsCard definition={definition} run={run} />
 
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-2">
-        {versions !== null && <VersionsCard profile={profile} versions={versions} names={names} earlier={new Set(earlier.map((version) => version.id))} mayChange={mayChange} />}
+        {versions !== null && (
+          <VersionsCard profile={profile} versions={versions} names={names} returnable={new Set(others.map((version) => version.id))} earlierOn={earlierOn} mayChange={mayChange} />
+        )}
         <div className="grid min-w-0 gap-6">
-          <ProfileLocationsCard profile={profile} onChanged={changed} />
+          {!current && <ProfileLocationsCard profile={profile} onChanged={changed} />}
           {recipes !== null && <RecipesCard recipes={recipes} />}
         </div>
       </div>
@@ -246,7 +290,7 @@ function ProfileDetails({ id }: { id: string }) {
         </CardHeader>
         <CardContent className="grid gap-4">
           {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
-          {editing && mayChange && !profile.bundled ? (
+          {editing && mayChange && !profile.bundled && !current ? (
             <ContentForm
               label="Edit the title, author and notes"
               fields={PROFILE_FIELDS}
@@ -271,7 +315,7 @@ function ProfileDetails({ id }: { id: string }) {
                   <OrNone>{text(profileText.notes)}</OrNone>
                 </Field>
               </Fields>
-              {mayChange && !profile.bundled && (
+              {mayChange && !profile.bundled && !current && (
                 <div>
                   <Button variant="outline" aria-label="Edit the title, author and notes" onClick={() => setEditing(true)}>
                     Edit
@@ -284,7 +328,7 @@ function ProfileDetails({ id }: { id: string }) {
       </Card>
 
       {/* Without the versions, as from a server of the release before, the count any Library item's page gives. */}
-      {versions === null ? <ItemShotsCard kind="profile" id={profile.id} /> : <ShotsCard profile={profile} versions={versions} earlier={earlier} />}
+      {versions === null ? <ItemShotsCard kind="profile" id={profile.id} /> : <ShotsCard profile={profile} versions={versions} names={names} />}
 
       <Card>
         <CardHeader>
@@ -315,11 +359,11 @@ function ProfileDetails({ id }: { id: string }) {
  * version of it, which one of Decaid's bundled Profiles doesn't offer, and
  * Duplicate, a copy of it to publish as a Profile of its own.
  */
-function StartDraftButtons({ profile }: { profile: Profile }) {
+function StartDraftButtons({ profile, editable }: { profile: Profile; editable: boolean }) {
   const { start, starting, error } = useStartDraft();
   return (
     <>
-      {!profile.bundled && (
+      {!profile.bundled && editable && (
         <Button disabled={starting} onClick={() => void start({ profileId: profile.id, as: "version" })}>
           <Pencil aria-hidden /> Edit
         </Button>
@@ -652,19 +696,25 @@ function PublishedNotice({ published }: { published: Published }) {
   );
 }
 
-/** Its Profile Versions, the latest saved first, each with who saved it, and a comparison with any of the others. */
+/**
+ * The Profile's Profile Versions, the latest first, each with who saved it
+ * and which is current, a comparison with any of the others, and the
+ * Machines whose Workflow still holds an earlier one.
+ */
 function VersionsCard({
   profile,
   versions,
   names,
-  earlier,
+  returnable,
+  earlierOn,
   mayChange,
 }: {
   profile: Profile;
   versions: ProfileVersion[] | undefined;
   names: Map<string, string>;
-  /** The versions it was saved from, down the chain, which it can return to. */
-  earlier: Set<string>;
+  /** The Profile's other versions, which it can return to. */
+  returnable: Set<string>;
+  earlierOn: MachineOnEarlierVersion[];
   mayChange: boolean;
 }) {
   const navigate = useNavigate();
@@ -673,8 +723,9 @@ function VersionsCard({
       <CardHeader>
         <CardTitleWithInfo title="Versions">
           <p>
-            A change to a Profile&apos;s steps saves a new Profile saved from the old one: its versions, the latest saved first, down to the Profile the first was saved from. Each
-            says who saved it: the Machine whose tablet saved it, or who published it. Where two were saved from one, both branches are listed.
+            Each set of steps the Profile has had, the latest first, named in the order they joined it: a number is never given again. Each says who saved it: the Machine whose
+            tablet saved it, or who published it. One is current, the same at every Location showing the Profile. A Duplicate is a Profile of its own, listed among no other&apos;s
+            versions.
           </p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -684,8 +735,8 @@ function VersionsCard({
         ) : versions.length <= 1 ? (
           <p className="text-sm text-muted-foreground">
             {profile.bundled
-              ? "One of Decaid's own Profiles, so no version anyone saved: a Profile saved from it starts versions of its own, which name it as where the first was saved from."
-              : "Its only version: no Profile in the Library was saved from it, and it was saved from none in the Library."}
+              ? "One of Decaid's own Profiles, which has no versions: a Profile saved from it is a Profile of its own, which says it was started from this one."
+              : "Its only version: its steps have not changed since it joined the Library."}
           </p>
         ) : (
           <ul className="grid divide-y" aria-label="Versions">
@@ -704,7 +755,8 @@ function VersionsCard({
                           {name}
                         </Link>
                       )}
-                      {here && <span className="font-normal text-muted-foreground"> · this one</span>}
+                      {version.current && <span className="font-normal text-muted-foreground"> · current</span>}
+                      {here && !version.current && <span className="font-normal text-muted-foreground"> · this one</span>}
                       {version.archived && <span className="font-normal text-muted-foreground"> · Archived</span>}
                     </span>
                     <span className="text-sm text-muted-foreground">
@@ -728,7 +780,7 @@ function VersionsCard({
                           Compare
                         </Link>
                       </Button>
-                      {mayChange && earlier.has(version.id) && !version.archived && !profile.bundled && (
+                      {mayChange && returnable.has(version.id) && !version.archived && !profile.bundled && (profile.current === undefined || profile.current.id === profile.id) && (
                         <PublishDialog
                           target={{ kind: "return", to: { id: version.id, name }, from: profile }}
                           label="Return to it"
@@ -742,6 +794,24 @@ function VersionsCard({
               );
             })}
           </ul>
+        )}
+        {earlierOn.length > 0 && (
+          <div className="mt-4 grid gap-1 border-t pt-4" role="region" aria-label="Machines on an earlier version">
+            <p className="text-sm font-semibold">Machines on an earlier version</p>
+            <p className="text-sm text-muted-foreground">
+              Their Workflow holds an earlier version&apos;s steps with no Recipe loaded, so nothing sets the current one there: the next pick of the Profile on the tablet takes it.
+            </p>
+            <ul className="grid gap-1 text-sm">
+              {earlierOn.map(({ machine, version }) => (
+                <li key={machine.id}>
+                  <Link to={`/machines/${encodeURIComponent(machine.id)}`} className="font-medium underline underline-offset-4">
+                    {machine.name}
+                  </Link>
+                  , on {names.get(version.id) ?? (version.number === null ? "an earlier version" : `Version ${version.number}`)}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -782,29 +852,30 @@ function RecipesCard({ recipes }: { recipes: RecipeOnProfile[] | undefined }) {
   );
 }
 
-/** How many Shots are on this version and on its earlier ones, and a link to this version's in the Shots list. */
-function ShotsCard({ profile, versions, earlier }: { profile: Profile; versions: ProfileVersion[] | undefined; earlier: ProfileVersion[] }) {
-  const here = versions?.find((version) => version.id === profile.id);
-  const before = earlier.reduce((total, version) => total + version.shots, 0);
-  // As any Library item's page counts them (ItemShotsCard), and with earlier versions, those on each.
+/** How many Shots are on each of the Profile's versions, and a link to them all in the Shots list. */
+function ShotsCard({ profile, versions, names }: { profile: Profile; versions: ProfileVersion[] | undefined; names: Map<string, string> }) {
+  const total = versions?.reduce((sum, version) => sum + version.shots, 0);
+  const withShots = versions?.filter((version) => version.shots > 0) ?? [];
+  // As any Library item's page counts them (ItemShotsCard), and with several versions, those on each.
   const counted =
-    here &&
-    (earlier.length === 0
-      ? here.shots === 0
+    versions === undefined || total === undefined
+      ? undefined
+      : total === 0
         ? "No Shots yet"
-        : shotsText(here.shots)
-      : `${here.shots === 0 ? "No Shots" : shotsText(here.shots)} on this version, ${before === 0 ? "none" : shotsText(before)} on earlier ones`);
+        : versions.length <= 1
+          ? shotsText(total)
+          : `${shotsText(total)}: ${withShots.map((version) => `${version.shots} on ${names.get(version.id) ?? version.id}`).join(", ")}`;
   return (
     <Card role="region" aria-label="Shots">
       <CardHeader className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <CardTitleWithInfo title="Shots">
-            <p>The Shots pulled with this Profile on any Machine, and with the versions it was saved from. The Shots list lists them, newest first, with their summary and trend.</p>
+            <p>The Shots pulled with any version of this Profile, on any Machine. The Shots list lists them, newest first, each with the version it ran, with their summary and trend.</p>
           </CardTitleWithInfo>
           {counted && <p className="text-sm text-muted-foreground tabular-nums">{counted}</p>}
         </div>
-        {here && here.shots > 0 && (
-          <Link to={`/shots?${new URLSearchParams({ profileId: profile.id })}`} className="text-sm underline underline-offset-4">
+        {total !== undefined && total > 0 && (
+          <Link to={`/shots?${new URLSearchParams({ profileId: profile.profileId ?? profile.id })}`} className="text-sm underline underline-offset-4">
             Open in the Shots list
           </Link>
         )}

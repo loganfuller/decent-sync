@@ -324,6 +324,19 @@ export function shotPulledWithSql(alias: string, profileId: string): Prisma.Sql 
 }
 
 /**
+ * Whether the Shot of `shots` aliased `alias` was pulled with any Profile
+ * Version of the Profile (ADR-0038), by the Profile's own id: as
+ * `shotPulledWithSql` decides it for each of its versions, the Shots found
+ * through the index on their steps by those versions' steps.
+ */
+export function shotPulledWithProfileSql(alias: string, profileId: string): Prisma.Sql {
+  const versions = Prisma.sql`SELECT v.id FROM profiles v WHERE v.library_profile_id = ${profileId}::uuid`;
+  const keys = Prisma.sql`ARRAY(SELECT ${stepsKeySql(Prisma.sql`v.content -> 'profile' -> 'steps'`)} FROM profiles v WHERE v.library_profile_id = ${profileId}::uuid)`;
+  return Prisma.sql`${stepsKeySql(Prisma.sql`${Prisma.raw(alias)}.record -> 'workflow' -> 'profile' -> 'steps'`)} = ANY(${keys})
+    AND ${shotProfileSql(alias)} IN (${versions})`;
+}
+
+/**
  * Whether the Shot of `shots` aliased `alias` is one the Shots list lists:
  * stored with its full record, and credited to a Machine or held by a
  * Pending Machine not dismissed, as `listed` in shots.service.ts has it. A

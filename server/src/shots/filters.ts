@@ -1,4 +1,4 @@
-import { MAX_SHOT_RATING } from "@decent-sync/protocol";
+import { MAX_SHOT_RATING, isGlobalId } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { readBeanBatchId } from "../library/bean-batches.service.js";
@@ -8,7 +8,7 @@ import { readGrinderId } from "../library/grinders.service.js";
 import { readProfileId } from "../library/profiles.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { type RecordFilters, queryValue, readRecordFilters, recordFilterSql } from "../record-filters.js";
-import { shotPulledWithSql, shotRecipeSql } from "./links.js";
+import { shotPulledWithProfileSql, shotPulledWithSql, shotRecipeSql } from "./links.js";
 
 /**
  * What a Shots list is narrowed to: the filters every record list has, what
@@ -174,7 +174,8 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
   if (filters.beanId !== undefined) {
     conditions.push(Prisma.sql`s.library_batch_id IN (SELECT id FROM bean_batches WHERE bean_id = ${filters.beanId}::uuid)`);
   }
-  if (filters.profileId !== undefined) conditions.push(shotPulledWithSql("s", filters.profileId));
+  // A Profile's own id gathers the Shots of all its versions (ADR-0038); Decaid's id of one version, that version's.
+  if (filters.profileId !== undefined) conditions.push(isGlobalId(filters.profileId) ? shotPulledWithProfileSql("s", filters.profileId) : shotPulledWithSql("s", filters.profileId));
   if (filters.rating === "rated") conditions.push(Prisma.sql`s.enjoyment > 0`);
   else if (filters.rating === "unrated") conditions.push(Prisma.sql`coalesce(s.enjoyment, 0) <= 0`);
   else if (filters.rating !== undefined) conditions.push(Prisma.sql`s.enjoyment >= ${Number(filters.rating) * POINTS_A_STAR}`);

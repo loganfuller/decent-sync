@@ -30,7 +30,7 @@ An assistant can read:
 - Every sample of a Shot, unrounded, for closer analysis.
 - A summary of the Shots any filter finds, with the numbers it asks for: as one group, or grouped by Machine, Recipe, Bean, Bean Batch, Profile, Grinder, Basket, Barista or Location, two at once, such as two Machines on the same Recipe side by side, and by day or by week, each Location's own, to read a trend.
 - Steam Records.
-- The Library, with each item's history, Lost Edits among it, a Profile's versions and the Recipes on it.
+- The Library, with each item's history, Lost Edits among it, a Profile's versions, the Machines still on an earlier one and the Recipes on it.
 - Drafts, for an Admin or Staff.
 
 It can also simulate a Profile or a Draft: on a standard puck, finer or coarser, or on a Shot's own puck, for a DE1 or a Bengle. For a Shot's puck it says how close its simulation of that Shot's own steps comes to the Shot.

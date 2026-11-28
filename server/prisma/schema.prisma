@@ -1583,12 +1583,49 @@ model Profile {
   /// edited, as Decaid refuses to change them.
   fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
 
+  /// The Profile it is a version of (ADR-0038), and its number among that
+  /// Profile's versions, in the order they joined it: both given by the
+  /// server as it places the row (server/src/library/profile-placing.ts),
+  /// and null until it has, as for a row the previous release inserts.
+  libraryProfileId String?         @map("library_profile_id") @db.Uuid
+  libraryProfile   LibraryProfile? @relation(fields: [libraryProfileId], references: [id], onDelete: SetNull)
+  versionNumber    Int?            @map("version_number")
+
   locations ProfileLocation[]
   tablets   TabletProfile[]
 
   /// The migration indexes its content's steps, by hash, which a Shot's
   /// Profile is found by (server/src/shots/links.ts); Prisma cannot express it.
+  @@unique([libraryProfileId, versionNumber])
   @@map("profiles")
+}
+
+/// The lasting Profile (ADR-0038): what a Profile is across the Profile
+/// Versions it has had, each a `profiles` row under Decaid's id. Its id is the
+/// server's own, which no tablet is written. Whether it is shown at a Location
+/// is its current version's state there (`ProfileLocation`), and its title,
+/// author and notes are held on that version's row.
+model LibraryProfile {
+  id                String           @id @db.Uuid
+  /// Decaid's id of its current version. No foreign key: the previous release
+  /// deletes a `profiles` row knowing nothing of this, and the server then
+  /// makes another of its versions current, or removes it with its last.
+  currentVersionId  String           @map("current_version_id")
+  /// The Profile it was started from, as a Duplicate is, if the Library still has it.
+  startedFromId     String?          @map("started_from_id") @db.Uuid
+  startedFrom       LibraryProfile?  @relation("ProfilesStartedFrom", fields: [startedFromId], references: [id], onDelete: SetNull)
+  startedHere       LibraryProfile[] @relation("ProfilesStartedFrom")
+  /// The highest number given one of its versions, kept when that version
+  /// leaves it or is deleted, so a number is never given twice.
+  lastVersionNumber Int              @default(0) @map("last_version_number")
+  /// When it was made: when its first version joined the Library.
+  createdAt         DateTime         @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  versions Profile[]
+
+  @@index([currentVersionId])
+  @@index([startedFromId])
+  @@map("library_profiles")
 }
 
 /// What publishing a Draft makes of it (ADR-0032): a new Profile Version
