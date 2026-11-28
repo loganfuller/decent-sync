@@ -322,6 +322,12 @@ test("the Recipe form picks a batch from a field that is typed into: each word m
   await expect(picker).toHaveValue(words.next());
   await expect(page.getByRole("listbox")).toHaveCount(0);
   await expect(form).toBeVisible();
+  // Backspace after a choice clears the words chosen, as a key typed replaces them, and lists every option again.
+  await page.keyboard.press("Backspace");
+  await expect(picker).toHaveValue("");
+  await expect(page.getByRole("listbox", { name: "Batches", exact: true }).getByRole("option")).toHaveCount(9);
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveValue(words.next());
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("listbox")).toBeVisible();
   await expect(page.getByRole("option", { selected: true })).toHaveAccessibleName(`${words.next()}, 6000 g here`);
@@ -466,6 +472,8 @@ test("a Recipe whose batch is finished at its Location shows the finished strip 
   await strip.getByRole("button", { name: `Use ${words.now()}`, exact: true }).click();
   await expect(strip.getByRole("alert")).toHaveText("The Library is not answering");
   await expect(strip.getByText("Its Bean Batch is finished at Downtown", { exact: true })).toBeVisible();
+  // The keyboard's focus is given back to the button pressed, which was disabled while its save was sent.
+  await expect(strip.getByRole("button", { name: `Use ${words.now()}`, exact: true })).toBeFocused();
   expect(await batchOf(page, recipes.ristretto)).toBe(batches.old);
   await page.unrouteAll({ behavior: "wait" });
   edits.length = 0;

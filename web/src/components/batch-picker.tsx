@@ -3,7 +3,7 @@ import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from
 import { BatchCode } from "@/components/batch-name";
 import { Input } from "@/components/ui/input";
 import { batchBean, batchCodeOf, roastedLine } from "@/lib/batch-name";
-import { type BatchOption, type BatchOptionGroup, activeOption, batchCount, matchingGroups, optionName, optionText } from "@/lib/batch-picker";
+import { type BatchOption, type BatchOptionGroup, activeOption, batchCount, matchingGroups, optionName, optionText, typedInto } from "@/lib/batch-picker";
 import { cn } from "@/lib/utils";
 
 /**
@@ -109,6 +109,10 @@ export function BatchPicker({
   }, [escapes, listed]);
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    // While the field reads the option chosen, a key that types or deletes replaces all of it, wherever the caret is:
+    // after a choice, which leaves the caret at its end, as after a select on focus a browser didn't keep.
+    const edits = event.key.length === 1 || event.key === "Backspace" || event.key === "Delete";
+    if (typed === null && shownValue !== "" && edits && !event.ctrlKey && !event.metaKey && !event.altKey) event.currentTarget.select();
     const move = (to: BatchOption | undefined) => {
       event.preventDefault();
       if (!visible) return setOpen(true);
@@ -153,11 +157,9 @@ export function BatchPicker({
         onFocus={(event) => event.currentTarget.select()}
         onClick={() => setOpen(true)}
         onChange={(event) => {
-          // A browser that leaves the caret after what the field read of the option chosen, as Safari may on a click,
-          // adds what is typed to it: that is taken alone, as the select on focus would have had it.
-          const next = event.target.value;
-          const kept = typed === null && shownValue !== "" && next.length > shownValue.length && next.startsWith(shownValue);
-          setTyped(kept ? next.slice(shownValue.length) : next);
+          // A browser that keeps no select on focus, as Safari may on a click or a tap, puts what is typed into what the
+          // field read of the option chosen: that is taken alone, as the select would have had it.
+          setTyped(typed === null ? typedInto(shownValue, event.target.value) : event.target.value);
           setOpen(true);
           setActive(undefined);
         }}

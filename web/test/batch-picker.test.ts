@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type BatchOption, type BatchOptionGroup, activeOption, batchCount, batchMatches, latestRoastedFirst, matchingGroups, optionName, optionText } from "../src/lib/batch-picker";
+import { type BatchOption, type BatchOptionGroup, activeOption, batchCount, batchMatches, latestRoastedFirst, matchingGroups, optionName, optionText, typedInto } from "../src/lib/batch-picker";
 
 // The batch picker's pure parts (#733): which batches the words typed find, what they leave of its groups, how an option
 // reads in the field and to a screen reader, and the order the latest roast comes first in.
@@ -79,6 +79,26 @@ describe("the option the arrows and Enter are on", () => {
   it("is the one the arrows moved to, while it is listed", () => {
     expect(activeOption(options, "none", "c", "lr")?.value).toBe("none");
     expect(activeOption(options.slice(1), "a", "none", "0418")?.value).toBe("c");
+  });
+});
+
+describe("what is typed into the field reading the option chosen", () => {
+  const shown = "House Espresso LR-0411, roasted 17 Nov (this Recipe's batch now)";
+
+  it("is what was inserted, at its end or inside it, as a browser that keeps no select on focus leaves it", () => {
+    expect(typedInto(shown, `${shown}0419`)).toBe("0419");
+    expect(typedInto(shown, "House Espresso LR-04110419, roasted 17 Nov (this Recipe's batch now)")).toBe("0419");
+    expect(typedInto(shown, `0419${shown}`)).toBe("0419");
+    // A letter that repeats the one beside it is still taken once.
+    expect(typedInto("Kenya", "Kenyaa")).toBe("a");
+  });
+
+  it("is the field as it reads where the option's words were replaced or edited, or the field read none", () => {
+    expect(typedInto(shown, "0419")).toBe("0419");
+    expect(typedInto(shown, "")).toBe("");
+    expect(typedInto(shown, "House Espresso")).toBe("House Espresso");
+    expect(typedInto(shown, "Hou Espresso LR-0411, roasted 17 Nov (this Recipe's batch now)xx")).toBe("Hou Espresso LR-0411, roasted 17 Nov (this Recipe's batch now)xx");
+    expect(typedInto("", "lr")).toBe("lr");
   });
 });
 

@@ -71,6 +71,22 @@ export function activeOption(options: readonly BatchOption[], active: string | u
   return options.find((option) => option.value === value) ?? options[0];
 }
 
+/**
+ * What was typed into a field that read `shown`, the option chosen, before
+ * anything was typed, now reading `next`: what the typing put in, where
+ * `next` is `shown` with something inserted in it, as a browser leaves it
+ * that keeps no select on focus, such as Safari on a click or a tap, with
+ * the caret at its end or inside it; otherwise `next` as it is.
+ */
+export function typedInto(shown: string, next: string): string {
+  if (shown === "" || next.length <= shown.length) return next;
+  let start = 0;
+  while (start < shown.length && shown[start] === next[start]) start++;
+  let end = 0;
+  while (end < shown.length - start && shown[shown.length - 1 - end] === next[next.length - 1 - end]) end++;
+  return start + end === shown.length ? next.slice(start, next.length - end) : next;
+}
+
 /** An option as the field reads while it is the one chosen: the batch in words, with its note, or the entry's label. */
 export function optionText(option: BatchOption, now: Date = new Date()): string {
   if (!option.batch) return option.label ?? "";

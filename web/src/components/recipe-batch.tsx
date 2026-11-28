@@ -224,8 +224,16 @@ function FinishedStrip({
   const [error, setError] = useState<string>();
   const here = recipe.location?.name ?? "its Location";
   const left = useLeftHere(recipe);
+  // A button disabled while its save is sent loses the keyboard's focus to the page: after a failure, it is given
+  // back to the button pressed, once that is enabled again. After a success the strip is redrawn, and gives it.
+  const pressed = useRef<HTMLButtonElement | null>(null);
+  const [failed, setFailed] = useState(0);
+  useEffect(() => {
+    if (failed > 0 && (document.activeElement === null || document.activeElement === document.body)) pressed.current?.focus();
+  }, [failed]);
 
-  async function use(next: BeanBatchSummary) {
+  async function use(next: BeanBatchSummary, button: HTMLButtonElement) {
+    pressed.current = button;
     setSaving(true);
     setError(undefined);
     try {
@@ -233,6 +241,7 @@ function FinishedStrip({
       onChanged();
     } catch (caught) {
       setError(failure(caught, "The Recipe's Bean Batch could not be changed"));
+      setFailed((count) => count + 1);
     } finally {
       setSaving(false);
     }
@@ -266,7 +275,7 @@ function FinishedStrip({
                     {weight !== undefined && <span className="text-muted-foreground tabular-nums">{weight === null ? "not tracked here" : hereText(weight)}</span>}
                   </span>
                   {mayChange && (
-                    <Button variant={index === 0 ? "default" : "outline"} disabled={saving} aria-label={`Use ${batchWords(roast)}`} onClick={() => void use(roast)}>
+                    <Button variant={index === 0 ? "default" : "outline"} disabled={saving} aria-label={`Use ${batchWords(roast)}`} onClick={(event) => void use(roast, event.currentTarget)}>
                       Use this batch
                     </Button>
                   )}
